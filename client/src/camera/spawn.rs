@@ -6,7 +6,7 @@ use super::{
     underwater_fog_system, zoom_system, EyeThroughPortal, Zoom, SKY_COLOR,
 };
 
-use crate::portal::SURFACE_LAYER;
+use crate::portal::{SURFACE_LAYER, VIEW_MODEL_LAYER};
 use crate::state::{GameSet, GameState};
 use crate::world::precipitation::render::PrecipitationView;
 use bevy::render::render_resource::TextureUsages;
@@ -101,8 +101,8 @@ fn spawn_camera(mut commands: Commands) {
             fov: FOV_DEGREES.to_radians(),
             ..default()
         }),
-        // The world, and the view through the portals
-        RenderLayers::from_layers(&[0, SURFACE_LAYER]),
+        // The world, the view through the portals and what the player holds
+        RenderLayers::from_layers(&[0, SURFACE_LAYER, VIEW_MODEL_LAYER]),
         Transform::from_translation(Vec3::new(0.0, 5.0, 10.0))
             .looking_at(Vec3::new(0.0, 0.5, 0.0), Vec3::Y),
         CameraController::default(),

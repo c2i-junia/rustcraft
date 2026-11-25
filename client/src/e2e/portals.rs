@@ -1467,6 +1467,8 @@ fn the_view_through_a_portal_reaches_a_far_place() {
     // At noon, the sky the same colour for a while
     h.set_time("day");
     h.frames(5);
+    // The arm and the item in the player's own hand are not of the world
+    h.hide_the_view_model();
 
     let shot = h.screenshot();
     keep(

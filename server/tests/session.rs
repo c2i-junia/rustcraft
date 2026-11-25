@@ -1553,6 +1553,45 @@ fn quick_moves_and_hotbar_swaps_are_applied_by_the_server() {
 }
 
 #[test]
+fn the_others_see_the_item_of_the_selected_hotbar_slot_in_a_players_hand() {
+    let mut inventory = Inventory::new();
+    inventory.inner.insert(0, stack(ItemId::Dirt, 5));
+    inventory.inner.insert(2, stack(ItemId::Stick, 3));
+    let server = start_with_inventory(inventory);
+    let mut holder = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut holder, "crafter");
+    let mut watcher = TestClient::connect(server.addr, PLAYER_ID + 1);
+    join(&mut watcher, "watcher");
+
+    // The holder selects a slot, then another: the watcher sees each item in its hand, and an
+    // empty slot leaves the hand empty
+    for (time_ms, slot, held) in [
+        (1, 2, Some(ItemId::Stick)),
+        (2, 0, Some(ItemId::Dirt)),
+        (3, 5, None),
+    ] {
+        holder.send(ClientToServerMessage::PlayerInputs(vec![
+            PlayerFrameInput {
+                time_ms,
+                delta_ms: 16,
+                hotbar_slot: slot,
+                ..Default::default()
+            },
+        ]));
+        holder.send_packets();
+        watcher.wait_for("the holder's update with that slot", |m| match m {
+            ServerToClientMessage::PlayerUpdate(u)
+                if u.id == PLAYER_ID && u.last_ack_time == time_ms =>
+            {
+                assert_eq!(u.held, held, "slot {slot}");
+                Some(())
+            }
+            _ => None,
+        });
+    }
+}
+
+#[test]
 fn a_log_is_crafted_into_planks() {
     let mut inventory = Inventory::new();
     inventory.inner.insert(0, stack(ItemId::OakLog, 1));

@@ -15,14 +15,14 @@ use crate::world::{meshing::block_item_mesh, ChunkMaterial, GlobalMaterial, Mate
 const SPRITE_SIZE: f32 = 0.4;
 
 #[derive(Clone, Debug)]
-pub(super) enum ItemLook {
+pub(crate) enum ItemLook {
     Cube(Handle<Mesh>, Handle<ChunkMaterial>),
     Sprite(Handle<Mesh>, Handle<StandardMaterial>),
 }
 
 impl ItemLook {
     /// The width of what is drawn, in blocks.
-    pub(super) fn size(&self) -> f32 {
+    pub(crate) fn size(&self) -> f32 {
         match self {
             ItemLook::Cube(..) => DROPPED_ITEM_SIZE,
             ItemLook::Sprite(..) => SPRITE_SIZE,
@@ -32,12 +32,12 @@ impl ItemLook {
 
 /// The look of each item drawn so far, made the first time an item of its kind is shown.
 #[derive(Resource, Default, Debug)]
-pub(super) struct ItemLooks(HashMap<ItemId, ItemLook>);
+pub(crate) struct ItemLooks(HashMap<ItemId, ItemLook>);
 
 impl ItemLooks {
     /// The look of `item`, `None` while the atlases are not built or when they have no
     /// texture for it.
-    pub(super) fn get(
+    pub(crate) fn get(
         &mut self,
         item: ItemId,
         materials: &MaterialResource,

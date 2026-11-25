@@ -498,6 +498,7 @@ pub fn broadcast_player_updates_system(
                 game_mode: player.game_mode,
                 death_cause: player.death_cause,
                 swinging: player.is_swinging,
+                held: player.inventory.in_hand(player.hotbar_slot),
             })
         };
         let open_chest = player

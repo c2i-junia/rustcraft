@@ -1,0 +1,687 @@
+//! What a player holds in its hand. In first person the player sees, in the lower right of the
+//! screen, its right arm and the item of its selected hotbar slot (the view model): they bob
+//! while it walks, strike while the left button is held, push forward when a block is placed
+//! or an item used, and go down and up again when the item in the hand changes. The others, and
+//! the player itself in third person, see the item in the right hand of its model, which
+//! follows the arm.
+//!
+//! The view model is a child of the player's camera, on a layer that only that camera draws
+//! (`VIEW_MODEL_LAYER`): no portal shows it. It is drawn small and close to the eye, nearer
+//! than any wall can be to a player's eye (half of `PLAYER_WIDTH`), so it never sinks into one.
+
+use std::collections::HashMap;
+use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, PI, TAU};
+
+use bevy::{
+    asset::AssetId,
+    camera::visibility::RenderLayers,
+    light::{NotShadowCaster, NotShadowReceiver},
+    prelude::*,
+};
+use shared::players::{Inventory, Player, ViewMode};
+use shared::world::ItemId;
+
+use crate::camera::CameraController;
+use crate::dropped_items::mesh::{ItemLook, ItemLooks};
+use crate::portal::VIEW_MODEL_LAYER;
+use crate::ui::hud::hotbar::Hotbar;
+use crate::ui::hud::UIMode;
+use crate::world::{BlockChanged, MaterialResource};
+
+use super::model::{box_mesh, BodyPart, PlayerAnimation, LAYER_INFLATE, MODEL_PIXELS};
+use super::CurrentPlayerMarker;
+
+/// The materials the view model is drawn with: a copy of each, unlit, so that the hand of the
+/// player is as bright wherever it stands, as Minecraft's is. The world's own materials would
+/// leave it in the dark, the sun being behind the eye as often as not.
+#[derive(Resource, Default)]
+pub struct ViewModelMaterials(HashMap<AssetId<StandardMaterial>, Handle<StandardMaterial>>);
+
+impl ViewModelMaterials {
+    /// The unlit copy of `material`, made the first time it is asked for.
+    fn unlit(
+        &mut self,
+        material: &Handle<StandardMaterial>,
+        materials: &mut Assets<StandardMaterial>,
+    ) -> Handle<StandardMaterial> {
+        if let Some(copy) = self.0.get(&material.id()) {
+            return copy.clone();
+        }
+        let Some(lit) = materials.get(material) else {
+            return material.clone();
+        };
+        let copy = materials.add(StandardMaterial {
+            unlit: true,
+            ..lit.clone()
+        });
+        self.0.insert(material.id(), copy.clone());
+        copy
+    }
+}
+
+/// The item a player holds: that of its selected hotbar slot. The local player's follows its
+/// hotbar (`track_the_local_held_item`), the others' the server (`PlayerUpdateEvent::held`).
+#[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct HeldItem(pub Option<ItemId>);
+
+/// The material of a player's skin, which its model and its arm in first person are drawn with.
+#[derive(Component, Debug, Clone)]
+pub struct SkinMaterial(pub Handle<StandardMaterial>);
+
+/// Where an item is held, which decides where and how big it is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Grip {
+    /// In the view model, seen from the eye.
+    FirstPerson,
+    /// In the right hand of a player's model.
+    ThirdPerson,
+}
+
+/// An entity that draws an item in a hand as its child (`HeldItemMesh`): in the right hand of
+/// a model, or in the view model.
+#[derive(Component, Debug)]
+pub struct ItemHolder {
+    pub grip: Grip,
+    /// The item to draw, if any: `draw_held_items` follows it.
+    pub wanted: Option<ItemId>,
+}
+
+impl ItemHolder {
+    pub fn new(grip: Grip) -> Self {
+        Self { grip, wanted: None }
+    }
+}
+
+/// The mesh of the item drawn by an `ItemHolder`.
+#[derive(Component, Debug)]
+pub struct HeldItemMesh(pub ItemId);
+
+/// The root of the view model, a child of the player's camera, moved by its `HandMotion`.
+#[derive(Component, Debug)]
+pub struct ViewModel;
+
+/// The arm of the view model.
+#[derive(Component, Debug)]
+pub struct ViewModelArm;
+
+/// Seconds the hand takes to go down out of sight, or up again, when the item in it changes.
+const EQUIP_SECONDS: f32 = 0.15;
+/// Seconds of the push of the hand when a block is placed or an item used.
+const USE_SECONDS: f32 = 0.25;
+
+/// What moves the view model from one frame to the next, besides the walk and the strike, which
+/// it reads from the player's `PlayerAnimation`.
+#[derive(Component, Debug, Default, Clone, PartialEq)]
+pub struct HandMotion {
+    /// The item in the view model: the one held, once the hand went down to change it.
+    pub shown: Option<ItemId>,
+    /// From 0, the hand raised, to 1, out of sight below the screen.
+    pub lowered: f32,
+    /// Where the hand is in its push, from 0 to 1, while it pushes.
+    pub using: Option<f32>,
+}
+
+impl HandMotion {
+    /// Moves the hand `delta` seconds forward, the player holding `held` and having just placed
+    /// a block or used an item if `used`. Another item lowers the hand, which takes it at the
+    /// bottom and comes up with it.
+    pub fn advance(&mut self, held: Option<ItemId>, used: bool, delta: f32) {
+        self.using = match self.using {
+            _ if used => Some(0.0),
+            Some(t) if t + delta / USE_SECONDS < 1.0 => Some(t + delta / USE_SECONDS),
+            _ => None,
+        };
+        let step = delta / EQUIP_SECONDS;
+        if held != self.shown {
+            self.lowered = (self.lowered + step).min(1.0);
+            if self.lowered >= 1.0 {
+                self.shown = held;
+            }
+        } else {
+            self.lowered = (self.lowered - step).max(0.0);
+        }
+    }
+}
+
+/// A move of the hand from where it rests: an offset in the space of the camera, in metres of the
+/// view model before it is shrunk (`VIEW_MODEL_SCALE`), and a turn about the hand.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HandOffset {
+    pub translation: Vec3,
+    pub rotation: Quat,
+}
+
+impl HandOffset {
+    pub const NONE: HandOffset = HandOffset {
+        translation: Vec3::ZERO,
+        rotation: Quat::IDENTITY,
+    };
+
+    /// This move, then `other` from where it leaves the hand.
+    pub fn then(self, other: HandOffset) -> HandOffset {
+        HandOffset {
+            translation: self.translation + other.translation,
+            rotation: self.rotation * other.rotation,
+        }
+    }
+}
+
+/// How far the hand sways sideways and dips at each step of a walk at full speed.
+const BOB_SWAY: f32 = 0.11;
+const BOB_DIP: f32 = 0.15;
+
+/// The bob of the hand of a player whose legs are at `walk_phase` of their swing, `walk_amount`
+/// wide (`PlayerAnimation`): it sways from side to side once a stride, and dips at each step.
+pub fn bob(walk_phase: f32, walk_amount: f32) -> HandOffset {
+    let swing = walk_phase.sin();
+    HandOffset {
+        translation: Vec3::new(BOB_SWAY * swing, -BOB_DIP * swing.abs(), 0.0) * walk_amount,
+        rotation: Quat::IDENTITY,
+    }
+}
+
+/// The hand at `t`, from 0 to 1, of a strike: thrown forward and to the left, it comes down across
+/// the screen and back, quick at first.
+pub fn strike(t: f32) -> HandOffset {
+    let root = t.sqrt();
+    let arc = (root * PI).sin();
+    HandOffset {
+        translation: Vec3::new(
+            -0.45 * arc,
+            0.25 * (root * TAU).sin(),
+            -0.6 * (t * PI).sin(),
+        ),
+        rotation: Quat::from_rotation_y(0.4 * (t * t * PI).sin())
+            * Quat::from_rotation_z(0.25 * arc)
+            * Quat::from_rotation_x(-0.7 * arc),
+    }
+}
+
+/// The hand at `t`, from 0 to 1, of a use: a short push forward and up, and back.
+pub fn push(t: f32) -> HandOffset {
+    let arc = (t * PI).sin();
+    HandOffset {
+        translation: Vec3::new(-0.15, 0.18, -0.6) * arc,
+        rotation: Quat::from_rotation_x(0.35 * arc),
+    }
+}
+
+/// The hand `lowered` of the way down out of sight, from 0 to 1.
+pub fn lowering(lowered: f32) -> HandOffset {
+    HandOffset {
+        translation: Vec3::new(0.0, -1.5 * lowered, 0.0),
+        rotation: Quat::from_rotation_x(-0.4 * lowered),
+    }
+}
+
+/// The whole move of the hand: lowered, bobbing, striking (`swing`) and pushing as `motion`
+/// and the walk say.
+pub fn hand_offset(
+    motion: &HandMotion,
+    swing: Option<f32>,
+    walk_phase: f32,
+    walk_amount: f32,
+) -> HandOffset {
+    let mut offset = HandOffset::NONE
+        .then(lowering(motion.lowered))
+        .then(bob(walk_phase, walk_amount));
+    if let Some(t) = swing {
+        offset = offset.then(strike(t));
+    }
+    if let Some(t) = motion.using {
+        offset = offset.then(push(t));
+    }
+    offset
+}
+
+/// How much smaller than the arm of the player the view model is drawn, and as much nearer to
+/// the eye: it looks the same, and stays nearer than a wall.
+pub const VIEW_MODEL_SCALE: f32 = 0.1;
+/// Where the hand rests in the space of the camera, before it is shrunk: in the lower right.
+pub const HAND_REST: Vec3 = Vec3::new(1.0, -0.95, -2.2);
+
+/// The place of the view model's root, the hand, moved by `offset`.
+pub fn view_model_transform(offset: HandOffset) -> Transform {
+    Transform {
+        translation: (HAND_REST + offset.translation) * VIEW_MODEL_SCALE,
+        rotation: offset.rotation,
+        scale: Vec3::splat(VIEW_MODEL_SCALE),
+    }
+}
+
+/// The size of a pixel of the skin on a player's model, in metres.
+fn pixel() -> f32 {
+    shared::players::PLAYER_HEIGHT / MODEL_PIXELS
+}
+
+/// The way the arm of the view model goes, from the hand to the shoulder: back toward the eye,
+/// down and to the right, out of the corner of the screen.
+const ARM_TO_SHOULDER: Vec3 = Vec3::new(0.5, -0.95, 0.55);
+
+/// The arm of the view model, its hand at the root: the joint of the arm is at the shoulder, and
+/// the end of the arm 10 pixels below it.
+fn arm_transform() -> Transform {
+    let rotation = Quat::from_rotation_arc(Vec3::Y, ARM_TO_SHOULDER.normalize())
+        * Quat::from_rotation_y(-FRAC_PI_4);
+    let hand = Vec3::new(0.0, -10.0, 0.0) * pixel();
+    Transform::from_translation(-(rotation * hand)).with_rotation(rotation)
+}
+
+/// How an item is placed in a hand held by `grip`, from the hand, as `look` draws it: a block
+/// as a small cube, anything else as its picture, held by the bottom left of it, where the
+/// pictures of the tools have their handle.
+fn grip_transform(grip: Grip, look: &ItemLook) -> Transform {
+    // The point of a picture one wide where the hand holds it
+    const HANDLE: Vec3 = Vec3::new(-0.3, -0.3, 0.0);
+    let held_by_the_handle = |rotation: Quat, size: f32, hand: Vec3| {
+        Transform::from_translation(hand - rotation * (HANDLE * size))
+            .with_rotation(rotation)
+            .with_scale(Vec3::splat(size))
+    };
+    match (grip, look) {
+        (Grip::FirstPerson, ItemLook::Cube(..)) => {
+            Transform::from_translation(Vec3::new(-0.05, 0.12, -0.12))
+                .with_rotation(Quat::from_rotation_y(FRAC_PI_4) * Quat::from_rotation_x(0.2))
+                .with_scale(Vec3::splat(0.4))
+        }
+        // Turned to the eye, its back seen, the head of a tool up and to the left
+        (Grip::FirstPerson, ItemLook::Sprite(..)) => held_by_the_handle(
+            Quat::from_rotation_y(PI * 0.8) * Quat::from_rotation_z(-0.15),
+            0.8,
+            Vec3::new(0.0, 0.05, -0.05),
+        ),
+        (Grip::ThirdPerson, ItemLook::Cube(..)) => {
+            Transform::from_translation(Vec3::new(0.0, -0.06, -0.14)).with_scale(Vec3::splat(0.25))
+        }
+        // On its side, pointing forward from the hand
+        (Grip::ThirdPerson, ItemLook::Sprite(..)) => held_by_the_handle(
+            Quat::from_rotation_x(-FRAC_PI_4) * Quat::from_rotation_y(FRAC_PI_2),
+            0.5,
+            Vec3::ZERO,
+        ),
+    }
+}
+
+/// The local player holds the item of its selected hotbar slot, as its inventory predicts it.
+pub fn track_the_local_held_item(
+    inventory: Res<Inventory>,
+    hotbar: Query<&Hotbar>,
+    mut players: Query<&mut HeldItem, With<CurrentPlayerMarker>>,
+) {
+    let Ok(hotbar) = hotbar.single() else {
+        return;
+    };
+    let held = HeldItem(inventory.in_hand(hotbar.selected));
+    for mut item in &mut players {
+        item.set_if_neq(held);
+    }
+}
+
+/// Puts the item each player holds in the right hand of its model.
+pub fn hold_items_in_hands(
+    players: Query<(&HeldItem, &Children)>,
+    children: Query<&Children>,
+    mut holders: Query<&mut ItemHolder>,
+) {
+    for (held, player_children) in &players {
+        for child in player_children {
+            for descendant in children.iter_descendants(*child) {
+                if let Ok(mut holder) = holders.get_mut(descendant) {
+                    if holder.grip == Grip::ThirdPerson && holder.wanted != held.0 {
+                        holder.wanted = held.0;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Gives the player's camera its view model, once the local player, whose skin the arm is cut
+/// from, is there.
+pub fn spawn_view_model(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut unlit: ResMut<ViewModelMaterials>,
+    existing: Query<(), With<ViewModel>>,
+    camera: Query<Entity, With<CameraController>>,
+    player: Query<&SkinMaterial, With<CurrentPlayerMarker>>,
+) {
+    if !existing.is_empty() {
+        return;
+    }
+    let (Ok(camera), Ok(skin)) = (camera.single(), player.single()) else {
+        return;
+    };
+    let skin = unlit.unlit(&skin.0, &mut materials);
+    let layers = RenderLayers::layer(VIEW_MODEL_LAYER);
+    let (first, second) = BodyPart::RightArm.skin_origins();
+    let size = BodyPart::RightArm.size();
+    let centre = Transform::from_translation(Vec3::new(0.0, -4.0, 0.0) * pixel());
+    let boxes = [
+        meshes.add(box_mesh(first, size, 0.0, pixel())),
+        meshes.add(box_mesh(second, size, LAYER_INFLATE, pixel())),
+    ];
+    commands.entity(camera).with_children(|camera| {
+        camera
+            .spawn((
+                ViewModel,
+                HandMotion::default(),
+                view_model_transform(lowering(1.0)),
+                Visibility::Hidden,
+                layers.clone(),
+            ))
+            .with_children(|root| {
+                root.spawn((
+                    ViewModelArm,
+                    arm_transform(),
+                    Visibility::default(),
+                    layers.clone(),
+                ))
+                .with_children(|arm| {
+                    for mesh in boxes {
+                        arm.spawn((
+                            Mesh3d(mesh),
+                            MeshMaterial3d(skin.clone()),
+                            centre,
+                            layers.clone(),
+                            NotShadowCaster,
+                            NotShadowReceiver,
+                        ));
+                    }
+                });
+                root.spawn((
+                    ItemHolder::new(Grip::FirstPerson),
+                    Transform::default(),
+                    Visibility::default(),
+                    layers.clone(),
+                ));
+            });
+    });
+}
+
+/// Moves the view model: down and up to change the item, with the walk, the strike of the arm
+/// and the push of a use. It is seen in first person only, while the player lives.
+#[allow(clippy::too_many_arguments)]
+pub fn move_the_hand(
+    time: Res<Time>,
+    player: Query<(&Player, &PlayerAnimation, &HeldItem), With<CurrentPlayerMarker>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    ui_mode: Res<UIMode>,
+    view_mode: Res<ViewMode>,
+    mut block_changes: MessageReader<BlockChanged>,
+    mut roots: Query<
+        (&mut HandMotion, &mut Transform, &mut Visibility, &Children),
+        With<ViewModel>,
+    >,
+    mut holders: Query<&mut ItemHolder>,
+) {
+    let placed = block_changes
+        .read()
+        .any(|change| change.by_local_player && change.after.is_some());
+    let Ok((player, animation, held)) = player.single() else {
+        return;
+    };
+    let alive = !player.is_dead();
+    let used =
+        alive && (placed || (*ui_mode == UIMode::Closed && mouse.just_pressed(MouseButton::Right)));
+    for (mut motion, mut transform, mut visibility, children) in &mut roots {
+        visibility.set_if_neq(if alive && *view_mode == ViewMode::FirstPerson {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
+        motion.advance(held.0, used, time.delta_secs());
+        let offset = hand_offset(
+            &motion,
+            animation.swing,
+            animation.walk_phase,
+            animation.walk_amount,
+        );
+        *transform = view_model_transform(offset);
+        let mut holders = holders.iter_many_mut(children);
+        while let Some(mut holder) = holders.fetch_next() {
+            if holder.wanted != motion.shown {
+                holder.wanted = motion.shown;
+            }
+        }
+    }
+}
+
+/// Draws in each `ItemHolder` the item it wants, on its layers, once the atlases the looks of
+/// the items are made from are there.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_held_items(
+    mut commands: Commands,
+    holders: Query<(
+        Entity,
+        &ItemHolder,
+        Option<&RenderLayers>,
+        Option<&Children>,
+    )>,
+    drawn: Query<&HeldItemMesh>,
+    mut looks: ResMut<ItemLooks>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut standard_materials: ResMut<Assets<StandardMaterial>>,
+    mut unlit: ResMut<ViewModelMaterials>,
+    materials: Res<MaterialResource>,
+    images: Res<Assets<Image>>,
+) {
+    for (entity, holder, layers, children) in &holders {
+        let shown = children
+            .into_iter()
+            .flatten()
+            .find_map(|child| drawn.get(*child).ok())
+            .map(|mesh| mesh.0);
+        if shown == holder.wanted {
+            continue;
+        }
+        let look = match holder.wanted {
+            Some(item) => match looks.get(item, &materials, &mut meshes, &images) {
+                Some(look) => Some((item, look)),
+                // Tried again on the next frame
+                None => continue,
+            },
+            None => None,
+        };
+        for child in children.into_iter().flatten() {
+            if drawn.contains(*child) {
+                commands.entity(*child).despawn();
+            }
+        }
+        let Some((item, look)) = look else {
+            continue;
+        };
+        let layers = layers.cloned().unwrap_or_default();
+        let transform = grip_transform(holder.grip, &look);
+        let mut mesh = match look {
+            ItemLook::Cube(mesh, material) => {
+                commands.spawn((Mesh3d(mesh), MeshMaterial3d(material), transform, layers))
+            }
+            ItemLook::Sprite(mesh, material) => {
+                let material = match holder.grip {
+                    Grip::FirstPerson => unlit.unlit(&material, &mut standard_materials),
+                    Grip::ThirdPerson => material,
+                };
+                commands.spawn((Mesh3d(mesh), MeshMaterial3d(material), transform, layers))
+            }
+        };
+        mesh.insert((HeldItemMesh(item), Name::new("Held item")));
+        if holder.grip == Grip::FirstPerson {
+            mesh.insert((NotShadowCaster, NotShadowReceiver));
+        }
+        let mesh = mesh.id();
+        commands.entity(entity).add_child(mesh);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const FRAME: f32 = 1.0 / 60.0;
+
+    fn run(motion: &mut HandMotion, held: Option<ItemId>, seconds: f32) {
+        for _ in 0..(seconds / FRAME).round() as u32 {
+            motion.advance(held, false, FRAME);
+        }
+    }
+
+    fn close(a: HandOffset, b: HandOffset) -> bool {
+        (a.translation - b.translation).length() < 1e-4
+            && a.rotation.angle_between(b.rotation) < 1e-3
+    }
+
+    #[test]
+    fn standing_still_the_hand_does_not_bob_and_walking_it_dips_at_each_step() {
+        for phase in [0.0, 1.0, 2.5, 4.0] {
+            assert_eq!(bob(phase, 0.0), HandOffset::NONE);
+        }
+        let mut lowest: f32 = 0.0;
+        for step in 0..=64 {
+            let offset = bob(step as f32 / 64.0 * TAU, 1.0).translation;
+            assert!(
+                offset.y <= 0.0,
+                "the hand never rises above its rest: {offset}"
+            );
+            lowest = lowest.min(offset.y);
+        }
+        assert!((lowest + BOB_DIP).abs() < 1e-3, "{lowest}");
+        // Back up between the steps, at either end of the stride, and to either side midway
+        assert!(bob(0.0, 1.0).translation.length() < 1e-6);
+        assert!(bob(PI, 1.0).translation.length() < 1e-6);
+        assert!(bob(FRAC_PI_2, 1.0).translation.x > 0.0);
+        assert!(bob(3.0 * FRAC_PI_2, 1.0).translation.x < 0.0);
+    }
+
+    #[test]
+    fn a_strike_goes_forward_and_comes_back_to_rest() {
+        assert!(close(strike(0.0), HandOffset::NONE));
+        assert!(close(strike(1.0), HandOffset::NONE));
+        let middle = strike(0.5);
+        assert!(middle.translation.z < -0.5, "forward: {middle:?}");
+        assert!(middle.translation.x < 0.0, "across the screen: {middle:?}");
+        assert!(middle.rotation.angle_between(Quat::IDENTITY) > 0.5);
+        // Quick at first: a quarter of the way in, the hand is already well across
+        assert!(strike(0.25).translation.x < -0.35);
+    }
+
+    #[test]
+    fn a_use_pushes_the_hand_forward_and_back() {
+        assert!(close(push(0.0), HandOffset::NONE));
+        assert!(close(push(1.0), HandOffset::NONE));
+        assert!(push(0.5).translation.z < -0.5);
+        assert!(push(0.25).translation.z > push(0.5).translation.z);
+    }
+
+    #[test]
+    fn a_new_item_lowers_the_hand_which_takes_it_at_the_bottom_and_comes_back_up() {
+        let mut motion = HandMotion::default();
+        run(&mut motion, None, 0.5);
+        assert_eq!(motion, HandMotion::default(), "an empty hand stays up");
+
+        let pickaxe = Some(ItemId::WoodenPickaxe);
+        run(&mut motion, pickaxe, EQUIP_SECONDS / 2.0);
+        assert!(motion.lowered > 0.3 && motion.lowered < 0.7, "{motion:?}");
+        assert_eq!(motion.shown, None, "the old item until the hand is down");
+        run(&mut motion, pickaxe, EQUIP_SECONDS / 2.0 + FRAME);
+        assert_eq!(motion.shown, pickaxe);
+        run(&mut motion, pickaxe, EQUIP_SECONDS + FRAME);
+        assert_eq!(motion.lowered, 0.0, "up again with it");
+
+        // Changing back halfway down only goes down and up again
+        run(&mut motion, Some(ItemId::Dirt), EQUIP_SECONDS / 2.0);
+        run(&mut motion, pickaxe, EQUIP_SECONDS);
+        assert_eq!(motion.shown, pickaxe);
+        assert_eq!(motion.lowered, 0.0);
+        // Lowered, the hand is out of sight
+        assert!(
+            (HAND_REST + lowering(1.0).translation).y < -2.0,
+            "{:?}",
+            lowering(1.0)
+        );
+    }
+
+    #[test]
+    fn a_use_runs_to_its_end_and_another_starts_it_again() {
+        let mut motion = HandMotion::default();
+        motion.advance(None, true, FRAME);
+        assert_eq!(motion.using, Some(0.0));
+        run(&mut motion, None, USE_SECONDS / 2.0);
+        let halfway = motion.using.unwrap();
+        assert!((halfway - 0.5).abs() < 0.05, "{halfway}");
+        motion.advance(None, true, FRAME);
+        assert_eq!(motion.using, Some(0.0), "a new use starts over");
+        run(&mut motion, None, USE_SECONDS + FRAME);
+        assert_eq!(motion.using, None);
+    }
+
+    #[test]
+    fn the_moves_of_the_hand_add_up() {
+        let motion = HandMotion {
+            shown: None,
+            lowered: 0.5,
+            using: Some(0.5),
+        };
+        let offset = hand_offset(&motion, Some(0.5), FRAC_PI_2, 1.0);
+        let expected = lowering(0.5).translation
+            + bob(FRAC_PI_2, 1.0).translation
+            + strike(0.5).translation
+            + push(0.5).translation;
+        assert!((offset.translation - expected).length() < 1e-6);
+        assert_eq!(
+            hand_offset(&HandMotion::default(), None, 0.0, 0.0),
+            HandOffset::NONE
+        );
+    }
+
+    #[test]
+    fn the_view_model_stays_nearer_to_the_eye_than_a_wall_can_be() {
+        // A wall is at least half the width of a player from its eye
+        let wall = shared::players::PLAYER_WIDTH / 2.0;
+        // The hand, and the shoulder end of the arm, wherever the moves take them
+        let arm = arm_transform();
+        let shoulder = arm.transform_point(Vec3::new(0.0, 2.0, 0.0) * pixel());
+        for t in [0.0, 0.25, 0.5, 0.75] {
+            for offset in [strike(t), push(t), bob(t * TAU, 1.0)] {
+                let root = view_model_transform(offset);
+                for point in [Vec3::ZERO, shoulder, Vec3::new(-0.4, 0.5, -0.3)] {
+                    let seen = root.transform_point(point);
+                    assert!(seen.length() < wall, "{t} {offset:?}: {seen}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn no_portal_camera_draws_the_view_model() {
+        use crate::portal::{camera_layers, OwnView};
+        let view_model = RenderLayers::layer(VIEW_MODEL_LAYER);
+        for own in [OwnView::Deeper(1), OwnView::Colour, OwnView::Hidden] {
+            for slot in 0..4 {
+                assert!(!camera_layers(slot, own, 0..4).intersects(&view_model));
+            }
+        }
+    }
+
+    #[test]
+    fn a_tool_is_held_by_its_handle_and_a_block_as_a_small_cube() {
+        let sprite = ItemLook::Sprite(Handle::default(), Handle::default());
+        for grip in [Grip::FirstPerson, Grip::ThirdPerson] {
+            let transform = grip_transform(grip, &sprite);
+            let handle = transform.transform_point(Vec3::new(-0.3, -0.3, 0.0));
+            let hand = match grip {
+                Grip::FirstPerson => Vec3::new(0.0, 0.05, -0.05),
+                Grip::ThirdPerson => Vec3::ZERO,
+            };
+            assert!((handle - hand).length() < 1e-5, "{grip:?}: {handle}");
+        }
+        // In the hand of a model, a tool points forward
+        let transform = grip_transform(Grip::ThirdPerson, &sprite);
+        let head = transform.transform_point(Vec3::new(0.4, 0.4, 0.0));
+        assert!(head.z < -0.3 && head.y.abs() < 0.05, "{head}");
+
+        let cube = ItemLook::Cube(Handle::default(), Handle::default());
+        assert!(grip_transform(Grip::ThirdPerson, &cube).scale.x < 0.3);
+    }
+}

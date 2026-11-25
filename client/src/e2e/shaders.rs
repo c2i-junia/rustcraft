@@ -126,6 +126,7 @@ fn snapshot_the_shaders() {
     for body in bodies {
         world.entity_mut(body).insert(Visibility::Hidden);
     }
+    h.hide_the_view_model();
 
     // The nearest water to the site, a shore point beside it, and the ground under the site
     let map = h.world().resource::<ClientWorldMap>();

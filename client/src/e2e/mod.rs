@@ -13,6 +13,7 @@ mod feedback;
 mod furnace;
 mod game;
 mod gestures;
+mod hand;
 mod harness;
 mod helpers;
 mod hud;

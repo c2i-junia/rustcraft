@@ -173,6 +173,7 @@ mod tests {
             game_mode: Default::default(),
             death_cause: None,
             swinging: false,
+            held: None,
         };
         for (message, expected) in [
             (ServerToClientMessage::AuthRegisterResponse(response), 0),

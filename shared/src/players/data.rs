@@ -19,7 +19,7 @@ use super::skin::PlayerSkin;
 use crate::{
     messages::PlayerId,
     world::{ItemId, ItemStack, ItemType, MobKind, Passer, PortalRest},
-    MAX_INVENTORY_SLOTS,
+    HOTBAR_SLOTS, MAX_INVENTORY_SLOTS,
 };
 
 #[derive(Debug, Resource, Clone, Serialize, Deserialize, PartialEq)]
@@ -55,6 +55,15 @@ impl Inventory {
             open_chest: None,
             open_furnace: None,
         }
+    }
+
+    /// The item a player holds in its hand with the hotbar slot `slot` selected: the item of
+    /// that slot, none when it is empty or when `slot` is not one of the hotbar's.
+    pub fn in_hand(&self, slot: u32) -> Option<ItemId> {
+        if slot >= HOTBAR_SLOTS {
+            return None;
+        }
+        self.inner.get(&slot).map(|stack| stack.item_id)
     }
 
     /// Adds `stack` to the inventory: first on the stacks of the same item, then in empty slots,
@@ -260,6 +269,10 @@ pub struct Player {
     /// block or at the air. Sent to the others with each update, not saved.
     #[serde(skip)]
     pub is_swinging: bool,
+    /// The hotbar slot selected in the last input, whose item the player holds in its hand
+    /// (`Inventory::in_hand`): the others see it. Not saved.
+    #[serde(skip)]
+    pub hotbar_slot: u32,
     /// The skin the player asked for when it joined (`AuthRegisterRequest::skin`), which the
     /// others are given with it. Not saved: it is the client's choice, sent at each join.
     #[serde(skip)]
@@ -456,6 +469,7 @@ impl Player {
             lava_damage_wait: 0,
             dragged_ms: 0,
             is_swinging: false,
+            hotbar_slot: 0,
             skin: PlayerSkin::default(),
         }
     }
@@ -495,6 +509,25 @@ mod tests {
             item_type: item_id.get_default_type(),
             nb,
         }
+    }
+
+    #[test]
+    fn the_hand_holds_the_item_of_the_selected_hotbar_slot_and_nothing_beyond_the_hotbar() {
+        let mut inventory = Inventory::new();
+        inventory.inner.insert(0, stack(ItemId::Dirt, 1));
+        inventory.inner.insert(8, stack(ItemId::Stick, 1));
+        inventory
+            .inner
+            .insert(HOTBAR_SLOTS, stack(ItemId::Cobblestone, 1));
+        assert_eq!(inventory.in_hand(0), Some(ItemId::Dirt));
+        assert_eq!(inventory.in_hand(8), Some(ItemId::Stick));
+        assert_eq!(inventory.in_hand(1), None, "an empty slot");
+        assert_eq!(
+            inventory.in_hand(HOTBAR_SLOTS),
+            None,
+            "a slot of the backpack"
+        );
+        assert_eq!(inventory.in_hand(u32::MAX), None);
     }
 
     fn max_stack() -> u32 {

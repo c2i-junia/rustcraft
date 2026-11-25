@@ -21,16 +21,17 @@ use shared::players::{Player, ViewMode};
 use crate::camera::{CameraController, EyeThroughPortal};
 use crate::ui::hud::UIMode;
 
+use super::hand::{Grip, ItemHolder};
 use super::CurrentPlayerMarker;
 
 /// Size of a skin, in pixels.
 pub const SKIN_SIZE: u32 = 64;
 
 /// Pixels of the skin's boxes from the soles to the top of the head.
-const MODEL_PIXELS: f32 = 32.0;
+pub(crate) const MODEL_PIXELS: f32 = 32.0;
 
 /// By how many pixels the second layer stands out of the first, on each side.
-const LAYER_INFLATE: f32 = 0.25;
+pub(crate) const LAYER_INFLATE: f32 = 0.25;
 /// The head's second layer (the hat) stands out more, so that hair and hats show.
 const HAT_INFLATE: f32 = 0.5;
 
@@ -463,11 +464,24 @@ pub fn spawn_player_model(
         }
         root.spawn(part(BodyPart::Torso)).with_children(|torso| {
             for upper in BodyPart::ALL.into_iter().filter(|p| p.hangs_from_torso()) {
-                torso.spawn(part(upper));
+                let mut upper_part = torso.spawn(part(upper));
+                if upper == BodyPart::RightArm {
+                    // The item the player holds, in the hand, which follows the arm
+                    upper_part.with_child((
+                        ItemHolder::new(Grip::ThirdPerson),
+                        Transform::from_translation(HAND * scale),
+                        Visibility::default(),
+                        layers.clone(),
+                    ));
+                }
             }
         });
     });
 }
+
+/// Where the right hand holds an item, in pixels from the joint of the arm: near the end of the
+/// arm, at its front.
+const HAND: Vec3 = Vec3::new(0.0, -10.0, -1.0);
 
 /// A part of the model at its joint, with the boxes of its two layers.
 fn part_bundle(

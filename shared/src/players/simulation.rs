@@ -45,6 +45,7 @@ pub fn simulate_player_actions(
     caller_type: CallerType,
 ) -> ActionsOutcome {
     player.is_swinging = !player.is_dead() && action.is_pressed(NetworkAction::LeftClick);
+    player.hotbar_slot = action.hotbar_slot;
     if player.is_dead() {
         return ActionsOutcome::default();
     }

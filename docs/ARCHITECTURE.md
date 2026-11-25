@@ -696,7 +696,8 @@ portal seen through another portal shows its colour. The main camera sees layers
 portal's view of level 1); the portal cameras see 0, the local player's body in first person
 (2, `BODY_LAYER`: the player sees itself through a portal, not from inside its body; in third
 person the body is on 0, and the sky light shadows both), the chunks only portals show (3,
-which the sky light shadows too),
+which the sky light shadows too), never the arm and the item the player sees in its own hand
+(4, `VIEW_MODEL_LAYER`, the main camera's alone: `player/hand.rs`),
 and two of the three layers of each portal drawn (`camera_layers`): its stand-in in its colour,
 or, for the portal's own cameras, the surface showing the next level when that level draws (its
 colour at the deepest level, nothing past the camera's fog). A
@@ -981,7 +982,14 @@ the `skins/` folder of the game folder, where a file dropped on the window is co
 `skin.ron`; `ChosenSkin` holds it with the `PlayerSkin` sent in `AuthRegisterRequest`: a name, or
 the 16 KiB of RGBA of an imported skin. The server keeps the validated skin on the `Player` (not
 saved) and every `PlayerSpawnEvent` carries it, so a client builds the model of each player from
-the asset of a skin of the game or from an image of the pixels. The connecting card reads Escape the same way: no dialog or field exists there. The
+the asset of a skin of the game or from an image of the pixels. What a player holds is the item
+of its selected hotbar slot (`Inventory::in_hand`), which the server puts in each
+`PlayerUpdateEvent` so that the others see it: `player/hand.rs` draws it in the right hand of
+every model, under the arm, with the meshes of the dropped items (a block as a small cube, any
+other item as its thick picture), and, for the local player in first person, in a view model
+hung from its camera: its right arm, cut from its skin, and the item in the lower right, which
+bobs with the walk, swings with the strike of the arm, pushes forward on a use and goes down and
+up again when the item changes. The connecting card reads Escape the same way: no dialog or field exists there. The
 settings are one screen (`ui/menus/settings/`): a `MenuState` in the menus, an overlay above the
 game from the pause menu. `progress.rs` is a progress bar: a sunken track whose `OK` fill
 follows the value its screen sets on `ProgressBar`, told as a percentage to accessibility. The

@@ -5,6 +5,7 @@ use shared::players::{Inventory, Player, ViewMode};
 use crate::state::{GameSet, GameState};
 
 mod controller;
+pub mod hand;
 mod hurt;
 mod interactions;
 mod labels;
@@ -23,7 +24,8 @@ pub use update::*;
 /// The local player and the other players: their spawn, movement, prediction and labels.
 pub fn player_plugin(app: &mut App) {
     hurt_plugin(app);
-    app.insert_resource(ViewMode::FirstPerson)
+    app.init_resource::<hand::ViewModelMaterials>()
+        .insert_resource(ViewMode::FirstPerson)
         .insert_resource(Inventory::new())
         .add_message::<PlayerSpawnEvent>()
         .add_message::<PlayerUpdateEvent>()
@@ -88,6 +90,19 @@ pub fn player_plugin(app: &mut App) {
             )
                 .after(GameSet::Reconciliation)
                 .before(GameSet::Camera)
+                .run_if(in_state(GameState::Game)),
+        )
+        .add_systems(
+            Update,
+            (
+                hand::track_the_local_held_item,
+                hand::hold_items_in_hands,
+                hand::spawn_view_model,
+                hand::move_the_hand,
+                hand::draw_held_items,
+            )
+                .chain()
+                .after(model::animate_players_system)
                 .run_if(in_state(GameState::Game)),
         )
         .add_systems(
