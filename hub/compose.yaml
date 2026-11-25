@@ -1,0 +1,73 @@
+# The hub and its database. Secrets are files in secrets/ (see README.md and secrets.example/).
+#   docker compose up -d --build
+name: rustcraft-hub
+
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hub
+      POSTGRES_DB: hub
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hub -d hub"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  hub:
+    build:
+      context: ..
+      dockerfile: hub/Dockerfile
+      target: hub
+    image: rustcraft-hub
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      HUB_LISTEN: 0.0.0.0:8080
+      HUB_PUBLIC_URL: https://hub.rustcraft.dev
+      HUB_NAME: Rustcraft
+      HUB_DATABASE_URL_FILE: /run/secrets/database_url
+      HUB_SIGNING_KEY_FILE: /run/secrets/signing_key
+      HUB_IP_SECRET_FILE: /run/secrets/ip_secret
+    secrets:
+      - database_url
+      - signing_key
+      - ip_secret
+    # Only Caddy, on this machine, reaches the hub.
+    ports:
+      - "127.0.0.1:${HUB_PORT:-8080}:8080"
+    networks:
+      - backend
+      - default
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  # The database has no way out, and nothing but the hub reaches it.
+  backend:
+    internal: true
+
+volumes:
+  db-data:
+
+secrets:
+  db_password:
+    file: ./secrets/db_password
+  database_url:
+    file: ./secrets/database_url
+  signing_key:
+    file: ./secrets/signing.key
+  ip_secret:
+    file: ./secrets/ip-secret

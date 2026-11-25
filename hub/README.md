@@ -82,6 +82,65 @@ Migrations (`migrations/`) are applied at start. Every option has an environment
 | `--name` | `HUB_NAME` | `Rustcraft` |
 | `--trusted-ranges` | `HUB_TRUSTED_RANGES` | (none; comma-separated CIDRs allowed 60 sign-ups an hour per address) |
 
+## Deploying
+
+The hub runs with Docker Compose (`hub/compose.yaml`): a `postgres:17` service on an internal
+network with a named volume, and the hub, published on `127.0.0.1:8080` only, for Caddy. Both
+restart unless stopped; the hub waits for the database to be healthy. The image is built from the
+repository root (`hub/Dockerfile`, target `hub`, a distroless image running as uid 65532).
+
+On the server, from `hub/`, build the image, then create the secrets
+(`secrets.example/README.txt` lists them):
+
+```sh
+docker compose build hub
+mkdir secrets && cd secrets
+openssl rand -hex 24 > db_password
+printf 'postgres://hub:%s@db:5432/hub\n' "$(cat db_password)" > database_url
+openssl rand -hex 32 > ip-secret
+docker run --rm --user "$(id -u)" --entrypoint rustcraft-hub -v "$PWD:/out" \
+    rustcraft-hub generate-key /out/signing.key
+cd .. && chmod 700 secrets && chmod 444 secrets/*
+```
+
+Compose mounts each secret file as it is: its `uid`, `gid` and `mode` options are ignored outside
+Swarm, so the hub (uid 65532) can read a file only if it is world-readable. The `0700` folder
+keeps the other users of the machine away from the files; do not loosen it. Back up
+`signing.key`: a hub with another key has to be announced again to every game server.
+
+Then start it:
+
+```sh
+docker compose up -d
+curl http://127.0.0.1:8080/.well-known/rustcraft-hub
+```
+
+`HUB_PUBLIC_URL`, `HUB_NAME` and `HUB_TRUSTED_RANGES` are set in the `environment` of `hub` in
+`compose.yaml`. To update, `git pull` and `docker compose up -d --build`; migrations are applied
+at start. `HUB_PORT` changes the published port, for a machine where 8080 is taken.
+
+Caddy (on the host) terminates TLS:
+
+```
+hub.rustcraft.dev {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+Administration runs in a one-off container with the same secrets:
+
+```sh
+docker compose run --rm --entrypoint rustcraft-hub hub admin users
+docker compose run --rm --entrypoint rustcraft-hub hub admin grant <user> host
+```
+
+Backup (nightly, from cron) and restore:
+
+```sh
+docker compose exec -T db pg_dump -U hub -Fc hub > hub-$(date +%F).dump
+docker compose exec -T db pg_restore -U hub -d hub --clean --if-exists < hub-2026-11-25.dump
+```
+
 ## Testing
 
 Tests that touch the database create a database of their own in the Postgres that

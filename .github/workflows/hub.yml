@@ -1,0 +1,97 @@
+name: Hub
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'hub/**'
+      - 'crates/protocol/**'
+      - 'rust-toolchain.toml'
+      - '.cargo/**'
+      - '.github/workflows/hub.yml'
+  pull_request:
+    paths:
+      - 'hub/**'
+      - 'crates/protocol/**'
+      - 'rust-toolchain.toml'
+      - '.cargo/**'
+      - '.github/workflows/hub.yml'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      HUB_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
+    defaults:
+      run:
+        working-directory: hub
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y mold clang
+
+    - name: Install Rust
+      run: rustup toolchain install
+
+    - name: Cache build artifacts
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: hub
+
+    - name: Check code formatting
+      run: cargo fmt --check
+
+    - name: Run clippy
+      run: cargo clippy --workspace --all-targets -- -D warnings
+
+    - name: Run tests
+      run: cargo test --workspace
+
+  publish:
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v2
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build and push the hub image
+      run: |
+        image=ghcr.io/${{ github.repository }}/rustcraft-hub
+        hash=$(echo ${GITHUB_SHA} | cut -c1-7)
+        docker build --file hub/Dockerfile --target hub --tag "${image}:dev-${hash}" .
+        docker push "${image}:dev-${hash}"
