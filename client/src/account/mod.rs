@@ -7,7 +7,7 @@ pub mod hub;
 #[cfg(test)]
 pub mod test_hub;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bevy::prelude::*;
 use rustcraft_protocol::api::CertificateResponse;
@@ -26,6 +26,9 @@ use hub::{HubClient, HubError};
 /// How often the game looks whether its certificate is due for renewal, the first look being at
 /// start.
 const RENEWAL_CHECK_EVERY: Duration = Duration::from_secs(10 * 60);
+/// How long a request for a certificate may be waited for. The hub client gives up after 10 s,
+/// so a request still there after this one has lost its thread (a panic), and a new one may go.
+const RENEWAL_DEADLINE: Duration = Duration::from_secs(30);
 
 /// Whether the player is signed in to a hub.
 #[derive(Resource, Clone, Debug, PartialEq, Eq)]
@@ -98,7 +101,8 @@ type RenewalAnswer = (Uuid, Result<CertificateResponse, HubError>);
 #[derive(Resource)]
 struct Renewal {
     timer: Timer,
-    in_flight: Option<InFlight<RenewalAnswer>>,
+    /// The request, with the time it was sent.
+    in_flight: Option<(Instant, InFlight<RenewalAnswer>)>,
 }
 
 /// Asks the hub for a certificate when the account has none or half of its life has passed,
@@ -110,9 +114,14 @@ fn renew_certificate(
     mut account: ResMut<Account>,
     paths: Res<GameFolderPaths>,
 ) {
-    if let Some(answer) = renewal.in_flight.as_ref().and_then(InFlight::take) {
-        renewal.in_flight = None;
-        keep_certificate(&mut account, &paths, answer);
+    if let Some((sent, request)) = &renewal.in_flight {
+        if let Some(answer) = request.take() {
+            renewal.in_flight = None;
+            keep_certificate(&mut account, &paths, answer);
+        } else if sent.elapsed() > RENEWAL_DEADLINE {
+            warn!("The request for a certificate never came back, forgetting it");
+            renewal.in_flight = None;
+        }
     }
     if !renewal.timer.tick(time.delta()).just_finished() || renewal.in_flight.is_some() {
         return;
@@ -133,9 +142,12 @@ fn renew_certificate(
         file.account,
     );
     let public_key = key.verifying_key().to_bytes();
-    renewal.in_flight = Some(InFlight::spawn(
-        (id, Err(HubError::Unreachable("no thread to ask on".into()))),
-        move || (id, client.certificate(&session, &public_key)),
+    renewal.in_flight = Some((
+        Instant::now(),
+        InFlight::spawn(
+            (id, Err(HubError::Unreachable("no thread to ask on".into()))),
+            move || (id, client.certificate(&session, &public_key)),
+        ),
     ));
 }
 
@@ -194,7 +206,6 @@ mod tests {
     use crate::account::test_hub::{Canned, TestHub};
     use rustcraft_protocol::api::AccountSummary;
     use rustcraft_protocol::identity::CERTIFICATE_LIFETIME_SECS;
-    use std::time::Instant;
 
     const UUID: u128 = 0x0102030405060708_090a0b0c0d0e0f10;
 
@@ -344,12 +355,10 @@ mod tests {
         file.expires_at = Some(unix_now() + 1);
         let mut app = app_with(Account::LoggedIn(file.clone()), &dir);
 
-        run_until(&mut app, |_| hub.requests().len() == 1);
-        // Gives the thread time to return its answer, then the system to read it
-        for _ in 0..20 {
-            app.update();
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        // The answer has been read once the request is no longer in flight
+        run_until(&mut app, |app| {
+            hub.requests().len() == 1 && app.world().resource::<Renewal>().in_flight.is_none()
+        });
 
         assert_eq!(*app.world().resource::<Account>(), Account::LoggedIn(file));
     }
@@ -370,5 +379,31 @@ mod tests {
         }
 
         assert!(hub.requests().is_empty());
+    }
+
+    #[test]
+    fn a_request_that_lost_its_thread_does_not_block_the_next_one() {
+        let expires_at = unix_now() + CERTIFICATE_LIFETIME_SECS;
+        let hub = TestHub::start(vec![Canned::ok(&certificate_json(expires_at))]);
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = app_with(
+            Account::LoggedIn(AccountFile::new(&hub.url, &summary(), "tok".into())),
+            &dir,
+        );
+        // A request whose thread never gives an answer, as one that panicked
+        let lost = InFlight::spawn(
+            (Uuid::nil(), Err(HubError::Unreachable(String::new()))),
+            || {
+                std::thread::sleep(Duration::from_secs(20));
+                (Uuid::nil(), Err(HubError::Unreachable(String::new())))
+            },
+        );
+        let sent = Instant::now() - RENEWAL_DEADLINE - Duration::from_secs(1);
+        app.world_mut().resource_mut::<Renewal>().in_flight = Some((sent, lost));
+
+        run_until(&mut app, |app| {
+            matches!(app.world().resource::<Account>(),
+                Account::LoggedIn(file) if file.expires_at == Some(expires_at))
+        });
     }
 }

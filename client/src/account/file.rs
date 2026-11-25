@@ -19,7 +19,7 @@ use crate::atomic_write::write_atomically;
 
 /// The account of the player on a hub. It holds secrets (the session token and the seed of the
 /// device key), so it is written readable by its owner only.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct AccountFile {
     /// The base URL of the hub the account is on.
     pub hub: String,
@@ -38,6 +38,23 @@ pub struct AccountFile {
     /// When the certificate expires, in Unix seconds.
     #[serde(default)]
     pub expires_at: Option<u64>,
+}
+
+/// Prints everything but the secrets: a `{:?}` of the account must not leak the session or the
+/// device key into a log or a failed assertion.
+impl std::fmt::Debug for AccountFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AccountFile")
+            .field("hub", &self.hub)
+            .field("username", &self.username)
+            .field("account", &self.account)
+            .field("session", &"<redacted>")
+            .field("device_key", &"<redacted>")
+            .field("certificate", &self.certificate)
+            .field("signature", &self.signature)
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
 }
 
 // The Account screen uses what is left
@@ -201,6 +218,18 @@ mod tests {
         AccountFile::forget(&path).unwrap();
         assert!(!path.exists());
         AccountFile::forget(&path).unwrap();
+    }
+
+    #[test]
+    fn the_debug_output_hides_the_session_and_the_device_key() {
+        let file = AccountFile::new("https://hub.test", &account(), "secret-token".into());
+        let shown = format!(
+            "{file:?} {:?}",
+            crate::account::Account::LoggedIn(file.clone())
+        );
+        assert!(!shown.contains("secret-token"), "{shown}");
+        assert!(!shown.contains(&file.device_key), "{shown}");
+        assert!(shown.contains("Alex"), "{shown}");
     }
 
     #[test]
