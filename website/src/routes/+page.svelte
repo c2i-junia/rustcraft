@@ -1,5 +1,9 @@
 <script lang="ts">
 	const repo = 'https://github.com/c2i-junia/rustcraft';
+	// Link previews (Discord, Mastodon…) need absolute URLs.
+	const site = 'https://rustcraft.dev';
+	const description =
+		'Rustcraft is an open-source block sandbox game written in Rust with Bevy. Generated worlds, survival, crafting and multiplayer.';
 
 	const features = [
 		{
@@ -31,10 +35,19 @@
 
 <svelte:head>
 	<title>Rustcraft</title>
-	<meta
-		name="description"
-		content="Rustcraft is an open-source block sandbox game written in Rust with Bevy. Generated worlds, survival, crafting and multiplayer."
-	/>
+	<meta name="description" content={description} />
+	<link rel="canonical" href="{site}/" />
+
+	<meta property="og:type" content="website" />
+	<meta property="og:site_name" content="Rustcraft" />
+	<meta property="og:title" content="Rustcraft" />
+	<meta property="og:description" content={description} />
+	<meta property="og:url" content="{site}/" />
+	<meta property="og:image" content="{site}/og.jpg" />
+	<meta property="og:image:width" content="1200" />
+	<meta property="og:image:height" content="630" />
+	<meta property="og:image:alt" content="A forest and a desert in Rustcraft" />
+	<meta name="twitter:card" content="summary_large_image" />
 </svelte:head>
 
 <header class="bar">
