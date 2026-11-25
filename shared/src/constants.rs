@@ -27,6 +27,9 @@ pub const MIN_RENDER_DISTANCE: u32 = 1;
 /// ask for. The chunks within 64 are 129² columns of 17 chunks
 /// (`world::MAX_VERTICAL_RENDER_DISTANCE`), 282897 per player.
 pub const DEFAULT_MAX_RENDER_DISTANCE: u32 = 64;
+
+/// The most players a server holds at once, and what it holds when it is not told otherwise.
+pub const MAX_PLAYERS: usize = 64;
 /// The client waits for the chunks within this many chunks of its spawn before entering the
 /// game. Every render distance reaches it, and the nearest chunks come first: bump
 /// `PROTOCOL_ID` with it.

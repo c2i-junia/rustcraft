@@ -290,7 +290,15 @@ The game folder holds the saves and the settings. By default it is `$XDG_DATA_HO
 | `-w`, `--world <name>` | `default` | The world to load from `saves/<name>` in the game folder, created when it does not exist yet. |
 | `-g`, `--game-folder-path <path>` | see above | The game folder to use instead of the default one. |
 | `--max-render-distance <chunks>` | `64` | The largest render distance a player may ask for, in chunks. |
+| `--max-players <count>` | `64` | The most players connected at once, from 1 to 64. The server list shows it. |
+| `--seed <number>` | random | The seed of the world, when it is created. |
+| `--world-type <type>` | `default` | The type of the world, when it is created: `default`, `large-biomes`, `archipelago` or `single-biome`. |
+| `--biome <key>` | | The biome of a `single-biome` world, such as `plains`. |
+| `--game-mode <mode>` | `survival` | The game mode of the players, when the world is created: `survival` or `creative`. |
+| `--difficulty <level>` | `normal` | The difficulty, when the world is created: `peaceful`, `easy`, `normal` or `hard`. |
 | `--op <name>` | | Makes this player an operator, in `ops.ron` of the game folder, before the server starts: how a server gets its first operator. May be given several times. |
+
+The options about the seed, type, game mode and difficulty apply only to a world that is created: a world that already exists keeps its own, and the server logs a warning.
 
 Both executables also read the `RUST_LOG` environment variable to choose what they log, e.g. `RUST_LOG=server=debug,warn rustcraft-server`.
 

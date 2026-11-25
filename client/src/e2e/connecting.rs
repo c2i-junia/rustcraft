@@ -57,6 +57,8 @@ pub(super) fn spawn_test_server(world: &str) -> (SocketAddr, JoinHandle<Result<(
         is_solo: true,
         saves: None,
         max_render_distance: shared::DEFAULT_MAX_RENDER_DISTANCE,
+        max_players: shared::MAX_PLAYERS,
+        new_world: Default::default(),
     };
     let server = std::thread::spawn(move || {
         let _folder = folder;
@@ -85,6 +87,8 @@ pub(super) fn spawn_dedicated_server(world: &str, lists: &[(&str, &str)]) -> Soc
         is_solo: false,
         saves: None,
         max_render_distance: shared::DEFAULT_MAX_RENDER_DISTANCE,
+        max_players: shared::MAX_PLAYERS,
+        new_world: Default::default(),
     };
     std::thread::spawn(move || {
         let _folder = folder;

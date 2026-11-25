@@ -326,6 +326,8 @@ pub fn launch_local_server_system(
             saves: Some(saves),
             // the player's own world: whatever the player may choose
             max_render_distance: crate::constants::MAX_CHUNK_RENDER_DISTANCE_RADIUS,
+            max_players: shared::MAX_PLAYERS,
+            new_world: Default::default(),
         };
         let result = server::init(socket, config, paths);
         if let Err(err) = &result {

@@ -84,13 +84,28 @@ impl TestServer {
             false,
             socket,
             Some(status),
+            shared::MAX_PLAYERS,
+        )
+    }
+
+    /// A dedicated server that holds at most `max_players` players.
+    fn start_dedicated_with_max_players(world_name: &str, max_players: usize) -> Self {
+        let socket =
+            server::acquire_local_ephemeral_udp_socket(IpAddr::V4(Ipv4Addr::LOCALHOST)).unwrap();
+        Self::start_on(
+            tempfile::tempdir().unwrap(),
+            world_name,
+            false,
+            socket,
+            None,
+            max_players,
         )
     }
 
     fn start_with(tmp: tempfile::TempDir, world_name: &str, is_solo: bool) -> Self {
         let socket =
             server::acquire_local_ephemeral_udp_socket(IpAddr::V4(Ipv4Addr::LOCALHOST)).unwrap();
-        Self::start_on(tmp, world_name, is_solo, socket, None)
+        Self::start_on(tmp, world_name, is_solo, socket, None, shared::MAX_PLAYERS)
     }
 
     fn start_on(
@@ -99,6 +114,7 @@ impl TestServer {
         is_solo: bool,
         socket: UdpSocket,
         status: Option<UdpSocket>,
+        max_players: usize,
     ) -> Self {
         // A new world gets a fixed seed: a random one may put a tree or the sea at the spawn
         let world_dir = tmp.path().join("saves").join(world_name);
@@ -123,6 +139,8 @@ impl TestServer {
             is_solo,
             saves: None,
             max_render_distance: shared::DEFAULT_MAX_RENDER_DISTANCE,
+            max_players,
+            new_world: Default::default(),
         };
         let handle = thread::spawn(move || match status {
             Some(status) => server::init_with_status(socket, status, config, paths).unwrap(),
@@ -314,6 +332,33 @@ impl TestClient {
             );
             self.pump();
         }
+    }
+}
+
+#[test]
+fn a_server_with_two_places_refuses_a_third_client() {
+    let server = TestServer::start_dedicated_with_max_players(WORLD_NAME, 2);
+    let mut clients: Vec<TestClient> = (1..=2)
+        .map(|id| TestClient::connect(server.addr, id))
+        .collect();
+    for client in &mut clients {
+        client.wait_connected();
+    }
+
+    let mut third = TestClient::connect(server.addr, 3);
+    let start = Instant::now();
+    while !third.client.is_disconnected() {
+        assert!(
+            start.elapsed() < WAIT_TIMEOUT,
+            "the third client was neither accepted nor refused"
+        );
+        assert!(!third.client.is_connected(), "the third client got in");
+        third.pump();
+    }
+    // the two first are still there
+    for client in &mut clients {
+        client.pump();
+        assert!(client.client.is_connected());
     }
 }
 
@@ -789,6 +834,8 @@ fn corrupt_world_file_stops_the_server_without_touching_it() {
         is_solo: true,
         saves: None,
         max_render_distance: shared::DEFAULT_MAX_RENDER_DISTANCE,
+        max_players: shared::MAX_PLAYERS,
+        new_world: Default::default(),
     };
 
     let err = server::init(socket, config, paths).unwrap_err();

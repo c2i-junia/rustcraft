@@ -22,6 +22,10 @@ pub use codec::*;
 pub use constants::*;
 pub use paths::*;
 
+use players::game_mode::GameMode;
+use world::hostiles::Difficulty;
+use world::WorldGenSettings;
+
 /// The saves of a world its embedded server finished writing, and the ones it failed to write
 /// in full, for the client of the same process.
 #[derive(Clone, Default, Debug)]
@@ -59,4 +63,26 @@ pub struct GameServerConfig {
     pub saves: Option<SaveCounter>,
     /// The largest render distance a player may ask for, in chunks.
     pub max_render_distance: u32,
+    /// The most players connected at once, at most `MAX_PLAYERS`.
+    pub max_players: usize,
+    /// What a new world is made with: ignored for a world that already exists.
+    pub new_world: NewWorldSettings,
+}
+
+/// What a new world is made with where the player chose it, as the command line of a dedicated
+/// server does. What is `None` is left to the game: a random seed, and the default type, mode
+/// and difficulty.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NewWorldSettings {
+    pub seed: Option<u32>,
+    pub generation: Option<WorldGenSettings>,
+    pub game_mode: Option<GameMode>,
+    pub difficulty: Option<Difficulty>,
+}
+
+impl NewWorldSettings {
+    /// Whether nothing was chosen.
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
 }

@@ -4,7 +4,7 @@ use serde::Deserialize;
 use shared::messages::PlayerId;
 use shared::players::{game_mode::GameMode, Player};
 use shared::world::data::WorldSeed;
-use shared::{GameFolderPaths, NEW_WORLD_TIME};
+use shared::{GameFolderPaths, NewWorldSettings, NEW_WORLD_TIME};
 use std::fs;
 use std::path::Path;
 
@@ -37,7 +37,7 @@ pub fn load_world_data(
     file_name: &str,
     game_folder_paths: &GameFolderPaths,
 ) -> Result<WorldData, Box<dyn std::error::Error>> {
-    let world = open_world(file_name, game_folder_paths)?;
+    let world = open_world(file_name, game_folder_paths, &NewWorldSettings::default())?;
     let dir = world_dir(game_folder_paths, file_name)?;
     if !world.map.is_empty() {
         // a single-file world, converted: its chunks are already in memory
@@ -51,9 +51,13 @@ pub fn load_world_data(
 /// converted to the current layout, and keeps the chunks it held in memory. A world that does
 /// not exist yet is a new one. Anything unreadable in `world.ron` is an error, so that a world
 /// is never regenerated over a save; only a damaged chunk file is skipped.
+///
+/// A new world is made with the `new_world` settings that are set. They are ignored, with a
+/// warning, for a world that exists.
 pub fn open_world(
     file_name: &str,
     game_folder_paths: &GameFolderPaths,
+    new_world: &NewWorldSettings,
 ) -> Result<WorldData, Box<dyn std::error::Error>> {
     let dir = world_dir(game_folder_paths, file_name)?;
     let file_path = dir.join(WORLD_FILE);
@@ -74,13 +78,21 @@ pub fn open_world(
             "World data file not found: {}. Generating default world and seed.",
             file_path.display()
         );
-        let seed = WorldSeed(rand::random::<u32>());
+        let seed = WorldSeed(new_world.seed.unwrap_or_else(rand::random));
         return Ok(WorldData {
             name: file_name.to_string(),
             seed,
             time: NEW_WORLD_TIME,
+            generation: new_world.generation.clone().unwrap_or_default(),
+            game_mode: new_world.game_mode.unwrap_or_default(),
+            difficulty: new_world.difficulty.unwrap_or_default(),
             ..default()
         });
+    }
+    if !new_world.is_empty() {
+        warn!(
+            "The world {file_name} already exists: its own seed, type, game mode and difficulty are kept, not the ones asked for"
+        );
     }
 
     let contents: String =
@@ -355,7 +367,8 @@ mod tests {
     use crate::world::chunk_files::chunk_file_name;
     use crate::world::legacy::encode_chunk_v1;
     use crate::world::save::save_player_data;
-    use shared::world::{ItemId, ItemStack};
+    use shared::world::hostiles::Difficulty;
+    use shared::world::{ItemId, ItemStack, WorldGenSettings, WorldPreset};
 
     const WORLD: &str = "world";
     const SPAWN: Vec3 = Vec3::new(0.5, 66.0, 0.5);
@@ -533,6 +546,63 @@ mod tests {
         assert!(!file.exists());
         let corrupt = file.with_extension("ron.corrupt");
         assert_eq!(fs::read_to_string(corrupt).unwrap(), "this is not ron");
+    }
+
+    fn all_new_world_settings() -> NewWorldSettings {
+        NewWorldSettings {
+            seed: Some(2024),
+            generation: Some(WorldGenSettings {
+                preset: WorldPreset::SingleBiome("plains".into()),
+                ..Default::default()
+            }),
+            game_mode: Some(GameMode::Creative),
+            difficulty: Some(Difficulty::Hard),
+        }
+    }
+
+    #[test]
+    fn a_new_world_is_made_with_the_settings_given() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = paths(&tmp);
+        let given = all_new_world_settings();
+
+        let data = open_world("fresh", &paths, &given).unwrap();
+
+        assert_eq!(data.seed.0, 2024);
+        assert_eq!(Some(data.generation), given.generation);
+        assert_eq!(data.game_mode, GameMode::Creative);
+        assert_eq!(data.difficulty, Difficulty::Hard);
+    }
+
+    #[test]
+    fn a_new_world_keeps_the_defaults_for_what_is_not_given() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = paths(&tmp);
+
+        let data = open_world("fresh", &paths, &NewWorldSettings::default()).unwrap();
+
+        assert_eq!(data.generation, WorldGenSettings::default());
+        assert_eq!(data.game_mode, GameMode::Survival);
+        assert_eq!(data.difficulty, Difficulty::Normal);
+    }
+
+    #[test]
+    fn a_world_that_exists_keeps_its_own_settings() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = paths(&tmp);
+        let world_dir = tmp.path().join(SAVE_PATH).join(WORLD);
+        fs::write(
+            world_dir.join("world.ron"),
+            r#"(format_version: 2, name: "world", seed: (42), time: 0, mobs: {})"#,
+        )
+        .unwrap();
+
+        let data = open_world(WORLD, &paths, &all_new_world_settings()).unwrap();
+
+        assert_eq!(data.seed.0, 42);
+        assert_eq!(data.generation, WorldGenSettings::legacy());
+        assert_eq!(data.game_mode, GameMode::Survival);
+        assert_eq!(data.difficulty, Difficulty::Normal);
     }
 
     #[test]

@@ -476,6 +476,8 @@ mod tests {
                 is_solo: true,
                 saves: None,
                 max_render_distance: shared::DEFAULT_MAX_RENDER_DISTANCE,
+                max_players: shared::MAX_PLAYERS,
+                new_world: Default::default(),
             })
             .insert_resource(GameFolderPaths {
                 game_folder_path: folder.join("game"),

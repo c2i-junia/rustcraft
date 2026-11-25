@@ -28,7 +28,7 @@ use shared::{
     messages::PlayerId,
     status::status_port,
     world::{Biomes, ChunkMap, WorldSeed},
-    GameFolderPaths, GameServerConfig, TICKS_PER_SECOND,
+    GameFolderPaths, GameServerConfig, NewWorldSettings, TICKS_PER_SECOND,
 };
 use std::fmt::Debug;
 use std::sync::{atomic::AtomicU32, Arc};
@@ -99,10 +99,7 @@ pub fn acquire_local_socket_pair(ip: IpAddr) -> std::io::Result<(UdpSocket, UdpS
 /// trips: at the tick rate, each would wait up to a tick.
 const LOOP_PERIOD: Duration = Duration::from_millis(4);
 
-/// Largest number of clients connected at once.
-const MAX_CLIENTS: usize = 64;
-
-fn add_netcode_network(app: &mut App, socket: UdpSocket) -> Result<(), String> {
+fn add_netcode_network(app: &mut App, socket: UdpSocket, max_clients: usize) -> Result<(), String> {
     app.add_plugins(NetcodeServerPlugin);
 
     let address = socket
@@ -114,7 +111,7 @@ fn add_netcode_network(app: &mut App, socket: UdpSocket) -> Result<(), String> {
         current_time: SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default(),
-        max_clients: MAX_CLIENTS,
+        max_clients,
         protocol_id: shared::PROTOCOL_ID,
         public_addresses: vec![address],
         // Nothing proves who a client is: it announces its own id. Fine among friends, not
@@ -179,10 +176,12 @@ fn run(
     let world_dir = world_dir(&game_folder_paths, &world_name)?;
     let saves = config.saves.clone();
     let is_solo = config.is_solo;
+    let max_players = config.max_players;
+    let new_world = config.new_world.clone();
 
     app.insert_resource(config);
 
-    add_netcode_network(&mut app, socket)?;
+    add_netcode_network(&mut app, socket, max_players)?;
 
     setup_resources_and_events(&mut app);
 
@@ -192,7 +191,8 @@ fn run(
         app.insert_resource(permissions);
     }
 
-    let (world_map, seed, generation, time, weather) = load_world(&world_name, &game_folder_paths)?;
+    let (world_map, seed, generation, time, weather) =
+        load_world(&world_name, &game_folder_paths, &new_world)?;
     app.insert_resource(world_map);
     app.insert_resource(seed);
     app.insert_resource(generation);
@@ -226,7 +226,7 @@ fn run(
         let players = Arc::new(AtomicU32::new(0));
         // The responder holds a weak reference: it stops once the app is dropped
         if let Err(err) =
-            spawn_status_responder(status, Arc::downgrade(&players), MAX_CLIENTS as u32)
+            spawn_status_responder(status, Arc::downgrade(&players), max_players as u32)
         {
             warn!("Could not answer status requests: {err}; the server list will show this server offline");
         }
@@ -251,6 +251,7 @@ fn run(
 fn load_world(
     world_name: &str,
     game_folder_paths: &GameFolderPaths,
+    new_world: &NewWorldSettings,
 ) -> Result<
     (
         ServerWorldMap,
@@ -262,7 +263,8 @@ fn load_world(
     String,
 > {
     // the cause alone, which names the file: the caller knows the world it asked for
-    let world_data = open_world(world_name, game_folder_paths).map_err(|err| err.to_string())?;
+    let world_data =
+        open_world(world_name, game_folder_paths, new_world).map_err(|err| err.to_string())?;
     let generation = WorldGeneration::new(world_data.generation.clone(), Biomes::vanilla())?;
 
     // A world converted from a single file still holds its chunks, and had no chests or
@@ -367,6 +369,8 @@ mod tests {
                 is_solo: true,
                 saves: None,
                 max_render_distance: shared::DEFAULT_MAX_RENDER_DISTANCE,
+                max_players: shared::MAX_PLAYERS,
+                new_world: Default::default(),
             },
             GameFolderPaths {
                 game_folder_path: tmp.path().into(),

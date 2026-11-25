@@ -373,6 +373,8 @@ mod tests {
                 is_solo: true,
                 saves: None,
                 max_render_distance: shared::DEFAULT_MAX_RENDER_DISTANCE,
+                max_players: shared::MAX_PLAYERS,
+                new_world: Default::default(),
             };
             let server = std::thread::spawn(move || server::init(socket, config, paths));
 
