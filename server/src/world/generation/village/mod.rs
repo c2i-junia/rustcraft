@@ -8,11 +8,12 @@
 //! each chunk the village touches places the blocks of the plan that fall in it, the same way
 //! whichever chunk is generated first.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use bevy::prelude::*;
-use shared::world::{BlockData, Chunk, Container, ServerMob, VillageStyle};
-use shared::CHUNK_SIZE;
+use shared::world::{Chunk, Container, ServerMob, VillageStyle};
+
+use super::structure::StructureBlocks;
 
 mod layout;
 mod loot;
@@ -21,7 +22,7 @@ mod placement;
 
 pub use layout::layout;
 pub use pieces::PieceKind;
-pub use placement::{region_of, site, REGION};
+pub use placement::{dry, region_of, site, REACH, REGION};
 
 /// A village as it is built: its blocks by column of chunks, the columns nothing else grows on,
 /// and what lives and lies in it.
@@ -33,15 +34,12 @@ pub struct VillagePlan {
     pub max: IVec2,
     /// The highest block of the village.
     pub top: i32,
-    /// The blocks of the village, by column of chunks, in the order they are placed: a later
-    /// one replaces an earlier one. `None` is air.
-    blocks: HashMap<IVec2, Vec<(IVec3, Option<BlockData>)>>,
+    /// The blocks of the village, and what its chests and barrels hold.
+    blocks: StructureBlocks,
     /// The columns where nothing grows: the streets, the buildings, and around them.
     footprint: HashSet<IVec2>,
     /// The animals of its pens: where each stands.
     animals: Vec<ServerMob>,
-    /// What its chests and barrels hold, by position.
-    containers: Vec<(IVec3, Container)>,
     /// Its buildings: their kind, their corners and the height of their floor.
     pub pieces: Vec<PlacedPiece>,
 }
@@ -74,22 +72,7 @@ impl VillagePlan {
     /// Places the blocks of the village that fall in the chunk at `chunk_pos`: they replace
     /// whatever was generated there.
     pub fn place_blocks(&self, chunk: &mut Chunk, chunk_pos: IVec3) {
-        let Some(blocks) = self.blocks.get(&chunk_pos.xz()) else {
-            return;
-        };
-        let origin = chunk_pos * CHUNK_SIZE;
-        for &(pos, block) in blocks {
-            let local = pos - origin;
-            if !(0..CHUNK_SIZE).contains(&local.y) {
-                continue;
-            }
-            match block {
-                Some(block) => chunk.set(local, block),
-                None => {
-                    chunk.remove(local);
-                }
-            }
-        }
+        self.blocks.place(chunk, chunk_pos);
     }
 
     /// The animals of the village born with the chunk at `chunk_pos`: those standing in it.
@@ -109,11 +92,7 @@ impl VillagePlan {
         &self,
         chunk_pos: IVec3,
     ) -> impl Iterator<Item = (IVec3, Container)> + '_ {
-        let origin = chunk_pos * CHUNK_SIZE;
-        self.containers.iter().filter_map(move |(pos, container)| {
-            let local = *pos - origin;
-            Chunk::contains(local).then(|| (local, container.clone()))
-        })
+        self.blocks.chunk_containers(chunk_pos)
     }
 
     /// The kinds of the animals of the village.
@@ -124,8 +103,10 @@ impl VillagePlan {
 
     /// Every block of the village, in the order placed.
     #[cfg(test)]
-    pub fn all_blocks(&self) -> impl Iterator<Item = (IVec3, Option<BlockData>)> + '_ {
-        self.blocks.values().flatten().copied()
+    pub fn all_blocks(
+        &self,
+    ) -> impl Iterator<Item = (IVec3, Option<shared::world::BlockData>)> + '_ {
+        self.blocks.all()
     }
 }
 
@@ -134,7 +115,10 @@ mod tests {
     use super::super::WorldGenerator;
     use super::placement::REACH;
     use super::*;
+    use shared::world::BlockData;
     use shared::world::{TerrainNoises, WorldGenSettings, SEA_LEVEL};
+    use shared::CHUNK_SIZE;
+    use std::collections::HashMap;
     use std::sync::Arc;
 
     /// The villages of the seed `seed` in the regions within `radius` of the origin.

@@ -92,7 +92,7 @@ fn insert_made(
             if chunk.uniform().is_none() {
                 dirty_chunks.insert(chunk_pos);
             }
-            // only the chunks of the villages hold chests and furnaces when generated
+            // only the chunks of the villages and the dungeons hold chests and furnaces when generated
             let holds = chunk.may_hold(|block| {
                 block.is_some_and(|block| block.id.is_container() || block.id == BlockId::Furnace)
             });
@@ -266,7 +266,12 @@ pub struct LoadedAround {
     complete: bool,
 }
 
+/// The generator of the world being played, with the plans it has laid out.
+#[derive(Resource)]
+pub struct LoadedGenerator(pub Arc<WorldGenerator>);
+
 pub fn handle_player_inputs_system(
+    mut commands: Commands,
     mut events: MessageReader<PlayerInputsEvent>,
     mut world_map: ResMut<ServerWorldMap>,
     seed: Res<WorldSeed>,
@@ -281,7 +286,9 @@ pub fn handle_player_inputs_system(
             Some(generation) => generation.generator(seed.0),
             None => WorldGenerator::new(seed.0),
         };
-        *loader = Some(ChunkLoader::with(generator));
+        let made = ChunkLoader::with(generator);
+        commands.insert_resource(LoadedGenerator(made.generator.clone()));
+        *loader = Some(made);
         *loaded_around = LoadedAround::default();
     }
     let loader = loader.as_mut().unwrap();

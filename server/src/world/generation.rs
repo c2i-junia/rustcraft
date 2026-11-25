@@ -8,10 +8,13 @@ use super::caves::{CaveMask, Caves, Noise3, CAVE_FLOOR, LAVA_LEVEL};
 use jungle::{GIANT_MARGIN, GIANT_SINK, GIANT_STEP};
 
 mod animals;
+pub mod dungeon;
 mod jungle;
 mod ores;
+mod structure;
 pub mod village;
 
+use dungeon::{DungeonKind, DungeonPlan};
 use village::VillagePlan;
 
 /// Largest horizontal distance between the column a structure is rooted in and any of its
@@ -198,7 +201,8 @@ struct Column {
     cave_ceiling: i32,
     /// The part of a giant tree's trunk the column holds, decided with the columns around.
     giant: Option<GiantTrunk>,
-    /// Whether a village keeps the column clear: nothing grows on it (see `VillagePlan::covers`).
+    /// Whether a village or a ruin keeps the column clear: nothing grows on it (see
+    /// `VillagePlan::covers`).
     village: bool,
 }
 
@@ -245,7 +249,7 @@ impl Column {
         column
     }
 
-    /// The column, kept clear by a village if `village`: nothing grows on it, and the caves
+    /// The column, kept clear by a village or a ruin if `village`: nothing grows on it, and the caves
     /// stay `VILLAGE_ROOF` under its surface, under the streets and the foundations.
     fn in_village(mut self, village: bool) -> Self {
         if village {
@@ -749,6 +753,8 @@ struct ChunkColumns {
     ring_giants: Vec<IVec3>,
     /// The villages that change or keep clear a column of the chunk or of its margin.
     villages: Vec<Arc<VillagePlan>>,
+    /// The ruin that does, likewise.
+    ruin: Option<Arc<DungeonPlan>>,
 }
 
 /// Columns along a side of `ChunkColumns`.
@@ -818,6 +824,10 @@ pub struct WorldGenerator {
     villages: bool,
     /// The village of each region laid out so far, or `None` for a region without one.
     plans: Mutex<HashMap<IVec2, Option<Arc<VillagePlan>>>>,
+    /// Whether the world has dungeons (`WorldGenSettings::dungeons`).
+    dungeons: bool,
+    /// The dungeons of each kind and region laid out so far, as `plans`.
+    dungeon_plans: Mutex<HashMap<(DungeonKind, IVec2), Option<Arc<DungeonPlan>>>>,
 }
 
 impl WorldGenerator {
@@ -836,6 +846,8 @@ impl WorldGenerator {
             columns: Mutex::default(),
             villages: settings.villages,
             plans: Mutex::default(),
+            dungeons: settings.dungeons,
+            dungeon_plans: Mutex::default(),
         }
     }
 
@@ -875,13 +887,63 @@ impl WorldGenerator {
         plans
     }
 
-    /// Whether a village keeps the column `(x, z)` clear.
+    /// The dungeon of `kind` in `region`, if it holds one, from the cache or laid out.
+    pub fn dungeon(&self, kind: DungeonKind, region: IVec2) -> Option<Arc<DungeonPlan>> {
+        if !self.dungeons {
+            return None;
+        }
+        if let Some(plan) = self.dungeon_plans.lock().unwrap().get(&(kind, region)) {
+            return plan.clone();
+        }
+        // laid out of the lock, as a village
+        let plan = dungeon::plan(&self.dungeon_world(), kind, region).map(Arc::new);
+        self.dungeon_plans
+            .lock()
+            .unwrap()
+            .insert((kind, region), plan.clone());
+        plan
+    }
+
+    /// Where the dungeon of `kind` in `region` stands, without laying it out.
+    pub fn dungeon_site(&self, kind: DungeonKind, region: IVec2) -> Option<dungeon::Site> {
+        dungeon::site(&self.dungeon_world(), kind, region)
+    }
+
+    fn dungeon_world(&self) -> dungeon::World<'_> {
+        dungeon::World {
+            seed: self.seed,
+            terrain: &self.terrain,
+            caves: &self.caves,
+            villages: self.villages,
+        }
+    }
+
+    /// The dungeons of `kinds` that change the chunk at `chunk_pos`. A dungeon stays inside its
+    /// region, by more than `STRUCTURE_MARGIN`.
+    fn dungeons_in<'a>(
+        &'a self,
+        kinds: &'a [DungeonKind],
+        chunk_pos: IVec3,
+    ) -> impl Iterator<Item = Arc<DungeonPlan>> + 'a {
+        let origin = chunk_pos * CHUNK_SIZE;
+        let region = dungeon::region_of(origin.x, origin.z);
+        kinds
+            .iter()
+            .filter(move |kind| kind.heights_meet(origin.y))
+            .filter_map(move |&kind| self.dungeon(kind, region))
+            .filter(move |plan| plan.touches(origin, origin + IVec3::splat(CHUNK_SIZE - 1)))
+    }
+
+    /// Whether a village or a ruin keeps the column `(x, z)` clear.
     fn village_covers(&self, x: i32, z: i32) -> bool {
         self.village(village::region_of(x, z))
             .is_some_and(|plan| plan.covers(x, z))
+            || self
+                .dungeon(DungeonKind::Ruin, dungeon::region_of(x, z))
+                .is_some_and(|plan| plan.covers(x, z))
     }
 
-    /// What the chests and barrels of the villages in the chunk at `chunk_pos` hold, by their
+    /// What the containers of the villages and the dungeons in the chunk at `chunk_pos` hold, by their
     /// position in the chunk.
     pub fn chunk_containers(&self, chunk_pos: IVec3) -> Vec<(IVec3, Container)> {
         let origin = chunk_pos.xz() * CHUNK_SIZE;
@@ -889,6 +951,10 @@ impl WorldGenerator {
         self.villages_near(origin, last, 0)
             .iter()
             .flat_map(|plan| plan.chunk_containers(chunk_pos).collect::<Vec<_>>())
+            .chain(
+                self.dungeons_in(&DungeonKind::ALL, chunk_pos)
+                    .flat_map(|plan| plan.chunk_containers(chunk_pos).collect::<Vec<_>>()),
+            )
             .collect()
     }
 
@@ -1005,6 +1071,18 @@ impl WorldGenerator {
             origin + IVec2::splat(CHUNK_SIZE - 1),
             STRUCTURE_MARGIN,
         );
+        let ruin = self
+            .dungeon(DungeonKind::Ruin, dungeon::region_of(origin.x, origin.y))
+            .filter(|plan| {
+                let margin = IVec2::splat(STRUCTURE_MARGIN);
+                let last = origin + IVec2::splat(CHUNK_SIZE - 1);
+                plan.min.xz().cmple(last + margin).all()
+                    && plan.max.xz().cmpge(origin - margin).all()
+            });
+        let kept_clear = |x: i32, z: i32| {
+            villages.iter().any(|plan| plan.covers(x, z))
+                || ruin.as_ref().is_some_and(|plan| plan.covers(x, z))
+        };
         let mut columns = Vec::with_capacity((MARGIN_SIDE * MARGIN_SIDE) as usize);
         for dz in -STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN {
             for dx in -STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN {
@@ -1026,7 +1104,7 @@ impl WorldGenerator {
                         self.bed_patch(x, z),
                         giant_trunk(giant_at, x, z),
                     )
-                    .in_village(villages.iter().any(|plan| plan.covers(x, z))),
+                    .in_village(kept_clear(x, z)),
                 );
             }
         }
@@ -1062,6 +1140,7 @@ impl WorldGenerator {
                     .map(|root| root.y - 1 + jungle::GIANT_HEIGHT),
             )
             .chain(villages.iter().map(|plan| plan.top))
+            .chain(ruin.iter().map(|plan| plan.max.y))
             .max()
             .unwrap();
         ChunkColumns {
@@ -1070,6 +1149,7 @@ impl WorldGenerator {
             highest,
             ring_giants,
             villages,
+            ruin,
         }
     }
 
@@ -1101,6 +1181,9 @@ impl WorldGenerator {
             }
         }
         ores::place_ores(self.seed, chunk_pos, &mut chunk);
+        for plan in self.dungeons_in(&DungeonKind::UNDERGROUND, chunk_pos) {
+            plan.place_blocks(&mut chunk, chunk_pos);
+        }
         chunk
     }
 
@@ -1194,6 +1277,12 @@ impl WorldGenerator {
             plan.place_blocks(&mut chunk, chunk_pos);
         }
         ores::place_ores(seed, chunk_pos, &mut chunk);
+        for plan in self
+            .dungeons_in(&DungeonKind::UNDERGROUND, chunk_pos)
+            .chain(columns.ruin.clone())
+        {
+            plan.place_blocks(&mut chunk, chunk_pos);
+        }
         chunk
     }
 }

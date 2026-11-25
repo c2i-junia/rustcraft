@@ -175,6 +175,7 @@ pub fn register_systems(app: &mut App) {
                 mob_behavior_system,
                 crate::mob::cinder::cinder_system,
                 crate::mob::spawning::hostile_spawning_system,
+                crate::mob::guards::dungeon_guards_system,
             )
                 .chain(),
             dropped_items_physics_system,

@@ -249,6 +249,9 @@ pub(super) fn chat_message(
                 player,
                 |place, from| match place {
                     Place::Biome(key) => locator.start(client_id, (seed.0, generation), &key, from),
+                    Place::Dungeon(kind) => {
+                        locator.start_dungeon(client_id, (seed.0, generation), kind, from)
+                    }
                     Place::Village => locator.start_village(client_id, (seed.0, generation), from),
                 },
             ),

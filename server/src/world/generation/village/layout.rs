@@ -10,8 +10,10 @@ use bevy::prelude::*;
 use shared::world::{
     BlockData, BlockDirection, ColumnShape, Container, ServerMob, TerrainNoises, VillageStyle,
 };
-use shared::CHUNK_SIZE;
 
+#[cfg(test)]
+use super::super::structure::BLOCK_DIRECTIONS;
+use super::super::structure::{rotate, rotate_direction, StructureBlocks, DIRECTIONS};
 use super::super::PositionRandom;
 use super::pieces::{material, road_block, Cell, Piece, PieceKind, Role, LAMP, PIECES, WELL};
 use super::placement::{dry, Site, REACH};
@@ -36,30 +38,6 @@ const MOST_PIECES: usize = 14;
 const LAMP_EVERY: usize = 9;
 /// The most branches the streets of a village make.
 const MOST_BRANCHES: usize = 5;
-
-/// The four directions on the ground, in the order of `BlockDirection`: front (-Z), right (+X),
-/// back (+Z), left (-X).
-const DIRECTIONS: [IVec2; 4] = [IVec2::NEG_Y, IVec2::X, IVec2::Y, IVec2::NEG_X];
-const BLOCK_DIRECTIONS: [BlockDirection; 4] = [
-    BlockDirection::Front,
-    BlockDirection::Right,
-    BlockDirection::Back,
-    BlockDirection::Left,
-];
-
-/// Turns `v` by `turns` quarter turns, front toward right.
-fn rotate(v: IVec2, turns: usize) -> IVec2 {
-    (0..turns % 4).fold(v, |v, _| IVec2::new(-v.y, v.x))
-}
-
-/// Turns a direction by `turns` quarter turns, as `rotate` turns its step.
-fn rotate_direction(direction: BlockDirection, turns: usize) -> BlockDirection {
-    let index = BLOCK_DIRECTIONS
-        .iter()
-        .position(|d| *d == direction)
-        .unwrap();
-    BLOCK_DIRECTIONS[(index + turns) % 4]
-}
 
 /// The draws of a layout, one salt after the other.
 struct Draws {
@@ -546,21 +524,15 @@ impl Builder<'_> {
             .map(|(pos, _)| pos.y)
             .max()
             .unwrap();
-        let mut blocks: HashMap<IVec2, Vec<(IVec3, Option<BlockData>)>> = HashMap::new();
-        for (pos, block) in self.blocks {
-            let chunk_column = IVec2::new(pos.x, pos.z).div_euclid(IVec2::splat(CHUNK_SIZE));
-            blocks.entry(chunk_column).or_default().push((pos, block));
-        }
         VillagePlan {
             centre: self.site.centre,
             style: self.site.style,
             min,
             max,
             top,
-            blocks,
+            blocks: StructureBlocks::new(self.blocks, self.containers),
             footprint: self.footprint,
             animals: self.animals,
-            containers: self.containers,
             pieces: self.pieces,
         }
     }

@@ -10,6 +10,7 @@ mod cocoa;
 mod connecting;
 mod death;
 mod drop;
+mod dungeons;
 mod feedback;
 mod furnace;
 mod game;

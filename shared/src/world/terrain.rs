@@ -154,6 +154,9 @@ pub struct WorldGenSettings {
     /// they were has not, so that none is cut by the chunks it already holds.
     #[serde(default)]
     pub villages: bool,
+    /// Whether dungeons are built in the world, likewise.
+    #[serde(default)]
+    pub dungeons: bool,
 }
 
 impl Default for WorldGenSettings {
@@ -162,16 +165,18 @@ impl Default for WorldGenSettings {
         Self {
             preset: WorldPreset::default(),
             villages: true,
+            dungeons: true,
         }
     }
 }
 
 impl WorldGenSettings {
     /// The settings of a world saved before its generation settings were: the default type,
-    /// without villages.
+    /// without villages nor dungeons.
     pub fn legacy() -> Self {
         Self {
             villages: false,
+            dungeons: false,
             ..Self::default()
         }
     }

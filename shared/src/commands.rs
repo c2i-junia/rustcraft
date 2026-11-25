@@ -138,8 +138,11 @@ pub const COMMANDS: &[CommandSyntax] = &[
     },
     CommandSyntax {
         name: "locate",
-        // `/locate village` stops after its first word
-        args: &[Arg::Word(&["biome", "village"]), Arg::Biome],
+        // but for a biome, it stops after its first word
+        args: &[
+            Arg::Word(&["biome", "village", "ruin", "crypt", "sanctuary"]),
+            Arg::Biome,
+        ],
     },
     CommandSyntax {
         name: "op",
@@ -360,7 +363,10 @@ mod tests {
         assert_eq!(detail("gamemode"), "<creative|survival>");
         assert_eq!(detail("give"), "<item> <count>");
         assert_eq!(detail("list"), "");
-        assert_eq!(detail("locate"), "<biome|village> <biome>");
+        assert_eq!(
+            detail("locate"),
+            "<biome|village|ruin|crypt|sanctuary> <biome>"
+        );
         assert_eq!(detail("time"), "set <day|night>");
         assert_eq!(detail("weather"), "<clear|rain|thunder>");
         assert_eq!(detail("whitelist"), "<on|off|add|remove|list> <player>");
@@ -380,7 +386,10 @@ mod tests {
     fn a_biome_is_completed_from_those_of_the_base_game_and_any_is_accepted() {
         let completion = complete("/locate biome jun", &[]).unwrap();
         assert_eq!(texts(&completion), ["jungle", "jungle_edge"]);
-        assert_eq!(completion.usage, ["/locate", "<biome|village>", "<biome>"]);
+        assert_eq!(
+            completion.usage,
+            ["/locate", "<biome|village|ruin|crypt|sanctuary>", "<biome>"]
+        );
         assert_eq!(completion.current, Some(2));
         // the biome of a mod of the server, which only the server knows
         let completion = complete("/locate biome mymod:mangrove", &[]).unwrap();
@@ -388,7 +397,7 @@ mod tests {
         let completion = complete("/locate jungle", &[]).unwrap();
         assert_eq!(
             completion.error.as_deref(),
-            Some("Usage: /locate <biome|village> <biome>")
+            Some("Usage: /locate <biome|village|ruin|crypt|sanctuary> <biome>")
         );
     }
 

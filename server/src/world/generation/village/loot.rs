@@ -2,16 +2,13 @@
 //! chest holds the same whichever chunk around it is generated first.
 
 use bevy::prelude::*;
-use shared::world::{Container, ItemId, ItemStack, CHEST_SLOTS};
+use shared::world::{Container, ItemId};
 
-use super::super::PositionRandom;
+use super::super::structure::{fill_container, LootEntry};
 use super::pieces::PieceKind;
 
-/// Each draw of a container uses its own salt from here.
-const SALT_LOOT: u64 = 0x2000;
-
 /// The items a container of a piece may hold: each with its chance and its fewest and most.
-fn table(kind: PieceKind) -> &'static [(ItemId, f32, u32, u32)] {
+fn table(kind: PieceKind) -> &'static [LootEntry] {
     match kind {
         PieceKind::Forge => &[
             (ItemId::BronzeIngot, 0.7, 1, 4),
@@ -45,32 +42,7 @@ fn table(kind: PieceKind) -> &'static [(ItemId, f32, u32, u32)] {
 /// What the container at `pos`, in a piece of `kind`, holds in a world of `seed`: a few stacks
 /// of its table, in slots drawn at random.
 pub fn container(seed: u32, pos: IVec3, kind: PieceKind) -> Container {
-    let random = PositionRandom {
-        seed,
-        coords: [pos.x, pos.y, pos.z],
-    };
-    let mut container = Container::default();
-    for (i, &(item, chance, fewest, most)) in table(kind).iter().enumerate() {
-        let salt = SALT_LOOT + 4 * i as u64;
-        if random.unit(salt) >= chance {
-            continue;
-        }
-        let nb = fewest + random.below(salt + 1, (most - fewest + 1) as u64) as u32;
-        // the first free slot from the one drawn
-        let start = random.below(salt + 2, CHEST_SLOTS as u64) as usize;
-        let slots = CHEST_SLOTS as usize;
-        if let Some(slot) = (0..slots)
-            .map(|k| (start + k) % slots)
-            .find(|&slot| container.slots[slot].is_none())
-        {
-            container.slots[slot] = Some(ItemStack {
-                item_id: item,
-                item_type: item.get_default_type(),
-                nb,
-            });
-        }
-    }
-    container
+    fill_container(seed, pos, table(kind))
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
-//! `/locate biome <biome>` and `/locate village`: the nearest column of a biome, or the nearest
-//! village, to a player. The search runs on the generation pool, since a biome far away takes
+//! `/locate biome <biome>`, `/locate village` and `/locate ruin|crypt|sanctuary`: the nearest
+//! column of a biome, village or dungeon to a player. The search runs on the generation pool, since a biome far away takes
 //! longer than a tick to find, and its answer is sent once it is done.
 
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -12,6 +12,7 @@ use shared::messages::{FullChatMessage, ServerToClientMessage};
 use shared::utils::unix_time_ms;
 use shared::world::{BiomeId, TerrainNoises};
 
+use super::generation::dungeon::{self, DungeonKind};
 use super::generation::{village, WorldGeneration};
 use super::pool::generation_pool;
 use crate::init::ServerLobby;
@@ -20,6 +21,10 @@ use crate::network::extensions::SendGameMessageExtension;
 
 /// The farthest a biome is searched, in blocks along each axis.
 pub const LOCATE_RADIUS: i32 = 4096;
+
+/// The farthest a dungeon is searched: a region of theirs costs more to read than one of the
+/// villages, and dungeons are commoner.
+pub const DUNGEON_RADIUS: i32 = 2048;
 
 /// The columns read, one every this many blocks along each axis: narrower than any biome but
 /// the thinnest borders, which the search may step over.
@@ -115,6 +120,43 @@ impl Locator {
         String::new()
     }
 
+    /// Searches the nearest dungeon of `kind` to `from`, as [`Locator::start_village`] does.
+    pub fn start_dungeon(
+        &self,
+        client: ClientId,
+        (seed, generation): (u32, &WorldGeneration),
+        kind: DungeonKind,
+        from: Vec3,
+    ) -> String {
+        let name = kind.name();
+        if !generation.settings.dungeons {
+            return format!("This world has no {name}");
+        }
+        let sender = self.sender.clone();
+        let generation = generation.clone();
+        let from = from.floor().as_ivec3().xz();
+        generation_pool()
+            .spawn(async move {
+                let generator = generation.generator(seed);
+                let door_of = |region| generator.dungeon_site(kind, region).map(|site| site.door);
+                let region = dungeon::region_of(from.x, from.y);
+                let nearest = nearest_of(region, dungeon::REGION, from, DUNGEON_RADIUS, door_of);
+                let answer = match nearest {
+                    Some(at) => {
+                        let distance = (at.xz() - from).as_vec2().length().round();
+                        format!(
+                            "The nearest {name} is at {} {} {}, {distance} blocks away",
+                            at.x, at.y, at.z
+                        )
+                    }
+                    None => format!("No {name} within {DUNGEON_RADIUS} blocks"),
+                };
+                let _ = sender.send((client, answer));
+            })
+            .detach();
+        String::new()
+    }
+
     /// The answers of the searches done since the last call.
     fn finished(&self) -> Vec<(ClientId, String)> {
         let receiver = self.receiver.lock().unwrap_or_else(|err| err.into_inner());
@@ -164,23 +206,37 @@ pub fn nearest_village(
     from: IVec2,
     radius: i32,
 ) -> Option<IVec2> {
-    let centre = village::region_of(from.x, from.y);
-    let mut nearest: Option<(i64, IVec2)> = None;
-    for ring in 0..=radius / village::REGION + 1 {
-        // the nearest a village of this square of regions may be to `from`
-        let reach = i64::from((ring - 1).max(0) * village::REGION);
+    let centre_of =
+        |region| village::site(seed, terrain, region).map(|site| site.centre.extend(0).xzy());
+    let region = village::region_of(from.x, from.y);
+    nearest_of(region, village::REGION, from, radius, centre_of).map(|at| at.xz())
+}
+
+/// The place nearest to `from`, within about `radius` blocks along each axis, of those
+/// `place_of` gives for the regions of side `side` around `region`, the one of `from`.
+fn nearest_of(
+    region: IVec2,
+    side: i32,
+    from: IVec2,
+    radius: i32,
+    place_of: impl Fn(IVec2) -> Option<IVec3>,
+) -> Option<IVec3> {
+    let mut nearest: Option<(i64, IVec3)> = None;
+    for ring in 0..=radius / side + 1 {
+        // the nearest a place of this square of regions may be to `from`
+        let reach = i64::from((ring - 1).max(0) * side);
         if nearest.is_some_and(|(distance, _)| reach * reach > distance) {
             break;
         }
         for (dx, dz) in square(ring) {
-            let Some(site) = village::site(seed, terrain, centre + IVec2::new(dx, dz)) else {
+            let Some(place) = place_of(region + IVec2::new(dx, dz)) else {
                 continue;
             };
-            let offset = (site.centre - from).as_i64vec2();
-            let distance = offset.length_squared();
-            let within = (site.centre - from).abs().max_element() <= radius;
+            let offset = place.xz() - from;
+            let distance = offset.as_i64vec2().length_squared();
+            let within = offset.abs().max_element() <= radius;
             if within && nearest.is_none_or(|(best, _)| distance < best) {
-                nearest = Some((distance, site.centre));
+                nearest = Some((distance, place));
             }
         }
     }

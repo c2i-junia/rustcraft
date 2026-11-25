@@ -394,7 +394,7 @@ server, asked by `Respawn`, brings the player back. Players spawn and respawn at
 inside a biome that is not cold, wet or high, in a clearing where nothing grows. `/gamemode`
 changes the mode of its author. `/locate biome <biome>` searches the nearest column of a biome
 on the generation pool, and answers once it is found (`world/locate.rs`); `/locate village` the
-nearest village, the same way.
+nearest village, and `/locate ruin|crypt|sanctuary` the nearest dungeon, the same way.
 
 ## One server tick
 
@@ -559,6 +559,20 @@ generated first. Nothing grows on its columns (`Column::village`), and the caves
 them. The chests and barrels of a generated chunk come filled (`loot.rs`), and the animals of
 its pens are born with it, like the herds.
 
+The dungeons (`world/generation/dungeon/`) are built likewise where `WorldGenSettings::dungeons`
+is set: a ruin with a cellar on flat land, a crypt off a cave (y 20 to 50), a sanctuary off a
+cave by the lava (y 9 to 17), at most one of each per region of 256 blocks. `placement.rs` draws
+a few places in the region and keeps the first that suits: a ruin reads the terrain and keeps
+away from the village; the others carve one chunk (`Caves::carve`) and put their door in a
+wall of the cave. `blueprints.rs` holds the layers of each, `loot.rs` its table (a new item goes
+at the end). Their blocks are placed after the ores; `structure.rs` holds what they share with
+the villages. The region `lair_region` holds no sanctuary, for the lair of a boss to come. Their
+hostiles are not born with the chunks, which load beyond where a hostile despawns:
+`dungeon_guards_system` (`mob/guards.rs`), every 40 ticks, 1 time in 4, adds one at a place of
+the plan of each dungeon within 36 blocks of a player, up to 5 in it and within the caps of the
+hostiles, out of the sight of the players and 8 blocks from them. A torch, lantern or lit
+campfire within 3 cells of a place keeps it empty; a peaceful world has none.
+
 The systems of the server run one after the other on its thread: an integrated server would
 otherwise share the compute pool with its client, whose frames would wait for its ticks.
 
@@ -569,7 +583,7 @@ never moves a player, so the prediction of the clients is left alone.
 ### The systems of a tick, in order
 
 Before **Receive**: `mob_behavior_system` (the animals wander, flee, follow their owner and
-breed, the hostiles hunt and strike, `push_mobs`), `cinder_system` (the embers fly), `hostile_spawning_system`, and
+breed, the hostiles hunt and strike, `push_mobs`), `cinder_system` (the embers fly), `hostile_spawning_system`, `dungeon_guards_system`, and
 `dropped_items_physics_system`. In **Simulate**, chained: `tick_damage_timers_system` (the
 invulnerability and the memory of the last mob hit count down), `handle_player_inputs_system`
 (movement, blocks, blows, eating; a fall hurts here), `breathe_system`, `burn_system` (lava

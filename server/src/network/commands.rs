@@ -10,6 +10,7 @@ use shared::{DAY_DURATION_IN_TICKS, MIDNIGHT_IN_DAY, NOON_IN_DAY};
 
 use crate::init::ServerTime;
 use crate::network::permissions::{Admin, WhitelistAction};
+use crate::world::generation::dungeon::DungeonKind;
 use crate::world::weather::ServerWeather;
 
 /// The author of the answers to a command.
@@ -19,7 +20,7 @@ const TIME_USAGE: &str = "Usage: /time set <day|night>";
 const GIVE_USAGE: &str = "Usage: /give <item> <count>";
 const GAMEMODE_USAGE: &str = "Usage: /gamemode <creative|survival>";
 const WEATHER_USAGE: &str = "Usage: /weather <clear|rain|thunder>";
-const LOCATE_USAGE: &str = "Usage: /locate <biome|village> <biome>";
+const LOCATE_USAGE: &str = "Usage: /locate <biome|village|ruin|crypt|sanctuary> <biome>";
 const DIFFICULTY_USAGE: &str = "Usage: /difficulty <peaceful|easy|normal|hard>";
 const OP_USAGE: &str = "Usage: /op <player>";
 const DEOP_USAGE: &str = "Usage: /deop <player>";
@@ -51,8 +52,8 @@ pub enum Command {
     SetGameMode(GameMode),
     /// `/weather <clear|rain|thunder>`: for as long as it would last on its own.
     SetWeather(WeatherKind),
-    /// `/locate biome <biome>` or `/locate village`: the nearest column of the biome, or the
-    /// nearest village, to the author of the command.
+    /// `/locate biome <biome>`, `/locate village` or `/locate` and a kind of dungeon: the nearest
+    /// column of the biome, village or dungeon to the author of the command.
     Locate(Place),
     /// `/difficulty <peaceful|easy|normal|hard>`: of the world.
     SetDifficulty(Difficulty),
@@ -138,6 +139,7 @@ pub enum Place {
     /// A biome, by its key.
     Biome(String),
     Village,
+    Dungeon(DungeonKind),
 }
 
 /// The command in `message`, without its `/`, or `None` when it is an ordinary message.
@@ -174,6 +176,9 @@ pub fn parse_command(line: &str) -> Result<Command, String> {
         ["weather", ..] => Err(WEATHER_USAGE.to_string()),
         ["locate", "biome", biome] => Ok(Command::Locate(Place::Biome(biome.to_string()))),
         ["locate", "village"] => Ok(Command::Locate(Place::Village)),
+        ["locate", place] => DungeonKind::from_name(place)
+            .map(|kind| Command::Locate(Place::Dungeon(kind)))
+            .ok_or_else(|| LOCATE_USAGE.to_string()),
         ["locate", ..] => Err(LOCATE_USAGE.to_string()),
         ["difficulty", difficulty] => Difficulty::from_name(difficulty)
             .map(Command::SetDifficulty)
