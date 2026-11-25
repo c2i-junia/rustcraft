@@ -12,14 +12,17 @@ use shared::messages::{
 };
 use shared::players::armour::{ArmourPiece, WornArmour};
 use shared::players::blocks::HIT_MS;
+use shared::players::game_mode::GameMode;
 use shared::players::inventory::InventoryAction;
+use shared::players::progress::Achievement;
 use shared::players::skin::{PlayerSkin, SKIN_BYTES};
 use shared::players::{Inventory, Player};
 use shared::status::{StatusReply, StatusRequest};
 use shared::world::{
-    chunk_distance, global_block_to_chunk_pos, grid_slot, raycast, to_local_pos,
-    world_position_to_chunk_position, BlockData, BlockDirection, BlockId, ChunkMap, FaceDirection,
-    FaceDirectionExt, ItemId, ItemStack, Portal, PortalColor, WeatherKind,
+    chunk_distance, global_block_to_chunk_pos, grid_slot, lair, raycast, to_local_pos,
+    world_position_to_chunk_position, BlockData, BlockDirection, BlockId, ChunkMap, Enchantment,
+    FaceDirection, FaceDirectionExt, ItemId, ItemStack, MobId, MobKind, Portal, PortalColor,
+    ServerMob, TerrainNoises, WeatherKind,
 };
 use shared::{
     game_message_to_payload, get_shared_renet_config, payload_to_game_message,
@@ -27,6 +30,7 @@ use shared::{
     MAX_INVENTORY_SLOTS, MIDNIGHT_IN_DAY, NOON_IN_DAY, PROTOCOL_ID, STC_AUTH_CHANNEL,
     STC_CHUNK_DATA_CHANNEL, STC_STANDARD_CHANNEL,
 };
+use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, UdpSocket};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime};
@@ -2680,4 +2684,328 @@ fn a_solo_player_is_an_operator_without_any_list() {
     client.send(ClientToServerMessage::Exit);
     client.send_packets();
     server.join_after_exit();
+}
+
+/// The saved player of the world of `tmp`.
+fn saved_player(tmp: &tempfile::TempDir) -> Player {
+    let file = tmp.path().join("saves").join(WORLD_NAME);
+    let file = file.join("players").join(format!("{PLAYER_ID}.ron"));
+    ron::from_str(&std::fs::read_to_string(file).unwrap()).unwrap()
+}
+
+/// Stops `server` from `client`, and starts it again with its player changed by `edit`.
+fn restart_with(
+    mut server: TestServer,
+    client: &mut TestClient,
+    edit: impl FnOnce(&mut Player),
+) -> (TestServer, TestClient) {
+    client.send(ClientToServerMessage::Exit);
+    client.send_packets();
+    server.join_after_exit();
+    let mut player = saved_player(&server.tmp);
+    edit(&mut player);
+    let file = server.tmp.path().join("saves").join(WORLD_NAME);
+    let file = file.join("players").join(format!("{PLAYER_ID}.ron"));
+    std::fs::write(file, ron::ser::to_string(&player).unwrap()).unwrap();
+    let TestServer { tmp, .. } = server;
+    let server = TestServer::start_in(tmp, WORLD_NAME);
+    let mut client = TestClient::connect(server.addr, PLAYER_ID);
+    client.wait_connected();
+    client.send(ClientToServerMessage::AuthRegisterRequest(
+        AuthRegisterRequest {
+            username: "crafter".into(),
+            render_distance: 5,
+            skin: PlayerSkin::default(),
+        },
+    ));
+    client.wait_for("AuthRegisterResponse", |m| match m {
+        ServerToClientMessage::AuthRegisterResponse(_) => Some(()),
+        _ => None,
+    });
+    (server, client)
+}
+
+/// Every mob the client was told of, as last told, but those removed.
+fn known_mobs(client: &TestClient) -> HashMap<MobId, ServerMob> {
+    let mut mobs = HashMap::new();
+    for message in &client.inbox {
+        match message {
+            ServerToClientMessage::WorldUpdate(update) => {
+                mobs.extend(update.mobs.iter().map(|(id, mob)| (*id, mob.clone())));
+            }
+            ServerToClientMessage::MobUpdate(update) => {
+                mobs.insert(update.id, update.mob.clone());
+            }
+            ServerToClientMessage::MobRemoved(id) => {
+                mobs.remove(id);
+            }
+            _ => {}
+        }
+    }
+    mobs
+}
+
+/// From a new world to the credits, through the network, the moves from a place to the next made
+/// in the save: craft, dress, trade, enchant, beat the Ember Mother, reload.
+#[test]
+#[ignore = "a minute: cargo test -p server --test session -- --ignored"]
+fn a_world_is_played_from_its_first_tool_to_the_credits_and_reloaded() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("saves").join(WORLD_NAME);
+    std::fs::create_dir_all(&dir).unwrap();
+    let meta = format!(
+        "(format_version: 5, name: \"{WORLD_NAME}\", seed: ({FLAT_SPAWN_SEED}), time: 15000, \
+         mobs: {{}}, generation: (preset: Default, villages: true, dungeons: true))"
+    );
+    std::fs::write(dir.join("world.ron"), meta).unwrap();
+    let server = TestServer::start_in(tmp, WORLD_NAME);
+    let mut client = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut client, "crafter");
+    for give in [
+        "oak_log 2",
+        "diamond_chestplate 1",
+        "diamond_helmet 1",
+        "diamond_leggings 1",
+        "diamond_boots 1",
+        "bow 1",
+        "arrow 64",
+        "rye 24",
+        "engraving_table 1",
+    ] {
+        client.send(chat_message(&format!("/give {give}")));
+    }
+    sync_with_server(&mut client, 1);
+    // Planks of a log, then the armour on
+    let inventory = send_inventory_actions(
+        &mut client,
+        2,
+        vec![
+            InventoryAction::LeftClickSlot(0),
+            InventoryAction::RightClickSlot(grid_slot(0, 0)),
+            InventoryAction::CraftAll,
+            InventoryAction::Close,
+            InventoryAction::QuickMoveSlot(1),
+            InventoryAction::QuickMoveSlot(2),
+            InventoryAction::QuickMoveSlot(3),
+            InventoryAction::QuickMoveSlot(4),
+        ],
+    );
+    assert_eq!(inventory.worn().0.iter().flatten().count(), 4);
+    assert!(inventory
+        .inner
+        .values()
+        .any(|s| s.item_id == ItemId::OakPlanks));
+
+    // The bow enchanted at the table, put down ahead
+    let (server, mut client) = restart_with(server, &mut client, |player| {
+        player.experience.level = 40;
+    });
+    let (down, _) = land_and_aim_down(&mut client);
+    let camera = down.looking_to(Vec3::new(1.0, -1.0, 0.0), Vec3::Y);
+    let hit = raycast::raycast(
+        &client.world,
+        &camera,
+        &camera.translation,
+        Default::default(),
+    );
+    let table = hit.unwrap().position + IVec3::Y;
+    let inventory = saved_player(&server.tmp).inventory;
+    let slot_of = |item_id| {
+        let slots = &inventory.inner;
+        let found = slots.iter().find(|(_, stack)| stack.item_id == item_id);
+        *found.unwrap().0
+    };
+    let bow = slot_of(ItemId::Bow);
+    client.send(ClientToServerMessage::PlayerInputs(vec![
+        PlayerFrameInput {
+            time_ms: 100,
+            delta_ms: 16,
+            inputs: [NetworkAction::RightClick].into_iter().collect(),
+            camera,
+            hotbar_slot: slot_of(ItemId::EngravingTable),
+            ..Default::default()
+        },
+    ]));
+    let inventory = send_inventory_actions(
+        &mut client,
+        101,
+        vec![
+            InventoryAction::OpenEngravingTable(table),
+            InventoryAction::QuickMoveSlot(bow),
+            InventoryAction::Enchant(Enchantment::BowPower),
+            InventoryAction::Enchant(Enchantment::BowPower),
+            InventoryAction::Enchant(Enchantment::BowPower),
+            InventoryAction::Close,
+        ],
+    );
+    let enchanted = inventory.inner.values().find(|s| s.is_enchanted()).unwrap();
+    assert_eq!(enchanted.bonus_arrow_damage(), 3);
+
+    // The village: where, then by its farmer
+    client.send(chat_message("/locate village"));
+    let answer = client.wait_for("the village", |m| match m {
+        ServerToClientMessage::ChatMessage(m) if m.content.starts_with("The nearest village") => {
+            Some(m.content.clone())
+        }
+        _ => None,
+    });
+    let numbers: Vec<f32> = answer
+        .split(|c: char| !(c.is_ascii_digit() || c == '-'))
+        .filter_map(|word| word.parse().ok())
+        .collect();
+    let (x, z) = (numbers[0], numbers[1]);
+    let (server, mut client) = restart_with(server, &mut client, |player| {
+        player.position = Vec3::new(x, 85.0, z);
+        player.game_mode = GameMode::Creative;
+        player.is_flying = true;
+    });
+    let start = Instant::now();
+    let farmer = loop {
+        assert!(start.elapsed() < 6 * WAIT_TIMEOUT, "no farmer");
+        let farmers = known_mobs(&client);
+        if let Some((id, mob)) = farmers.iter().find(|(_, m)| m.kind == MobKind::Farmer) {
+            break (*id, mob.position);
+        }
+        client.send(inputs_at(1 + start.elapsed().as_millis() as u64));
+        client.pump();
+    };
+    let (server, mut client) = restart_with(server, &mut client, |player| {
+        player.position = farmer.1 + Vec3::new(1.2, 0.2, 0.0);
+        player.game_mode = GameMode::Survival;
+        player.is_flying = false;
+    });
+    let start = Instant::now();
+    let mut opened = None;
+    while opened.is_none() {
+        assert!(start.elapsed() < 3 * WAIT_TIMEOUT, "no trade");
+        let time_ms = 1 + start.elapsed().as_millis() as u64;
+        let me = player_position(&client).unwrap_or(farmer.1 + Vec3::X);
+        let eye = me + Vec3::Y * 0.6;
+        let at = known_mobs(&client)
+            .get(&farmer.0)
+            .map_or(farmer.1, |mob| mob.position);
+        let held = (start.elapsed().as_millis() / 100).is_multiple_of(2);
+        client.send(ClientToServerMessage::PlayerInputs(vec![
+            PlayerFrameInput {
+                time_ms,
+                delta_ms: 5,
+                inputs: held
+                    .then_some(NetworkAction::RightClick)
+                    .into_iter()
+                    .collect(),
+                camera: Transform::from_translation(eye).looking_at(at, Vec3::Y),
+                hotbar_slot: 8,
+                ..Default::default()
+            },
+        ]));
+        client.pump();
+        opened = client.inbox.iter().find_map(|m| match m {
+            ServerToClientMessage::TradeUpdate(Some(view)) => Some(view.clone()),
+            _ => None,
+        });
+    }
+    let view = opened.unwrap();
+    client.send(ClientToServerMessage::Trade {
+        mob: view.mob,
+        offer: 0,
+    });
+    client.wait_for("the coin", |m| match m {
+        ServerToClientMessage::PlayerUpdate(u) if u.id == PLAYER_ID => u
+            .inventory
+            .as_ref()
+            .filter(|i| i.inner.values().any(|s| s.item_id == ItemId::Coin))
+            .map(|_| ()),
+        _ => None,
+    });
+    client.send(ClientToServerMessage::EndTrade);
+
+    // The lair
+    let heart = lair::heart(lair::centre(
+        FLAT_SPAWN_SEED,
+        &TerrainNoises::new(FLAT_SPAWN_SEED),
+    ));
+    let stand = heart + Vec3::new(0.0, 0.95, 18.0);
+    let (server, mut client) = restart_with(server, &mut client, |player| {
+        assert!(player.progress.has(Achievement::Trade));
+        assert!(player.progress.has(Achievement::FullSuit));
+        player.position = stand;
+        assert!(player.progress.has(Achievement::Enchantment));
+        assert_eq!(player.experience.level, 24);
+        player.health = 5000;
+    });
+    let bow = saved_player(&server.tmp)
+        .inventory
+        .inner
+        .iter()
+        .find(|(_, s)| s.item_id == ItemId::Bow)
+        .map(|(slot, _)| *slot)
+        .unwrap();
+    let start = Instant::now();
+    let mut time_ms = 1;
+    let mut won = false;
+    while !won {
+        assert!(start.elapsed() < 12 * WAIT_TIMEOUT, "she is not beaten");
+        let mother = known_mobs(&client)
+            .into_values()
+            .find(|m| m.kind == MobKind::EmberMother)
+            .map_or(heart, |m| m.position);
+        let me = player_position(&client).unwrap_or(stand);
+        let eye = me + Vec3::Y * 0.6;
+        // Over it, for the fall of the arrow
+        let aim = mother + Vec3::Y * 0.02 * eye.distance_squared(mother) / 2.0;
+        for step in 0..12 {
+            let drawing = step < 11;
+            client.send(ClientToServerMessage::PlayerInputs(vec![
+                PlayerFrameInput {
+                    time_ms,
+                    delta_ms: 100,
+                    inputs: drawing
+                        .then_some(NetworkAction::RightClick)
+                        .into_iter()
+                        .collect(),
+                    camera: Transform::from_translation(eye).looking_at(aim, Vec3::Y),
+                    hotbar_slot: bow,
+                    ..Default::default()
+                },
+            ]));
+            time_ms += 1;
+            let sent = Instant::now();
+            while sent.elapsed() < Duration::from_millis(40) {
+                client.pump();
+            }
+        }
+        won = client
+            .inbox
+            .iter()
+            .any(|m| matches!(m, ServerToClientMessage::Victory));
+    }
+    sync_with_server(&mut client, time_ms + 1);
+    let (_server, mut client) = restart_with(server, &mut client, |player| {
+        assert!(player.progress.has(Achievement::Boss));
+        assert!(player.progress.has(Achievement::Lair));
+        assert!(player.experience.level >= 24);
+        assert!(!player.is_dead());
+        assert!(player
+            .inventory
+            .inner
+            .values()
+            .any(|s| s.is_enchanted() && s.item_type.wear() > Some(0)));
+    });
+    // Beaten for good
+    for time_ms in 1..60 {
+        sync_with_server(&mut client, time_ms);
+    }
+    assert!(known_mobs(&client)
+        .values()
+        .all(|mob| mob.kind != MobKind::EmberMother));
+    let meta = std::fs::read_to_string(_server.world_dir().join("world.ron")).unwrap();
+    assert!(meta.contains("boss_defeated: true"), "{meta}");
+}
+
+/// Where the server last said the player of `client` is.
+fn player_position(client: &TestClient) -> Option<Vec3> {
+    client.inbox.iter().rev().find_map(|m| match m {
+        ServerToClientMessage::PlayerUpdate(u) if u.id == client.id => Some(u.movement.position),
+        _ => None,
+    })
 }
