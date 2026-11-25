@@ -34,6 +34,7 @@ mod pause;
 mod player_model;
 mod portal_seam;
 mod portals;
+mod progress;
 mod raw_client;
 mod review;
 mod seed;

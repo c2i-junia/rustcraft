@@ -9,7 +9,7 @@ use bevy::math::Vec3;
 use rand::Rng;
 use shared::{
     messages::PlayerId,
-    players::Player,
+    players::{progress::Achievement, Player},
     world::{
         ItemId, MobAction, MobId, MobTarget, ServerMob, BREED_WAIT_TICKS, FED_YOUNG_SPEED_UP,
         GROW_TICKS, LOVE_TICKS, TAME_CHANCE,
@@ -18,6 +18,8 @@ use shared::{
 
 /// How far an animal that wants a mate looks for one, in blocks.
 const MATE_SEARCH: f32 = 8.0;
+/// The living player nearest to a birth, at most this far, is who had the two breed, in blocks.
+const BREEDER_DISTANCE: f32 = 16.0;
 /// Two animals that want a mate this close to each other give birth, in blocks.
 const MATE_DISTANCE: f32 = 1.5;
 /// A tamed animal farther than this from its owner walks to it, in blocks.
@@ -61,6 +63,21 @@ pub fn feed(mob: &mut ServerMob, player: &str, item: ItemId, rng: &mut impl Rng)
     true
 }
 
+/// The players who had the animals breed that gave birth at `births` earn it.
+pub fn credit_births(births: Vec<Vec3>, players: &mut HashMap<PlayerId, Player>) {
+    for birth in births {
+        let breeder = players
+            .values_mut()
+            .filter(|player| !player.is_dead())
+            .map(|player| (player.position.distance(birth), player))
+            .filter(|(distance, _)| *distance <= BREEDER_DISTANCE)
+            .min_by(|a, b| a.0.total_cmp(&b.0));
+        if let Some((_, player)) = breeder {
+            player.earn(Achievement::Animal);
+        }
+    }
+}
+
 /// Whether `a` and `b` may have a young one together: of the same kind, both adults wanting a
 /// mate, and of the same owner when tamed.
 fn are_mates(a: &ServerMob, b: &ServerMob) -> bool {
@@ -75,12 +92,12 @@ fn are_mates(a: &ServerMob, b: &ServerMob) -> bool {
 /// One step of the animals' lives, after their moves: the young grow, the wish for a mate
 /// fades, and two animals that want a mate walk to each other and give birth once close
 /// (`MATE_DISTANCE`). A young one born of a tamed pair belongs to their owner. The mobs
-/// changed are added to `changed`, the young ones born to the mobs.
+/// changed are added to `changed`, the young ones born to the mobs. Returns where they were born.
 pub fn breed(
     mobs: &mut HashMap<MobId, ServerMob>,
     changed: &mut HashSet<MobId>,
     loaded: impl Fn(Vec3) -> bool,
-) {
+) -> Vec<Vec3> {
     let mut wanting = Vec::new();
     for (id, mob) in mobs.iter_mut() {
         if !mob.kind.is_animal() || !loaded(mob.position) {
@@ -153,9 +170,11 @@ pub fn breed(
             }
         }
     }
+    let places = born.iter().map(|young| young.position).collect();
     for young in born {
         super::add_mob(mobs, changed, young);
     }
+    places
 }
 
 /// The player named `name`, alive, if it is there.

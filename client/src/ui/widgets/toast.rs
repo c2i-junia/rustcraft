@@ -8,10 +8,15 @@ use accesskit::Role;
 use bevy::{a11y::AccessibilityNode, prelude::*, ui::UiSystems};
 
 use super::raised_bevel;
-use crate::ui::theme::{BEVEL_WIDTH, DANGER, FONT_S, OK, PANEL, SPACE_L, SPACE_M, SPACE_S, TEXT};
+use crate::ui::theme::{
+    ACCENT, BEVEL_WIDTH, DANGER, FONT_S, OK, PANEL, SPACE_L, SPACE_M, SPACE_S, TEXT,
+};
 
 /// How long a toast shows.
 pub const TOAST_DURATION: Duration = Duration::from_secs(3);
+
+/// How long the toast of an achievement shows.
+const ACHIEVEMENT_DURATION: Duration = Duration::from_secs(5);
 
 /// Over the screens and their overlays, under the dialogs (`DIALOG_Z`).
 pub const TOAST_Z: i32 = 40;
@@ -25,11 +30,12 @@ const TOAST_EDGE: f32 = 4.0;
 /// The most toasts shown at once: a new one beyond them takes the place of the oldest.
 const MAX_TOASTS: usize = 3;
 
-/// What a toast tells: news, or a failure.
+/// What a toast tells: news, a failure, or what the player achieved.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ToastKind {
     Info,
     Error,
+    Achievement,
 }
 
 /// A toast, despawned once `Time<Real>` reaches `until`.
@@ -62,6 +68,11 @@ pub fn show_toast(
     let (role, edge) = match kind {
         ToastKind::Info => (Role::Status, OK),
         ToastKind::Error => (Role::Alert, DANGER),
+        ToastKind::Achievement => (Role::Status, ACCENT),
+    };
+    let duration = match kind {
+        ToastKind::Achievement => ACHIEVEMENT_DURATION,
+        _ => TOAST_DURATION,
     };
     let toast = commands
         .spawn((
@@ -109,7 +120,7 @@ pub fn show_toast(
         if let Ok(mut toast) = world.get_entity_mut(toast) {
             toast.insert((
                 Toast {
-                    until: now + TOAST_DURATION,
+                    until: now + duration,
                 },
                 ChildOf(stack),
             ));

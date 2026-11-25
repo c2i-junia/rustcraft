@@ -6,6 +6,7 @@ pub mod home;
 pub mod multi;
 pub mod pause;
 pub mod player_name;
+pub mod progress;
 pub mod servers;
 pub mod settings;
 pub mod skins;

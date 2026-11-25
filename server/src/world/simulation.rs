@@ -9,6 +9,7 @@ use shared::{
         fire::{body_in_fire, body_in_lava, is_doused},
         game_mode::{fall_damage, DamageSource, REGENERATION_TICKS},
         movement::FALL_LIMIT,
+        progress::Achievement,
         simulation::simulate_player_actions,
         Player,
     },
@@ -379,6 +380,9 @@ pub fn handle_player_inputs_system(
             .extend(outcome.signs.iter().map(|&pos| (ev.client_id, pos)));
         home.slept
             .extend(outcome.bedrolls.iter().map(|&pos| (ev.client_id, pos)));
+        if !outcome.bedrolls.is_empty() {
+            player.earn(Achievement::Bed);
+        }
         for block in &outcome.broken {
             dropped_items.drop_block_items(block, &mut rng);
         }

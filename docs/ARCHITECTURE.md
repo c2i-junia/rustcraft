@@ -785,6 +785,17 @@ when it changes to the players near, and plays the boss music (`ui/hud/boss.rs`)
 leaves her to `boss_system`, which drops her loot; gone any other way, she sleeps anew. Beaten: `boss_defeated` in `world.ron`, the lava is obsidian, and `Victory` shows
 the credits (`ui/credits.rs`, read from `data/credits.txt`; `spawn_credits` serves any screen).
 
+### The progress of a player
+
+`players/progress.rs` (shared) is what a player achieved in a world, `Player::progress`, kept in its
+save: 21 achievements, all earned through `Player::earn`, which ignores the creative mode: nothing
+is earned there, though what was taken there is if held back in survival.
+`world/progress.rs` (server) looks every 10 ticks at what a player holds and wears, where it is
+(tiers, dungeons, lair) and the night it lives through; kills, trades, births, the bedroll and the
+boss earn theirs where they happen, and so does an enchantment (`Player::enchant`). A player is told of its `Progress` alone, with what it has just earned, when it joins
+and when it changes: the client shows toasts (`ui/hud/progress.rs`) and the Progress screen of the
+pause menu (`ui/menus/progress.rs`).
+
 ## One client frame
 
 `GameSet` (`client/src/state.rs`) orders the in-game systems of `Update`; `game_plugin`

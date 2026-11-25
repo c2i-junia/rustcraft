@@ -102,6 +102,7 @@ fn the_pause_menu_opens_on_back_to_game_and_escape_returns_to_the_game() {
     assert_eq!(h.focus_label().as_deref(), Some("Back to game"));
     let labels = [
         "Back to game",
+        "Progress",
         "Settings",
         "Save now",
         "Save and quit to title",
@@ -134,6 +135,8 @@ fn the_keyboard_alone_drives_the_pause_menu() {
     let mut h = enter_world(GameFolder::new().with_world("Keys"), "Keys");
     h.press(KeyCode::Escape);
     h.wait_for(&pause_menu(), SCREEN);
+    h.press(KeyCode::ArrowDown);
+    assert_eq!(h.focus_label().as_deref(), Some("Progress"));
     h.press(KeyCode::ArrowDown);
     assert_eq!(h.focus_label().as_deref(), Some("Settings"));
     assert_eq!(h.focus_ring(), ACCENT);
@@ -174,7 +177,7 @@ fn the_keyboard_alone_drives_the_pause_menu() {
     h.click_at(Vec2::new(10., 10.));
     assert!(h.focus_in_pause_menu());
 
-    for _ in 0..4 {
+    for _ in 0..5 {
         h.press(KeyCode::ArrowUp);
     }
     assert_eq!(h.focus_label().as_deref(), Some("Back to game"));
@@ -304,7 +307,7 @@ fn save_and_quit_shows_saving_until_the_world_is_saved(
         .iter(world)
         .map(|(_, disabled)| disabled)
         .collect();
-    assert_eq!(disabled, [true; 4]);
+    assert_eq!(disabled, [true; 5]);
 
     h.press(KeyCode::Escape);
     h.click(&button("Back to game"));

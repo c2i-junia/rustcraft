@@ -132,6 +132,7 @@ Date: Unreleased
     - Underground, hostile mobs are harder, more numerous and more rewarding the deeper they appear: the caves, the depths below y = 20 and the furnace around the lava lakes, where they are twice as strong. A message names each the first time a player reaches it.
     - The Ember Mother, mother of the Cinderlings, sleeps in a huge cavern around a lake of lava at the bottom of the world, a few hundred blocks from the origin. A depths compass, of four gold ingots around a diamond, points to it. She wakes when a survival player comes in, throws embers and calls Cinderlings, and under half her health hunts the players and sets the ground on fire; she sleeps and heals once nobody is left. Beaten for good, she leaves the Ember Heart, a glowing trophy block, and plenty of experience, and the credits scroll. She never wakes in a peaceful world, and worlds from before the dungeons have no lair.
     - The main menu opens the credits, which also name where the textures, fonts and sounds come from.
+    - Added 21 achievements, from the first tool to the Ember Mother, kept per player in each world: a toast tells each one, and Progress in the pause menu lists them all. None are earned in creative.
 
 ----------------------------------------------------------------------------------------------------
 Version: 0.8    

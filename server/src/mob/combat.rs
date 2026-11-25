@@ -8,6 +8,7 @@ use shared::{
     players::{
         blocks::{aim, held_item},
         hunger::BLOW_EXHAUSTION,
+        progress::Achievement,
         Player, ViewMode,
     },
     world::{
@@ -127,7 +128,11 @@ pub fn interact(
         rest.inputs.remove(&NetworkAction::RightClick);
         if let (0, Some(item)) = (*feed_wait, held) {
             *feed_wait = FEED_MS;
+            let wild = mob.owner.is_none();
             if super::breeding::feed(mob, &player.name, item, rng) {
+                if wild && mob.owner.is_some() {
+                    player.earn(Achievement::Animal);
+                }
                 player
                     .inventory
                     .remove_item_from_stack(input.hotbar_slot, 1);
@@ -165,6 +170,7 @@ pub fn interact(
                         .wear_tool(input.hotbar_slot, item.blow_wear());
                 }
                 if dies {
+                    player.beat(mob.kind);
                     drops.extend(loot(mob, rng));
                     let points = mob.experience();
                     world.items.drop_orb(points, position, rng);

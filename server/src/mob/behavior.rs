@@ -133,9 +133,10 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time
         delta,
         &mut rand::thread_rng(),
     );
-    super::breeding::breed(mobs, changed_mobs, |position| {
+    let births = super::breeding::breed(mobs, changed_mobs, |position| {
         is_terrain_loaded(position, chunks)
     });
+    super::breeding::credit_births(births, players);
     push_mobs(mobs, chunks, players, changed_mobs, delta);
 }
 

@@ -31,6 +31,7 @@ use crate::ui::hud::reticle::show_reticle;
 use crate::ui::hud::{HudBottom, InventoryRoot, UIMode, UiDialog};
 use crate::ui::menus::death::DeathScreen;
 use crate::ui::menus::modal_open;
+use crate::ui::menus::progress::{OpenProgress, ProgressRoot};
 use crate::ui::menus::settings::controls::KeyCapture;
 use crate::ui::menus::settings::{close_settings, spawn_settings, SettingsContext, SettingsRoot};
 use crate::ui::quit::QuittingCard;
@@ -91,6 +92,7 @@ struct ClosePause;
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PauseButton {
     BackToGame,
+    Progress,
     Settings,
     SaveNow,
     SaveAndQuit,
@@ -101,6 +103,7 @@ impl PauseButton {
     pub fn label(self) -> &'static str {
         match self {
             PauseButton::BackToGame => "Back to game",
+            PauseButton::Progress => "Progress",
             PauseButton::Settings => "Settings",
             PauseButton::SaveNow => "Save now",
             PauseButton::SaveAndQuit => "Save and quit to title",
@@ -151,11 +154,13 @@ pub fn pause_buttons(origin: Option<&SessionOrigin>) -> &'static [PauseButton] {
     match origin {
         Some(SessionOrigin::Server { .. }) => &[
             PauseButton::BackToGame,
+            PauseButton::Progress,
             PauseButton::Settings,
             PauseButton::Disconnect,
         ],
         Some(SessionOrigin::World { .. }) | None => &[
             PauseButton::BackToGame,
+            PauseButton::Progress,
             PauseButton::Settings,
             PauseButton::SaveNow,
             PauseButton::SaveAndQuit,
@@ -217,7 +222,7 @@ pub fn pause_plugin(app: &mut App) {
     );
 }
 
-/// The overlays the game's HUD hides under: the pause menu, the in-game settings, the card
+/// The overlays the game's HUD hides under: the pause menu, the in-game settings, the progress, the card
 /// shown while quitting, the world map and the death screen. An overlay over the game joins them here, so that the hotbar, the
 /// reticle and the chat lines all hide under it.
 pub type Overlays<'w, 's> = Query<
@@ -227,6 +232,7 @@ pub type Overlays<'w, 's> = Query<
     Or<(
         With<PauseMenu>,
         With<SettingsRoot>,
+        With<ProgressRoot>,
         With<QuittingCard>,
         With<WorldMapRoot>,
         With<DeathScreen>,
@@ -248,7 +254,7 @@ pub(crate) fn toggle_pause_menu(
     ui_mode: Res<UIMode>,
     capture: Res<KeyCapture>,
     menus: Query<Entity, With<PauseMenu>>,
-    settings: Query<(), With<SettingsRoot>>,
+    settings: Query<(), Or<(With<SettingsRoot>, With<ProgressRoot>)>>,
     mut inventory: Query<&mut Visibility, With<InventoryRoot>>,
     origin: Option<Res<SessionOrigin>>,
     assets: Res<AssetServer>,
@@ -398,6 +404,7 @@ pub(crate) fn act_on_pause_button(
     buttons: Query<&PauseButton>,
     menus: Query<Entity, With<PauseMenu>>,
     settings: Query<(), With<SettingsRoot>>,
+    screens: Query<(), With<ProgressRoot>>,
     origin: Option<Res<SessionOrigin>>,
     saves: Option<Res<LocalSaves>>,
     mut client: ResMut<RenetClient>,
@@ -412,6 +419,12 @@ pub(crate) fn act_on_pause_button(
         PauseButton::BackToGame => {
             for menu in &menus {
                 commands.entity(menu).insert(ClosePause);
+            }
+        }
+        PauseButton::Progress => {
+            if screens.is_empty() {
+                let opener = event.entity;
+                commands.queue(OpenProgress { opener });
             }
         }
         PauseButton::Settings => {
@@ -658,19 +671,27 @@ mod tests {
             ip: "127.0.0.1".to_string(),
             address: "127.0.0.1:8000".parse().unwrap(),
         };
-        let solo = [BackToGame, Settings, SaveNow, SaveAndQuit];
+        let solo = [BackToGame, Progress, Settings, SaveNow, SaveAndQuit];
         assert_eq!(pause_buttons(Some(&world)), solo);
         assert_eq!(pause_buttons(None), solo);
         assert_eq!(
             pause_buttons(Some(&server)),
-            [BackToGame, Settings, Disconnect]
+            [BackToGame, Progress, Settings, Disconnect]
         );
-        let labels =
-            [BackToGame, Settings, SaveNow, SaveAndQuit, Disconnect].map(PauseButton::label);
+        let labels = [
+            BackToGame,
+            Progress,
+            Settings,
+            SaveNow,
+            SaveAndQuit,
+            Disconnect,
+        ]
+        .map(PauseButton::label);
         assert_eq!(
             labels,
             [
                 "Back to game",
+                "Progress",
                 "Settings",
                 "Save now",
                 "Save and quit to title",
@@ -802,7 +823,7 @@ mod tests {
             .iter(world)
             .map(|(&action, disabled)| (action, disabled))
             .collect();
-        assert_eq!(buttons.len(), 4);
+        assert_eq!(buttons.len(), 5);
         assert!(buttons.iter().all(|&(_, disabled)| disabled), "{buttons:?}");
         let leave = world
             .query::<(&PauseButton, &AccessibleLabel)>()

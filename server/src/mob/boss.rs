@@ -139,8 +139,12 @@ fn step(
         }
         Some(id) if map.boss.awake && is_slain(&map.mobs[&id]) => {
             beaten(map, centre, id, rng);
-            let there = map.players.values().filter(|p| holds(centre, p.position));
-            messages.extend(there.map(|p| (p.id, ServerToClientMessage::Victory)));
+            for player in map.players.values_mut() {
+                if holds(centre, player.position) {
+                    player.beat(MobKind::EmberMother);
+                    messages.push((player.id, ServerToClientMessage::Victory));
+                }
+            }
         }
         Some(id) => fight(map, centre, id, delta, rng),
         None if is_terrain_loaded(heart(centre), &map.chunks) => {

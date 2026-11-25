@@ -8,6 +8,7 @@ use std::time::{Duration, SystemTime};
 
 use bevy::prelude::{Transform, Vec3};
 use server::WorldGenerator;
+use shared::players::progress::Achievement;
 use shared::players::Player;
 use shared::world::{ItemId, ItemStack};
 use tempfile::TempDir;
@@ -154,6 +155,7 @@ impl GameFolder {
             WorldGenerator::new(42).spawn_position(),
             Transform::default(),
         );
+        saved.progress.achievements = Achievement::ALL.to_vec();
         edit(&mut saved);
         let players = self.path().join(SAVE_PATH).join(world).join("players");
         fs::create_dir_all(&players).expect("a players folder");

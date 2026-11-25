@@ -208,6 +208,9 @@ fn fly(
                 if mob.hurt_ticks == 0 && !mob.kind.is_villager() {
                     map.changed_mobs.insert(*id);
                     if wound(mob, flight.shooter, flight.shot.damage, push) {
+                        if let Some(shooter) = map.players.get_mut(&flight.shooter) {
+                            shooter.beat(mob.kind);
+                        }
                         let (drops, position) = (loot(mob, rng), mob.position);
                         drop_loot(&mut map.dropped_items, drops, position);
                         let points = mob.experience();

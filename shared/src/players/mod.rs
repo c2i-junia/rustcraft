@@ -12,6 +12,7 @@ pub mod game_mode;
 pub mod hunger;
 pub mod inventory;
 pub mod movement;
+pub mod progress;
 pub mod simulation;
 pub mod skin;
 

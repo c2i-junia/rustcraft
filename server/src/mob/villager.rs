@@ -13,7 +13,7 @@ use bevy::prelude::*;
 use bevy_renet::RenetServer;
 use rand::Rng;
 use shared::messages::{FullChatMessage, PlayerId, ServerToClientMessage};
-use shared::players::Player;
+use shared::players::{progress::Achievement, Player};
 use shared::utils::unix_time_ms;
 use shared::world::hostiles::is_night;
 use shared::world::trade::{market_day, offers, Goods, TRADE_DISTANCE};
@@ -406,6 +406,7 @@ fn make_trades(
         };
         let inventory = &mut customer.inventory;
         if let Ok(goods) = villager.trade(mob.kind, usize::from(index), day, inventory) {
+            customer.earn(Achievement::Trade);
             given.push((player, Some(goods)));
         }
     }

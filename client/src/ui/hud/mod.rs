@@ -39,6 +39,7 @@ pub mod hotbar;
 pub mod inventory;
 pub mod item_browser;
 pub mod minimap;
+pub mod progress;
 pub mod reticle;
 mod ui_mode;
 
@@ -238,7 +239,9 @@ pub fn hud_plugin(app: &mut App) {
         )
         .add_systems(OnExit(GameState::Game), boss::forget_boss);
     crate::ui::credits::credits_plugin(app);
+    progress::progress_plugin(app);
     pause_plugin(app);
+    crate::ui::menus::progress::progress_screen_plugin(app);
     death_plugin(app);
     chat_completion_plugin(app);
     minimap_plugin(app);

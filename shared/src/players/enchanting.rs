@@ -2,6 +2,7 @@
 //! slot. Only the server does it; a client sees it in the next `PlayerUpdate`.
 
 use super::inventory::{InventoryRefusal, ENGRAVING_SLOT};
+use super::progress::Achievement;
 use super::Player;
 use crate::world::{enchantment_cost, Enchantment};
 
@@ -36,6 +37,7 @@ impl Player {
         });
         enchanted.ok_or(InventoryRefusal::NothingToEnchant)?;
         self.spend_levels(cost);
+        self.earn(Achievement::Enchantment);
         Ok(())
     }
 }
@@ -118,6 +120,7 @@ mod tests {
         assert_eq!(does(Server, Close).0, Ok(()));
         let sword = player.inventory.inner[&0];
         assert_eq!(sword.bonus_blow_damage(), 2);
+        assert_eq!(player.progress.achievements, [Achievement::Enchantment]);
         assert!(!player.inventory.inner.contains_key(&ENGRAVING_SLOT));
         // The wear keeps the enchantments
         player.inventory.wear_tool(0, 5);

@@ -4,6 +4,7 @@ pub mod mob;
 pub mod player;
 mod world;
 
+use crate::players::progress::{Achievement, Progress};
 use crate::world::{
     depths::DepthTier, MobId, MobKind, Portal, PortalColor, TradeView, WeatherKind,
 };
@@ -88,6 +89,12 @@ pub enum ServerToClientMessage {
     BossBar(Option<BossBar>),
     /// The boss was beaten while the player of this client was in its lair: the credits.
     Victory,
+    /// What the player of this client achieved, when it joins and when it changes, with what it
+    /// has just earned.
+    Progress {
+        progress: Progress,
+        earned: Vec<Achievement>,
+    },
 }
 
 /// What the bar of a boss shows.
@@ -258,6 +265,13 @@ mod tests {
             (ServerToClientMessage::TradeUpdate(None), 17),
             (ServerToClientMessage::BossBar(None), 18),
             (ServerToClientMessage::Victory, 19),
+            (
+                ServerToClientMessage::Progress {
+                    progress: Default::default(),
+                    earned: vec![],
+                },
+                20,
+            ),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");
         }

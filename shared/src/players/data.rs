@@ -16,6 +16,7 @@ use super::game_mode::{
 use super::hunger::{
     full_food, respawn_saturation, DAMAGE_EXHAUSTION, MAX_FOOD, RESPAWN_SATURATION,
 };
+use super::progress::Progress;
 use super::skin::PlayerSkin;
 use crate::{
     messages::PlayerId,
@@ -240,6 +241,10 @@ pub struct Player {
     /// The depth tiers the player was in, each announced the first time. The server's only.
     #[serde(default)]
     pub depths_reached: Vec<DepthTier>,
+    /// What the player achieved. The server's only, which tells the client of it. Saves from
+    /// before it have none.
+    #[serde(default)]
+    pub progress: Progress,
     pub inventory: Inventory,
     pub height: f32,
     pub width: f32,
@@ -487,6 +492,7 @@ impl Player {
             exhaustion: 0.0,
             experience: Experience::default(),
             depths_reached: Vec::new(),
+            progress: Progress::default(),
             inventory: Inventory::new(),
             height: PLAYER_HEIGHT,
             width: PLAYER_WIDTH,

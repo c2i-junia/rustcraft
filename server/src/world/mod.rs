@@ -17,6 +17,7 @@ pub mod load_from_file;
 pub mod locate;
 mod pool;
 pub mod portals;
+pub mod progress;
 pub mod save;
 pub mod simulation;
 pub mod ticks;

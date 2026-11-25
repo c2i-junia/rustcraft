@@ -321,6 +321,7 @@ pub fn load_player_data(
             player.exhaustion = saved.exhaustion;
             player.experience = saved.experience;
             player.depths_reached = saved.depths_reached;
+            player.progress = saved.progress;
             player.inventory = saved.inventory;
             // A block is used only while the player is there
             player.inventory.close_blocks();
@@ -431,6 +432,7 @@ mod tests {
         saved.exhaustion = 2.25;
         saved.experience.gain(30);
         saved.depths_reached = vec![shared::world::depths::DepthTier::Depths];
+        saved.progress.achievements = vec![shared::players::progress::Achievement::Iron];
         save_player_data(&saved, &player_file(&tmp, 7)).unwrap();
 
         let loaded =
@@ -444,6 +446,7 @@ mod tests {
         );
         assert_eq!(loaded.experience, saved.experience);
         assert_eq!(loaded.depths_reached, saved.depths_reached);
+        assert_eq!(loaded.progress, saved.progress);
 
         // A save from before the game modes is a survival player in full health
         let old = "(id: 7, name: \"old\", position: (1.0, 2.0, 3.0), camera_transform: (translation: (0.0, 0.0, 0.0), rotation: (0.0, 0.0, 0.0, 1.0), scale: (1.0, 1.0, 1.0)), velocity: (0.0, 0.0, 0.0), on_ground: true, is_flying: true, inventory: (inner: {}), height: 1.8, width: 0.8, last_input_processed: 0)";

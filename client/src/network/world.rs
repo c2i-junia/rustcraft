@@ -13,6 +13,7 @@ use crate::portal::shot::ShotFired;
 use crate::ui::credits::CreditsDue;
 use crate::ui::hud::boss::NearBoss;
 use crate::ui::hud::depths::DepthReached;
+use crate::ui::hud::progress::Earn;
 use crate::ui::hud::TradeUpdated;
 use shared::players::blocks::PortalShot;
 use shared::world::SIX_OFFSETS;
@@ -180,6 +181,9 @@ pub fn update_world_from_network(
             }
             ServerToClientMessage::BossBar(bar) => commands.insert_resource(NearBoss(bar)),
             ServerToClientMessage::Victory => commands.insert_resource(CreditsDue(true)),
+            ServerToClientMessage::Progress { progress, earned } => {
+                commands.queue(Earn { progress, earned });
+            }
             ServerToClientMessage::DroppedItems(update) => {
                 ev_dropped_items.write(update);
             }
