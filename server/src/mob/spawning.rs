@@ -48,6 +48,11 @@ pub const DESPAWN_DISTANCE: f32 = 96.0;
 /// ground by day (`burrow_at_dawn`) and, every `SPAWN_INTERVAL_TICKS`, despawns the hostiles
 /// far from every player and gives each player a spawn attempt.
 pub fn hostile_spawning_system(mut world_map: ResMut<ServerWorldMap>, time: Res<ServerTime>) {
+    spawning_tick(&mut world_map, time.0, &mut rand::thread_rng());
+}
+
+/// What `hostile_spawning_system` does at `tick`, drawing from `rng`.
+fn spawning_tick(world_map: &mut ServerWorldMap, tick: u64, rng: &mut impl Rng) {
     let ServerWorldMap {
         mobs,
         chunks,
@@ -55,21 +60,22 @@ pub fn hostile_spawning_system(mut world_map: ResMut<ServerWorldMap>, time: Res<
         changed_mobs,
         difficulty,
         ..
-    } = world_map.as_mut();
+    } = world_map;
     if !difficulty.has_hostiles() {
         mobs.retain(|_, mob| !mob.kind.is_hostile() && !mob.kind.is_projectile());
         return;
     }
-    burrow_at_dawn(mobs, changed_mobs, is_night(time.0));
-    if !time.0.is_multiple_of(SPAWN_INTERVAL_TICKS) {
+    burrow_at_dawn(mobs, changed_mobs, is_night(tick));
+    if !tick.is_multiple_of(SPAWN_INTERVAL_TICKS) {
         return;
     }
     despawn_far_hostiles(mobs, players);
-    let night = is_night(time.0);
-    let mut rng = rand::thread_rng();
-    let ids: Vec<PlayerId> = players.keys().copied().collect();
+    let night = is_night(tick);
+    let mut ids: Vec<PlayerId> = players.keys().copied().collect();
+    // In a fixed order, so that a seeded `rng` gives the same world
+    ids.sort_unstable();
     for id in ids {
-        for mob in spawn_attempt(chunks, players, mobs, id, night, &mut rng) {
+        for mob in spawn_attempt(chunks, players, mobs, id, night, rng) {
             super::add_mob(mobs, changed_mobs, mob);
         }
     }
@@ -181,7 +187,7 @@ fn spawn_in_water(
 /// `SPAWN_RING`, at a random height near its feet, scanned down for water (`spawn_in_water`)
 /// or a floor; if the spot is far
 /// enough from every player, dark, and its place has a kind (`spawn_kind`), a pack of that kind
-/// standing there, cut to the caps left.
+/// standing there, cut to the caps left, and to the members within `PLAYER_CAP_DISTANCE`.
 fn spawn_attempt(
     chunks: &ChunkMap,
     players: &HashMap<PlayerId, Player>,
@@ -212,13 +218,17 @@ fn spawn_attempt(
         feet_y + rng.gen_range(-SPAWN_HEIGHT..=SPAWN_HEIGHT),
         (player.position.z + angle.sin() * distance).floor() as i32,
     );
-    if let Some(water) = find_water(chunks, start) {
-        return spawn_in_water(players, water, night, rng);
-    }
-    let Some((feet, floor)) = find_floor(chunks, start) else {
-        return Vec::new();
+    let mut pack = if let Some(water) = find_water(chunks, start) {
+        spawn_in_water(players, water, night, rng)
+    } else if let Some((feet, floor)) = find_floor(chunks, start) {
+        spawn_at(chunks, players, feet, floor, night, room, rng)
+    } else {
+        Vec::new()
     };
-    spawn_at(chunks, players, feet, floor, night, room, rng)
+    // A spot at the edge of the ring, or above or below the feet, may be past the cap's
+    // distance: a hostile there would not count against the cap it spawned for
+    pack.retain(|mob| mob.position.distance(player.position) <= PLAYER_CAP_DISTANCE);
+    pack
 }
 
 /// The pack that appears with its feet at `feet`, on `floor`, if the spot is dark and far
@@ -417,6 +427,16 @@ mod tests {
         world.remove_resource::<ServerWorldMap>().unwrap()
     }
 
+    /// Runs the spawning on `map` at each of `ticks`, drawing from one seeded rng, so that
+    /// the attempts are the same on every run.
+    fn run_seeded(mut map: ServerWorldMap, ticks: impl IntoIterator<Item = u64>) -> ServerWorldMap {
+        let mut rng = rng();
+        for tick in ticks {
+            spawning_tick(&mut map, tick, &mut rng);
+        }
+        map
+    }
+
     #[test]
     fn hostiles_far_from_every_player_despawn_and_animals_stay() {
         let mut map = ServerWorldMap::default();
@@ -474,9 +494,10 @@ mod tests {
                 hostile(MobKind::Ember, Vec3::new(30.0, 2.0, 0.0)),
             );
         }
-        for i in 1..=400 {
-            map = run(map, MIDNIGHT_IN_DAY + i * SPAWN_INTERVAL_TICKS);
-        }
+        let map = run_seeded(
+            map,
+            (1..=400).map(|i| MIDNIGHT_IN_DAY + i * SPAWN_INTERVAL_TICKS),
+        );
         let hostiles = map
             .mobs
             .values()
@@ -484,13 +505,39 @@ mod tests {
             .count();
         assert_eq!(hostiles, PLAYER_CAP);
         assert!(count(&map, MobKind::Gnawer) > 0);
-        for mob in map.mobs.values() {
+        for mob in map.mobs.values().filter(|mob| mob.kind.is_hostile()) {
             let away = mob.position.with_y(0.0).distance(Vec3::new(0.5, 0.0, 0.5));
             assert!(
                 (SPAWN_RING.start - 1.0..=SPAWN_RING.end + 1.0).contains(&away),
                 "{away}"
             );
+            // Each one counts against the cap
+            assert!(mob.position.distance(Vec3::new(0.5, 1.9, 0.5)) <= PLAYER_CAP_DISTANCE);
         }
+    }
+
+    #[test]
+    fn a_pack_past_the_cap_distance_is_not_spawned() {
+        // A player 20 blocks above a cave: a spot at the far side of the ring, 64 blocks away
+        // horizontally, is farther than 64 from it, and would spawn a pack that its cap does
+        // not count. Every spot beyond is dropped.
+        let mut map = ServerWorldMap {
+            chunks: flat(BlockId::Stone, true),
+            ..Default::default()
+        };
+        let player = Vec3::new(0.5, 21.9, 0.5);
+        map.players.insert(1, player_at(1, player));
+        let mut rng = rng();
+        let mut spawned = 0;
+        for _ in 0..1000 {
+            let pack = spawn_attempt(&map.chunks, &map.players, &map.mobs, 1, true, &mut rng);
+            for mob in pack {
+                let away = mob.position.distance(player);
+                assert!(away <= PLAYER_CAP_DISTANCE, "a hostile {away} away");
+                spawned += 1;
+            }
+        }
+        assert!(spawned > 0);
     }
 
     #[test]
@@ -499,20 +546,27 @@ mod tests {
             chunks: flat(BlockId::Stone, true),
             ..Default::default()
         };
-        for (i, hostile_at) in (0..WORLD_CAP).enumerate() {
+        // Four players, each with room in its own cap: the world's is what stops them. The
+        // hostiles stand 66 to 76 blocks from the first player, out of its cap and within the
+        // despawn distance of every player, so that none goes
+        for i in 0..WORLD_CAP - 3 {
             map.mobs.insert(
                 i as u128,
-                hostile(
-                    MobKind::Gnawer,
-                    Vec3::new(-70.0 + hostile_at as f32, 2.0, 70.0),
-                ),
+                hostile(MobKind::Gnawer, Vec3::new(66.0 + i as f32 * 0.25, 2.0, 0.5)),
             );
         }
-        map.players
-            .insert(1, player_at(1, Vec3::new(0.5, 1.9, 0.5)));
-        for i in 1..=50 {
-            map = run(map, i * SPAWN_INTERVAL_TICKS);
+        for (id, x, z) in [
+            (1, 0.5, 0.5),
+            (2, -10.5, 0.5),
+            (3, 0.5, -10.5),
+            (4, -10.5, -10.5),
+        ] {
+            map.players.insert(id, player_at(id, Vec3::new(x, 1.9, z)));
         }
+        let map = run_seeded(
+            map,
+            (1..=50).map(|i| MIDNIGHT_IN_DAY + i * SPAWN_INTERVAL_TICKS),
+        );
         assert_eq!(map.mobs.len(), WORLD_CAP);
     }
 
@@ -576,9 +630,7 @@ mod tests {
         };
         map.players
             .insert(1, player_at(1, Vec3::new(0.5, 1.9, 0.5)));
-        for i in 1..=200 {
-            map = run(map, i * SPAWN_INTERVAL_TICKS);
-        }
+        let map = run_seeded(map, (1..=200).map(|i| i * SPAWN_INTERVAL_TICKS));
         assert!(count(&map, MobKind::Stumpling) > 0);
         assert_eq!(count(&map, MobKind::Stumpling), map.mobs.len());
     }
@@ -617,12 +669,10 @@ mod tests {
         };
         map.players
             .insert(1, player_at(1, Vec3::new(0.5, 1.9, 0.5)));
-        for i in 1..=200 {
-            map = run(
-                map,
-                DAY_DURATION_IN_TICKS + NOON_IN_DAY + i * SPAWN_INTERVAL_TICKS,
-            );
-        }
+        let map = run_seeded(
+            map,
+            (1..=200).map(|i| DAY_DURATION_IN_TICKS + NOON_IN_DAY + i * SPAWN_INTERVAL_TICKS),
+        );
         assert!(count(&map, MobKind::Drowner) > 0);
         assert_eq!(count(&map, MobKind::Drowner), map.mobs.len());
         for mob in map.mobs.values() {
