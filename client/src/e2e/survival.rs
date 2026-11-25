@@ -12,8 +12,8 @@ use shared::players::{Player, PLAYER_HEIGHT};
 use shared::world::{BlockId, ItemId, SEA_LEVEL};
 use shared::CHUNK_SIZE;
 
-use super::game::{enter_world, hold_click, slot};
-use super::harness::{Harness, SCREEN, SERVER};
+use super::game::{enter_game, enter_world, hold_click, slot};
+use super::harness::{Harness, Options, SCREEN, SERVER};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::camera::{CameraController, FOV_DEGREES, LAVA_FOG_COLOR, ZOOM_SCALE};
@@ -343,17 +343,22 @@ fn a_player_in_lava_burns_loses_health_and_sees_an_orange_fog() {
         GameFolder::new()
             .with_world("Lava")
             .with_player_at("Lava", "Tester", lava_lake_bottom());
-    let mut h = enter_world(folder, "Lava");
+    // It may die before its hotbar shows
+    let mut h = enter_game(folder, "Lava", Options::default());
     h.wait_until("the player on fire", SERVER, |w| player(w).is_burning());
     h.wait_until("a hit of the lava", SERVER, |w| {
         player(w).health < MAX_HEALTH
     });
-    h.wait_for(&L::marker::<BurningFlames>(), SCREEN);
-    h.wait_until("the orange fog", SCREEN, |w| {
+    // The fog does not wait for the player to live: the lava kills in 2.5 s, which a client
+    // slow to start may spend before its first frames (the flames of the hotbar, which hide
+    // with it at the death, are the fire test's)
+    h.wait_until("the orange fog", SERVER, |w| {
         let mut fogs = w.try_query::<&DistanceFog>().unwrap();
         fogs.iter(w).any(|fog| fog.color == LAVA_FOG_COLOR)
     });
     h.snapshot("lava");
+    h.wait_for(&L::text(DEATH_TITLE), SERVER);
+    assert!(h.is_visible(&L::text("You tried to swim in lava")));
 }
 
 #[test]

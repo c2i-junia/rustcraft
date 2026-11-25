@@ -43,12 +43,20 @@ pub fn enter_world(folder: GameFolder, world: &str) -> Harness {
 /// hotbar on screen.
 #[track_caller]
 pub fn enter_world_with(folder: GameFolder, world: &str, options: Options) -> Harness {
+    let mut h = enter_game(folder, world, options);
+    h.wait_for(&L::marker::<Hotbar>(), SCREEN);
+    h
+}
+
+/// A client in the game, in the world `world` of `folder`, which may not show its hotbar: a
+/// player that dies within its first seconds sees the death screen instead.
+#[track_caller]
+pub fn enter_game(folder: GameFolder, world: &str, options: Options) -> Harness {
     let mut h = Harness::start(folder, options);
     h.wait_for(&L::text("Singleplayer"), STARTUP);
     h.click(&L::text("Singleplayer"));
     h.play_world(world);
     h.wait_for_game_state(GameState::Game, SERVER);
-    h.wait_for(&L::marker::<Hotbar>(), SCREEN);
     h
 }
 
@@ -471,10 +479,27 @@ fn a_broken_block_drops_an_item_that_the_player_picks_up() {
         w.try_query::<&DroppedItemRoot>()
             .is_some_and(|mut items| items.iter(w).count() == 1)
     });
+    // It pops out in a random direction: the player turns toward it on every frame
     h.key_down(KeyCode::KeyW);
-    h.wait_until("the picked up item", SERVER, |w| {
-        slot(w, 0) == Some((ItemId::Dirt, 1))
-    });
+    let start = std::time::Instant::now();
+    while slot(h.world(), 0) != Some((ItemId::Dirt, 1)) {
+        assert!(
+            start.elapsed() < SERVER,
+            "timed out waiting for the picked up item"
+        );
+        let world = h.world_mut();
+        let item = world
+            .query_filtered::<&Transform, With<DroppedItemRoot>>()
+            .iter(world)
+            .next()
+            .map(|at| at.translation);
+        let me = world.get::<Transform>(player).unwrap().translation;
+        if let Some(item) = item.filter(|item| item.xz().distance(me.xz()) > 0.1) {
+            let to = item - me;
+            world.get_mut::<CameraController>(camera).unwrap().angle_x = (-to.x).atan2(-to.z);
+        }
+        h.frames(1);
+    }
     h.key_up(KeyCode::KeyW);
     h.frames(30);
     assert_eq!(dropped_items(h.world_mut()), 0);

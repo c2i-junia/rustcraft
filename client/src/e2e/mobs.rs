@@ -18,6 +18,7 @@ use crate::camera::CameraController;
 use crate::mob::Mob;
 use crate::player::CurrentPlayerMarker;
 use crate::ui::hud::hotbar::Hotbar;
+use crate::ui::menus::death::DEATH_TITLE;
 
 /// The animals drawn, with where they are.
 fn animals(w: &World) -> Vec<(MobKind, Vec3)> {
@@ -178,6 +179,10 @@ fn a_gnawer_hatched_next_to_a_survival_player_bites_it() {
     let health = local_player(h.world()).health;
     assert!(health > 0 && health.is_multiple_of(2), "health {health}");
     h.snapshot("bitten");
+
+    // It bites on to the death, 2 points every 15 ticks
+    h.wait_for(&L::text(DEATH_TITLE), SERVER);
+    assert!(h.is_visible(&L::text("A Gnawer got you")));
 }
 
 #[test]
