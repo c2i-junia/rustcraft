@@ -5,6 +5,8 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 
+use shared::world::MobKind;
+
 use super::Mob;
 
 /// How long a hurt mob stays red.
@@ -16,9 +18,10 @@ const FLASH_KEEP: f32 = 0.2;
 /// The red the materials of a hurt mob glow with, so that a dark one turns red too.
 const FLASH_GLOW: LinearRgba = LinearRgba::rgb(0.35, 0.0, 0.0);
 
-/// A mob was hurt, at `at`.
+/// A mob of the kind `kind` was hurt, at `at`.
 #[derive(Message, Debug, Clone, Copy, PartialEq)]
 pub struct MobHurt {
+    pub kind: MobKind,
     pub at: Vec3,
 }
 
@@ -98,7 +101,7 @@ pub fn flash_hurt_mobs(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::world::{MobKind, ServerMob};
+    use shared::world::ServerMob;
     use std::time::Duration;
 
     /// An app with a hurt pig whose model has one mesh, of a white material, and that mesh.

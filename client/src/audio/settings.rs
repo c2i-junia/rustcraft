@@ -8,8 +8,8 @@ use std::fs;
 
 use crate::constants::AUDIO_SETTINGS_PATH;
 
-/// A volume the player sets. Every sound plays on `Effects`, `Interface` or `Weather`, scaled by
-/// `Master`.
+/// A volume the player sets. Every sound plays on `Effects`, `Interface` or `Weather`, and the
+/// music on `Music`, scaled by `Master`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Channel {
     Master,
@@ -17,14 +17,17 @@ pub enum Channel {
     Interface,
     /// The rain, the wind and the thunder: long and loud, so they have a volume of their own.
     Weather,
+    /// The pieces of music (`audio::music`).
+    Music,
 }
 
 impl Channel {
-    pub const ALL: [Channel; 4] = [
+    pub const ALL: [Channel; 5] = [
         Channel::Master,
         Channel::Effects,
         Channel::Interface,
         Channel::Weather,
+        Channel::Music,
     ];
 
     pub fn label(self) -> &'static str {
@@ -33,6 +36,7 @@ impl Channel {
             Channel::Effects => "Effects",
             Channel::Interface => "Interface",
             Channel::Weather => "Weather",
+            Channel::Music => "Music",
         }
     }
 }
@@ -45,7 +49,12 @@ pub struct AudioSettings {
     pub effects: f32,
     pub interface: f32,
     pub weather: f32,
+    /// Half volume at first: the music stays behind the sounds of the world.
+    pub music: f32,
 }
+
+/// The volume of the music before the player sets one.
+pub const DEFAULT_MUSIC_VOLUME: f32 = 0.5;
 
 impl Default for AudioSettings {
     fn default() -> Self {
@@ -54,6 +63,7 @@ impl Default for AudioSettings {
             effects: 1.0,
             interface: 1.0,
             weather: 1.0,
+            music: DEFAULT_MUSIC_VOLUME,
         }
     }
 }
@@ -65,6 +75,7 @@ impl AudioSettings {
             Channel::Effects => self.effects,
             Channel::Interface => self.interface,
             Channel::Weather => self.weather,
+            Channel::Music => self.music,
         }
     }
 
@@ -80,6 +91,7 @@ impl AudioSettings {
             Channel::Effects => &mut self.effects,
             Channel::Interface => &mut self.interface,
             Channel::Weather => &mut self.weather,
+            Channel::Music => &mut self.music,
         };
         *slot = volume.clamp(0.0, 1.0);
     }
@@ -121,8 +133,10 @@ mod tests {
             effects: 0.4,
             interface: 1.0,
             weather: 0.6,
+            music: 0.8,
         };
         assert!((settings.volume_of(Channel::Effects) - 0.2).abs() < 1e-6);
+        assert!((settings.volume_of(Channel::Music) - 0.4).abs() < 1e-6);
         assert_eq!(settings.volume_of(Channel::Interface), 0.5);
         assert!((settings.volume_of(Channel::Weather) - 0.3).abs() < 1e-6);
     }
@@ -142,6 +156,7 @@ mod tests {
             effects: 0.6,
             interface: 0.0,
             weather: 0.25,
+            music: 0.35,
         };
         write_audio_settings(&settings, &paths);
 
@@ -158,6 +173,8 @@ mod tests {
             assert_eq!(settings.effects, expected);
             settings.set(Channel::Weather, volume);
             assert_eq!(settings.weather, expected);
+            settings.set(Channel::Music, volume);
+            assert_eq!(settings.music, expected);
         }
     }
 
@@ -179,7 +196,8 @@ mod tests {
                 ..default()
             }
         );
-        // the weather, which came later, at full volume
+        // the weather, which came later, at full volume, and the music at half
         assert_eq!(loaded.weather, 1.0);
+        assert_eq!(loaded.music, DEFAULT_MUSIC_VOLUME);
     }
 }

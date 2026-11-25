@@ -102,6 +102,7 @@ pub fn apply_mob_updates(
         {
             if take_update(&mut mob, &mut transform, &server) {
                 hurts.write(MobHurt {
+                    kind: server.kind,
                     at: server.position,
                 });
             }

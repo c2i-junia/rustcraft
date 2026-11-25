@@ -12,15 +12,17 @@ use crate::portal::PortalOpened;
 use crate::state::{GameSet, GameState};
 
 mod blocks;
+mod creatures;
 mod footsteps;
 mod inventory;
+pub mod music;
 mod playback;
 pub mod settings;
 pub(crate) mod sounds;
 pub(crate) mod weather;
 
 use playback::PlaySound;
-use sounds::Sound;
+use sounds::{CreatureCall, Sound};
 
 /// Distances in blocks are multiplied by this before the spatial attenuation, which divides a
 /// sound's volume by the square of its distance: full volume up to 4 blocks away, a sixteenth
@@ -30,7 +32,7 @@ const SPATIAL_SCALE: f32 = 0.25;
 pub fn audio_plugin(app: &mut App) {
     app.insert_resource(DefaultSpatialScale(SpatialScale::new(SPATIAL_SCALE)))
         .add_message::<PlaySound>()
-        .add_plugins(weather::weather_sound_plugin)
+        .add_plugins((weather::weather_sound_plugin, music::music_plugin))
         .add_observer(click_on_activate)
         .add_systems(Startup, sounds::load_sound_library)
         .add_systems(
@@ -43,6 +45,7 @@ pub fn audio_plugin(app: &mut App) {
                     pickup_sounds,
                     hurt_sounds,
                     mob_hurt_sounds,
+                    creatures::creature_calls,
                     inventory::inventory_sounds,
                     portal_sounds,
                 )
@@ -68,10 +71,13 @@ fn hurt_sounds(mut hurts: MessageReader<LocalPlayerHurt>, mut sounds: MessageWri
     }
 }
 
-/// A blow on a mob, heard where it is.
+/// A blow on a mob, heard where it is, in the voice of its kind.
 fn mob_hurt_sounds(mut hurts: MessageReader<MobHurt>, mut sounds: MessageWriter<PlaySound>) {
-    for MobHurt { at } in hurts.read() {
-        sounds.write(PlaySound::at(Sound::MobHurt, *at));
+    for MobHurt { kind, at } in hurts.read() {
+        sounds.write(PlaySound::at(
+            Sound::Creature(*kind, CreatureCall::Hurt),
+            *at,
+        ));
     }
 }
 
@@ -90,6 +96,7 @@ fn click_on_activate(_: On<Activate>, mut sounds: MessageWriter<PlaySound>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::world::MobKind;
 
     #[test]
     fn a_hurt_of_the_local_player_plays_the_hurt_sound() {
@@ -108,20 +115,29 @@ mod tests {
     }
 
     #[test]
-    fn a_hurt_mob_is_heard_where_it_is() {
+    fn a_hurt_mob_is_heard_where_it_is_in_its_own_voice() {
         let mut app = App::new();
         app.add_message::<PlaySound>()
             .add_message::<MobHurt>()
             .add_systems(Update, mob_hurt_sounds);
         let at = Vec3::new(1.0, 2.0, 3.0);
-        app.world_mut().write_message(MobHurt { at });
+        app.world_mut().write_message(MobHurt {
+            kind: MobKind::Gnawer,
+            at,
+        });
         app.update();
         let heard: Vec<_> = app
             .world_mut()
             .resource_mut::<Messages<PlaySound>>()
             .drain()
             .collect();
-        assert_eq!(heard, [PlaySound::at(Sound::MobHurt, at)]);
+        assert_eq!(
+            heard,
+            [PlaySound::at(
+                Sound::Creature(MobKind::Gnawer, CreatureCall::Hurt),
+                at
+            )]
+        );
     }
 
     #[test]

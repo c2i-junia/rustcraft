@@ -417,20 +417,6 @@ def build_hurt(rng):
     return finish(mix(punch, place_at(d, voice * 0.6, 0.01)), -14)
 
 
-def build_mob_hurt(rng):
-    """A blow on an animal: a duller punch and a short squeal, a pitched buzz through the formants
-    of 'eh' that falls."""
-    d = 0.3
-    punch = thump(rng, d, 150, 55, 0.04) + band(colored(rng, d, 2), high=800) * env(d, 0.001, 0.02) * 0.6
-    t = t_axis(d)
-    f0 = 420 - 160 * t / d
-    phase = np.cumsum(f0) / SR
-    buzz = (phase % 1.0) * 2 - 1 + white(rng, d) * 0.1
-    voice = sum(band(buzz, f * 0.88, f * 1.12) * g for f, g in ((700, 1.0), (1800, 0.6), (2600, 0.25)))
-    voice *= env(d, 0.01, 0.05)
-    return finish(mix(punch, place_at(d, voice * 0.5, 0.015)), -16)
-
-
 def build_pickup(rng):
     """A rounded pop rising in pitch, then a softer echo of it a fifth higher."""
     d = 0.16
@@ -832,6 +818,532 @@ def build_thunder_far(rng):
     return finish(fade_out(x * swell, d, 3.0), -17)
 
 
+# --- creatures --------------------------------------------------------------
+# Every creature has a voice of its own. The animals' are a glottal buzz, its pitch
+# following a curve, through the formants of a vowel (or two, crossfaded, for a
+# vowel that moves); the hostiles are made of what they are: a rat's chitter, a
+# bush's twigs, a boulder's grinding, a stump's creaking wood, water, fire, wind.
+# Each has a cry heard now and then, and a hurt; each hostile an approach, heard
+# while it hunts, and an attack.
+
+
+def curve(d, *points):
+    """A value over `d` seconds, linear between `points`, given as (time, value) pairs."""
+    t = t_axis(d)
+    times, values = zip(*points)
+    return np.interp(t, times, values)
+
+
+def vibrato(d, rate, depth, rng=None):
+    """Around 1, `depth` deep, `rate` times a second."""
+    t = t_axis(d)
+    phase = rng.uniform(0, 2 * np.pi) if rng is not None else 0.0
+    return 1 + depth * np.sin(2 * np.pi * rate * t + phase)
+
+
+def glottal(rng, f0, noise=0.1, jitter=0.01):
+    """A buzz at the pitch `f0` (an array): a sawtooth whose pitch wanders a little, with some
+    breath."""
+    n = len(f0)
+    wander = 1 + jitter * band(rng.standard_normal(n), high=40) * 6
+    phase = np.cumsum(f0 * wander) / SR
+    saw = (phase % 1.0) * 2 - 1
+    return saw + rng.standard_normal(n) * noise
+
+
+def formants(x, spec, q=0.12):
+    """`x` through a bank of band-passes, spec = [(freq, gain), ...]: a vowel."""
+    return sum(band(x, f * (1 - q), f * (1 + q)) * g for f, g in spec)
+
+
+def vowel(x, a, b, morph):
+    """`x` through the vowel `a` turning into `b` as `morph` goes from 0 to 1."""
+    return formants(x, a) * (1 - morph) + formants(x, b) * morph
+
+
+VOWEL_A = [(800, 1.0), (1200, 0.6), (2500, 0.2)]
+VOWEL_E = [(530, 1.0), (1850, 0.5), (2500, 0.2)]
+VOWEL_I = [(300, 0.8), (2250, 0.6), (3000, 0.2)]
+VOWEL_O = [(500, 1.0), (850, 0.6), (2400, 0.1)]
+VOWEL_U = [(320, 1.0), (750, 0.4), (2300, 0.05)]
+NASAL = [(250, 1.0), (1000, 0.4), (2200, 0.15)]
+
+
+def sweep(d, f0, f1, tau):
+    """A sine whose pitch glides from `f0` to `f1`, `tau` the time of the glide."""
+    t = t_axis(d)
+    f = f1 + (f0 - f1) * np.exp(-t / tau)
+    return np.sin(2 * np.pi * np.cumsum(f) / SR)
+
+
+def punch(rng, d, f0=150, amp=1.0):
+    """The blow that comes before a hurt."""
+    return (thump(rng, d, f0, f0 * 0.38, 0.04) + band(colored(rng, d, 2), high=800) * env(d, 0.001, 0.02) * 0.6) * amp
+
+
+def hurt_of(rng, voice, lufs=-16, f0=150):
+    """A blow, then `voice`, a short cry of pain."""
+    d = len(voice) / SR + 0.05
+    return finish(mix(punch(rng, d, f0), place_at(d, voice, 0.015)), lufs)
+
+
+def whoosh(rng, d, low, high, attack, tau):
+    """Air rushing past: noise through a band that opens and closes with its swell."""
+    x = band(colored(rng, d, 1), low, high, order=2)
+    return x * env(d, attack, tau)
+
+
+def crackle(rng, d, rate, low=1500, high=9000):
+    """Fire: sharp grains at random, over a soft hiss."""
+    pops = grains(rng, d, np.full(n_of(d), rate), low, high, (0.0001, 0.0006), 1.2, bands=4)
+    hiss = band(colored(rng, d, 1), 2000, 8000) * 0.15
+    return pops * 0.5 + hiss
+
+
+def bubbles(rng, d, rate, low=300, high=900):
+    """Water: little bubbles rising in pitch as they close, at random."""
+    out = np.zeros(n_of(d))
+    for _ in range(rng.poisson(rate * d)):
+        f0 = rng.uniform(low, high)
+        tau = rng.uniform(0.008, 0.025)
+        length = tau * 6
+        t = t_axis(length)
+        bubble = np.sin(2 * np.pi * np.cumsum(f0 * (1 + 3 * t)) / SR) * env(length, 0.001, tau)
+        out += place_at(d, bubble * rng.uniform(0.3, 1.0), rng.uniform(0, max(d - length, 0.0)))
+    return out
+
+
+def creak(rng, d, f0, rate, q=0.15):
+    """Wood bending: a slow train of clicks, a stick-slip, through the formants of a hollow
+    log."""
+    pulses = np.zeros(n_of(d))
+    t = 0.0
+    while t < d:
+        pulses[min(n_of(t), len(pulses) - 1)] = rng.uniform(0.5, 1.0)
+        t += 1.0 / (rate * rng.uniform(0.8, 1.2))
+    body = formants(pulses, [(f0, 1.0), (f0 * 2.3, 0.6), (f0 * 4.1, 0.3)], q)
+    return body
+
+
+# Animals
+
+
+def sheep_voice(rng, d=0.9, pitch=1.0):
+    """Baa: a bleating buzz, its loudness pulsing, through an 'a' that closes to an 'e'."""
+    f0 = curve(d, (0, 290), (0.15, 320), (d, 260)) * pitch * vibrato(d, 7, 0.03, rng)
+    x = vowel(glottal(rng, f0, 0.12), VOWEL_A, VOWEL_E, curve(d, (0, 0), (d, 1)))
+    bleat = 0.65 + 0.35 * np.sin(2 * np.pi * 7.5 * t_axis(d)) ** 2
+    return x * bleat * env(d, 0.05, d * 0.6)
+
+
+def cow_voice(rng, d=1.6, pitch=1.0):
+    """Moo: a low buzz through an 'm' opening to an 'oo' then an 'a'."""
+    f0 = curve(d, (0, 105), (0.4, 120), (d, 92)) * pitch * vibrato(d, 4, 0.01, rng)
+    buzz = glottal(rng, f0, 0.05)
+    x = vowel(buzz, NASAL, VOWEL_U, curve(d, (0, 0), (0.25, 1), (d, 1))) * (1 - curve(d, (0, 0), (0.7, 0), (d, 0.6)))
+    x += formants(buzz, VOWEL_O) * curve(d, (0, 0), (0.7, 0), (d, 0.6))
+    return band(x, high=2500) * env(d, 0.12, d * 0.7)
+
+
+def pig_voice(rng, d=0.55, pitch=1.0):
+    """Two snorting grunts: a low rough buzz through the nose."""
+    out = np.zeros(n_of(d))
+    for start, length in ((0.0, 0.17), (0.24, 0.22)):
+        f0 = curve(length, (0, 120), (length, 85)) * pitch * rng.uniform(0.95, 1.05)
+        x = formants(glottal(rng, f0, 0.35, 0.04), [(350, 1.0), (1100, 0.5), (2400, 0.2)], 0.2)
+        out += place_at(d, x * env(length, 0.01, 0.06), start)
+    return out
+
+
+def chicken_voice(rng, d=0.9, pitch=1.0):
+    """Clucks: three short dry clucks, then a longer 'bawk'."""
+    out = np.zeros(n_of(d))
+    for start in (0.0, 0.11, 0.22):
+        length = 0.06
+        f0 = curve(length, (0, 520), (length, 430)) * pitch
+        x = formants(glottal(rng, f0, 0.2), [(900, 1.0), (1900, 0.5)], 0.15)
+        out += place_at(d, x * env(length, 0.003, 0.02), start)
+    length = 0.4
+    f0 = curve(length, (0, 450), (0.08, 620), (length, 480)) * pitch
+    x = vowel(glottal(rng, f0, 0.15), VOWEL_A, VOWEL_O, curve(length, (0, 0), (length, 1)))
+    out += place_at(d, x * env(length, 0.01, 0.12), 0.38)
+    return out
+
+
+def fox_voice(rng, d=0.75, pitch=1.0):
+    """Two shrill yips, the second higher, hoarse."""
+    out = np.zeros(n_of(d))
+    for start, top in ((0.0, 900), (0.3, 1050)):
+        length = 0.22
+        f0 = curve(length, (0, top * 0.7), (0.05, top), (length, top * 0.6)) * pitch
+        x = vowel(glottal(rng, f0, 0.3, 0.03), VOWEL_E, VOWEL_A, curve(length, (0, 0), (length, 1)))
+        out += place_at(d, x * env(length, 0.01, 0.07), start)
+    return out
+
+
+def wolf_voice(rng, d=2.2, pitch=1.0):
+    """A howl: an almost pure tone rising, held, then falling, through an 'oo'."""
+    f0 = curve(d, (0, 330), (0.5, 520), (1.5, 500), (d, 380)) * pitch * vibrato(d, 5, 0.012, rng)
+    phase = 2 * np.pi * np.cumsum(f0) / SR
+    tone = np.sin(phase) + 0.35 * np.sin(2 * phase) + 0.12 * np.sin(3 * phase)
+    breath = band(colored(rng, d, 1), 600, 2500) * 0.05
+    return (tone + breath) * env(d, 0.3, d * 0.5) * curve(d, (0, 1), (d - 0.4, 1), (d, 0.2))
+
+
+def cat_voice(rng, d=0.8, pitch=1.0):
+    """Meow: an 'i' opening to an 'a', closing to an 'u', its pitch rising then falling."""
+    f0 = curve(d, (0, 520), (0.3, 720), (d, 430)) * pitch
+    buzz = glottal(rng, f0, 0.06)
+    morph = curve(d, (0, 0), (0.35, 1), (d, 1))
+    x = vowel(buzz, VOWEL_I, VOWEL_A, morph) * (1 - curve(d, (0, 0), (0.45, 0), (d, 1)))
+    x += formants(buzz, VOWEL_U) * curve(d, (0, 0), (0.45, 0), (d, 1))
+    return x * env(d, 0.06, d * 0.45)
+
+
+def rabbit_voice(rng, d=0.6, pitch=1.0):
+    """A rabbit is quiet: three quick sniffs and a soft thump of its foot."""
+    out = np.zeros(n_of(d))
+    for start in (0.0, 0.09, 0.18):
+        length = 0.06
+        sniff = band(colored(rng, length, 1), 2500, 7000) * env(length, 0.01, 0.015)
+        out += place_at(d, sniff * 0.5, start)
+    out += place_at(d, thump(rng, 0.2, 110 * pitch, 55, 0.04), 0.38)
+    return out
+
+
+def horse_voice(rng, d=1.5, pitch=1.0):
+    """A whinny: a high quavering cry falling away, then a snort."""
+    body = d - 0.35
+    f0 = curve(body, (0, 650), (0.15, 820), (body, 380)) * pitch * vibrato(body, 11, 0.06, rng)
+    x = vowel(glottal(rng, f0, 0.15, 0.02), VOWEL_I, VOWEL_A, curve(body, (0, 0), (body, 1)))
+    x *= env(body, 0.04, body * 0.5)
+    snort = band(colored(rng, 0.3, 1), 300, 2500) * env(0.3, 0.01, 0.08)
+    snort *= 1 + 0.6 * np.sin(2 * np.pi * 30 * t_axis(0.3))
+    return mix(x, place_at(d, snort * 0.8, body))
+
+
+def goat_voice(rng, d=0.8, pitch=1.0):
+    """Meh: a nasal bleat, higher and harsher than a sheep's, quavering fast."""
+    f0 = curve(d, (0, 380), (0.1, 430), (d, 360)) * pitch * vibrato(d, 13, 0.05, rng)
+    x = vowel(glottal(rng, f0, 0.2, 0.03), NASAL, VOWEL_E, curve(d, (0, 0), (0.12, 1), (d, 1)))
+    return x * env(d, 0.03, d * 0.5)
+
+
+ANIMALS = {
+    "sheep": (sheep_voice, -20),
+    "cow": (cow_voice, -19),
+    "pig": (pig_voice, -19),
+    "chicken": (chicken_voice, -21),
+    "fox": (fox_voice, -21),
+    "wolf": (wolf_voice, -21),
+    "cat": (cat_voice, -21),
+    "rabbit": (rabbit_voice, -24),
+    "horse": (horse_voice, -19),
+    "goat": (goat_voice, -20),
+}
+
+
+def build_animal_cry(rng, animal):
+    voice, lufs = ANIMALS[animal]
+    return finish(outdoors(rng, voice(rng, pitch=rng.uniform(0.95, 1.05))), lufs)
+
+
+def build_animal_hurt(rng, animal):
+    """The animal's own voice, short, strained and higher."""
+    voice, _ = ANIMALS[animal]
+    x = voice(rng, pitch=1.25)
+    x = x[: n_of(0.35)] * curve(0.35, (0, 1), (0.25, 1), (0.35, 0))[: len(x[: n_of(0.35)])]
+    return hurt_of(rng, x * 0.8, -16)
+
+
+# Hostiles
+
+
+def gnawer_chitter(rng, d, rate, top=3200):
+    """Quick squeaks, one after the other."""
+    out = np.zeros(n_of(d))
+    t = 0.0
+    while t < d - 0.05:
+        length = rng.uniform(0.025, 0.05)
+        f = rng.uniform(top * 0.75, top)
+        squeak = sweep(length, f, f * rng.uniform(0.8, 1.15), 0.01) * env(length, 0.003, length / 3)
+        out += place_at(d, squeak * rng.uniform(0.5, 1.0), t)
+        t += rng.exponential(1 / rate) + length
+    return out
+
+
+def build_gnawer_cry(rng):
+    return finish(outdoors(rng, gnawer_chitter(rng, 0.6, 10)), -22)
+
+
+def build_gnawer_approach(rng):
+    """It scurries, chattering its teeth, squeaking fast."""
+    d = 1.4
+    teeth = grains(rng, d, np.full(n_of(d), 60), 3000, 9000, (0.0002, 0.0006), 0.5, bands=3)
+    paws = grains(rng, d, np.full(n_of(d), 25), 300, 2000, (0.001, 0.003), 0.5, bands=3)
+    x = gnawer_chitter(rng, d, 16, 3800) + teeth * 0.4 + paws * 0.25
+    return finish(outdoors(rng, x * curve(d, (0, 0.3), (0.3, 1), (d, 1))), -20)
+
+
+def build_gnawer_attack(rng):
+    """A hiss, then the snap of its teeth."""
+    d = 0.35
+    hiss = band(white(rng, d), 3000, 9000) * env(d, 0.02, 0.06)
+    snap = modes(rng, d, [(2600, 0.01, 1.0), (4100, 0.006, 0.6)]) + band(white(rng, d), 2000, 10000) * env(d, 0.0002, 0.002)
+    return finish(mix(hiss * 0.5, place_at(d, snap, 0.1)), -16)
+
+
+def build_gnawer_hurt(rng):
+    d = 0.25
+    squeal = sweep(d, 4200, 2600, 0.15) * env(d, 0.005, 0.07)
+    return hurt_of(rng, squeal * 0.5, -17, f0=190)
+
+
+def twigs(rng, d, rate, s=1.0):
+    """Dry twigs rubbing and cracking."""
+    rustle = grains(rng, d, np.full(n_of(d), rate), 1500, 8000, (0.0002, 0.001), 1.0)
+    cracks = grains(rng, d, np.full(n_of(d), rate / 40), 600, 3000, (0.001, 0.004), 1.0, bands=3)
+    return rustle * 0.07 + cracks * 0.3 * s
+
+
+def build_bramble_cry(rng):
+    """Its branches rustle, and one creaks."""
+    d = 1.2
+    x = twigs(rng, d, 2500) * curve(d, (0, 0), (0.3, 1), (d, 0.3)) + creak(rng, d, 420, 35) * 0.15 * curve(d, (0, 0), (0.4, 1), (d, 0))
+    return finish(outdoors(rng, x), -24)
+
+
+def build_bramble_approach(rng):
+    """A thicket shaking harder and harder."""
+    d = 1.6
+    x = twigs(rng, d, 7000, 1.5) * curve(d, (0, 0.3), (d * 0.8, 1), (d, 0.6))
+    x += band(colored(rng, d, 1), 800, 4000) * 0.05 * curve(d, (0, 0), (d, 1))
+    return finish(outdoors(rng, x), -20)
+
+
+def build_bramble_attack(rng):
+    """A thorny whip lashing through the air, then its crack."""
+    d = 0.4
+    lash = band(colored(rng, d, 1), 1500, 6000) * env(d, 0.08, 0.03)
+    crack = band(white(rng, d), 1200, 9000) * env(d, 0.0003, 0.004) + modes(rng, d, [(1100, 0.02, 1.0), (2300, 0.01, 0.5)])
+    return finish(mix(lash * 0.5, place_at(d, crack, 0.1)), -15)
+
+
+def build_bramble_hurt(rng):
+    d = 0.3
+    snap = band(white(rng, d), 800, 6000) * env(d, 0.0003, 0.006) + twigs(rng, d, 9000, 2.0) * env(d, 0.005, 0.08)
+    return hurt_of(rng, snap, -17, f0=200)
+
+
+def grind(rng, d, low, high, rate):
+    """Stone on stone: rough gravelly noise in a low band, shaken at `rate`."""
+    x = band(colored(rng, d, 1.5), low, high, order=2)
+    shake = 1 + 0.5 * np.sin(2 * np.pi * rate * t_axis(d)) + 0.3 * band(rng.standard_normal(n_of(d)), high=rate * 2) * 6
+    grit = grains(rng, d, np.full(n_of(d), 400), 800, 4000, (0.0005, 0.002), 0.9, bands=3)
+    return x * np.clip(shake, 0, None) + grit * 0.05
+
+
+def build_roller_cry(rng):
+    """A low grinding, a boulder shifting where it lies."""
+    d = 1.4
+    return finish(outdoors(rng, grind(rng, d, 50, 400, 3) * env(d, 0.3, 0.6)), -22)
+
+
+def build_roller_approach(rng):
+    """It rolls: a heavy rumble beating once a turn."""
+    d = 2.0
+    beats = sum(place_at(d, thump(rng, 0.3, 90, 45, 0.08), t) for t in np.arange(0.0, d - 0.3, 0.32))
+    x = grind(rng, d, 40, 600, 3.1) * 0.6 + beats * 0.8
+    return finish(outdoors(rng, x * curve(d, (0, 0.2), (0.4, 1), (d, 1))), -17)
+
+
+def build_roller_attack(rng):
+    """Its wind-up: a grinding that rises, as it gathers itself."""
+    d = 1.0
+    t = t_axis(d)
+    x = grind(rng, d, 60, 500, 4) * (0.3 + t)
+    scrape = band(colored(rng, d, 1), 700, 2500) * curve(d, (0, 0), (d, 1)) * 0.3
+    return finish(x + scrape, -17)
+
+
+def build_roller_hurt(rng):
+    d = 0.4
+    knock = contact_stone(rng, 1.2)
+    rubble_bits = rubble(rng, d, 5, 1500, 4000)
+    return finish(mix(knock, rubble_bits * 0.3), -15)
+
+
+def groan(rng, d, f0_curve, q=0.15):
+    """A deep wooden groan: a slow creak through a hollow trunk's formants."""
+    f0 = curve(d, *f0_curve)
+    buzz = glottal(rng, f0, 0.25, 0.05)
+    return formants(buzz, [(220, 1.0), (520, 0.6), (1300, 0.2)], q)
+
+
+def build_stumpling_cry(rng):
+    """A long creak of old wood, low, groaning."""
+    d = 1.8
+    x = groan(rng, d, ((0, 55), (0.8, 70), (d, 50))) * env(d, 0.3, 0.9) + creak(rng, d, 300, 18) * 0.2 * env(d, 0.4, 0.6)
+    return finish(outdoors(rng, x), -20)
+
+
+def build_stumpling_approach(rng):
+    """Heavy wooden steps, groaning as it comes."""
+    d = 2.0
+    steps = sum(place_at(d, contact_wood(rng, 1.0) + thump(rng, 0.35, 100, 40, 0.08), t) for t in (0.1, 0.75, 1.4))
+    x = steps * 0.8 + groan(rng, d, ((0, 60), (d, 75))) * 0.5 * env(d, 0.6, 1.0)
+    return finish(outdoors(rng, x), -17)
+
+
+def build_stumpling_attack(rng):
+    """A heavy branch swung through the air, then the blow."""
+    d = 0.6
+    swing = whoosh(rng, d, 150, 900, 0.18, 0.05)
+    blow = mix(thump(rng, d, 130, 45, 0.08), contact_wood(rng, 1.2))
+    return finish(mix(swing * 0.6, place_at(d, blow, 0.22)), -14)
+
+
+def build_stumpling_hurt(rng):
+    d = 0.45
+    x = mix(contact_wood(rng, 1.2), groan(rng, d, ((0, 85), (d, 60))) * env(d, 0.02, 0.15) * 0.5)
+    return finish(x, -15)
+
+
+def gurgle(rng, d, f0_curve):
+    """A drowned moan: a low voice through 'u', bubbling."""
+    f0 = curve(d, *f0_curve) * vibrato(d, 6, 0.05, rng)
+    voice = formants(glottal(rng, f0, 0.1, 0.03), VOWEL_U, 0.2)
+    # Water in the throat: the voice broken up by bubbles
+    wet = 0.6 + 0.4 * np.sin(2 * np.pi * 9 * t_axis(d) + rng.uniform(0, 6))
+    return band(voice * wet, high=1800) + bubbles(rng, d, 25) * 0.3
+
+
+def build_drowner_cry(rng):
+    d = 1.6
+    x = gurgle(rng, d, ((0, 90), (0.5, 105), (d, 80))) * env(d, 0.3, 0.7)
+    return finish(outdoors(rng, x), -21)
+
+
+def build_drowner_approach(rng):
+    """A moan rising, water churning."""
+    d = 1.8
+    x = gurgle(rng, d, ((0, 80), (d, 130))) * curve(d, (0, 0.2), (d * 0.8, 1), (d, 0.6))
+    x += bubbles(rng, d, 60, 200, 700) * 0.4 + band(colored(rng, d, 1), 300, 2000) * 0.05
+    return finish(outdoors(rng, x), -18)
+
+
+def build_drowner_attack(rng):
+    """It lunges: a splash, and a gurgled roar."""
+    d = 0.8
+    splash = band(white(rng, d), 600, 7000) * env(d, 0.002, 0.08) + bubbles(rng, d, 80) * 0.5
+    roar = gurgle(rng, d, ((0, 140), (d, 90))) * env(d, 0.03, 0.25)
+    return finish(mix(splash * 0.6, roar), -15)
+
+
+def build_drowner_hurt(rng):
+    d = 0.35
+    choke = gurgle(rng, d, ((0, 160), (d, 110))) * env(d, 0.01, 0.1)
+    return hurt_of(rng, choke + bubbles(rng, d, 120) * 0.4, -16)
+
+
+def flame(rng, d, low=150, high=1500):
+    """A flame's roar: low noise, fluttering."""
+    roar = band(colored(rng, d, 1.5), low, high, order=2)
+    flutter = 1 + 0.4 * band(rng.standard_normal(n_of(d)), high=12) * 8
+    return roar * np.clip(flutter, 0.2, None)
+
+
+def build_cinderling_cry(rng):
+    """It burns: a crackle and a breath of flame."""
+    d = 1.4
+    x = crackle(rng, d, 40) + flame(rng, d) * 0.4 * env(d, 0.4, 0.5)
+    return finish(outdoors(rng, x * env(d, 0.1, 1.0)), -22)
+
+
+def build_cinderling_approach(rng):
+    """Its fire roars up."""
+    d = 1.8
+    x = flame(rng, d, 100, 2000) * curve(d, (0, 0.2), (d * 0.7, 1), (d, 0.7)) + crackle(rng, d, 90) * 0.6
+    return finish(outdoors(rng, x), -18)
+
+
+def build_cinderling_attack(rng):
+    """It throws an ember: a breath drawn in, then a burst of flame flung away."""
+    d = 0.8
+    draw = flame(rng, d, 200, 1200) * curve(d, (0, 0), (0.25, 1), (0.3, 0), (d, 0)) * 0.6
+    burst = whoosh(rng, d, 300, 3000, 0.02, 0.15)
+    pop = thump(rng, d, 220, 70, 0.05)
+    return finish(mix(draw, place_at(d, burst + pop * 0.5 + crackle(rng, d, 200)[: n_of(d)] * 0.3, 0.3)), -15)
+
+
+def build_cinderling_hurt(rng):
+    d = 0.4
+    sizzle = band(white(rng, d), 3000, 10000) * env(d, 0.005, 0.12)
+    crack = modes(rng, d, [(900, 0.03, 1.0), (1700, 0.02, 0.5), (2900, 0.01, 0.3)])
+    return hurt_of(rng, sizzle * 0.5 + crack * 0.4, -16, f0=170)
+
+
+def build_ember_cry(rng):
+    """An ember in flight: a short fizzing whoosh."""
+    d = 0.7
+    x = whoosh(rng, d, 500, 4000, 0.05, 0.2) + crackle(rng, d, 150) * env(d, 0.01, 0.3)
+    return finish(x, -20)
+
+
+def hoot(rng, length, f0):
+    """One soft hoot: a near sine through 'u', breathy."""
+    f = curve(length, (0, f0 * 0.92), (0.05, f0), (length, f0 * 0.9))
+    phase = 2 * np.pi * np.cumsum(f) / SR
+    tone = np.sin(phase) + 0.15 * np.sin(2 * phase)
+    breath = band(colored(rng, length, 1), f0, f0 * 4) * 0.08
+    return (tone + breath) * env(length, 0.04, length * 0.35)
+
+
+def build_gust_owl_cry(rng):
+    """Hoo, hoo-hoo, hoooo."""
+    d = 1.8
+    x = np.zeros(n_of(d))
+    for start, length, f in ((0.0, 0.3, 360), (0.5, 0.15, 380), (0.7, 0.15, 380), (0.95, 0.6, 340)):
+        x += place_at(d, hoot(rng, length, f), start)
+    return finish(outdoors(rng, x, 0.25), -21)
+
+
+def build_gust_owl_approach(rng):
+    """It circles overhead: great wing beats in a rushing wind."""
+    d = 2.0
+    beats = sum(place_at(d, whoosh(rng, 0.35, 150, 1200, 0.12, 0.08), t) for t in np.arange(0.0, d - 0.35, 0.45))
+    wind = band(colored(rng, d, 1), 300, 2500) * curve(d, (0, 0.2), (1.0, 0.6), (d, 0.3))
+    return finish(outdoors(rng, beats + wind * 0.3), -18)
+
+
+def build_gust_owl_attack(rng):
+    """It dives: a screech falling away over the wind of its dive."""
+    d = 1.0
+    f0 = curve(d, (0, 1700), (0.15, 2100), (d, 1200)) * vibrato(d, 25, 0.03, rng)
+    screech = formants(glottal(rng, f0, 0.5, 0.05), [(2500, 1.0), (4000, 0.6), (6000, 0.3)], 0.2) * env(d, 0.03, 0.35)
+    dive = whoosh(rng, d, 400, 3000, 0.4, 0.3)
+    return finish(mix(screech, dive * 0.5), -15)
+
+
+def build_gust_owl_hurt(rng):
+    d = 0.3
+    f0 = curve(d, (0, 1400), (d, 900))
+    squawk = formants(glottal(rng, f0, 0.4), [(1800, 1.0), (3200, 0.5)], 0.2) * env(d, 0.005, 0.09)
+    feathers = band(colored(rng, d, 1), 2000, 7000) * env(d, 0.01, 0.06)
+    return hurt_of(rng, squawk + feathers * 0.3, -16)
+
+
+HOSTILES = {
+    "gnawer": (build_gnawer_cry, build_gnawer_approach, build_gnawer_attack, build_gnawer_hurt),
+    "bramble": (build_bramble_cry, build_bramble_approach, build_bramble_attack, build_bramble_hurt),
+    "roller": (build_roller_cry, build_roller_approach, build_roller_attack, build_roller_hurt),
+    "stumpling": (build_stumpling_cry, build_stumpling_approach, build_stumpling_attack, build_stumpling_hurt),
+    "drowner": (build_drowner_cry, build_drowner_approach, build_drowner_attack, build_drowner_hurt),
+    "cinderling": (build_cinderling_cry, build_cinderling_approach, build_cinderling_attack, build_cinderling_hurt),
+    "gust_owl": (build_gust_owl_cry, build_gust_owl_approach, build_gust_owl_attack, build_gust_owl_hurt),
+}
+
+
 # --- output -----------------------------------------------------------------
 
 
@@ -867,7 +1379,17 @@ def main():
     write_ogg("player/land", build_land)
     write_ogg("player/hurt", build_hurt)
     write_ogg("player/pickup", build_pickup)
-    write_ogg("mob/hurt", build_mob_hurt)
+    for animal in ANIMALS:
+        for i in range(1, 3):
+            write_ogg(f"mob/{animal}/cry{i}", build_animal_cry, animal)
+        write_ogg(f"mob/{animal}/hurt", build_animal_hurt, animal)
+    for hostile, (cry, approach, attack, hurt) in HOSTILES.items():
+        for i in range(1, 3):
+            write_ogg(f"mob/{hostile}/cry{i}", cry)
+        write_ogg(f"mob/{hostile}/approach", approach)
+        write_ogg(f"mob/{hostile}/attack", attack)
+        write_ogg(f"mob/{hostile}/hurt", hurt)
+    write_ogg("mob/ember/cry1", build_ember_cry)
     write_ogg("ui/click", build_ui_click)
     write_ogg("ui/item_pick", build_item_pick)
     write_ogg("ui/item_place", build_item_place)

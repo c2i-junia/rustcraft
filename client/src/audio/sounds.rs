@@ -3,7 +3,7 @@
 
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-use shared::world::BlockId;
+use shared::world::{BlockId, MobKind};
 
 use super::settings::Channel;
 
@@ -163,6 +163,71 @@ impl SoundMaterial {
     }
 }
 
+/// What a creature says (`audio::creatures`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CreatureCall {
+    /// Heard now and then, from an animal or a hostile not hunting; from an ember as it flies.
+    Cry,
+    /// A hostile hunts a player.
+    Approach,
+    /// A hostile strikes, winds up or throws.
+    Attack,
+    /// The creature is hurt.
+    Hurt,
+}
+
+impl CreatureCall {
+    fn file_name(self) -> &'static str {
+        match self {
+            CreatureCall::Cry => "cry",
+            CreatureCall::Approach => "approach",
+            CreatureCall::Attack => "attack",
+            CreatureCall::Hurt => "hurt",
+        }
+    }
+
+    /// What creatures of `kind` say: every one cries and is hurt, a hostile approaches and
+    /// attacks too, and an ember, never struck, only flies.
+    pub fn of(kind: MobKind) -> &'static [CreatureCall] {
+        if kind.is_projectile() {
+            &[CreatureCall::Cry]
+        } else if kind.is_hostile() {
+            &[
+                CreatureCall::Cry,
+                CreatureCall::Approach,
+                CreatureCall::Attack,
+                CreatureCall::Hurt,
+            ]
+        } else {
+            &[CreatureCall::Cry, CreatureCall::Hurt]
+        }
+    }
+}
+
+/// The folder of the sounds of `kind` in `sounds/mob/`.
+fn creature_folder(kind: MobKind) -> &'static str {
+    match kind {
+        MobKind::Fox => "fox",
+        MobKind::Sheep => "sheep",
+        MobKind::Cow => "cow",
+        MobKind::Pig => "pig",
+        MobKind::Chicken => "chicken",
+        MobKind::Rabbit => "rabbit",
+        MobKind::Wolf => "wolf",
+        MobKind::Horse => "horse",
+        MobKind::Goat => "goat",
+        MobKind::Cat => "cat",
+        MobKind::Gnawer => "gnawer",
+        MobKind::Bramble => "bramble",
+        MobKind::Roller => "roller",
+        MobKind::Stumpling => "stumpling",
+        MobKind::Drowner => "drowner",
+        MobKind::Cinderling => "cinderling",
+        MobKind::Ember => "ember",
+        MobKind::GustOwl => "gust_owl",
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Sound {
     Step(SoundMaterial),
@@ -174,8 +239,6 @@ pub enum Sound {
     Land,
     /// The local player is hurt.
     Hurt,
-    /// A mob is hurt.
-    MobHurt,
     /// A button of the interface is pressed.
     Click,
     /// The local player picks up an item lying in the world.
@@ -204,6 +267,8 @@ pub enum Sound {
     PortalOpen,
     /// The local player goes through a portal.
     PortalPass,
+    /// A creature of a kind says something: each kind has a voice of its own.
+    Creature(MobKind, CreatureCall),
 }
 
 impl Sound {
@@ -221,7 +286,6 @@ impl Sound {
             .chain([
                 Sound::Land,
                 Sound::Hurt,
-                Sound::MobHurt,
                 Sound::Click,
                 Sound::Pickup,
                 Sound::Splash,
@@ -233,6 +297,11 @@ impl Sound {
                 Sound::PortalPass,
             ])
             .chain(Self::WEATHER)
+            .chain(MobKind::ALL.into_iter().flat_map(|kind| {
+                CreatureCall::of(kind)
+                    .iter()
+                    .map(move |&call| Sound::Creature(kind, call))
+            }))
     }
 
     /// The sounds of the weather, played by `audio::weather`.
@@ -273,7 +342,6 @@ impl Sound {
             Sound::Place(material) => vec![format!("sounds/place/{}.ogg", material.file_name())],
             Sound::Land => vec!["sounds/player/land.ogg".to_string()],
             Sound::Hurt => vec!["sounds/player/hurt.ogg".to_string()],
-            Sound::MobHurt => vec!["sounds/mob/hurt.ogg".to_string()],
             Sound::Click => vec!["sounds/ui/click.ogg".to_string()],
             // The click, short and soft enough: `player/pickup.ogg` sounds passing through a
             // portal
@@ -295,6 +363,22 @@ impl Sound {
             // No sound of their own: a knock and a glassy ring, and a short rising pop
             Sound::PortalOpen => vec!["sounds/place/glass.ogg".to_string()],
             Sound::PortalPass => vec!["sounds/player/pickup.ogg".to_string()],
+            Sound::Creature(kind, call) => {
+                let folder = creature_folder(kind);
+                let name = call.file_name();
+                // Two cries, so a flock does not repeat itself; an ember has one
+                let variants = match call {
+                    CreatureCall::Cry if !kind.is_projectile() => 2,
+                    _ => 1,
+                };
+                if call == CreatureCall::Cry {
+                    (1..=variants)
+                        .map(|i| format!("sounds/mob/{folder}/{name}{i}.ogg"))
+                        .collect()
+                } else {
+                    vec![format!("sounds/mob/{folder}/{name}.ogg")]
+                }
+            }
         }
     }
 }
@@ -402,6 +486,57 @@ mod tests {
         assert_eq!(Sound::Thunder.files().len(), 3);
         assert_eq!(Sound::DistantThunder.files().len(), 3);
         assert_eq!(Sound::Splash.channel(), Channel::Effects);
+    }
+
+    #[test]
+    fn every_creature_has_a_cry_and_every_hostile_its_approach_and_attack() {
+        for kind in MobKind::ALL {
+            let calls = CreatureCall::of(kind);
+            assert!(calls.contains(&CreatureCall::Cry), "{kind:?}");
+            assert_eq!(
+                calls.contains(&CreatureCall::Approach),
+                kind.is_hostile(),
+                "{kind:?}"
+            );
+            assert_eq!(
+                calls.contains(&CreatureCall::Attack),
+                kind.is_hostile(),
+                "{kind:?}"
+            );
+            assert_eq!(
+                calls.contains(&CreatureCall::Hurt),
+                !kind.is_projectile(),
+                "{kind:?}"
+            );
+            for &call in calls {
+                assert_eq!(Sound::Creature(kind, call).channel(), Channel::Effects);
+            }
+        }
+    }
+
+    #[test]
+    fn no_two_creatures_share_a_voice() {
+        let mut files = std::collections::HashSet::new();
+        for kind in MobKind::ALL {
+            for &call in CreatureCall::of(kind) {
+                for file in Sound::Creature(kind, call).files() {
+                    assert!(files.insert(file.clone()), "{file}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_creature_sounds_are_neither_clipped_nor_silent() {
+        for kind in MobKind::ALL {
+            for &call in CreatureCall::of(kind) {
+                for file in Sound::Creature(kind, call).files() {
+                    let (length, peak) = length_and_peak(&file);
+                    assert!(length < std::time::Duration::from_secs(3), "{file}");
+                    assert!(peak < 1.0 && peak > 0.1, "{file}: peak {peak}");
+                }
+            }
+        }
     }
 
     #[test]

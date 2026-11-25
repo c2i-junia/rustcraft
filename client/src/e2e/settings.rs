@@ -271,6 +271,25 @@ fn a_volume_is_saved_at_once() {
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_music_has_its_volume_half_at_first_and_saved_at_once() {
+    let mut h = audio();
+    let percent = |value: &str| L::text(value).within(L::row("Music"));
+    h.wait_for(&percent("50%"), SCREEN);
+    let slider = L::role(Role::Slider, "Music");
+    h.click(&slider);
+    h.press(KeyCode::ArrowLeft);
+    h.wait_for(&percent("45%"), SCREEN);
+    let file = h.folder().join(AUDIO_SETTINGS_PATH);
+    h.wait_until("the music saved at 45%", SCREEN, |_| {
+        fs::read_to_string(&file)
+            .ok()
+            .and_then(|text| ron::from_str::<AudioSettings>(&text).ok())
+            .is_some_and(|saved| (saved.music - 0.45).abs() < 1e-4)
+    });
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn the_audio_screen_matches_its_golden() {
     let mut h = audio();
     h.hover_nothing();
