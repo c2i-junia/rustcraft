@@ -44,10 +44,13 @@ pub enum MobKind {
     Farmer,
     Smith,
     Cartographer,
+    /// The mother of the Cinderlings, asleep in her lair (`crate::world::lair`): the boss, which
+    /// the server moves apart from the other hostiles.
+    EmberMother,
 }
 
 impl MobKind {
-    pub const ALL: [MobKind; 22] = [
+    pub const ALL: [MobKind; 23] = [
         MobKind::Fox,
         MobKind::Sheep,
         MobKind::Cow,
@@ -70,6 +73,7 @@ impl MobKind {
         MobKind::Farmer,
         MobKind::Smith,
         MobKind::Cartographer,
+        MobKind::EmberMother,
     ];
 
     /// Whether mobs of this kind hunt the players (`crate::world::hostiles`), and appear in the
@@ -84,7 +88,14 @@ impl MobKind {
                 | MobKind::Drowner
                 | MobKind::Cinderling
                 | MobKind::GustOwl
+                | MobKind::EmberMother
         )
+    }
+
+    /// Whether this kind is a boss: hostile, but neither born, pushed, removed nor saved with the
+    /// others.
+    pub fn is_boss(self) -> bool {
+        self == MobKind::EmberMother
     }
 
     /// Whether mobs of this kind are projectiles the server flies (`MobKind::Ember`, `MobKind::Arrow`): they do
@@ -114,6 +125,8 @@ impl MobKind {
             MobKind::Drowner => 18,
             MobKind::Cinderling => 10,
             MobKind::GustOwl => 14,
+            // Alone against her; more with the players (`ServerMob::extra_health`)
+            MobKind::EmberMother => 200,
             // Never struck
             MobKind::Ember | MobKind::Arrow => 1,
             MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => 20,
@@ -210,6 +223,7 @@ impl MobKind {
             MobKind::Farmer => "Farmer",
             MobKind::Smith => "Smith",
             MobKind::Cartographer => "Cartographer",
+            MobKind::EmberMother => "Ember Mother",
         }
     }
 
@@ -249,6 +263,8 @@ impl MobKind {
             // The models of `scripts/generate_villagers.py`, 1.0 wide with their
             // hands, 1.56 tall without a hat
             MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => Vec3::new(0.7, 1.6, 0.7),
+            // Her body 1.5 wide, 3.1 tall with her crown of flames
+            MobKind::EmberMother => Vec3::new(1.9, 3.0, 1.9),
         }
     }
 }
@@ -359,6 +375,9 @@ pub struct ServerMob {
     /// Ticks left before a hostile strikes again (`MobKind::strike`). Neither saved nor sent.
     #[serde(skip)]
     pub attack_wait: u32,
+    /// The points of health a boss has beyond those of its kind. Neither saved nor sent.
+    #[serde(skip)]
+    pub extra_health: u32,
     /// The flight of an arrow. Neither saved nor sent.
     #[serde(skip)]
     pub arrow: Option<ArrowFlight>,
@@ -394,6 +413,7 @@ impl ServerMob {
             portal_rest: None,
             hurt_ticks: 0,
             attack_wait: 0,
+            extra_health: 0,
             arrow: None,
             villager: kind.is_villager().then(Villager::default),
         }
@@ -419,7 +439,7 @@ impl ServerMob {
 
     /// The points of health of the mob unhurt: those of its kind, more in the deep tiers.
     pub fn max_health(&self) -> u32 {
-        strengthened(self.kind.health(), self.tier)
+        strengthened(self.kind.health(), self.tier) + self.extra_health
     }
 
     /// The points of the orb the mob leaves when a player kills it.

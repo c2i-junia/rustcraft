@@ -91,8 +91,8 @@ impl ItemLooks {
         self.get_drawn((item, None), materials, meshes, images)
     }
 
-    /// The look of `item`, a bow drawn to a stage (`bow::draw_stage`): the picture
-    /// `Bow_Draw<stage>`.
+    /// The look of `item` in a stage, a bow drawn (`bow::draw_stage`) or a compass that points
+    /// (`compass::needle`): the picture `<item>_Draw<stage>`.
     pub(crate) fn get_drawn(
         &mut self,
         (item, stage): (ItemId, Option<u8>),

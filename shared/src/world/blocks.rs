@@ -138,6 +138,8 @@ pub enum BlockId {
     YoungPotatoes,
     TallPotatoes,
     RipePotatoes,
+    /// The trophy of the Ember Mother: it glows.
+    EmberHeart,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -351,7 +353,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 107] = [
+    pub const ALL: [BlockId; 108] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -459,6 +461,7 @@ impl BlockId {
         BlockId::YoungPotatoes,
         BlockId::TallPotatoes,
         BlockId::RipePotatoes,
+        BlockId::EmberHeart,
     ];
 
     pub fn is_stairs(&self) -> bool {
@@ -745,6 +748,7 @@ impl BlockId {
             Self::Fire => return Some(1),
             // Minecraft's hardness of 50 would be 500 hits, more than a `breaking_progress`
             // holds: as long as it gets
+            Self::EmberHeart => 10,
             Self::Obsidian => return Some(250),
             Self::Bedrock | Self::Water | Self::Lava => return None,
         };
@@ -769,6 +773,7 @@ impl BlockId {
                     | Self::GoldBlock
                     | Self::DiamondBlock
                     | Self::Obsidian
+                    | Self::EmberHeart
                     | Self::HewnStone
                     | Self::Limestone
                     | Self::Slate
@@ -1009,6 +1014,7 @@ impl BlockId {
             BlockId::UnlitCampfire => vec![(1, ItemId::Campfire, 1)],
             BlockId::Sign => vec![(1, ItemId::Sign, 1)],
             BlockId::Obsidian => vec![(1, ItemId::Obsidian, 1)],
+            BlockId::EmberHeart => vec![(1, ItemId::EmberHeart, 1)],
             _ => vec![],
         }
     }
@@ -1116,6 +1122,7 @@ impl BlockId {
         match *self {
             Self::Fire | Self::Lava => 15,
             Self::Torch => 14,
+            Self::EmberHeart => 12,
             Self::Lantern | Self::HangingLantern => 15,
             Self::Campfire => 13,
             Self::LitFurnace => 13,
@@ -1143,7 +1150,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 107] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 108] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 3] = [BlockId::Bedrock, BlockId::Water, BlockId::Lava];
@@ -1257,7 +1264,8 @@ mod tests {
             | BlockId::PotatoSprout
             | BlockId::YoungPotatoes
             | BlockId::TallPotatoes
-            | BlockId::RipePotatoes => {}
+            | BlockId::RipePotatoes
+            | BlockId::EmberHeart => {}
         }
     }
 
@@ -1412,6 +1420,7 @@ mod tests {
                 BlockId::YoungPotatoes => 104,
                 BlockId::TallPotatoes => 105,
                 BlockId::RipePotatoes => 106,
+                BlockId::EmberHeart => 107,
             };
             assert_eq!(encoded(&id), [expected], "{id:?}: {ENCODING_WARNING}");
         }

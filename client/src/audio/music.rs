@@ -26,8 +26,7 @@ pub enum MusicMood {
     Night,
     /// The player is deep in the ground (`UNDERGROUND_BELOW`).
     Underground,
-    /// A boss fight: tense. No boss sets it yet (`MusicMoodOverride`).
-    #[allow(dead_code)]
+    /// A boss fight: tense (`MusicMoodOverride`, set by `ui::hud::boss`).
     Boss,
 }
 

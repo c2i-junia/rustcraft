@@ -133,6 +133,12 @@ impl MobKind {
                 forget: 24.0,
                 speed: 3.0,
             }),
+            // In her lair only: `mob::boss` finds her prey
+            MobKind::EmberMother => Some(Hunt {
+                sight: 36.0,
+                forget: 36.0,
+                speed: 3.0,
+            }),
             _ => None,
         }
     }
@@ -185,6 +191,13 @@ impl MobKind {
                 reach: 1.5,
                 cooldown: 20,
                 knock_back: 0.0,
+            }),
+            // Her blow up close
+            MobKind::EmberMother => Some(Strike {
+                damage: 7,
+                reach: 2.4,
+                cooldown: 30,
+                knock_back: 8.0,
             }),
             _ => None,
         }

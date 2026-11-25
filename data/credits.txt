@@ -1,0 +1,43 @@
+# Rustcraft
+A voxel survival game, free and open source
+Made with Rust and Bevy
+
+# Made by
+C2I, the computer club of ISEN
+AudranTourneur
+eztaah
+mizkyosia
+Rémi
+nausicaa73
+Yohan ChePi
+melian-e
+shwwwa
+rorom09
+massmr
+Cyriaque Tonnerre
+CodeSummoner
+alex711m
+Adam Perkowski
+
+# Music and sounds
+The eight pieces of music, the sounds
+and the voices of the creatures are original,
+synthesised by our own scripts
+
+# Textures
+Pixel Perfection, by XSSheep and Nova_Wostra
+Many more, the models and the Ember Mother,
+drawn for Rustcraft
+
+# Built upon
+Bevy
+Renet
+and the many libraries of the Rust community
+
+# License
+The code and the original assets
+are under the MIT License
+
+# Thank you for playing
+The depths are quiet now.
+The world is still yours.

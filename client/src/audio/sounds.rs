@@ -100,7 +100,8 @@ impl SoundMaterial {
             | BlockId::HewnStoneSlab
             | BlockId::BrickSlab
             | BlockId::Lantern
-            | BlockId::Obsidian => Self::Stone,
+            | BlockId::Obsidian
+            | BlockId::EmberHeart => Self::Stone,
             BlockId::OakLog
             | BlockId::OakPlanks
             | BlockId::SpruceLog
@@ -229,6 +230,7 @@ fn creature_folder(kind: MobKind) -> &'static str {
         MobKind::Stumpling => "stumpling",
         MobKind::Drowner => "drowner",
         MobKind::Cinderling => "cinderling",
+        MobKind::EmberMother => "ember_mother",
         MobKind::Ember => "ember",
         MobKind::GustOwl => "gust_owl",
         MobKind::Arrow => "arrow",

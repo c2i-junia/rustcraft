@@ -65,6 +65,9 @@ pub struct WorldMeta {
     /// chosen, which are in survival.
     #[serde(default)]
     pub game_mode: GameMode,
+    /// Whether the Ember Mother was beaten: she never comes back (`mob::boss`).
+    #[serde(default)]
+    pub boss_defeated: bool,
 }
 
 impl WorldMeta {
@@ -80,6 +83,7 @@ impl WorldMeta {
             generation: WorldGenSettings::default(),
             difficulty: Difficulty::default(),
             game_mode: GameMode::default(),
+            boss_defeated: false,
         }
     }
 }
@@ -110,6 +114,9 @@ pub struct WorldData {
     /// The single-file formats had none: their worlds are in survival.
     #[serde(default)]
     pub game_mode: GameMode,
+    /// Whether the Ember Mother was beaten: she never comes back (`mob::boss`).
+    #[serde(default)]
+    pub boss_defeated: bool,
 }
 
 impl From<&WorldData> for WorldMeta {
@@ -120,6 +127,7 @@ impl From<&WorldData> for WorldMeta {
             generation: world.generation.clone(),
             difficulty: world.difficulty,
             game_mode: world.game_mode,
+            boss_defeated: world.boss_defeated,
             ..Self::new(
                 world.name.clone(),
                 world.seed,
@@ -143,6 +151,7 @@ impl From<WorldMeta> for WorldData {
             generation: meta.generation,
             difficulty: meta.difficulty,
             game_mode: meta.game_mode,
+            boss_defeated: meta.boss_defeated,
             ..Self::default()
         }
     }

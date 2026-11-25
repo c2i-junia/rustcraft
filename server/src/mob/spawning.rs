@@ -68,10 +68,13 @@ fn spawning_tick(world_map: &mut ServerWorldMap, tick: u64, rng: &mut impl Rng) 
         players,
         changed_mobs,
         difficulty,
+        boss,
         ..
     } = world_map;
     if !difficulty.has_hostiles() {
-        mobs.retain(|_, mob| !mob.kind.is_hostile() && mob.kind != MobKind::Ember);
+        mobs.retain(|_, mob| {
+            mob.kind.is_boss() || !mob.kind.is_hostile() && mob.kind != MobKind::Ember
+        });
         return;
     }
     burrow_at_dawn(mobs, changed_mobs, is_night(tick));
@@ -91,7 +94,10 @@ fn spawning_tick(world_map: &mut ServerWorldMap, tick: u64, rng: &mut impl Rng) 
         let attempts = tier.map_or(1, |tier| tier_times(tier, rng));
         for _ in 0..attempts {
             for mob in spawn_attempt(chunks, players, mobs, id, night, rng) {
-                super::add_mob(mobs, changed_mobs, mob);
+                // Nothing but its mother's Cinderlings lives in the lair
+                if !boss.holds(mob.position) {
+                    super::add_mob(mobs, changed_mobs, mob);
+                }
             }
         }
     }
@@ -119,6 +125,7 @@ fn burrow_at_dawn(mobs: &mut HashMap<MobId, ServerMob>, changed: &mut HashSet<Mo
 fn despawn_far_hostiles(mobs: &mut HashMap<MobId, ServerMob>, players: &HashMap<PlayerId, Player>) {
     mobs.retain(|_, mob| {
         !mob.kind.is_hostile()
+            || mob.kind.is_boss()
             || players
                 .values()
                 .any(|player| player.position.distance(mob.position) <= DESPAWN_DISTANCE)

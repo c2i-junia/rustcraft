@@ -220,11 +220,15 @@ pub enum ItemId {
     FarmerSpawnEgg,
     SmithSpawnEgg,
     CartographerSpawnEgg,
+    /// Its needle points to the lair (`lair::centre`) in hand and in the hotbar.
+    DepthsCompass,
+    /// The trophy of the Ember Mother.
+    EmberHeart,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 191] = [
+    pub const ALL: [ItemId; 193] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -416,6 +420,8 @@ impl ItemId {
         Self::FarmerSpawnEgg,
         Self::SmithSpawnEgg,
         Self::CartographerSpawnEgg,
+        Self::DepthsCompass,
+        Self::EmberHeart,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -636,7 +642,8 @@ impl ItemId {
             | Self::GlassPane
             | Self::Wool
             | Self::Sign
-            | Self::Obsidian => ItemCategory::Blocks,
+            | Self::Obsidian
+            | Self::EmberHeart => ItemCategory::Blocks,
             Self::OakLog
             | Self::SpruceLog
             | Self::JungleLog
@@ -768,7 +775,8 @@ impl ItemId {
             | Self::DiamondLeggings
             | Self::DiamondBoots
             | Self::Bow
-            | Self::Arrow => ItemCategory::Tools,
+            | Self::Arrow
+            | Self::DepthsCompass => ItemCategory::Tools,
             Self::FoxSpawnEgg
             | Self::SheepSpawnEgg
             | Self::CowSpawnEgg
@@ -876,6 +884,7 @@ impl ItemId {
             Self::Campfire => ItemType::Block(BlockId::Campfire),
             Self::Sign => ItemType::Block(BlockId::Sign),
             Self::Obsidian => ItemType::Block(BlockId::Obsidian),
+            Self::EmberHeart => ItemType::Block(BlockId::EmberHeart),
             Self::Rye => ItemType::Block(BlockId::RyeSprout),
             Self::Carrot => ItemType::Block(BlockId::CarrotSprout),
             Self::Potato => ItemType::Block(BlockId::PotatoSprout),
@@ -925,6 +934,7 @@ impl ItemId {
             | Self::Berries
             | Self::Spear
             | Self::Arrow
+            | Self::DepthsCompass
             | Self::PortalGun
             | Self::LavaBucket
             | Self::RawPork
@@ -1325,6 +1335,8 @@ mod tests {
             (ItemId::FarmerSpawnEgg, 188),
             (ItemId::SmithSpawnEgg, 189),
             (ItemId::CartographerSpawnEgg, 190),
+            (ItemId::DepthsCompass, 191),
+            (ItemId::EmberHeart, 192),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -1519,7 +1531,9 @@ mod tests {
                 | ItemId::Potato
                 | ItemId::BakedPotato
                 | ItemId::Bow
-                | ItemId::Arrow => {}
+                | ItemId::Arrow
+                | ItemId::DepthsCompass
+                | ItemId::EmberHeart => {}
             }
         }
         for (id, expected) in table {
@@ -1587,12 +1601,12 @@ mod tests {
             ItemId::from_name("sheep_spawn_egg"),
             Some(ItemId::SheepSpawnEgg)
         );
-        // every mob has its egg, but a projectile
+        // every mob has its egg, but a projectile and the boss
         for kind in MobKind::ALL {
             let eggs = ItemId::ALL
                 .iter()
                 .filter(|item| item.spawned_mob() == Some(kind));
-            let expected = usize::from(!kind.is_projectile());
+            let expected = usize::from(!kind.is_projectile() && !kind.is_boss());
             assert_eq!(eggs.count(), expected, "{kind:?}");
         }
         assert_eq!(ItemId::Stone.spawned_mob(), None);
@@ -1905,6 +1919,7 @@ mod tests {
                     | ItemId::FlintAndSteel
                     | ItemId::Bow
                     | ItemId::Arrow
+                    | ItemId::DepthsCompass
             );
             assert_eq!(
                 item.category() == ItemCategory::Tools,

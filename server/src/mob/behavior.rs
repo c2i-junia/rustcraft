@@ -71,6 +71,7 @@ pub(super) fn walk_speed(kind: MobKind) -> f32 {
         | MobKind::Roller
         | MobKind::Cinderling
         | MobKind::GustOwl
+        | MobKind::EmberMother
         | MobKind::Ember
         | MobKind::Arrow => 0.0,
         MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => 1.5,
@@ -91,7 +92,8 @@ fn flee_speed(kind: MobKind) -> f32 {
         | MobKind::Stumpling
         | MobKind::Drowner
         | MobKind::Cinderling
-        | MobKind::GustOwl => super::hostile::own_speed(kind),
+        | MobKind::GustOwl
+        | MobKind::EmberMother => super::hostile::own_speed(kind),
         MobKind::Ember | MobKind::Arrow => 0.0,
         // Never struck
         MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => 3.0,
@@ -151,7 +153,7 @@ fn step_mobs(
 ) {
     let mut thrown = Vec::new();
     for (id, mob) in mobs.iter_mut() {
-        if mob.kind.is_projectile() {
+        if mob.kind.is_projectile() || mob.kind.is_boss() {
             continue;
         }
         mob.hurt_ticks = mob.hurt_ticks.saturating_sub(1);
@@ -752,7 +754,7 @@ fn push_mobs(
     let mut grid: HashMap<IVec2, Vec<(Option<MobId>, Pusher)>> = HashMap::new();
     for (&id, mob) in mobs.iter() {
         // A projectile goes through what it does not hit
-        if mob.kind.is_projectile() {
+        if mob.kind.is_projectile() || mob.kind.is_boss() {
             continue;
         }
         if mob.position.is_finite() && is_terrain_loaded(mob.position, chunks) {

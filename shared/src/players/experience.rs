@@ -97,6 +97,7 @@ impl MobKind {
             MobKind::Bramble => 4,
             MobKind::Roller | MobKind::Stumpling => 5,
             MobKind::Drowner | MobKind::Cinderling | MobKind::GustOwl => 6,
+            MobKind::EmberMother => 500,
             _ => 0,
         }
     }

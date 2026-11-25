@@ -12,6 +12,7 @@
 use std::collections::HashMap;
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, PI, TAU};
 
+use super::compass::CompassNeedle;
 use bevy::{
     asset::AssetId,
     camera::visibility::RenderLayers,
@@ -85,7 +86,8 @@ pub struct ItemHolder {
     pub grip: Grip,
     /// The item to draw, if any: `draw_held_items` follows it.
     pub wanted: Option<ItemId>,
-    /// How far the bow in it is drawn, if it is (`bow::draw_stage`).
+    /// How far the bow in it is drawn, if it is (`bow::draw_stage`), or where the needle of the
+    /// compass in it points (`compass::CompassNeedle`).
     pub draw: Option<u8>,
 }
 
@@ -502,7 +504,7 @@ pub fn spawn_view_model(
 pub fn move_the_hand(
     time: Res<Time>,
     player: Query<(&Player, &PlayerAnimation, &HeldItem), With<CurrentPlayerMarker>>,
-    (inventory, hotbar): (Res<Inventory>, Query<&Hotbar>),
+    (inventory, hotbar, needle): (Res<Inventory>, Query<&Hotbar>, Res<CompassNeedle>),
     mut last_stack: Local<Option<(u32, Option<ItemStack>)>>,
     mouse: Res<ButtonInput<MouseButton>>,
     ui_mode: Res<UIMode>,
@@ -544,6 +546,10 @@ pub fn move_the_hand(
         let offset = match draw {
             Some(_) => offset.then(draw_bow(power(player.bow_draw_ms), time.elapsed_secs())),
             None => offset,
+        };
+        let draw = match motion.shown {
+            Some(ItemId::DepthsCompass) => Some(needle.0),
+            _ => draw,
         };
         *transform = view_model_transform(offset);
         let mut holders = holders.iter_many_mut(children);

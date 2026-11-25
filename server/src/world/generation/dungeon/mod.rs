@@ -8,8 +8,8 @@
 //! Its hostiles are not born with the chunks, which are loaded well beyond where a hostile
 //! despawns: they appear at its `guards` while players are near (`mob::guards`).
 //!
-//! The lair of a boss, unique, is to come at the bottom of the world: `placement::lair_region`
-//! is kept clear of sanctuaries for it.
+//! The lair of the Ember Mother (`lair`), unique, is at the bottom of the world: its region is
+//! kept clear of the crypts and the sanctuaries.
 
 use std::collections::HashSet;
 
@@ -21,10 +21,12 @@ use super::PositionRandom;
 use crate::world::caves::Caves;
 
 mod blueprints;
+mod lair;
 mod loot;
 mod placement;
 
 use blueprints::{Blueprint, Cell};
+pub use lair::Lair;
 pub use placement::{region_of, site, REGION};
 
 /// The kinds of dungeons.
@@ -67,6 +69,8 @@ pub struct World<'a> {
     pub caves: &'a Caves,
     /// Whether the world has villages, which the ruins keep away from.
     pub villages: bool,
+    /// The column of the centre of the lair, if the world has one.
+    pub lair: Option<IVec2>,
 }
 
 /// Where a dungeon stands, before it is laid out.

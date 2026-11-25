@@ -4,6 +4,7 @@ use crate::constants::MAX_HOTBAR_SLOTS;
 use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_just_pressed;
 use crate::network::buffered_client::CurrentFrameInputs;
+use crate::player::compass::SlotPictures;
 use crate::state::KeyMap;
 use crate::ui::hud::hotbar::{hotbar_key_index, Hotbar};
 use crate::ui::hud::item_browser::ItemBrowser;
@@ -17,7 +18,7 @@ use crate::ui::widgets::slot::{
     SlotSelected, ICON_SIZE, SLOT_SIZE,
 };
 use crate::ui::widgets::tooltip::Tooltip;
-use crate::world::{ClientWorldMap, MaterialResource};
+use crate::world::ClientWorldMap;
 use bevy::input_focus::tab_navigation::TabIndex;
 use bevy::input_focus::{FocusCause, InputFocus, InputFocusVisible};
 use bevy::picking::hover::Hovered;
@@ -318,7 +319,7 @@ pub fn close_inventory_system(
 pub fn display_inventory_system(
     inventory: Res<Inventory>,
     world_map: Res<ClientWorldMap>,
-    materials: Res<MaterialResource>,
+    pictures: SlotPictures,
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
     hotbar: Query<&Hotbar>,
     window: Query<&Window, With<PrimaryWindow>>,
@@ -373,7 +374,7 @@ pub fn display_inventory_system(
             &mut counts,
             &mut icons,
             &mut bars,
-            &materials,
+            &pictures,
         );
     }
 
@@ -419,7 +420,7 @@ pub fn display_inventory_system(
             &mut counts,
             &mut icons,
             &mut bars,
-            &materials,
+            &pictures,
         );
     }
 }
@@ -489,7 +490,7 @@ pub fn style_inventory_panel(
 pub fn display_crafting_system(
     inventory: Res<Inventory>,
     trade: Option<Res<OpenTrade>>,
-    materials: Res<MaterialResource>,
+    pictures: SlotPictures,
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
     mut grid_cells: Query<(&CraftingGridCell, &mut Node)>,
     mut rows: Query<
@@ -578,7 +579,7 @@ pub fn display_crafting_system(
             &mut counts,
             &mut icons,
             &mut bars,
-            &materials,
+            &pictures,
         );
     }
 }
@@ -647,14 +648,11 @@ fn show_stack(
     counts: &mut SlotCounts,
     icons: &mut Query<(&mut ImageNode, &mut Visibility), (With<SlotIcon>, Without<InventoryRoot>)>,
     bars: &mut DurabilityBars,
-    materials: &MaterialResource,
+    pictures: &SlotPictures,
 ) {
     let bar = stack.as_ref().and_then(durability_bar);
     let count = stack.map(|stack| count_label(stack.nb)).unwrap_or_default();
-    let sprite = stack.and_then(|stack| {
-        let atlas = materials.items.as_ref()?;
-        atlas.sprite(&format!("{:?}", stack.item_id))
-    });
+    let sprite = stack.and_then(|stack| pictures.sprite(stack.item_id));
 
     for child in children.iter() {
         if let Ok((mut text, color)) = counts.get_mut(child) {
@@ -700,6 +698,7 @@ mod tests {
     use crate::ui::settings::{InterfaceSettings, InventoryTweaksChoice};
     use crate::ui::theme::PANEL;
     use crate::ui::widgets::slot::slot_durability;
+    use crate::world::MaterialResource;
     use bevy::ecs::system::RunSystemOnce;
     use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
     use shared::players::inventory::{FURNACE_FUEL_SLOT, FURNACE_INPUT_SLOT, FURNACE_OUTPUT_SLOT};

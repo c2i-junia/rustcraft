@@ -71,6 +71,7 @@ pub fn model(kind: MobKind) -> MobModel {
         // Its three clips are one spin
         MobKind::Ember => ("models/animated/Ember.glb", HOSTILE_CLIPS),
         MobKind::GustOwl => ("models/animated/GustOwl.glb", HOSTILE_CLIPS),
+        MobKind::EmberMother => ("models/animated/EmberMother.glb", HOSTILE_CLIPS),
         // Its three clips stand still
         MobKind::Arrow => ("models/animated/Arrow.glb", HOSTILE_CLIPS),
         MobKind::Farmer => ("models/animated/Farmer.glb", VILLAGER_CLIPS),

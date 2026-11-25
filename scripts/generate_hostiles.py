@@ -2,7 +2,7 @@
 
 Seven mobs on the 1/16 m grid of the sheep: Stumpling, Drowner, Cinderling and GustOwl, the
 mobs that lead to a death of their own (blows, drowning, fire, falls), and Gnawer, Bramble and
-Roller, simpler ones; and the Ember a Cinderling throws, whose three clips are one spin, and
+Roller, simpler ones; the boss EmberMother; and the Ember a Cinderling throws, whose three clips are one spin, and
 the Arrow of the players' bow, which stands still. Each part is a rigid object whose voxels take their colour from a 16x16
 palette drawn with nearest filtering; colours marked `*` glow. The clips move whole parts and
 are Attack, Idle and Walk, which the exporter sorts by name into glTF animations 0, 1 and 2,
@@ -260,6 +260,133 @@ def braisille():
     parts["shard"] = shard
     pivots = {name: (0, 0, 12) for name in parts}
     pose = {"body": (0, 0, -12)}
+    return parts, pivots, pose
+
+
+# ------------------------------------------------------------------ Mere (the boss, the Cinderlings' mother)
+
+def mere():
+    """A kiln of basalt that woke: a bell of cracked rock with a furnace in the chest, a small
+    head under a crown of flames, two arms of slabs, and three clutches of embers she carries."""
+    rng = random.Random(29)
+    ROCK = ["#2a2422", "#211c1b", "#352d2a", "#181413"]
+    PLATE = ["#443833", "#4d403a", "#3b312d"]
+    ASH = ["#6b5f58", "#7a6e66"]
+    CRACK = ["*#ff5a00", "*#ff7d12", "*#ffa51f"]
+    CORE = ["*#ffd24a", "*#fff1a8", "*#ffb52e"]
+    FLAME = ["*#fff1a8", "*#ffd24a", "*#ffa31a", "*#ff6a00", "*#d93a00"]
+    BONE, EYE = "#1a1210", "*#fff6c2"
+    parts = {}
+
+    def radius(k):  # the bell: wide at the hem, narrow under the shoulders, then the shoulders
+        if k < 24:
+            return 11.5 - (k - 3) * 0.24
+        return 8.2 if k < 30 else 8.2 - (k - 29) * 0.9
+
+    body = {}
+    for k in range(3, 34):
+        r = radius(k)
+        for i in range(-12, 12):
+            for j in range(-12, 12):
+                x, y = abs(i + 0.5), abs(j + 0.5)
+                # an octagon rather than a circle: rock, not cloth
+                if max(x, y) < r and x + y < r * 1.42:
+                    body[(i, j, k)] = rng.choice(PLATE if k % 8 in (2, 3) else ROCK)
+    for (i, j, k) in list(body):  # ash on the shoulders, a ragged glowing hem
+        if k >= 29 and rng.random() < 0.4:
+            body[(i, j, k)] = rng.choice(ASH)
+        if k == 3 and rng.random() < 0.45:
+            body[(i, j, k)] = rng.choice(CRACK)
+        if k == 3 and rng.random() < 0.3:
+            body.pop((i, j, k))
+    # seams of fire winding up the bell
+    for n in range(14):
+        angle = 2 * math.pi * n / 14
+        for k in range(4, 23):
+            angle += rng.uniform(-0.13, 0.13)
+            r = radius(k) + 0.5
+            for step in range(16):
+                c = (math.floor(math.cos(angle) * r), math.floor(math.sin(angle) * r), k)
+                if c in body:
+                    if rng.random() < 0.8:
+                        body[c] = rng.choice(CRACK)
+                    break
+                r -= 0.35
+    # the furnace of the chest: an arched mouth barred with rock over a white core
+    for i in range(-7, 7):
+        for k in range(12, 25):
+            x = abs(i + 0.5) + max(0, k - 18) * 0.8
+            if x < 5.2:
+                for j in range(-12, -4):
+                    body.pop((i, j, k), None)
+                body[(i, -5, k)] = CORE[1] if x < 2 and k < 18 else rng.choice(CORE + CRACK)
+                if i in (-3, 0, 2) and k < 22:
+                    body[(i, -8, k)] = rng.choice(ROCK)
+            elif x < 7.2:
+                front = min((j for j in range(-12, 0) if (i, j, k) in body), default=None)
+                if front is not None:
+                    body[(i, front - 1, k)] = rng.choice(PLATE)
+    parts["body"] = body
+
+    head = {}
+    box(head, range(-4, 4), range(-5, 4), range(33, 41), lambda *_: rng.choice(ROCK))
+    box(head, range(-3, 3), range(-4, 3), range(41, 42), lambda *_: rng.choice(CRACK))
+    for i, k in ((-4, 33), (3, 33), (-4, 40), (3, 40)):
+        for j in range(-5, 4):
+            head.pop((i, j, k), None)
+    for i in range(-4, 4):  # a brow of plates over the eyes
+        head[(i, -6, 39)] = rng.choice(PLATE)
+    for i in (-3, -2, 1, 2):
+        head[(i, -5, 37)] = EYE
+        head[(i, -5, 38)] = EYE if i in (-2, 1) else BONE
+    for i in range(-2, 2):  # the mouth: a grille
+        head[(i, -5, 34)] = CRACK[2] if i % 2 else BONE
+        head[(i, -5, 35)] = CRACK[0]
+    for side in (-1, 1):  # two chimneys for horns, bent outward
+        x = 4 if side > 0 else -6
+        box(head, range(x, x + 2), range(-1, 1), range(37, 41), lambda *_: rng.choice(PLATE))
+        x += side
+        box(head, range(x, x + 2), range(-1, 1), range(41, 45), lambda *_: rng.choice(PLATE))
+        box(head, range(x, x + 2), range(-1, 1), range(45, 46), CRACK[2])
+    parts["head"] = head
+
+    flame = {}
+    for k in range(42, 51):
+        r = max(0.0, 4.2 - (k - 42) * 0.45)
+        for i in range(-5, 5):
+            for j in range(-5, 5):
+                if math.hypot(i + 0.5, j + 0.5) < r and rng.random() < 0.94 - (k - 42) * 0.06:
+                    flame[(i, j, k)] = FLAME[min(4, (k - 42) // 2)]
+    for i, j, top in ((-3, 1, 49), (2, -1, 51), (0, 2, 50)):
+        for k in range(44, top):
+            flame[(i, j, k)] = rng.choice(FLAME[2:])
+    parts["flame"] = flame
+
+    arm = {}
+    for low, high, half in ((24, 31, 3), (16, 23, 2), (8, 15, 3)):
+        box(arm, range(-13 - half, -13 + half), range(-half, half), range(low, high),
+            lambda *_: rng.choice(ROCK + PLATE))
+        box(arm, range(-14, -12), range(-1, 1), range(low - 1, low), CRACK[1])
+    for i in (-16, -14, -12):  # fingers
+        box(arm, range(i, i + 1), range(-3, -1), range(4, 8), lambda *_: rng.choice(PLATE))
+        arm[(i, -3, 4)] = CRACK[0]
+    for c in list(arm):
+        if rng.random() < 0.07:
+            arm[c] = rng.choice(CRACK)
+    parts["arm_L"] = arm
+    parts["arm_R"] = mirror(arm)
+
+    for n, (cx, cy, cz) in enumerate(((-17, 6, 34), (14, 9, 30), (0, 15, 22))):
+        clutch = {}
+        for i in range(3):
+            for j in range(3):
+                for k in range(3):
+                    if 1 in (i, j, k):
+                        clutch[(cx + i, cy + j, cz + k)] = rng.choice(CRACK + FLAME[1:3] + ROCK[:1])
+        parts[f"ember{n}"] = clutch
+    pivots = {"body": (0, 0, 3), "head": (0, 0, 33), "flame": (0, 0, 42), "arm_L": (-12, 0, 29),
+              "arm_R": (12, 0, 29), **{f"ember{n}": (0, 0, 24) for n in range(3)}}
+    pose = {"arm_L": (0, 8, 0), "arm_R": (0, -8, 0), "head": (4, 0, 8)}
     return parts, pivots, pose
 
 
@@ -570,6 +697,21 @@ def clips_braisille(parts):
     return {"Attack": attack, "Idle": idle, "Walk": walk}
 
 
+def clips_mere():
+    def base(frames, tilt, sway):
+        return {"body": bob(0.7, period=frames, frames=frames, rot=(tilt, 0, 0)),
+                "head": bob(0.9, period=frames, frames=frames, rot=(tilt, 0, 0)),
+                "flame": swing(9, period=frames / 2, frames=frames, axis=1),
+                "arm_L": swing(sway, period=frames, frames=frames),
+                "arm_R": swing(-sway, period=frames, frames=frames),
+                **{f"ember{n}": ember_orbit(frames, turns=1 if n != 1 else -1) for n in range(3)}}
+    attack = {"arm_L": keys((0, (0, 0, 0)), (5, (-130, 12, 0)), (9, (35, 0, 0)), (16, (0, 0, 0))),
+              "arm_R": keys((0, (0, 0, 0)), (5, (-130, -12, 0)), (9, (35, 0, 0)), (16, (0, 0, 0))),
+              "head": keys((0, (0, 0, 0)), (5, (-18, 0, 0)), (9, (20, 0, 0)), (16, (0, 0, 0))),
+              "flame": keys((0, (0, 0, 0)), (5, (-25, 0, 0)), (9, (30, 0, 0)), (16, (0, 0, 0)))}
+    return {"Attack": attack, "Idle": base(72, 0, 3), "Walk": base(36, 4, 10)}
+
+
 def clips_rafaleur():
     flap = lambda amp, period, frames: {"wing_L": swing(amp, period=period, frames=frames, axis=1),
                                         "wing_R": swing(-amp, period=period, frames=frames, axis=1)}
@@ -629,10 +771,11 @@ MOBS = {
     "Gnawer": ("Grignoteur", grignoteur, clips_grignoteur),
     "Bramble": ("Ronceux", ronceux, clips_ronceux),
     "Roller": ("Rouleur", rouleur, clips_rouleur),
+    "EmberMother": ("Mere", mere, clips_mere),
     "Ember": ("Braise", braise, clips_braise),
     "Arrow": ("Fleche", fleche, clips_fleche),
 }
-LINEAR = {"Cinderling", "Roller", "Ember"}
+LINEAR = {"Cinderling", "EmberMother", "Roller", "Ember"}
 
 
 # ------------------------------------------------------------------ the objects
@@ -845,7 +988,7 @@ def render(scene, path, w, h):
 # height of the centre of the frame, and lift off the ground, of each preview
 FRAMING = {"Stumpling": (1.0, 0), "Drowner": (0.75, 0), "Cinderling": (0.95, 0), "GustOwl": (1.05, 0.55),
            "Gnawer": (0.3, 0), "Bramble": (0.4, 0), "Roller": (0.4, 0), "Ember": (0.3, 0.2),
-           "Arrow": (0.3, 0.2)}
+           "Arrow": (0.3, 0.2), "EmberMother": (1.5, 0)}
 
 
 def previews(out, names):
@@ -858,7 +1001,7 @@ def previews(out, names):
         ground(scene.collection)
         lights(scene.collection, warm=name == "Cinderling")
         small = centre < 0.5
-        camera(scene, scene.collection, (0, 0, centre), 2.6 if small else (5.6 if name == "GustOwl" else 4.6), centre + (0.45 if small else 0.55))
+        camera(scene, scene.collection, (0, 0, centre), 2.6 if small else (5.6 if name == "GustOwl" else 7.5 if name == "EmberMother" else 4.6), centre + (0.45 if small else 0.55))
         render(scene, out / f"{name}.png", 900, 900)
     scene = set_scene()
     for name, x in (("GustOwl", -4.6), ("Stumpling", -2.4), ("Drowner", -0.5), ("Cinderling", 1.3),
@@ -873,7 +1016,7 @@ def previews(out, names):
 
 def main():
     if "--render" in ARGS:
-        previews(Path(ARGS[ARGS.index("--render") + 1]), [n for n in MOBS])
+        previews(Path(ARGS[ARGS.index("--render") + 1]), ARGS[ARGS.index("--render") + 2:] or list(MOBS))
         return
     for name in ARGS or MOBS:
         export(name, ROOT / "data" / "models" / "animated" / f"{name}.glb")

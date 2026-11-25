@@ -1,3 +1,4 @@
+use crate::player::compass::LairPlace;
 use bevy::prelude::*;
 use bevy::window::ExitSystems;
 use bevy_renet::netcode::{
@@ -6,6 +7,7 @@ use bevy_renet::netcode::{
 };
 use bevy_renet::{RenetClient, RenetClientPlugin};
 use rand::Rng;
+use shared::world::lair;
 use shared::world::{BiomeDef, Biomes, TerrainNoises, WorldGenSettings};
 use shared::{get_shared_renet_config, GameServerConfig, SaveCounter, STC_AUTH_CHANNEL};
 
@@ -530,6 +532,11 @@ pub fn establish_authenticated_connection_to_server(
                 commands.insert_resource(ServerRenderDistanceLimit(message.max_render_distance));
                 let (noises, warning) =
                     world_noises(message.seed, &message.generation, message.biomes);
+                let lair = message
+                    .generation
+                    .dungeons
+                    .then(|| lair::heart(lair::centre(message.seed, &noises)));
+                commands.insert_resource(LairPlace(lair));
                 commands.insert_resource(WorldBiomes(Arc::new(noises)));
                 if let Some(warning) = warning {
                     warn!("{warning}");

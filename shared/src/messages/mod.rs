@@ -4,7 +4,9 @@ pub mod mob;
 pub mod player;
 mod world;
 
-use crate::world::{depths::DepthTier, MobId, Portal, PortalColor, TradeView, WeatherKind};
+use crate::world::{
+    depths::DepthTier, MobId, MobKind, Portal, PortalColor, TradeView, WeatherKind,
+};
 pub use auth::*;
 use bevy::math::{IVec3, Vec3};
 pub use chat::*;
@@ -82,6 +84,18 @@ pub enum ServerToClientMessage {
     DepthReached(DepthTier),
     /// The trade of the player: what its villager has left, or none once it ended.
     TradeUpdate(Option<TradeView>),
+    /// The health of the boss awake near the player of this client, none once there is none.
+    BossBar(Option<BossBar>),
+    /// The boss was beaten while the player of this client was in its lair: the credits.
+    Victory,
+}
+
+/// What the bar of a boss shows.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BossBar {
+    pub kind: MobKind,
+    pub health: u32,
+    pub max_health: u32,
 }
 
 #[cfg(test)]
@@ -178,6 +192,7 @@ mod tests {
                 portal_rest: None,
                 hurt_ticks: 0,
                 attack_wait: 0,
+                extra_health: 0,
                 arrow: None,
                 villager: None,
             },
@@ -241,6 +256,8 @@ mod tests {
             (ServerToClientMessage::Dismissed(String::new()), 15),
             (ServerToClientMessage::DepthReached(DepthTier::Caves), 16),
             (ServerToClientMessage::TradeUpdate(None), 17),
+            (ServerToClientMessage::BossBar(None), 18),
+            (ServerToClientMessage::Victory, 19),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");
         }
@@ -360,6 +377,11 @@ mod tests {
         assert_eq!(
             variant_index(&MobKind::Cartographer),
             21,
+            "{ENCODING_WARNING}"
+        );
+        assert_eq!(
+            variant_index(&MobKind::EmberMother),
+            22,
             "{ENCODING_WARNING}"
         );
         assert_eq!(variant_index(&MobTarget::None), 0, "{ENCODING_WARNING}");

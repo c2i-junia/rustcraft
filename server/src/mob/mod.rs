@@ -1,5 +1,6 @@
 pub mod arrow;
 pub mod behavior;
+pub mod boss;
 pub mod breeding;
 pub mod cinder;
 pub mod combat;

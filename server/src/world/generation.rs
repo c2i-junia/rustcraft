@@ -14,7 +14,7 @@ mod ores;
 mod structure;
 pub mod village;
 
-use dungeon::{DungeonKind, DungeonPlan};
+use dungeon::{DungeonKind, DungeonPlan, Lair};
 use village::VillagePlan;
 
 /// Largest horizontal distance between the column a structure is rooted in and any of its
@@ -828,6 +828,8 @@ pub struct WorldGenerator {
     dungeons: bool,
     /// The dungeons of each kind and region laid out so far, as `plans`.
     dungeon_plans: Mutex<HashMap<(DungeonKind, IVec2), Option<Arc<DungeonPlan>>>>,
+    /// The lair of the Ember Mother, in a world that has dungeons.
+    lair: Option<Lair>,
 }
 
 impl WorldGenerator {
@@ -838,9 +840,11 @@ impl WorldGenerator {
 
     /// The generator of the world of `seed` and `settings`, whose biomes are `biomes`.
     pub fn with(seed: u32, settings: &WorldGenSettings, biomes: Arc<Biomes>) -> Self {
+        let terrain = TerrainNoises::with(seed, settings, biomes);
         Self {
             seed,
-            terrain: TerrainNoises::with(seed, settings, biomes),
+            lair: settings.dungeons.then(|| Lair::new(seed, &terrain)),
+            terrain,
             caves: Caves::new(seed),
             bed_patches: Noise3::new(seed, SALT_BED_PATCHES, BED_PATCH_WAVELENGTH, 1.0),
             columns: Mutex::default(),
@@ -849,6 +853,11 @@ impl WorldGenerator {
             dungeons: settings.dungeons,
             dungeon_plans: Mutex::default(),
         }
+    }
+
+    /// The lair of the Ember Mother, if the world has one.
+    pub fn lair(&self) -> Option<&Lair> {
+        self.lair.as_ref()
     }
 
     /// The village of `region`, if it holds one, from the cache or laid out.
@@ -919,6 +928,7 @@ impl WorldGenerator {
             terrain: &self.terrain,
             caves: &self.caves,
             villages: self.villages,
+            lair: self.lair.as_ref().map(|lair| lair.centre.xz()),
         }
     }
 
@@ -1188,6 +1198,9 @@ impl WorldGenerator {
         for plan in self.dungeons_in(&DungeonKind::UNDERGROUND, chunk_pos) {
             plan.place_blocks(&mut chunk, chunk_pos);
         }
+        if let Some(lair) = &self.lair {
+            lair.place_blocks(&mut chunk, chunk_pos);
+        }
         chunk
     }
 
@@ -1286,6 +1299,9 @@ impl WorldGenerator {
             .chain(columns.ruin.clone())
         {
             plan.place_blocks(&mut chunk, chunk_pos);
+        }
+        if let Some(lair) = &self.lair {
+            lair.place_blocks(&mut chunk, chunk_pos);
         }
         chunk
     }

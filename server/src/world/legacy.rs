@@ -110,6 +110,7 @@ impl From<LegacyWorldData> for WorldData {
             generation: Default::default(),
             difficulty: Default::default(),
             game_mode: Default::default(),
+            boss_defeated: false,
         }
     }
 }

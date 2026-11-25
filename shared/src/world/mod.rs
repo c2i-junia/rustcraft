@@ -12,6 +12,7 @@ pub mod furnace;
 pub mod growth;
 pub mod hostiles;
 pub mod items;
+pub mod lair;
 pub mod lava;
 pub mod liquid;
 pub mod mobs;

@@ -277,6 +277,7 @@ const RECIPES: &[Recipe] = &[
     Recipe { width: 3, cells: &boots(DIAMOND), output: ItemId::DiamondBoots, nb: 1, shapeless: false },
     Recipe { width: 3, cells: &[STICK, STICK, None, item(ItemId::Rope), None, STICK, STICK, STICK, None], output: ItemId::Bow, nb: 1, shapeless: false },
     Recipe { width: 1, cells: &[FLINT, STICK, item(ItemId::Feather)], output: ItemId::Arrow, nb: 4, shapeless: false },
+    Recipe { width: 3, cells: &[None, item(ItemId::GoldIngot), None, item(ItemId::GoldIngot), item(ItemId::Diamond), item(ItemId::GoldIngot), None, item(ItemId::GoldIngot), None], output: ItemId::DepthsCompass, nb: 1, shapeless: false },
 ];
 
 /// What the grid makes, if it matches a recipe.
@@ -932,7 +933,7 @@ mod tests {
     #[test]
     fn every_recipe_is_listed_with_its_index_and_size() {
         let all: Vec<RecipeView> = recipes().collect();
-        assert_eq!(all.len(), 104);
+        assert_eq!(all.len(), 105);
         for (position, recipe) in all.iter().enumerate() {
             assert_eq!(recipe.index as usize, position);
             assert_eq!(recipe.cells.len(), recipe.width * recipe.height);

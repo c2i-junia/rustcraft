@@ -295,6 +295,7 @@ fn load_world(
         portal_shots: Vec::new(),
         difficulty: world_data.difficulty,
         game_mode: world_data.game_mode,
+        boss: crate::mob::boss::Boss::saved(world_data.boss_defeated),
     };
     cleanup_all_players_from_world(&mut world_map);
 

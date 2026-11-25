@@ -178,12 +178,16 @@ pub fn interact(
 
 /// The player `striker` takes `damage` points of health from `mob`, which may be hurt
 /// (`ServerMob::hurt_ticks`), and throws it back at the horizontal velocity `push`: a hostile
-/// turns on the striker, an animal flees from it. Returns whether the mob dies.
+/// turns on the striker, an animal flees from it. Returns whether the mob dies: a
+/// boss is ended by its own system (`boss::step`), which drops what it leaves.
 pub fn wound(mob: &mut ServerMob, striker: PlayerId, damage: u32, push: Vec3) -> bool {
     mob.damage += damage;
     mob.hurt_ticks = MOB_INVULNERABILITY_TICKS;
-    mob.velocity = push + Vec3::Y * KNOCK_SPEED;
-    mob.on_ground = false;
+    // A boss is not moved by a blow
+    if !mob.kind.is_boss() {
+        mob.velocity = push + Vec3::Y * KNOCK_SPEED;
+        mob.on_ground = false;
+    }
     if mob.kind.is_hostile() {
         super::hostile::provoke(mob, striker);
     } else {
@@ -191,7 +195,7 @@ pub fn wound(mob: &mut ServerMob, striker: PlayerId, damage: u32, push: Vec3) ->
         mob.action_ticks = FLEE_TICKS;
         mob.target = MobTarget::Player(striker);
     }
-    mob.damage >= mob.max_health()
+    mob.damage >= mob.max_health() && !mob.kind.is_boss()
 }
 
 /// Drops `drops` where a mob was.
@@ -279,6 +283,7 @@ fn kind_loot(mob: &ServerMob, rng: &mut impl Rng) -> Vec<(ItemId, u32)> {
             (ItemId::Coal, rng.gen_range(1..=2)),
             (ItemId::Flint, u32::from(rng.gen_ratio(1, 10))),
         ],
+        MobKind::EmberMother => vec![(ItemId::EmberHeart, 1)],
         MobKind::Fox
         | MobKind::Wolf
         | MobKind::Horse

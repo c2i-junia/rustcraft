@@ -24,6 +24,7 @@ mod hud;
 mod input;
 mod inventory;
 mod item_browser;
+mod lair;
 mod locator;
 mod main_menu;
 mod minimap;

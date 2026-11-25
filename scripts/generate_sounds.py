@@ -1283,6 +1283,35 @@ def build_cinderling_hurt(rng):
     return hurt_of(rng, sizzle * 0.5 + crack * 0.4, -16, f0=170)
 
 
+def build_ember_mother_cry(rng):
+    """A kiln that breathes: a deep draught through a chimney, and coals settling."""
+    d = 2.6
+    draught = flame(rng, d, 50, 500) * curve(d, (0, 0), (d * 0.5, 1), (d, 0))
+    coals = crackle(rng, d, 25) * 0.5 + thump(rng, d, 70, 40, 0.2) * 0.4
+    return finish(outdoors(rng, draught + coals), -18)
+
+
+def build_ember_mother_approach(rng):
+    """The kiln roars up, rock grinding under it."""
+    d = 2.2
+    x = flame(rng, d, 40, 900) * curve(d, (0, 0.1), (d * 0.6, 1), (d, 0.3)) + crackle(rng, d, 120) * 0.5
+    return finish(outdoors(rng, x + thump(rng, d, 90, 30, 0.5) * 0.7), -14)
+
+
+def build_ember_mother_attack(rng):
+    """Slabs brought down, and the gust of fire they raise."""
+    d = 1.2
+    slam = thump(rng, d, 140, 35, 0.15)
+    return finish(slam + whoosh(rng, d, 120, 1800, 0.03, 0.3) * 0.8 + crackle(rng, d, 160) * 0.3, -12)
+
+
+def build_ember_mother_hurt(rng):
+    """A crack in hot stone."""
+    d = 0.6
+    crack = modes(rng, d, [(310, 0.08, 1.0), (640, 0.05, 0.6), (1150, 0.03, 0.4)])
+    return hurt_of(rng, crack * 0.6 + crackle(rng, d, 200) * 0.3, -14, f0=85)
+
+
 def build_ember_cry(rng):
     """An ember in flight: a short fizzing whoosh."""
     d = 0.7
@@ -1340,6 +1369,7 @@ HOSTILES = {
     "stumpling": (build_stumpling_cry, build_stumpling_approach, build_stumpling_attack, build_stumpling_hurt),
     "drowner": (build_drowner_cry, build_drowner_approach, build_drowner_attack, build_drowner_hurt),
     "cinderling": (build_cinderling_cry, build_cinderling_approach, build_cinderling_attack, build_cinderling_hurt),
+    "ember_mother": (build_ember_mother_cry, build_ember_mother_approach, build_ember_mother_attack, build_ember_mother_hurt),
     "gust_owl": (build_gust_owl_cry, build_gust_owl_approach, build_gust_owl_attack, build_gust_owl_hurt),
 }
 

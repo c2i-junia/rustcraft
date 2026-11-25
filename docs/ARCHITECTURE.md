@@ -586,7 +586,7 @@ Before **Receive**: `villager_day_system` (night sends the villagers home), `mob
 breed, the hostiles hunt and strike, `push_mobs`), `cinder_system` (the embers fly), `arrow_system` (the arrows fly), `hostile_spawning_system`, `dungeon_guards_system`, and
 `dropped_items_physics_system`. In **Simulate**, chained: `tick_damage_timers_system` (the
 invulnerability and the memory of the last mob hit count down), `handle_player_inputs_system`
-(movement, blocks, blows, eating; a fall hurts here), `breathe_system`, `burn_system` (lava
+(movement, blocks, blows, eating; a fall hurts here), `boss_system`, `breathe_system`, `burn_system` (lava
 first, then fire), `tick_furnaces_system`, `metabolism_system` (every 80 ticks: regeneration or
 starvation), `trade_system`, `drop_on_death_system`, `pickup_dropped_items_system`, `announce_depths_system`, `home_system` (bedrolls and
 signs), `block_ticks_system` (the one random tick, above), `liquid_flow_system`,
@@ -747,6 +747,26 @@ tier of a player multiplies its spawn attempts and its cap (`player_cap`), that 
 the odds and the number of the guards; the world's cap stays at 40. `announce_depths_system` tells
 a player (`DepthReached`) the first time it is in each tier, kept in `Player::depths_reached` in
 its save; the client shows `ui/hud/depths.rs`.
+
+### The lair and the Ember Mother
+
+`world/lair.rs` (shared) draws the one lair of a world with dungeons from its seed and its terrain,
+320 to 1000 blocks from the origin, under land; `generation/dungeon/lair.rs` carves it, after the
+dungeons, cell by cell from the seed, whatever the order of the chunks. A world saved before the
+dungeons has none. The client works out the same place for the depths compass
+(`player/compass.rs`), whose needle spins over the lair and where there is none.
+
+`mob/boss.rs` is the Ember Mother (`MobKind::is_boss`): the behaviour, the pushes, the spawns, the
+despawns and the save of the mobs leave her alone. `boss_system` runs after the inputs, puts her
+asleep on her island when her lair is loaded, invulnerable, and wakes her when a prey (`is_prey`)
+is in the lair (`lair::holds`); 5 s without any, or a peaceful world, where she never wakes, put
+her back asleep, healed. 200 points of health, 80 more per other player inside. She keeps to her
+arena and melts the blocks in her way. Over half her health she keeps 9 blocks away, throws
+volleys of embers, calls Cinderlings (2, one more per player, 5 at most) and rests 6 s in each 15;
+under it she hunts, strikes and lights the ground (40 fires at most). Her bar is `BossBar`, sent
+when it changes to the players near, and plays the boss music (`ui/hud/boss.rs`). A fatal blow
+leaves her to `boss_system`, which drops her loot; gone any other way, she sleeps anew. Beaten: `boss_defeated` in `world.ron`, the lava is obsidian, and `Victory` shows
+the credits (`ui/credits.rs`, read from `data/credits.txt`; `spawn_credits` serves any screen).
 
 ## One client frame
 
@@ -1203,7 +1223,7 @@ A world is a folder under `saves/`:
 
 | Path | Content | Written by |
 |------|---------|------------|
-| `world.ron` | Name, seed, world type (`generation`), difficulty, the game mode new players start in, time, mobs, the items lying on the ground, the weather and the ticks it has left, and the format version | the writer thread |
+| `world.ron` | Name, seed, world type (`generation`), difficulty, the game mode new players start in, whether the boss was beaten, time, mobs, the items lying on the ground, the weather and the ticks it has left, and the format version | the writer thread |
 | `chunks/<x>_<y>_<z>.region` | The chunks of a region of 8×8×8 chunks, each encoded like a network message, after an index of where each starts | the writer thread |
 | `chunks/<x>_<y>_<z>.bin` | One chunk, encoded the same way, as worlds saved before version 5 hold them: read when its region does not hold it | worlds saved before |
 | `containers/<x>_<y>_<z>.bin` | The contents of the chests of one chunk, encoded the same way; only a chunk holding a chest has one | the writer thread |

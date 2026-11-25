@@ -5,6 +5,7 @@ use shared::players::{Inventory, Player, ViewMode};
 use crate::state::{GameSet, GameState};
 
 pub mod armour;
+pub mod compass;
 mod controller;
 pub mod hand;
 mod hurt;
@@ -25,7 +26,9 @@ pub use update::*;
 /// The local player and the other players: their spawn, movement, prediction and labels.
 pub fn player_plugin(app: &mut App) {
     hurt_plugin(app);
-    app.init_resource::<hand::ViewModelMaterials>()
+    app.init_resource::<compass::LairPlace>()
+        .init_resource::<compass::CompassNeedle>()
+        .init_resource::<hand::ViewModelMaterials>()
         .insert_resource(ViewMode::FirstPerson)
         .insert_resource(Inventory::new())
         .add_message::<PlayerSpawnEvent>()
@@ -96,6 +99,7 @@ pub fn player_plugin(app: &mut App) {
         .add_systems(
             Update,
             (
+                compass::turn_the_needle,
                 hand::track_the_local_held_item,
                 hand::hold_items_in_hands,
                 hand::spawn_view_model,

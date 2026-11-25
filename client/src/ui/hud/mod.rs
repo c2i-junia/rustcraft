@@ -24,6 +24,7 @@ use bevy::ui::UiSystems;
 
 pub mod air;
 pub mod armour;
+pub mod boss;
 pub mod burning;
 pub mod chat;
 pub mod chat_completion;
@@ -229,6 +230,13 @@ pub fn hud_plugin(app: &mut App) {
             .chain()
             .run_if(in_state(GameState::Game)),
     );
+    app.init_resource::<boss::NearBoss>()
+        .add_systems(
+            Update,
+            (boss::show_boss_bar, boss::boss_music).run_if(in_state(GameState::Game)),
+        )
+        .add_systems(OnExit(GameState::Game), boss::forget_boss);
+    crate::ui::credits::credits_plugin(app);
     pause_plugin(app);
     death_plugin(app);
     chat_completion_plugin(app);

@@ -1,4 +1,5 @@
 pub mod assets;
+pub mod credits;
 #[cfg(test)]
 pub mod golden;
 pub mod hud;

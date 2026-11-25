@@ -25,7 +25,6 @@ const ATTEMPTS: u64 = 12;
 /// The salts of a kind: its roll, then three for each attempt.
 const SALT_DUNGEON: u64 = 0x3100;
 const SALTS_PER_KIND: u64 = 0x100;
-const SALT_LAIR: u64 = 0x3500;
 
 /// Most blocks between the lowest and the highest column under a ruin.
 const RUIN_SPREAD: i32 = 3;
@@ -55,19 +54,6 @@ pub fn region_of(x: i32, z: i32) -> IVec2 {
     IVec2::new(x.div_euclid(REGION), z.div_euclid(REGION))
 }
 
-/// The region of the lair to come, which holds no sanctuary: one a walk away from the origin.
-pub fn lair_region(seed: u32) -> IVec2 {
-    let random = PositionRandom {
-        seed,
-        coords: [0, 0],
-    };
-    let offset = random.below(SALT_LAIR, 9) - 4;
-    rotate(
-        IVec2::new(offset, 4),
-        random.below(SALT_LAIR + 1, 4) as usize,
-    )
-}
-
 /// The dungeon of `kind` in `region`, if it holds one: the first of the places drawn that suits
 /// it.
 pub fn site(world: &World, kind: DungeonKind, region: IVec2) -> Option<Site> {
@@ -77,7 +63,8 @@ pub fn site(world: &World, kind: DungeonKind, region: IVec2) -> Option<Site> {
     };
     let salts = SALT_DUNGEON + SALTS_PER_KIND * kind as u64;
     if random.unit(salts) >= chance(kind)
-        || (kind == DungeonKind::Sanctuary && region == lair_region(world.seed))
+        || (kind != DungeonKind::Ruin
+            && world.lair.is_some_and(|at| region == region_of(at.x, at.y)))
     {
         return None;
     }

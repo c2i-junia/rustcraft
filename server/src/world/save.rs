@@ -121,6 +121,7 @@ fn queue_save(
             generation,
             difficulty: world_map.difficulty,
             game_mode: world_map.game_mode,
+            boss_defeated: world_map.boss.defeated,
             ..WorldMeta::new(
                 world_map.name.clone(),
                 seed,
@@ -144,10 +145,10 @@ fn queue_save(
 }
 
 /// The mobs a save keeps: all but the projectiles in flight (`MobKind::is_projectile`), so
-/// that a load never finds one.
+/// that a load never finds one, and the boss, asleep again after a load (`mob::boss`).
 fn saved_mobs(mobs: &HashMap<MobId, ServerMob>) -> HashMap<MobId, ServerMob> {
     mobs.iter()
-        .filter(|(_, mob)| !mob.kind.is_projectile())
+        .filter(|(_, mob)| !mob.kind.is_projectile() && !mob.kind.is_boss())
         .map(|(id, mob)| (*id, mob.clone()))
         .collect()
 }

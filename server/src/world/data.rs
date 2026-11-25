@@ -7,6 +7,7 @@ use bevy_ecs::resource::Resource;
 
 use super::dropped_items::DroppedItems;
 use super::home::{HomeEvents, Places};
+use crate::mob::boss::Boss;
 use crate::mob::combat::BlowWaits;
 use crate::mob::villager::Trades;
 use shared::{
@@ -58,6 +59,8 @@ pub struct ServerWorldMap {
     pub difficulty: Difficulty,
     /// The game mode a new player starts in, chosen with the world. Saved in `world.ron`.
     pub game_mode: GameMode,
+    /// The Ember Mother and her fight.
+    pub boss: Boss,
 }
 
 /// What one client has received of the world.
