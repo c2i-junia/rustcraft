@@ -60,4 +60,7 @@ pub struct TexturePath {
 #[derive(Resource, Debug)]
 pub struct PlayerNameSupplied {
     pub name: String,
+    /// The id of the account the name is the username of, when it is: otherwise the id is
+    /// derived from the name.
+    pub account_id: Option<shared::messages::PlayerId>,
 }

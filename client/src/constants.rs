@@ -14,6 +14,8 @@ pub const MAX_HOTBAR_SLOTS: u32 = shared::HOTBAR_SLOTS;
 
 pub const SAVE_PATH: &str = "saves/";
 pub const SERVER_LIST_SAVE_NAME: &str = "servers.ron";
+/// The signed-in account of the hub: its session token and device key, so it is private.
+pub const ACCOUNT_PATH: &str = "account.ron";
 pub const BINDS_PATH: &str = "keybindings.ron";
 pub const AUDIO_SETTINGS_PATH: &str = "audio.ron";
 pub const INTERFACE_SETTINGS_PATH: &str = "interface.ron";

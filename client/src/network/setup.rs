@@ -97,7 +97,9 @@ impl FromWorld for CurrentPlayerProfile {
                     );
                 }
                 Self {
-                    id: hash_string_to_u64(&player_name.name),
+                    id: player_name
+                        .account_id
+                        .unwrap_or_else(|| hash_string_to_u64(&player_name.name)),
                     name: player_name.name.clone(),
                 }
             }

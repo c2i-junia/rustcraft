@@ -1,6 +1,8 @@
 // Reading the `RenderDevice` resource overflows the default limit of the trait solver (benches)
 #![recursion_limit = "256"]
+mod account;
 mod app;
+mod atomic_write;
 mod audio;
 mod camera;
 mod constants;
@@ -37,6 +39,7 @@ use bevy_inspector_egui::{
 };
 use clap::Parser;
 use constants::{TEXTURE_PATH_BASE, TEXTURE_PATH_CUSTOM};
+use rustcraft_protocol::DEFAULT_HUB;
 use shared::get_game_folder_paths;
 use std::path::{Path, PathBuf};
 #[cfg(debug_assertions)]
@@ -66,6 +69,13 @@ struct Args {
         help = "Player name to use for the game, instead of the one saved in player.ron"
     )]
     player_name: Option<String>,
+
+    #[arg(
+        long,
+        default_value = DEFAULT_HUB,
+        help = "The hub that accounts are made on and logged in to"
+    )]
+    hub: String,
 }
 
 fn main() {
@@ -106,6 +116,7 @@ fn main() {
             game_folder_paths,
             texture_path: texture_path.to_string(),
             player_name: args.player_name,
+            hub: args.hub,
         },
     );
     app.run();

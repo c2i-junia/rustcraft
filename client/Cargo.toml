@@ -22,6 +22,8 @@ sys-locale = "0.3"
 # The fallback of the pixel font, glyph by glyph (`ui/fonts.rs`)
 fontique = "=0.9.0"
 shared = { path = "../shared" }
+# The certificates and the JSON types of the hub API
+rustcraft-protocol = { path = "../crates/protocol" }
 # Its default features link Bevy dynamically: a release would not start without its library
 server = { path = "../server", default-features = false }
 log = { version = "0.4", features = ["max_level_debug", "release_max_level_warn"] }
@@ -35,6 +37,11 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # The version Bevy uses: the skins the player imports are read with it, and the tests write the
 # golden screenshots of the UI with it
 image = { version = "0.25", default-features = false, features = ["png"] }
+# The calls to the hub: rustls with the bundled roots of webpki, no native-tls and no gzip
+ureq = { version = "3", default-features = false, features = ["rustls", "json"] }
+serde_json = "1"
+uuid = { version = "1", default-features = false, features = ["serde"] }
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 
 [features]
 default = ["dev"]
@@ -47,7 +54,6 @@ workspace = true
 [dev-dependencies]
 shared = { path = "../shared", features = ["test-helpers"] }
 tempfile = "3"
-serde_json = "1"
 # The version Bevy uses, to time whole frames on the GPU in the benchmark of the shaders
 wgpu = { version = "29", default-features = false }
 # The version Bevy uses, to read and write the clipboard of the system in the tests

@@ -336,6 +336,7 @@ impl Harness {
                 },
                 texture_path: TEXTURE_PATH_BASE.to_string(),
                 player_name,
+                hub: rustcraft_protocol::DEFAULT_HUB.to_string(),
             },
         );
         if let Some(shaders) = shaders {

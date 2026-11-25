@@ -3,12 +3,13 @@
 //! cannot be read is never written, so the player may still repair it.
 
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::path::Path;
 
 use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
 
+use crate::atomic_write::write_atomically;
 use crate::network::address::{parse_server_address, ServerAddress};
 
 /// A saved server: its name and its address as typed, trimmed.
@@ -48,12 +49,7 @@ pub(super) fn write_servers(path: &Path, servers: &[ServerItem]) -> io::Result<(
         .with_separate_tuple_members(true)
         .with_enumerate_arrays(true);
     let data = ron::ser::to_string_pretty(&servers, pretty_config).map_err(io::Error::other)?;
-    let mut tmp = path.as_os_str().to_owned();
-    tmp.push(".tmp");
-    let mut file = fs::File::create(&tmp)?;
-    file.write_all(data.as_bytes())?;
-    file.sync_all()?;
-    fs::rename(&tmp, path)
+    write_atomically(path, data.as_bytes(), false)
 }
 
 /// The position in `servers` of the server `name`, whatever its case.

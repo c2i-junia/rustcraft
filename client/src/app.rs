@@ -4,6 +4,7 @@ use bevy::app::{TaskPoolOptions, TaskPoolThreadAssignmentPolicy};
 use bevy::prelude::*;
 use shared::GameFolderPaths;
 
+use crate::account::{account_plugin, Account, ExplicitPlayerName, HubUrl};
 use crate::audio::{self, settings::load_audio_settings};
 use crate::camera::load_view_settings;
 use crate::game;
@@ -40,6 +41,8 @@ pub struct ClientSettings {
     pub texture_path: String,
     /// Overrides the saved name; with neither, the main menu asks for one.
     pub player_name: Option<String>,
+    /// The hub accounts are made on and logged in to.
+    pub hub: String,
 }
 
 /// Adds the game to an app that already has the engine plugins: the netcode, the resources, and
@@ -49,8 +52,26 @@ pub fn add_client(app: &mut App, settings: ClientSettings) {
         game_folder_paths,
         texture_path,
         player_name,
+        hub,
     } = settings;
-    let player_name = match player_name.or_else(|| load_player_name(&game_folder_paths)) {
+    let account = Account::load(&game_folder_paths);
+    // The name given on the command line, then the account's, then the saved one
+    let explicit_name = player_name.is_some();
+    let mut account_id = None;
+    let supplied = match player_name {
+        Some(name) => Some(name),
+        None => match account.profile() {
+            Some((name, id)) => {
+                account_id = Some(id);
+                Some(name)
+            }
+            None => load_player_name(&game_folder_paths),
+        },
+    };
+    if explicit_name {
+        app.insert_resource(ExplicitPlayerName);
+    }
+    let player_name = match supplied {
         Some(name) => name,
         None => {
             app.insert_resource(AskPlayerName);
@@ -74,7 +95,12 @@ pub fn add_client(app: &mut App, settings: ClientSettings) {
         .insert_resource(ClientWorldMap { ..default() })
         .insert_resource(TexturePath { path: texture_path })
         .insert_resource(game_folder_paths)
-        .insert_resource(PlayerNameSupplied { name: player_name })
+        .insert_resource(PlayerNameSupplied {
+            name: player_name,
+            account_id,
+        })
+        .insert_resource(account)
+        .insert_resource(HubUrl(hub))
         // The game starts in the default state, the menu
         .init_state::<GameState>()
         .add_plugins((
@@ -83,5 +109,6 @@ pub fn add_client(app: &mut App, settings: ClientSettings) {
             game::game_plugin,
             audio::audio_plugin,
             quit_plugin,
+            account_plugin,
         ));
 }
