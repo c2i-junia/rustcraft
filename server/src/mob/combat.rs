@@ -97,7 +97,8 @@ pub fn interact(
         && !held.is_some_and(|i| i.spawned_mob().is_some() || i.food_value().is_some());
     // Nothing hurts a villager
     let villager = mob.kind.is_villager();
-    let trades = right && villager;
+    // A bow being drawn is not let go by what it sweeps over
+    let trades = right && villager && player.bow_draw_ms == 0;
     if !left && !shears && !feeds && !trades {
         return None;
     }
@@ -584,6 +585,17 @@ mod tests {
         arena.click(&mut player, NetworkAction::RightClick, 1);
         assert_eq!(arena.mobs[&7].in_love, 0);
         assert_eq!(player.inventory.inner[&0].nb, 1);
+    }
+
+    #[test]
+    fn a_bow_being_drawn_is_not_let_go_by_a_villager_it_sweeps_over() {
+        for (drawn_ms, opens) in [(0, true), (500, false)] {
+            let mut arena = Arena::with(ServerMob::new(MobKind::Farmer, AHEAD));
+            let mut player = fighter(1, Some(ItemId::Bow));
+            player.bow_draw_ms = drawn_ms;
+            arena.tick(&mut player, &NetworkAction::RightClick, true);
+            assert_eq!(arena.trades.open.contains_key(&1), opens, "{drawn_ms}");
+        }
     }
 
     #[test]
