@@ -6,11 +6,8 @@ use std::fs;
 use std::io;
 
 use bevy::{
-    input_focus::InputFocus,
-    prelude::*,
-    text::EditableText,
-    ui::InteractionDisabled,
-    ui_widgets::{Activate, SelectAllOnFocus},
+    input_focus::InputFocus, prelude::*, text::EditableText, ui::InteractionDisabled,
+    ui_widgets::SelectAllOnFocus,
 };
 use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
@@ -58,7 +55,7 @@ const NAME_HINTS: [Hint; 3] = [
 #[derive(Resource)]
 pub struct AskPlayerName;
 
-/// The button of the main menu that shows the player's name and opens the name dialog.
+/// The button of the main menu that shows the name of the player and opens the Account dialog.
 #[derive(Component)]
 pub struct PlayerNameButton;
 
@@ -192,17 +189,6 @@ pub fn ask_player_name_on_first_launch(
 ) {
     commands.remove_resource::<AskPlayerName>();
     open_player_name_dialog(&mut commands, &assets, &focus, None);
-}
-
-/// The name button of the main menu opens the name dialog.
-pub fn change_name_on_activate(
-    _: On<Activate>,
-    profile: Res<CurrentPlayerProfile>,
-    assets: Res<AssetServer>,
-    focus: Res<InputFocus>,
-    mut commands: Commands,
-) {
-    open_player_name_dialog(&mut commands, &assets, &focus, Some(&profile.name));
 }
 
 /// Shows why the typed name is wrong, once the field was typed in, and disables Save while it is

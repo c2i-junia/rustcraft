@@ -133,11 +133,21 @@ pub fn account_plugin(app: &mut App) {
 
 type RenewalAnswer = (Uuid, Result<CertificateResponse, HubError>);
 
+/// The renewal of the certificate in the background.
 #[derive(Resource)]
-struct Renewal {
+pub struct Renewal {
     timer: Timer,
     /// The request, with the time it was sent.
     in_flight: Option<(Instant, InFlight<RenewalAnswer>)>,
+}
+
+impl Renewal {
+    /// Has a certificate asked for in the next frame, as after a log-in. A request still
+    /// waiting is forgotten: its answer is for the account of before.
+    pub fn ask_now(&mut self) {
+        self.in_flight = None;
+        self.timer.set_elapsed(RENEWAL_CHECK_EVERY);
+    }
 }
 
 /// Asks the hub for a certificate when the account has none or half of its life has passed,

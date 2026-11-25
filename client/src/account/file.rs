@@ -57,8 +57,6 @@ impl std::fmt::Debug for AccountFile {
     }
 }
 
-// The Account screen uses what is left
-#[allow(dead_code)]
 impl AccountFile {
     /// A signed-in account with a new device key and no certificate yet.
     pub fn new(hub: &str, account: &AccountSummary, session: String) -> Self {

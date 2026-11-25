@@ -62,6 +62,9 @@ pub struct Options {
     /// Whether the render world counts the views the pass of the bolts draws, into
     /// `LIGHTNING_VIEWS_DRAWN`: for a single test, which reads it alone.
     pub count_bolt_views: bool,
+    /// The hub of accounts, the `--hub` flag; `None` keeps the default one, which a test must
+    /// not reach.
+    pub hub: Option<String>,
 }
 
 impl Default for Options {
@@ -72,6 +75,7 @@ impl Default for Options {
             player_name: Some("Tester".to_string()),
             shaders: Some(ShaderQuality::Off),
             count_bolt_views: false,
+            hub: None,
         }
     }
 }
@@ -234,6 +238,7 @@ impl Harness {
             player_name,
             shaders,
             count_bolt_views,
+            hub,
         } = options;
         let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../data");
         // `BENCH_GPU` renders a benchmark on the GPU of the machine, compiling the pipelines
@@ -336,7 +341,7 @@ impl Harness {
                 },
                 texture_path: TEXTURE_PATH_BASE.to_string(),
                 player_name,
-                hub: rustcraft_protocol::DEFAULT_HUB.to_string(),
+                hub: hub.unwrap_or_else(|| rustcraft_protocol::DEFAULT_HUB.to_string()),
             },
         );
         if let Some(shaders) = shaders {

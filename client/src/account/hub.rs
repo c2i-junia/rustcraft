@@ -25,7 +25,6 @@ pub enum HubError {
     Malformed(String),
 }
 
-#[allow(dead_code)] // The Account screen uses it
 impl HubError {
     /// Whether the session token is not valid (any more): the player has to log in again.
     pub fn is_unauthorized(&self) -> bool {
@@ -60,7 +59,6 @@ pub struct HubClient {
     agent: ureq::Agent,
 }
 
-#[allow(dead_code)] // The Account screen uses most of the calls
 impl HubClient {
     pub fn new(base: &str) -> Self {
         let agent = ureq::Agent::config_builder()

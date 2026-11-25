@@ -1,6 +1,8 @@
 //! The JSON types of the hub API. Keys are hex, certificate bytes and signatures are base64
 //! (standard, padded) in the JSON; the helpers of this module convert them.
 
+use std::fmt;
+
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -68,7 +70,7 @@ pub struct HubKey {
 }
 
 /// `POST /v1/accounts`
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignUpRequest {
     pub username: String,
     pub password: String,
@@ -76,13 +78,33 @@ pub struct SignUpRequest {
     pub device_name: Option<String>,
 }
 
+impl fmt::Debug for SignUpRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SignUpRequest")
+            .field("username", &self.username)
+            .field("password", &&"<redacted>")
+            .field("device_name", &self.device_name)
+            .finish()
+    }
+}
+
 /// `POST /v1/sessions`
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_name: Option<String>,
+}
+
+impl fmt::Debug for LoginRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LoginRequest")
+            .field("username", &self.username)
+            .field("password", &&"<redacted>")
+            .field("device_name", &self.device_name)
+            .finish()
+    }
 }
 
 /// An account as the sign-up, login and recovery answers carry it.
@@ -93,28 +115,57 @@ pub struct AccountSummary {
 }
 
 /// The answer to `POST /v1/sessions`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionResponse {
     pub account: AccountSummary,
     /// The bearer token, base64url without padding.
     pub session: String,
 }
 
+impl fmt::Debug for SessionResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SessionResponse")
+            .field("account", &self.account)
+            .field("session", &&"<redacted>")
+            .finish()
+    }
+}
+
 /// The answer to `POST /v1/accounts` and `POST /v1/recovery`: a session and the new recovery
 /// code, shown once.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionWithRecovery {
     pub account: AccountSummary,
     pub session: String,
     pub recovery_code: String,
 }
 
+impl fmt::Debug for SessionWithRecovery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SessionWithRecovery")
+            .field("account", &self.account)
+            .field("session", &&"<redacted>")
+            .field("recovery_code", &&"<redacted>")
+            .finish()
+    }
+}
+
 /// `POST /v1/recovery`
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecoveryRequest {
     pub username: String,
     pub recovery_code: String,
     pub new_password: String,
+}
+
+impl fmt::Debug for RecoveryRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RecoveryRequest")
+            .field("username", &self.username)
+            .field("recovery_code", &&"<redacted>")
+            .field("new_password", &&"<redacted>")
+            .finish()
+    }
 }
 
 /// `GET /v1/me`
@@ -129,16 +180,33 @@ pub struct Me {
 }
 
 /// `PUT /v1/me/password`
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChangePasswordRequest {
     pub current_password: String,
     pub new_password: String,
 }
 
+impl fmt::Debug for ChangePasswordRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ChangePasswordRequest")
+            .field("current_password", &&"<redacted>")
+            .field("new_password", &&"<redacted>")
+            .finish()
+    }
+}
+
 /// `DELETE /v1/me`
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeleteAccountRequest {
     pub password: String,
+}
+
+impl fmt::Debug for DeleteAccountRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DeleteAccountRequest")
+            .field("password", &&"<redacted>")
+            .finish()
+    }
 }
 
 /// `POST /v1/certificates`
@@ -522,5 +590,38 @@ mod tests {
         });
         assert_eq!(json["members"], json!([]));
         assert_eq!(json["owner"]["username"], "Alex");
+    }
+
+    #[test]
+    fn debug_output_hides_passwords_sessions_and_recovery_codes() {
+        let shown = format!(
+            "{:?} {:?} {:?} {:?} {:?}",
+            SignUpRequest {
+                username: "Alex".into(),
+                password: "hunter2-secret".into(),
+                device_name: None,
+            },
+            LoginRequest {
+                username: "Alex".into(),
+                password: "hunter2-secret".into(),
+                device_name: None,
+            },
+            SessionWithRecovery {
+                account: account(),
+                session: "session-secret".into(),
+                recovery_code: "recovery-secret".into(),
+            },
+            RecoveryRequest {
+                username: "Alex".into(),
+                recovery_code: "recovery-secret".into(),
+                new_password: "hunter2-secret".into(),
+            },
+            ChangePasswordRequest {
+                current_password: "hunter2-secret".into(),
+                new_password: "hunter3-secret".into(),
+            },
+        );
+        assert!(shown.contains("Alex"));
+        assert!(!shown.contains("secret"), "{shown}");
     }
 }

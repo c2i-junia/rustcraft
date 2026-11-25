@@ -260,7 +260,7 @@ Each world has its own folder under `saves/`: `world.ron` holds the metadata (na
 
 The settings are saved as soon as they change, in the game folder: `keybindings.ron`, `audio.ron`, `interface.ron` (UI scale, inventory tweaks), `view.ron` (mouse sensitivity, field of view, fullscreen) and `video.ron` (render distance, clouds, shaders and the other video settings). The bookmarks of the item browser are kept there too, in `item_browser.ron`: one list per world, by its name, and per server, by its address.
 
-The player's name is saved in `player.ron`, in the game folder. On the first launch the main menu asks for it; the button showing it, under the version, changes it. `--player-name <name>` plays under another name for one run, without saving it. Each world keeps a player's position and inventory under their name: a new name starts afresh.
+The player's name is saved in `player.ron`, in the game folder. On the first launch the main menu asks for it; the button showing it, under the version, opens the Account dialog: log in to or create an account of the hub, recover one with its recovery code, or log out. "Play offline as..." there changes the name. Logged in, the name is the account's username. `--player-name <name>` plays under another name for one run, without saving it, and the button then changes the name only. Each world keeps a player's position and inventory under their name: a new name starts afresh.
 
 <br>
 

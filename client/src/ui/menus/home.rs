@@ -13,8 +13,9 @@ use bevy::{
     ui_widgets::{observe, Activate},
 };
 
+use super::account::open_account_on_activate;
 use super::background::menu_background;
-use super::player_name::{change_name_on_activate, PlayerNameButton};
+use super::player_name::PlayerNameButton;
 use super::skins::{
     spawn_home_preview, HomePreview, HOME_PREVIEW_MAX_WIDTH, HOME_PREVIEW_WIDTH_VH, SKINS_TITLE,
 };
@@ -230,7 +231,7 @@ pub fn home_setup(
     commands.spawn((
         button(&profile.name, ButtonVariant::Ghost, font.clone()),
         PlayerNameButton,
-        observe(change_name_on_activate),
+        observe(open_account_on_activate),
         ChildOf(skin),
     ));
     spawn_home_preview(&mut commands, skin, &asset_server, &mut preview);

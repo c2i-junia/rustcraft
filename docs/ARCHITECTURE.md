@@ -1285,6 +1285,21 @@ own (no `Tab Move` when the card has a single action). `button.rs` builds every 
 messages at the top-right of the window (`show_toast`, an `Info` or an `Error`), which go by
 themselves after 3 s, take no click and no focus, and outlive the screen that showed them.
 
+The Account dialog (`ui/menus/account.rs`) is opened by the name button of the main menu, or the
+name dialog when `--player-name` was given. Logged out, one form dialog has the Log in and Create
+account tabs (`spawn_tabs`) over three fields, the confirmation being hidden on the first tab
+(its `TabIndex` goes to -1); "Forgot password?" and "Play offline as..." close it with a `Follow`
+screen, which opens on the next frame in `NextDialog`, once the focus is back. A call to the hub
+(`account/hub.rs`) runs on a thread (`InFlight`) and `poll_call` takes its answer: the account
+becomes `Account::LoggedIn`, is saved to `account.ron`, and the `Renewal` is asked for a
+certificate at once (`ask_now`); the refusals of the hub go under their field (`FieldError`) or in
+a toast. Making or recovering an account shows the recovery code in a dialog that Escape shows
+again: only its button ends it. `EditableText` has no password masking in Bevy 0.19, so a password
+field keeps its text transparent and a sibling `Text` draws one bullet per character over it.
+Opening the dialog of a logged-in account asks the hub for `GET /v1/me`; a 401 logs the account
+out. The end-to-end tests (`e2e/account.rs`) run it against the stand-in hub of
+`account/test_hub.rs`, whose URL they give `Options::hub`.
+
 The pause menu (`ui/menus/pause.rs`) is a modal, spawned when Escape opens it in the game and
 despawned when it closes, so that it always opens on Back to game and Tab stays inside it. Its
 title is "Game menu", not "Paused": the server keeps ticking beneath it. A world has Back to

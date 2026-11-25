@@ -1,3 +1,4 @@
+pub mod account;
 pub mod background;
 pub mod connect_error;
 pub mod connecting;
@@ -82,6 +83,7 @@ pub fn menu_plugin(app: &mut App) {
     solo::solo_plugin(app);
     multi::multi_plugin(app);
     skins::skins_plugin(app);
+    account::account_screen_plugin(app);
 }
 
 /// Whether a dialog is open, or the card of the quit shows (`Quitting`): the key handlers of the
