@@ -8,8 +8,9 @@ use crate::world::ticks::BlockChange;
 use crate::world::SIX_OFFSETS;
 use crate::world::{global_block_to_chunk_pos, BlockData, BlockDirection, BlockId, ChunkMap};
 
-/// A random tick of lava tries to light a fire one time in this many.
-const IGNITE_ODDS: u32 = 3;
+/// A random tick of lava tries to light a fire one time in this many: with
+/// `RANDOM_TICKS_PER_SECTION` (4), a lava cell tries once in 4096 ticks.
+pub const IGNITE_ODDS: u32 = 4;
 
 /// What the lava at `pos` does on a random tick: one time in `IGNITE_ODDS`, it looks at one
 /// cell drawn in the 3x2x3 box around it and above it, and lights a fire there if it is air

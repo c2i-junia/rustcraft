@@ -116,9 +116,11 @@ impl WetSurface {
             "Grass" | "GrassTop" | "GrassSideOverlay" | "Moss" => Self::Grass,
             "Dirt" | "Clay" | "TilledSoil" | "RammedEarth" => Self::Soil,
             "Reed" | "BerryBush" | "RipeBerryBush" | "RyeSprout" | "YoungRye" | "RipeRye"
-            | "OakSapling" | "SpruceSapling" | "JungleSapling" | "WillowSapling"
-            | "AcaciaSapling" | "Heather" | "Mushroom" | "Thatch" | "TallGrass" | "Fern"
-            | "Dandelion" | "Poppy" | "Vine" | "Cocoa" | "Cactus" | "CactusTop" => Self::Foliage,
+            | "CarrotSprout" | "YoungCarrots" | "TallCarrots" | "RipeCarrots" | "PotatoSprout"
+            | "YoungPotatoes" | "TallPotatoes" | "RipePotatoes" | "OakSapling"
+            | "SpruceSapling" | "JungleSapling" | "WillowSapling" | "AcaciaSapling" | "Heather"
+            | "Mushroom" | "Thatch" | "TallGrass" | "Fern" | "Dandelion" | "Poppy" | "Vine"
+            | "Cocoa" | "Cactus" | "CactusTop" => Self::Foliage,
             _ if name.ends_with("Leaves") => Self::Foliage,
             _ => Self::Hard,
         }

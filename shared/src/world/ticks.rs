@@ -1,5 +1,5 @@
 //! Random block ticks: the rules of what a block does on its own, now and then, like a fire
-//! that spreads. The server draws `RANDOM_TICKS_PER_SECTION` cells of each chunk near the players
+//! that spreads or a crop that grows (`growth`). The server draws `RANDOM_TICKS_PER_SECTION` cells of each chunk near the players
 //! every tick and applies what `random_tick` returns for them; the rules here only read the
 //! world.
 
@@ -7,11 +7,14 @@ use bevy::math::IVec3;
 use rand::Rng;
 
 use crate::world::ChunkMap;
-use crate::world::{fire, global_block_to_chunk_pos, lava, BlockData, BlockId, BlockTransparency};
+use crate::world::{
+    fire, global_block_to_chunk_pos, growth, lava, BlockData, BlockId, BlockTransparency,
+};
 use crate::CHUNK_SIZE;
 
-/// The cells of a 16³ chunk that get a random tick in each tick, as Minecraft's default.
-pub const RANDOM_TICKS_PER_SECTION: usize = 3;
+/// The cells of a 16³ chunk that get a random tick in each tick: main's plants grew at 4 (where
+/// Minecraft's default is 3), and every odds of the rules is set for 4.
+pub const RANDOM_TICKS_PER_SECTION: usize = 4;
 
 /// What the rules of a tick read beyond the blocks.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -41,7 +44,8 @@ pub fn random_tick(
             fire::fire_tick(world, pos, block, context, rng)
         }
         Some(block) if block.id == BlockId::Lava => lava::lava_tick(world, pos, rng),
-        _ => Vec::new(),
+        Some(block) => growth::growth_tick(world, pos, block, context, rng),
+        None => Vec::new(),
     }
 }
 
@@ -113,5 +117,21 @@ mod tests {
         assert_eq!(ticked, ruled);
         assert!(!ticked.is_empty());
         assert_eq!(world.get_block(pos), Some(&fire));
+
+        // A campfire in the rain, by the rules of growth
+        let campfire = BlockData::new(BlockId::Campfire, BlockDirection::Front);
+        world.set_block(pos, campfire);
+        let rain = TickContext { raining: true };
+        let ticked = random_tick(&world, pos, &rain, &mut StdRng::seed_from_u64(7));
+        assert_eq!(
+            ticked,
+            [BlockChange {
+                pos,
+                block: Some(BlockData::new(
+                    BlockId::UnlitCampfire,
+                    BlockDirection::Front
+                )),
+            }]
+        );
     }
 }

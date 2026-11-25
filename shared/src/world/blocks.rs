@@ -128,6 +128,16 @@ pub enum BlockId {
     Lava,
     /// What a lava source becomes where water meets it.
     Obsidian,
+    /// The stages of carrots, from planted to ripe, as rye's.
+    CarrotSprout,
+    YoungCarrots,
+    TallCarrots,
+    RipeCarrots,
+    /// The stages of potatoes, from planted to ripe.
+    PotatoSprout,
+    YoungPotatoes,
+    TallPotatoes,
+    RipePotatoes,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -341,7 +351,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 99] = [
+    pub const ALL: [BlockId; 107] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -441,6 +451,14 @@ impl BlockId {
         BlockId::Fire,
         BlockId::Lava,
         BlockId::Obsidian,
+        BlockId::CarrotSprout,
+        BlockId::YoungCarrots,
+        BlockId::TallCarrots,
+        BlockId::RipeCarrots,
+        BlockId::PotatoSprout,
+        BlockId::YoungPotatoes,
+        BlockId::TallPotatoes,
+        BlockId::RipePotatoes,
     ];
 
     pub fn is_stairs(&self) -> bool {
@@ -481,7 +499,7 @@ impl BlockId {
     /// The blocks this one may be planted on, if it only stands on some.
     pub fn soil(&self) -> Option<&'static [BlockId]> {
         match *self {
-            Self::RyeSprout => Some(&[Self::TilledSoil]),
+            Self::RyeSprout | Self::CarrotSprout | Self::PotatoSprout => Some(&[Self::TilledSoil]),
             Self::OakSapling
             | Self::SpruceSapling
             | Self::JungleSapling
@@ -530,6 +548,14 @@ impl BlockId {
             | Self::RyeSprout
             | Self::YoungRye
             | Self::RipeRye
+            | Self::CarrotSprout
+            | Self::YoungCarrots
+            | Self::TallCarrots
+            | Self::RipeCarrots
+            | Self::PotatoSprout
+            | Self::YoungPotatoes
+            | Self::TallPotatoes
+            | Self::RipePotatoes
             | Self::Ladder
             | Self::Sign
             | Self::Fire => BlockHitbox::None,
@@ -570,7 +596,15 @@ impl BlockId {
             | Self::RipeBerryBush
             | Self::RyeSprout
             | Self::YoungRye
-            | Self::RipeRye => BlockHitbox::Aabb(Aabb3d::new(
+            | Self::RipeRye
+            | Self::CarrotSprout
+            | Self::YoungCarrots
+            | Self::TallCarrots
+            | Self::RipeCarrots
+            | Self::PotatoSprout
+            | Self::YoungPotatoes
+            | Self::TallPotatoes
+            | Self::RipePotatoes => BlockHitbox::Aabb(Aabb3d::new(
                 Vec3A::splat(0.5).with_y(0.3),
                 Vec3A::splat(0.3),
             )),
@@ -692,6 +726,14 @@ impl BlockId {
             Self::RyeSprout => 1,
             Self::YoungRye => 1,
             Self::RipeRye => 1,
+            Self::CarrotSprout => 1,
+            Self::YoungCarrots => 1,
+            Self::TallCarrots => 1,
+            Self::RipeCarrots => 1,
+            Self::PotatoSprout => 1,
+            Self::YoungPotatoes => 1,
+            Self::TallPotatoes => 1,
+            Self::RipePotatoes => 1,
             Self::Bedroll => 4,
             Self::Barrel => 10,
             Self::RainCistern => 10,
@@ -875,10 +917,13 @@ impl BlockId {
             BlockId::Ice => vec![(1, ItemId::Ice, 1)],
             BlockId::Dandelion => vec![(1, ItemId::Dandelion, 1)],
             BlockId::Poppy => vec![(1, ItemId::Poppy, 1)],
+            // a carrot and a potato 2 % each, main's three in their ratios
             BlockId::TallGrass => vec![
-                (3, ItemId::TallGrass, 1),
-                (2, ItemId::Fiber, 1),
-                (1, ItemId::Rye, 1),
+                (24, ItemId::TallGrass, 1),
+                (16, ItemId::Fiber, 1),
+                (8, ItemId::Rye, 1),
+                (1, ItemId::Carrot, 1),
+                (1, ItemId::Potato, 1),
             ],
             BlockId::Fern => vec![(1, ItemId::Fern, 1)],
             BlockId::Vine => vec![(1, ItemId::Vine, 1)],
@@ -947,6 +992,15 @@ impl BlockId {
             BlockId::RyeSprout => vec![(1, ItemId::Rye, 1)],
             BlockId::YoungRye => vec![(1, ItemId::Rye, 1)],
             BlockId::RipeRye => vec![(1, ItemId::Rye, 3)],
+            BlockId::CarrotSprout | BlockId::YoungCarrots | BlockId::TallCarrots => {
+                vec![(1, ItemId::Carrot, 1)]
+            }
+            // 2 to 4
+            BlockId::RipeCarrots => (2..=4).map(|nb| (1, ItemId::Carrot, nb)).collect(),
+            BlockId::PotatoSprout | BlockId::YoungPotatoes | BlockId::TallPotatoes => {
+                vec![(1, ItemId::Potato, 1)]
+            }
+            BlockId::RipePotatoes => (2..=4).map(|nb| (1, ItemId::Potato, nb)).collect(),
             BlockId::Bedroll => vec![(1, ItemId::Bedroll, 1)],
             BlockId::Barrel => vec![(1, ItemId::Barrel, 1)],
             BlockId::RainCistern => vec![(1, ItemId::RainCistern, 1)],
@@ -1021,6 +1075,14 @@ impl BlockId {
             | Self::RyeSprout
             | Self::YoungRye
             | Self::RipeRye
+            | Self::CarrotSprout
+            | Self::YoungCarrots
+            | Self::TallCarrots
+            | Self::RipeCarrots
+            | Self::PotatoSprout
+            | Self::YoungPotatoes
+            | Self::TallPotatoes
+            | Self::RipePotatoes
             | Self::Bedroll
             | Self::Campfire
             | Self::UnlitCampfire
@@ -1081,7 +1143,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 99] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 107] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 3] = [BlockId::Bedrock, BlockId::Water, BlockId::Lava];
@@ -1187,7 +1249,15 @@ mod tests {
             | BlockId::Sign
             | BlockId::Fire
             | BlockId::Lava
-            | BlockId::Obsidian => {}
+            | BlockId::Obsidian
+            | BlockId::CarrotSprout
+            | BlockId::YoungCarrots
+            | BlockId::TallCarrots
+            | BlockId::RipeCarrots
+            | BlockId::PotatoSprout
+            | BlockId::YoungPotatoes
+            | BlockId::TallPotatoes
+            | BlockId::RipePotatoes => {}
         }
     }
 
@@ -1334,6 +1404,14 @@ mod tests {
                 BlockId::Fire => 96,
                 BlockId::Lava => 97,
                 BlockId::Obsidian => 98,
+                BlockId::CarrotSprout => 99,
+                BlockId::YoungCarrots => 100,
+                BlockId::TallCarrots => 101,
+                BlockId::RipeCarrots => 102,
+                BlockId::PotatoSprout => 103,
+                BlockId::YoungPotatoes => 104,
+                BlockId::TallPotatoes => 105,
+                BlockId::RipePotatoes => 106,
             };
             assert_eq!(encoded(&id), [expected], "{id:?}: {ENCODING_WARNING}");
         }
@@ -1410,6 +1488,69 @@ mod tests {
             ItemId::Obsidian.get_default_type(),
             ItemType::Block(obsidian)
         );
+    }
+
+    #[test]
+    fn carrots_and_potatoes_are_crops_of_tilled_soil_that_drop_more_once_ripe() {
+        for (stages, item) in [
+            (
+                [
+                    BlockId::CarrotSprout,
+                    BlockId::YoungCarrots,
+                    BlockId::TallCarrots,
+                    BlockId::RipeCarrots,
+                ],
+                ItemId::Carrot,
+            ),
+            (
+                [
+                    BlockId::PotatoSprout,
+                    BlockId::YoungPotatoes,
+                    BlockId::TallPotatoes,
+                    BlockId::RipePotatoes,
+                ],
+                ItemId::Potato,
+            ),
+        ] {
+            assert_eq!(item.get_default_type(), ItemType::Block(stages[0]));
+            assert_eq!(stages[0].soil(), Some(&[BlockId::TilledSoil][..]));
+            for stage in stages {
+                assert!(matches!(stage.get_hitbox(), BlockHitbox::None), "{stage:?}");
+                assert!(matches!(stage.get_ray_hitbox(), BlockHitbox::Aabb(_)));
+                assert_eq!(stage.get_visibility(), BlockTransparency::Decoration);
+                assert_eq!(stage.get_break_time(), Some(2));
+            }
+            for unripe in &stages[..3] {
+                assert_eq!(unripe.get_drop_table(), vec![(1, item, 1)], "{unripe:?}");
+            }
+            let ripe = stages[3];
+            assert_eq!(
+                ripe.get_drop_table(),
+                vec![(1, item, 2), (1, item, 3), (1, item, 4)]
+            );
+            let counts: std::collections::HashSet<u32> =
+                (0..100).map(|_| ripe.get_drops(1)[&item]).collect();
+            assert_eq!(counts, [2, 3, 4].into());
+        }
+    }
+
+    #[test]
+    fn tall_grass_drops_a_carrot_or_a_potato_one_time_in_fifty_each() {
+        let table = BlockId::TallGrass.get_drop_table();
+        let total: u32 = table.iter().map(|(chance, ..)| chance).sum();
+        assert_eq!(total, 50);
+        let chance = |wanted| {
+            table
+                .iter()
+                .find(|(_, item, _)| *item == wanted)
+                .map(|(chance, ..)| *chance)
+        };
+        assert_eq!(chance(ItemId::Carrot), Some(1));
+        assert_eq!(chance(ItemId::Potato), Some(1));
+        // Main's three keep their ratios
+        assert_eq!(chance(ItemId::TallGrass), Some(24));
+        assert_eq!(chance(ItemId::Fiber), Some(16));
+        assert_eq!(chance(ItemId::Rye), Some(8));
     }
 
     #[test]

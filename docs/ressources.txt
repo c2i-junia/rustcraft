@@ -96,6 +96,11 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
    (items/{RawPork,RoastPork,RawBeef,RoastBeef,RawChicken,RoastChicken,RawRabbit,RoastRabbit,
    Leather,Feather}.png), the pack's item/{porkchop,cooked_porkchop,beef,cooked_beef,chicken,
    cooked_chicken,rabbit,cooked_rabbit,leather,feather}.png.
+-> The textures of the stages of carrots and potatoes (blocks/{CarrotSprout,YoungCarrots,
+   TallCarrots,RipeCarrots}.png and blocks/{PotatoSprout,YoungPotatoes,TallPotatoes,
+   RipePotatoes}.png), the pack's block/carrots_stage{0,1,2,3}.png and
+   block/potatoes_stage{0,1,2,3}.png; of the carrot, the potato and the baked potato
+   (items/{Carrot,Potato,BakedPotato}.png), the pack's item/{carrot,potato,baked_potato}.png.
 
 -> Drawn for Rustcraft, not from the pack: HewnStone, Limestone, Slate, Clay, BrickWall, RammedEarth, Thatch, CoalBlock, CopperOre, TinOre, CopperBlock, TinBlock, BronzeBlock, WillowLog, WillowLogTop, WillowPlanks, WillowLeaves, AcaciaLog, AcaciaLogTop, AcaciaPlanks, AcaciaLeaves, WoodenSlab, HewnStoneSlab, BrickSlab, Lantern, Reed, Heather, Mushroom, CopperIngot, TinIngot, BronzeIngot, FiredBrick, Fiber, Rope, Flint, RoastMushroom, BronzePickaxe, BronzeAxe, BronzeShovel, BronzeHoe, BronzeSword.
 -> Also drawn for Rustcraft: AcaciaSapling, Barrel, BarrelTop, Bedroll, Berries, BerryBush, BrickStairs, Campfire, CampfireFlame, Door, DoorTop, Fence, FullRainCisternTop, GlassPane, HewnStoneStairs, JungleSapling, Ladder, OakSapling, RainCistern, RainCisternTop, RawMutton, RipeBerryBush, RipeRye, RoastMutton, Rye, RyeBread, RyeSprout, Sign, Spear, SpruceSapling, TilledSoil, WillowSapling, WoodenStairs, Wool, YoungRye.

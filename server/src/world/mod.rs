@@ -10,7 +10,6 @@ pub mod flow;
 pub mod format;
 pub mod furnaces;
 pub mod generation;
-pub mod growth;
 pub mod home;
 mod legacy;
 pub mod load_from_file;

@@ -183,11 +183,16 @@ pub enum ItemId {
     RoastRabbit,
     Leather,
     Feather,
+    /// Eaten raw, or planted on tilled soil.
+    Carrot,
+    /// Eaten raw, planted on tilled soil, or baked.
+    Potato,
+    BakedPotato,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 159] = [
+    pub const ALL: [ItemId; 162] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -347,6 +352,9 @@ impl ItemId {
         Self::RoastRabbit,
         Self::Leather,
         Self::Feather,
+        Self::Carrot,
+        Self::Potato,
+        Self::BakedPotato,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -430,6 +438,9 @@ impl ItemId {
             Self::RoastChicken => Some((6, 7.2)),
             Self::RoastRabbit => Some((5, 6.0)),
             Self::RoastPork | Self::RoastBeef => Some((8, 12.8)),
+            Self::Carrot => Some((3, 3.6)),
+            Self::Potato => Some((1, 0.6)),
+            Self::BakedPotato => Some((5, 6.0)),
             _ => None,
         }
     }
@@ -616,7 +627,10 @@ impl ItemId {
             | Self::RawRabbit
             | Self::RoastRabbit
             | Self::Leather
-            | Self::Feather => ItemCategory::Materials,
+            | Self::Feather
+            | Self::Carrot
+            | Self::Potato
+            | Self::BakedPotato => ItemCategory::Materials,
             Self::CraftingTable
             | Self::Furnace
             | Self::Chest
@@ -758,6 +772,8 @@ impl ItemId {
             Self::Sign => ItemType::Block(BlockId::Sign),
             Self::Obsidian => ItemType::Block(BlockId::Obsidian),
             Self::Rye => ItemType::Block(BlockId::RyeSprout),
+            Self::Carrot => ItemType::Block(BlockId::CarrotSprout),
+            Self::Potato => ItemType::Block(BlockId::PotatoSprout),
 
             Self::Snowball
             | Self::Stick
@@ -803,7 +819,8 @@ impl ItemId {
             | Self::RawRabbit
             | Self::RoastRabbit
             | Self::Leather
-            | Self::Feather => ItemType::Generic,
+            | Self::Feather
+            | Self::BakedPotato => ItemType::Generic,
 
             Self::WoodenPickaxe
             | Self::WoodenAxe
@@ -1142,6 +1159,9 @@ mod tests {
             (ItemId::RoastRabbit, 156),
             (ItemId::Leather, 157),
             (ItemId::Feather, 158),
+            (ItemId::Carrot, 159),
+            (ItemId::Potato, 160),
+            (ItemId::BakedPotato, 161),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -1304,7 +1324,10 @@ mod tests {
                 | ItemId::RawRabbit
                 | ItemId::RoastRabbit
                 | ItemId::Leather
-                | ItemId::Feather => {}
+                | ItemId::Feather
+                | ItemId::Carrot
+                | ItemId::Potato
+                | ItemId::BakedPotato => {}
             }
         }
         for (id, expected) in table {
@@ -1617,6 +1640,9 @@ mod tests {
             (ItemId::RoastChicken, (6, 7.2)),
             (ItemId::RawRabbit, (3, 1.8)),
             (ItemId::RoastRabbit, (5, 6.0)),
+            (ItemId::Carrot, (3, 3.6)),
+            (ItemId::Potato, (1, 0.6)),
+            (ItemId::BakedPotato, (5, 6.0)),
         ] {
             assert_eq!(item.food_value(), Some(value), "{item:?}");
         }

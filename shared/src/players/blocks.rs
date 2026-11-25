@@ -500,8 +500,9 @@ fn break_block(
 }
 
 /// Uses the aimed block, if a right click with the held item changes it: a door, a bush of ripe
-/// berries, a soil and a hoe, a cistern and a bucket, a campfire and what it cooks or what lights
-/// it; or if it is a sign or a bedroll, which the server acts upon. Returns whether it did.
+/// berries, a soil and a hoe, a tilled soil and a carrot or a potato planted on it, a cistern
+/// and a bucket, a campfire and what it cooks or what lights it; or if it is a sign or a bedroll,
+/// which the server acts upon. Returns whether it did.
 fn use_block(
     player: &mut Player,
     world_map: &mut ChunkMap,
@@ -558,6 +559,20 @@ fn use_block(
             become_block(world_map, pos, BlockId::TilledSoil);
             player.inventory.wear_tool(slot, 1);
         }
+        // A carrot or a potato is planted rather than eaten
+        (BlockId::TilledSoil, Some(seed @ (ItemId::Carrot | ItemId::Potato)))
+            if world_map.get_block(pos + IVec3::Y).is_none()
+                && world_map.is_chunk_loaded(global_block_to_chunk_pos(&(pos + IVec3::Y))) =>
+        {
+            let ItemType::Block(sprout) = seed.get_default_type() else {
+                return false;
+            };
+            player.inventory.remove_item_from_stack(slot, 1);
+            world_map.set_block(
+                pos + IVec3::Y,
+                BlockData::new(sprout, BlockDirection::Front),
+            );
+        }
         (BlockId::FullRainCistern, Some(ItemId::Bucket)) => {
             become_block(world_map, pos, BlockId::RainCistern);
             player.inventory.remove_item_from_stack(slot, 1);
@@ -579,7 +594,8 @@ fn use_block(
                 | ItemId::RawBeef
                 | ItemId::RawChicken
                 | ItemId::RawRabbit
-                | ItemId::Mushroom),
+                | ItemId::Mushroom
+                | ItemId::Potato),
             ),
         ) => {
             player.inventory.remove_item_from_stack(slot, 1);
@@ -2487,6 +2503,7 @@ mod use_tests {
             (ItemId::RawChicken, ItemId::RoastChicken),
             (ItemId::RawRabbit, ItemId::RoastRabbit),
             (ItemId::Mushroom, ItemId::RoastMushroom),
+            (ItemId::Potato, ItemId::BakedPotato),
         ] {
             let (mut player, mut world) = facing_a(BlockId::Campfire, Some(raw));
             player
@@ -2495,6 +2512,38 @@ mod use_tests {
             click(&mut player, &mut world, NetworkAction::RightClick);
             let held = player.inventory.inner.values().map(|stack| stack.item_id);
             assert_eq!(held.collect::<Vec<_>>(), [roast], "{raw:?}");
+        }
+    }
+
+    #[test]
+    fn a_carrot_or_a_potato_is_planted_on_tilled_soil_and_eaten_elsewhere() {
+        for (item, sprout) in [
+            (ItemId::Carrot, BlockId::CarrotSprout),
+            (ItemId::Potato, BlockId::PotatoSprout),
+        ] {
+            // Planted in the air above the soil, whichever face is aimed at
+            let (mut player, mut world) = facing_a(BlockId::TilledSoil, Some(item));
+            player.food = 10;
+            click(&mut player, &mut world, NetworkAction::RightClick);
+            assert_eq!(id(&world, AT + IVec3::Y), Some(sprout), "{item:?}");
+            assert!(player.inventory.inner.is_empty());
+            assert_eq!(player.food, 10);
+
+            // Eaten when the soil is covered, or not tilled
+            for (block, above) in [
+                (BlockId::TilledSoil, Some(BlockId::Stone)),
+                (BlockId::Grass, None),
+            ] {
+                let (mut player, mut world) = facing_a(block, Some(item));
+                if let Some(above) = above {
+                    world.set_block(AT + IVec3::Y, BlockData::new(above, BlockDirection::Front));
+                }
+                player.food = 10;
+                click(&mut player, &mut world, NetworkAction::RightClick);
+                assert_eq!(id(&world, AT + IVec3::Y), above, "{item:?} on {block:?}");
+                assert!(player.inventory.inner.is_empty());
+                assert!(player.food > 10, "{item:?} on {block:?}");
+            }
         }
     }
 

@@ -422,10 +422,14 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    the world's folder the first time a player needs it, else generated: opening a world reads
    no chunk. Then every furnace of the loaded chunks ticks once (`world/furnaces.rs`), one in a
    chunk that is not loaded waiting, as in Minecraft; a burning furnace keeps its chunk to be
-   saved. Then the blocks get their ticks (`world/ticks.rs`): 3 random cells of each loaded
-   chunk within `SIMULATION_DISTANCE` (4 chunks) of a player, but the chunks of air, get a
-   random tick, what the shared rules make of them (`shared/src/world/ticks.rs`,
-   `random_tick`); fires get theirs on their own schedule instead, every 30 to 40 ticks, at
+   saved. Then the blocks get their ticks (`world/ticks.rs`, the one system of the blocks that
+   change by themselves): 4 random cells of each loaded chunk within `SIMULATION_DISTANCE`
+   (4 chunks) of a player (`chunks_near_players`), but the chunks of air, get a random tick,
+   what the shared rules make of them (`shared/src/world/ticks.rs`, `random_tick`): crops step
+   up a stage one tick in 4, in 2 when the rain falls on them or water lies within 4 blocks of
+   their tilled soil, berries ripen, the rain fills the cisterns and puts the campfires out
+   (`shared/src/world/growth.rs`), and a sapling grows into the tree the server's generator
+   shapes; fires get theirs on their own schedule instead, every 30 to 40 ticks, at
    most 64 a tick (`shared/src/world/fire.rs`: they age, spread to and burn what is flammable,
    and go out in the rain or without support); lava may set fire to the air by a flammable
    block near it (`shared/src/world/lava.rs`). Then the liquids flow (`world/flow.rs`): every

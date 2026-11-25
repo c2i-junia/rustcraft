@@ -1,8 +1,10 @@
 //! Random block ticks, and the fires' own ticks, simulated by the server only: the cells they
 //! change reach the clients as block updates, and are saved, like the blocks changed by the
-//! players. What a block does on its tick is shared (`shared::world::ticks::random_tick`).
+//! players. What a block does on its tick is shared (`shared::world::ticks::random_tick`): fire,
+//! lava, crops, berries, cisterns and campfires in the rain; the server only shapes the tree a
+//! sapling grows into, from its generator.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::RangeInclusive;
 
 use bevy::prelude::*;
@@ -11,14 +13,19 @@ use shared::{
     messages::PlayerId,
     players::Player,
     world::{
-        render_distance_offsets, ticks::random_tick, ticks::BlockChange, ticks::TickContext,
-        ticks::RANDOM_TICKS_PER_SECTION, world_position_to_chunk_position, BlockId, ChunkMap,
-        WeatherKind,
+        growth::{is_sapling, SAPLING_ODDS},
+        render_distance_offsets,
+        ticks::random_tick,
+        ticks::BlockChange,
+        ticks::TickContext,
+        ticks::RANDOM_TICKS_PER_SECTION,
+        world_position_to_chunk_position, BlockData, BlockId, ChunkMap, ToolKind, WeatherKind,
     },
     CHUNK_SIZE,
 };
 
 use super::data::ServerWorldMap;
+use super::generation::sapling_tree;
 use super::weather::ServerWeather;
 
 /// How far from a player, in chunks, the blocks get random ticks: a cube of 9 chunks a side
@@ -40,7 +47,8 @@ pub struct BlockTicks {
     fires: HashMap<IVec3, u32>,
 }
 
-/// Gives the blocks near the players their random ticks, and the fires their own.
+/// Gives the blocks near the players their random ticks, and the fires their own: the one
+/// system of the blocks that change by themselves.
 pub fn block_ticks_system(
     mut ticks: ResMut<BlockTicks>,
     mut world_map: ResMut<ServerWorldMap>,
@@ -59,31 +67,41 @@ pub fn block_ticks_system(
     ticks.tick(chunks, players, radius, &context, &mut rand::thread_rng());
 }
 
+/// The chunks near the players, where the world is simulated: the loaded chunks within
+/// `radius` of a player (a cube, see `render_distance_offsets`), each once, but the chunks of
+/// air only.
+pub fn chunks_near_players(
+    chunks: &ChunkMap,
+    players: &HashMap<PlayerId, Player>,
+    radius: impl Fn(PlayerId) -> i32,
+) -> HashSet<IVec3> {
+    let mut around = HashSet::new();
+    for (&id, player) in players {
+        let centre = world_position_to_chunk_position(player.position);
+        around.extend(
+            render_distance_offsets(radius(id))
+                .iter()
+                .map(|offset| centre + *offset)
+                .filter(|&chunk_pos| {
+                    chunks
+                        .chunk(chunk_pos)
+                        .is_some_and(|chunk| chunk.uniform() != Some(None))
+                }),
+        );
+    }
+    around
+}
+
 /// The cells that get a random tick in this tick: `RANDOM_TICKS_PER_SECTION` drawn in each
-/// loaded chunk within `radius` of a player, each chunk once, but the chunks of air only.
+/// chunk near the players.
 fn random_tick_cells(
     chunks: &ChunkMap,
     players: &HashMap<PlayerId, Player>,
     radius: impl Fn(PlayerId) -> i32,
     rng: &mut impl Rng,
 ) -> Vec<IVec3> {
-    let mut around = std::collections::HashSet::new();
-    for (&id, player) in players {
-        let centre = world_position_to_chunk_position(player.position);
-        around.extend(
-            render_distance_offsets(radius(id))
-                .iter()
-                .map(|offset| centre + *offset),
-        );
-    }
     let mut cells = Vec::new();
-    for chunk_pos in around {
-        let Some(chunk) = chunks.chunk(chunk_pos) else {
-            continue;
-        };
-        if chunk.uniform() == Some(None) {
-            continue;
-        }
+    for chunk_pos in chunks_near_players(chunks, players, radius) {
         for _ in 0..RANDOM_TICKS_PER_SECTION {
             let local = IVec3::new(
                 rng.gen_range(0..CHUNK_SIZE),
@@ -94,6 +112,25 @@ fn random_tick_cells(
         }
     }
     cells
+}
+
+/// Grows the tree of the sapling at `pos`, unless its trunk has no room. It takes no block but
+/// the sapling.
+fn grow_tree(chunks: &mut ChunkMap, pos: IVec3, sapling: BlockId, seed: u32) {
+    let tree = sapling_tree(sapling, pos, seed);
+    let is_log = |id: BlockId| id.is_mined_faster_by(ToolKind::Axe);
+    let blocked = tree
+        .iter()
+        .any(|(at, id, _)| is_log(*id) && *at != pos && chunks.get_block(*at).is_some());
+    if blocked {
+        return;
+    }
+    chunks.remove_block(pos);
+    for (at, id, direction) in tree {
+        if chunks.get_block(at).is_none() {
+            chunks.set_block(at, BlockData::new(id, direction));
+        }
+    }
 }
 
 fn is_fire(chunks: &ChunkMap, pos: IVec3) -> bool {
@@ -126,6 +163,16 @@ impl BlockTicks {
             if is_fire(chunks, pos) {
                 // a fire found here is ticked on its schedule, never twice
                 self.schedule(pos, rng);
+                continue;
+            }
+            if let Some(sapling) = chunks
+                .get_block(pos)
+                .copied()
+                .filter(|block| is_sapling(block.id))
+            {
+                if rng.gen_ratio(1, SAPLING_ODDS) {
+                    grow_tree(chunks, pos, sapling.id, rng.gen());
+                }
                 continue;
             }
             for change in random_tick(chunks, pos, context, rng) {
@@ -218,7 +265,7 @@ mod tests {
     }
 
     #[test]
-    fn random_ticks_fall_in_the_chunks_near_a_player_three_per_chunk_but_air() {
+    fn random_ticks_fall_in_the_chunks_near_a_player_four_per_chunk_but_air() {
         let world = floor();
         let players = player_at(Vec3::new(8.0, 4.0, 8.0));
         let cells = random_tick_cells(
@@ -316,6 +363,110 @@ mod tests {
                 .count(),
             100
         );
+    }
+
+    /// What the blocks at `cells` are after `count` ticks with a player in chunk (0, 0, 2) of the
+    /// floor, under `context`.
+    fn grown(
+        world: &mut ChunkMap,
+        cells: &[IVec3],
+        count: u32,
+        context: TickContext,
+    ) -> Vec<Option<BlockId>> {
+        let players = player_at(Vec3::new(8.0, 4.0, 40.0));
+        let mut ticks = BlockTicks::default();
+        let mut rng = StdRng::seed_from_u64(21);
+        for _ in 0..count {
+            ticks.tick(world, &players, |_| SIMULATION_DISTANCE, &context, &mut rng);
+            world.take_changed_blocks();
+        }
+        cells
+            .iter()
+            .map(|&pos| world.get_block(pos).map(|block| block.id))
+            .collect()
+    }
+
+    /// A field of `id` on the floor near the player (tilled soil under a crop), and its cells.
+    fn field(world: &mut ChunkMap, id: BlockId, around: IVec3) -> Vec<IVec3> {
+        let cells: Vec<IVec3> = (0..8)
+            .flat_map(|x| (0..8).map(move |z| around + IVec3::new(x * 2, 1, z * 2)))
+            .collect();
+        for &pos in &cells {
+            if id.soil() == Some(&[BlockId::TilledSoil]) {
+                world.set_block(
+                    pos - IVec3::Y,
+                    BlockData::new(BlockId::TilledSoil, BlockDirection::Front),
+                );
+            }
+            world.set_block(pos, BlockData::new(id, BlockDirection::Front));
+        }
+        world.take_changed_blocks();
+        cells
+    }
+
+    #[test]
+    fn the_random_ticks_grow_the_crops_and_the_berries_near_a_player_only() {
+        // A cell gets 4 random ticks in 4096 a tick; a crop grows a stage one in 4: a stage
+        // takes 4096 ticks on average, and the field of 64 grows some within 2000
+        let mut world = floor();
+        let rye = field(&mut world, BlockId::RyeSprout, IVec3::new(32, 0, 32));
+        let carrots = field(&mut world, BlockId::CarrotSprout, IVec3::new(48, 0, 32));
+        let berries = field(&mut world, BlockId::BerryBush, IVec3::new(32, 0, 48));
+        // 5 chunks from the player's, beyond the simulation distance
+        let far = field(&mut world, BlockId::PotatoSprout, IVec3::new(80, 0, 32));
+        let cells = [rye, carrots, berries, far].concat();
+        let after = grown(&mut world, &cells, 2000, TickContext::default());
+        let count =
+            |chunk: &[Option<BlockId>], id| chunk.iter().filter(|&&b| b == Some(id)).count();
+        let rye_grown = 64 - count(&after[..64], BlockId::RyeSprout);
+        assert!(count(&after[64..128], BlockId::YoungCarrots) > 5);
+        assert_eq!(count(&after[192..], BlockId::PotatoSprout), 64);
+        // As often as by main's growth: a stage each 4096 ticks on average, a bush each 5120,
+        // so that 1 - e^(-2000 / 4096) of the rye and 1 - e^(-2000 / 5120) of the bushes grew
+        let rate =
+            |n: usize, per: f64| (n as f64 - 64.0 * (1.0 - (-2000.0 / per).exp())).abs() < 15.0;
+        assert!(rate(rye_grown, 4096.0), "{rye_grown}");
+        let ripe = count(&after[128..192], BlockId::RipeBerryBush);
+        assert!(rate(ripe, 5120.0), "{ripe}");
+    }
+
+    #[test]
+    fn the_rain_fills_the_cisterns_and_puts_the_campfires_out_near_a_player() {
+        for raining in [false, true] {
+            let mut world = floor();
+            let cisterns = field(&mut world, BlockId::RainCistern, IVec3::new(32, 0, 32));
+            let campfires = field(&mut world, BlockId::Campfire, IVec3::new(48, 0, 32));
+            let cells = [cisterns, campfires].concat();
+            let after = grown(&mut world, &cells, 3000, TickContext { raining });
+            let changed =
+                |part: &[Option<BlockId>], id| part.iter().filter(|&&b| b == Some(id)).count();
+            let (full, out) = (
+                changed(&after[..64], BlockId::FullRainCistern),
+                changed(&after[64..], BlockId::UnlitCampfire),
+            );
+            if raining {
+                // each one at its first random tick: 1 - e^(-3000 * 4 / 4096), 95 % of them
+                assert!(full > 50 && out > 50, "{full} {out}");
+            } else {
+                assert_eq!((full, out), (0, 0));
+            }
+        }
+    }
+
+    #[test]
+    fn a_sapling_near_a_player_grows_into_its_tree() {
+        for (sapling, log) in [
+            (BlockId::SpruceSapling, BlockId::SpruceLog),
+            (BlockId::AcaciaSapling, BlockId::AcaciaLog),
+            (BlockId::JungleSapling, BlockId::JungleLog),
+        ] {
+            let mut world = floor();
+            let saplings = field(&mut world, sapling, IVec3::new(32, 0, 32));
+            // Each tree takes the room of its neighbours: only the first saplings grow
+            let after = grown(&mut world, &saplings, 1500, TickContext::default());
+            assert!(after.contains(&Some(log)), "{sapling:?}: {after:?}");
+            assert!(!after.contains(&Some(BlockId::OakLog)), "{sapling:?}");
+        }
     }
 
     #[test]

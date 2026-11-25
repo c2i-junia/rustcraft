@@ -57,6 +57,14 @@ impl SoundMaterial {
             | BlockId::RyeSprout
             | BlockId::YoungRye
             | BlockId::RipeRye
+            | BlockId::CarrotSprout
+            | BlockId::YoungCarrots
+            | BlockId::TallCarrots
+            | BlockId::RipeCarrots
+            | BlockId::PotatoSprout
+            | BlockId::YoungPotatoes
+            | BlockId::TallPotatoes
+            | BlockId::RipePotatoes
             | BlockId::Bedroll => Self::Grass,
             BlockId::Dirt | BlockId::Clay | BlockId::RammedEarth | BlockId::TilledSoil => {
                 Self::Dirt

@@ -58,6 +58,7 @@ pub fn smelting_result(item: ItemId) -> Option<ItemId> {
         ItemId::RawBeef => Some(ItemId::RoastBeef),
         ItemId::RawChicken => Some(ItemId::RoastChicken),
         ItemId::RawRabbit => Some(ItemId::RoastRabbit),
+        ItemId::Potato => Some(ItemId::BakedPotato),
         _ => None,
     }
 }
@@ -257,6 +258,13 @@ mod tests {
         for item in [ItemId::IronIngot, ItemId::CoalOre, ItemId::OakPlanks] {
             assert_eq!(smelting_result(item), None, "{item:?}");
         }
+    }
+
+    #[test]
+    fn a_potato_bakes_and_a_carrot_does_not() {
+        assert_eq!(smelting_result(ItemId::Potato), Some(ItemId::BakedPotato));
+        assert_eq!(smelting_result(ItemId::BakedPotato), None);
+        assert_eq!(smelting_result(ItemId::Carrot), None);
     }
 
     #[test]

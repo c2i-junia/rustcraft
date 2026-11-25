@@ -270,6 +270,14 @@ impl VoxelShape {
             | BlockId::RyeSprout
             | BlockId::YoungRye
             | BlockId::RipeRye
+            | BlockId::CarrotSprout
+            | BlockId::YoungCarrots
+            | BlockId::TallCarrots
+            | BlockId::RipeCarrots
+            | BlockId::PotatoSprout
+            | BlockId::YoungPotatoes
+            | BlockId::TallPotatoes
+            | BlockId::RipePotatoes
             | BlockId::Poppy
             | BlockId::Dandelion
             | BlockId::Reed

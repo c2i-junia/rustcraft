@@ -272,3 +272,23 @@ halves knock back from any source. 14 health. Drops 1–3 feathers.
   in `players::hunger`), an arm in `ItemId::food_value` for a new food (lot 7: carrot 3/3.6,
   potato 1/0.6, baked potato 5/6.0). HUD: `ui/hud/food.rs` (`FoodBar`, `FOOD_BAND`); `AirBar`
   sits `FOOD_BAND` higher.
+- **Lot 7** (plan `2026-11-24-survival-lot-7-farming.md`). Main's `growth_system` is gone:
+  `server/src/world/ticks.rs` (`block_ticks_system`, `BlockTicks::tick`) is the one system of
+  the blocks that change by themselves, and main's rules live in shared
+  `shared/src/world/growth.rs` (`growth_tick`, `next_stage`, `is_watered`, `CROP_ODDS` 4,
+  `BERRY_ODDS` 5, `SAPLING_ODDS` 6), reached from `ticks::random_tick`; only the sapling's tree
+  stays the server's (`sapling_tree`). `RANDOM_TICKS_PER_SECTION` is 4, main's
+  `CELLS_PER_CHUNK`, so that main's rates are kept exactly, and lava's `IGNITE_ODDS` went 3 → 4
+  to keep its own. "Near the players" is lot 3's (`ticks::chunks_near_players`: loaded,
+  non-air chunks within `min(render distance, SIMULATION_DISTANCE 4)`), wider than main's
+  7×5×7; "rained on" is `ticks::sees_sky` (decorations let the rain through), not main's 64
+  blocks of air. Appended `BlockId` 99–106 (`CarrotSprout`, `YoungCarrots`, `TallCarrots`,
+  `RipeCarrots`, `PotatoSprout`, `YoungPotatoes`, `TallPotatoes`, `RipePotatoes`: one block per
+  stage like main's rye) and `ItemId` 159–161 (`Carrot`, `Potato`, `BakedPotato`, Materials).
+  A carrot or potato is planted by a right click on tilled soil with air above (`use_block`),
+  eaten anywhere else. Water within 4 blocks of the soil (its height or one above) waters a
+  crop like the rain does, rye included; both do not add up. Tall grass drops 24/16/8/1/1 in
+  50 (grass, fiber, rye, carrot, potato). Ripe carrots and potatoes drop 2–4, other stages 1.
+  The furnace and the campfire bake potatoes. Hooks for lot 8: `chunks_near_players(chunks,
+  players, radius)` for per-player iteration, `TickContext` (only `raining` so far) for the
+  night, and `growth::rained_on`.

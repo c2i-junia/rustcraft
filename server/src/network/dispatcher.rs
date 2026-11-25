@@ -124,8 +124,8 @@ pub fn register_systems(app: &mut App) {
             metabolism_system,
             pickup_dropped_items_system,
             world::home::home_system,
-            world::growth::growth_system,
-            // before the flow, which washes the fires away and fills what they burnt
+            // Fires, lava, plants, cisterns and campfires; before the flow, which washes the
+            // fires away and fills what they burnt
             world::ticks::block_ticks_system,
             world::flow::liquid_flow_system,
             world::weather::weather_system,
