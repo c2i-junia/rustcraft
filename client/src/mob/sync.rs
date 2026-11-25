@@ -8,6 +8,7 @@ use bevy::prelude::*;
 use shared::world::{MobAction, MobId, MobKind, ServerMob};
 
 use super::{
+    hurt::MobHurt,
     models::{clip_for, model, MobAnimations, MobClip},
     MobRoot,
 };
@@ -54,6 +55,25 @@ pub struct Mob {
     rotation: Quat,
     /// How many portals the server said the mob went through.
     passes: u32,
+    /// The points of health the server said the mob lost.
+    damage: u32,
+    /// The time since the mob was last hurt, while it flashes red (`hurt::flash_hurt_mobs`).
+    pub hurt_seconds: Option<f32>,
+}
+
+impl Mob {
+    /// A mob first seen as `server` says it is, which is no hurt.
+    pub fn of(server: &ServerMob) -> Self {
+        Self {
+            kind: server.kind,
+            action: server.action,
+            position: server.position,
+            rotation: server.rotation,
+            passes: server.passes,
+            damage: server.damage,
+            hurt_seconds: None,
+        }
+    }
 }
 
 /// The animation player of a mob's model: the mob it belongs to, and the clip it plays.
@@ -69,6 +89,7 @@ pub fn apply_mob_updates(
     mut entities: ResMut<MobEntities>,
     mut mobs: Query<(&mut Mob, &mut Transform)>,
     asset_server: Res<AssetServer>,
+    mut hurts: MessageWriter<MobHurt>,
 ) {
     for id in std::mem::take(&mut client_mobs.removed) {
         if let Some(entity) = entities.0.remove(&id) {
@@ -79,7 +100,11 @@ pub fn apply_mob_updates(
         if let Some((mut mob, mut transform)) =
             entities.0.get(&id).and_then(|&e| mobs.get_mut(e).ok())
         {
-            take_update(&mut mob, &mut transform, &server);
+            if take_update(&mut mob, &mut transform, &server) {
+                hurts.write(MobHurt {
+                    at: server.position,
+                });
+            }
             continue;
         }
         let entity = spawn_mob(&mut commands, &server, &asset_server);
@@ -90,8 +115,14 @@ pub fn apply_mob_updates(
 /// Takes the update `server` of the mob `mob`, drawn at `transform`: the mob drawn moves on
 /// toward where the server says (`smooth_mob_motion`), but one that went through a portal
 /// since the last update (`ServerMob::passes`) is put there at once, turned as it is, rather
-/// than eased across the gap between the portals.
-fn take_update(mob: &mut Mob, transform: &mut Transform, server: &ServerMob) {
+/// than eased across the gap between the portals. Returns whether the mob was hurt: whether
+/// its damage rose, which starts its red flash.
+fn take_update(mob: &mut Mob, transform: &mut Transform, server: &ServerMob) -> bool {
+    let hurt = server.damage > mob.damage;
+    mob.damage = server.damage;
+    if hurt {
+        mob.hurt_seconds = Some(0.0);
+    }
     mob.action = server.action;
     mob.position = server.position;
     mob.rotation = server.rotation;
@@ -100,6 +131,7 @@ fn take_update(mob: &mut Mob, transform: &mut Transform, server: &ServerMob) {
         transform.translation = server.position;
         transform.rotation = server.rotation;
     }
+    hurt
 }
 
 /// The entity of a mob: its position is the middle of its hitbox, its model stands on the
@@ -110,13 +142,7 @@ fn spawn_mob(commands: &mut Commands, server: &ServerMob, asset_server: &AssetSe
     commands
         .spawn((
             MobRoot,
-            Mob {
-                kind: server.kind,
-                action: server.action,
-                position: server.position,
-                rotation: server.rotation,
-                passes: server.passes,
-            },
+            Mob::of(server),
             Transform::from_translation(server.position).with_rotation(server.rotation),
             Visibility::default(),
             DespawnOnExit(GameState::Game),
@@ -219,6 +245,20 @@ mod tests {
     use std::f32::consts::{FRAC_PI_2, PI};
 
     #[test]
+    fn an_update_that_raises_the_damage_of_a_mob_is_a_hurt() {
+        let mut server = ServerMob::new(MobKind::Pig, Vec3::ZERO);
+        let mut mob = Mob::of(&server);
+        let mut transform = Transform::default();
+        assert!(!take_update(&mut mob, &mut transform, &server));
+        server.damage = 3;
+        assert!(take_update(&mut mob, &mut transform, &server));
+        // The same damage told again, as a moving mob is, is no new hurt
+        assert!(!take_update(&mut mob, &mut transform, &server));
+        // A mob first seen hurt is not flashing
+        assert_eq!(Mob::of(&server).hurt_seconds, None);
+    }
+
+    #[test]
     fn a_mob_that_went_through_a_portal_is_put_on_the_other_side_at_once() {
         let shown = Vec3::new(1.0, 1.625, -2.6);
         let mut mob = Mob {
@@ -227,6 +267,8 @@ mod tests {
             position: shown,
             rotation: Quat::from_rotation_y(PI),
             passes: 0,
+            damage: 0,
+            hurt_seconds: None,
         };
         let mut transform = Transform::from_translation(shown).with_rotation(mob.rotation);
         let mut server = ServerMob {

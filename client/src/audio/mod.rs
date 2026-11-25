@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
 
 use crate::dropped_items::ItemPickedUp;
+use crate::mob::MobHurt;
 use crate::player::LocalPlayerHurt;
 use crate::portal::PortalOpened;
 use crate::state::{GameSet, GameState};
@@ -41,6 +42,7 @@ pub fn audio_plugin(app: &mut App) {
                     footsteps::other_players_footsteps,
                     pickup_sounds,
                     hurt_sounds,
+                    mob_hurt_sounds,
                     inventory::inventory_sounds,
                     portal_sounds,
                 )
@@ -63,6 +65,13 @@ fn pickup_sounds(mut pickups: MessageReader<ItemPickedUp>, mut sounds: MessageWr
 fn hurt_sounds(mut hurts: MessageReader<LocalPlayerHurt>, mut sounds: MessageWriter<PlaySound>) {
     for _ in hurts.read() {
         sounds.write(PlaySound::here(Sound::Hurt));
+    }
+}
+
+/// A blow on a mob, heard where it is.
+fn mob_hurt_sounds(mut hurts: MessageReader<MobHurt>, mut sounds: MessageWriter<PlaySound>) {
+    for MobHurt { at } in hurts.read() {
+        sounds.write(PlaySound::at(Sound::MobHurt, *at));
     }
 }
 
@@ -96,6 +105,23 @@ mod tests {
             .drain()
             .collect();
         assert_eq!(heard, [PlaySound::here(Sound::Hurt)]);
+    }
+
+    #[test]
+    fn a_hurt_mob_is_heard_where_it_is() {
+        let mut app = App::new();
+        app.add_message::<PlaySound>()
+            .add_message::<MobHurt>()
+            .add_systems(Update, mob_hurt_sounds);
+        let at = Vec3::new(1.0, 2.0, 3.0);
+        app.world_mut().write_message(MobHurt { at });
+        app.update();
+        let heard: Vec<_> = app
+            .world_mut()
+            .resource_mut::<Messages<PlaySound>>()
+            .drain()
+            .collect();
+        assert_eq!(heard, [PlaySound::at(Sound::MobHurt, at)]);
     }
 
     #[test]

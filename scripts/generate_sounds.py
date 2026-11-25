@@ -417,6 +417,20 @@ def build_hurt(rng):
     return finish(mix(punch, place_at(d, voice * 0.6, 0.01)), -14)
 
 
+def build_mob_hurt(rng):
+    """A blow on an animal: a duller punch and a short squeal, a pitched buzz through the formants
+    of 'eh' that falls."""
+    d = 0.3
+    punch = thump(rng, d, 150, 55, 0.04) + band(colored(rng, d, 2), high=800) * env(d, 0.001, 0.02) * 0.6
+    t = t_axis(d)
+    f0 = 420 - 160 * t / d
+    phase = np.cumsum(f0) / SR
+    buzz = (phase % 1.0) * 2 - 1 + white(rng, d) * 0.1
+    voice = sum(band(buzz, f * 0.88, f * 1.12) * g for f, g in ((700, 1.0), (1800, 0.6), (2600, 0.25)))
+    voice *= env(d, 0.01, 0.05)
+    return finish(mix(punch, place_at(d, voice * 0.5, 0.015)), -16)
+
+
 def build_pickup(rng):
     """A rounded pop rising in pitch, then a softer echo of it a fifth higher."""
     d = 0.16
@@ -853,6 +867,7 @@ def main():
     write_ogg("player/land", build_land)
     write_ogg("player/hurt", build_hurt)
     write_ogg("player/pickup", build_pickup)
+    write_ogg("mob/hurt", build_mob_hurt)
     write_ogg("ui/click", build_ui_click)
     write_ogg("ui/item_pick", build_item_pick)
     write_ogg("ui/item_place", build_item_place)

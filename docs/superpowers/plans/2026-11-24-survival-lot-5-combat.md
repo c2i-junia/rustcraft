@@ -77,10 +77,10 @@ furnace or on a campfire and eaten. To see: hit a pig with a sword, roast the po
 - [x] `hurt_ticks`, knock back, flee ticks, wear, `loot`.
 
 ### Task 3: Hurt flash and sound (client)
-- [ ] Tests: an update that raises the damage starts the flash and writes `MobHurt`, one that
+- [x] Tests: an update that raises the damage starts the flash and writes `MobHurt`, one that
   does not, or a mob first seen hurt, does not; the meshes of a flashing mob wear the red
   copy, then their own material; `MobHurt` plays `Sound::MobHurt` where the mob is.
-- [ ] `hurt.rs`, sound, plugin.
+- [x] `hurt.rs`, sound, plugin.
 
 ### Task 4: Goldens, e2e counts, `just check`
 - [ ] Item browser e2e counts 149 → 159; regenerate the goldens the new items change only.
