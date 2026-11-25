@@ -298,8 +298,8 @@ mod tests {
         ClientAuthentication, NetcodeServerTransport, ServerAuthentication, ServerConfig,
     };
     use bevy_renet::RenetServer;
-    use shared::messages::AuthRegisterRequest;
     use shared::messages::PlayerSpawnEvent;
+    use shared::messages::{AuthRegisterRequest, ServerToClientMessage};
     use shared::{
         get_shared_renet_config, GameFolderPaths, GameServerConfig, PROTOCOL_ID, STC_AUTH_CHANNEL,
         STC_CHUNK_DATA_CHANNEL,
@@ -375,6 +375,7 @@ mod tests {
                 max_render_distance: shared::DEFAULT_MAX_RENDER_DISTANCE,
                 max_players: shared::MAX_PLAYERS,
                 new_world: Default::default(),
+                auth: Default::default(),
             };
             let server = std::thread::spawn(move || server::init(socket, config, paths));
 
@@ -429,14 +430,16 @@ mod tests {
                         username,
                         render_distance: shared::MIN_RENDER_DISTANCE,
                         skin: Default::default(),
+                        proof: None,
                     }
                     .into(),
                 );
+            // after the challenge, which an offline server needs no answer to
             update_until(&mut self.app, "the authentication", |app| {
                 let mut client = app.world_mut().resource_mut::<RenetClient>();
-                client
-                    .receive_game_message_by_channel(STC_AUTH_CHANNEL)
-                    .is_some()
+                std::iter::from_fn(|| client.receive_game_message_by_channel(STC_AUTH_CHANNEL)).any(
+                    |message| matches!(message, Ok(ServerToClientMessage::AuthRegisterResponse(_))),
+                )
             });
             self.app
                 .world_mut()

@@ -298,8 +298,12 @@ The game folder holds the saves and the settings. By default it is `$XDG_DATA_HO
 | `--game-mode <mode>` | `survival` | The game mode of the players, when the world is created: `survival` or `creative`. |
 | `--difficulty <level>` | `normal` | The difficulty, when the world is created: `peaceful`, `easy`, `normal` or `hard`. |
 | `--op <name>` | | Makes this player an operator, in `ops.ron` of the game folder, before the server starts: how a server gets its first operator. May be given several times. |
+| `--auth <mode>` | `offline` | Who may join: `offline` takes anyone under the name they give; `hub` takes only the players logged in to an account of the hub, under its name. |
+| `--hub <url>` | `https://hub.rustcraft.dev` | The hub whose accounts join with `--auth hub`. |
 
 The options about the seed, type, game mode and difficulty apply only to a world that is created: a world that already exists keeps its own, and the server logs a warning.
+
+With `--auth hub`, a player proves its account with the certificate the hub gave its game and a signature of the server's challenge, so the server calls the hub only at start, for its keys, and every hour, for the revoked certificates. The keys are kept in `hub_keys.ron` of the game folder for a start while the hub cannot be reached; a server that has neither does not start. Every server has its own key in `server_key.ron`, made at its first start.
 
 Both executables also read the `RUST_LOG` environment variable to choose what they log, e.g. `RUST_LOG=server=debug,warn rustcraft-server`.
 

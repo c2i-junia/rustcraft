@@ -5,10 +5,14 @@ use bevy::math::{IVec3, Vec3};
 use bevy::prelude::Transform;
 use bevy_renet::netcode::{ClientAuthentication, NetcodeClientTransport};
 use bevy_renet::RenetClient;
+use ed25519_dalek::SigningKey;
+use rustcraft_protocol::identity::{
+    player_id, sign, sign_join, Certificate, CERTIFICATE_LIFETIME_SECS, CERTIFICATE_VERSION,
+};
 use server::{read_chunk, region_file_name, region_of, write_chunk_in_region};
 use shared::messages::{
-    AuthRegisterRequest, ChatMessageRequest, ClientToServerMessage, FullChatMessage, NetworkAction,
-    PlayerFrameInput, ServerToClientMessage,
+    AuthRegisterRequest, ChatMessageRequest, ClientToServerMessage, FullChatMessage, JoinProof,
+    NetworkAction, PlayerFrameInput, ServerToClientMessage,
 };
 use shared::players::armour::{ArmourPiece, WornArmour};
 use shared::players::blocks::HIT_MS;
@@ -26,14 +30,15 @@ use shared::world::{
 };
 use shared::{
     game_message_to_payload, get_shared_renet_config, payload_to_game_message,
-    ChannelResolvableExt, GameFolderPaths, GameServerConfig, DAY_DURATION_IN_TICKS,
-    MAX_INVENTORY_SLOTS, MIDNIGHT_IN_DAY, NOON_IN_DAY, PROTOCOL_ID, STC_AUTH_CHANNEL,
-    STC_CHUNK_DATA_CHANNEL, STC_STANDARD_CHANNEL,
+    ChannelResolvableExt, GameFolderPaths, GameServerConfig, HubTrust, ServerAuth,
+    DAY_DURATION_IN_TICKS, MAX_INVENTORY_SLOTS, MIDNIGHT_IN_DAY, NOON_IN_DAY, PROTOCOL_ID,
+    STC_AUTH_CHANNEL, STC_CHUNK_DATA_CHANNEL, STC_STANDARD_CHANNEL,
 };
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, UdpSocket};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime};
+use uuid::Uuid;
 
 const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 const PUMP_INTERVAL: Duration = Duration::from_millis(5);
@@ -85,6 +90,7 @@ impl TestServer {
             socket,
             Some(status),
             shared::MAX_PLAYERS,
+            ServerAuth::Offline,
         )
     }
 
@@ -99,13 +105,37 @@ impl TestServer {
             socket,
             None,
             max_players,
+            ServerAuth::Offline,
         )
     }
 
     fn start_with(tmp: tempfile::TempDir, world_name: &str, is_solo: bool) -> Self {
         let socket =
             server::acquire_local_ephemeral_udp_socket(IpAddr::V4(Ipv4Addr::LOCALHOST)).unwrap();
-        Self::start_on(tmp, world_name, is_solo, socket, None, shared::MAX_PLAYERS)
+        Self::start_on(
+            tmp,
+            world_name,
+            is_solo,
+            socket,
+            None,
+            shared::MAX_PLAYERS,
+            ServerAuth::Offline,
+        )
+    }
+
+    /// A dedicated server whose players join with the accounts of the hub `trust` describes.
+    fn start_hub(world_name: &str, trust: HubTrust) -> Self {
+        let socket =
+            server::acquire_local_ephemeral_udp_socket(IpAddr::V4(Ipv4Addr::LOCALHOST)).unwrap();
+        Self::start_on(
+            tempfile::tempdir().unwrap(),
+            world_name,
+            false,
+            socket,
+            None,
+            shared::MAX_PLAYERS,
+            ServerAuth::Hub(trust),
+        )
     }
 
     fn start_on(
@@ -115,6 +145,7 @@ impl TestServer {
         socket: UdpSocket,
         status: Option<UdpSocket>,
         max_players: usize,
+        auth: ServerAuth,
     ) -> Self {
         // A new world gets a fixed seed: a random one may put a tree or the sea at the spawn
         let world_dir = tmp.path().join("saves").join(world_name);
@@ -141,6 +172,7 @@ impl TestServer {
             max_render_distance: shared::DEFAULT_MAX_RENDER_DISTANCE,
             max_players,
             new_world: Default::default(),
+            auth,
         };
         let handle = thread::spawn(move || match status {
             Some(status) => server::init_with_status(socket, status, config, paths).unwrap(),
@@ -376,6 +408,7 @@ fn solo_session_from_auth_to_exit() {
             username: "tester".to_string(),
             render_distance: 2,
             skin: Default::default(),
+            proof: None,
         }
         .into(),
     );
@@ -446,6 +479,7 @@ fn auth_request(username: &str) -> ClientToServerMessage {
         username: username.to_string(),
         render_distance: 2,
         skin: Default::default(),
+        proof: None,
     }
     .into()
 }
@@ -836,6 +870,7 @@ fn corrupt_world_file_stops_the_server_without_touching_it() {
         max_render_distance: shared::DEFAULT_MAX_RENDER_DISTANCE,
         max_players: shared::MAX_PLAYERS,
         new_world: Default::default(),
+        auth: Default::default(),
     };
 
     let err = server::init(socket, config, paths).unwrap_err();
@@ -858,6 +893,7 @@ fn the_chunks_follow_the_render_distance_the_player_asks_for() {
             username: "viewer".to_string(),
             render_distance: 1,
             skin: Default::default(),
+            proof: None,
         }
         .into(),
     );
@@ -1014,6 +1050,7 @@ fn a_joining_player_receives_the_skins_of_the_others_and_they_receive_its_own() 
             username: "painter".to_string(),
             render_distance: 2,
             skin: PlayerSkin::Custom(pixels.clone()),
+            proof: None,
         }
         .into(),
     );
@@ -1029,6 +1066,7 @@ fn a_joining_player_receives_the_skins_of_the_others_and_they_receive_its_own() 
             username: "sloppy".to_string(),
             render_distance: 2,
             skin: PlayerSkin::Custom(vec![1; 64 * 32 * 4]),
+            proof: None,
         }
         .into(),
     );
@@ -1044,6 +1082,7 @@ fn a_joining_player_receives_the_skins_of_the_others_and_they_receive_its_own() 
             username: "miner".to_string(),
             render_distance: 2,
             skin: PlayerSkin::BuiltIn("Miner".to_string()),
+            proof: None,
         }
         .into(),
     );
@@ -2964,17 +3003,7 @@ fn restart_with(
     let server = TestServer::start_in(tmp, WORLD_NAME);
     let mut client = TestClient::connect(server.addr, PLAYER_ID);
     client.wait_connected();
-    client.send(ClientToServerMessage::AuthRegisterRequest(
-        AuthRegisterRequest {
-            username: "crafter".into(),
-            render_distance: 5,
-            skin: PlayerSkin::default(),
-        },
-    ));
-    client.wait_for("AuthRegisterResponse", |m| match m {
-        ServerToClientMessage::AuthRegisterResponse(_) => Some(()),
-        _ => None,
-    });
+    join(&mut client, "crafter");
     (server, client)
 }
 
@@ -3262,4 +3291,202 @@ fn player_position(client: &TestClient) -> Option<Vec3> {
         ServerToClientMessage::PlayerUpdate(u) if u.id == client.id => Some(u.movement.position),
         _ => None,
     })
+}
+
+/// A hub of the tests: its key, and the device of an account it signs certificates for.
+struct TestHub {
+    key: SigningKey,
+    device: SigningKey,
+    certificate: Certificate,
+    trust: HubTrust,
+}
+
+const TEST_HUB: &str = "https://hub.test";
+
+fn random_key() -> SigningKey {
+    SigningKey::from_bytes(&rand::random())
+}
+
+impl TestHub {
+    fn new() -> Self {
+        let key = random_key();
+        let device = random_key();
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let certificate = Certificate {
+            version: CERTIFICATE_VERSION,
+            hub: TEST_HUB.into(),
+            id: Uuid::from_u128(rand::random()),
+            account: Uuid::from_u128(rand::random()),
+            name: "Alex".into(),
+            device_key: device.verifying_key().to_bytes(),
+            issued_at: now - 60,
+            expires_at: now + CERTIFICATE_LIFETIME_SECS,
+            hub_key_id: 1,
+        };
+        let trust = HubTrust {
+            url: TEST_HUB.into(),
+            keys: vec![(1, key.verifying_key())],
+            revoked: Default::default(),
+        };
+        Self {
+            key,
+            device,
+            certificate,
+            trust,
+        }
+    }
+
+    fn player_id(&self) -> u64 {
+        player_id(&self.certificate.account)
+    }
+}
+
+/// What the server asks a client as it connects: its nonce, its key and its hub.
+fn challenge(client: &mut TestClient) -> ([u8; 32], [u8; 32], Option<String>) {
+    client.wait_connected();
+    client.wait_for("AuthChallenge", |m| match m {
+        ServerToClientMessage::AuthChallenge {
+            nonce,
+            server_key,
+            hub,
+        } => Some((*nonce, *server_key, hub.clone())),
+        _ => None,
+    })
+}
+
+/// A request to join as `username` with `proof`.
+fn request_with(username: &str, proof: Option<JoinProof>) -> ClientToServerMessage {
+    AuthRegisterRequest {
+        username: username.to_string(),
+        render_distance: 2,
+        skin: Default::default(),
+        proof,
+    }
+    .into()
+}
+
+/// The proof of `certificate` signed by `hub_key`, its device signing `nonce` and `server_key`.
+fn proof_of(
+    certificate: &Certificate,
+    hub_key: &SigningKey,
+    device: &SigningKey,
+    nonce: &[u8; 32],
+    server_key: &[u8; 32],
+) -> JoinProof {
+    let signed = sign(certificate, hub_key);
+    JoinProof {
+        certificate: signed.bytes,
+        certificate_signature: signed.signature.to_vec(),
+        signature: sign_join(device, nonce, server_key).to_vec(),
+    }
+}
+
+#[test]
+fn an_offline_server_challenges_without_a_hub_and_takes_a_player_without_a_proof() {
+    let server = TestServer::start_dedicated(WORLD_NAME);
+    let mut client = TestClient::connect(server.addr, PLAYER_ID);
+    let (_, _, hub) = challenge(&mut client);
+    assert_eq!(hub, None);
+    client.send(request_with("steve", None));
+    let auth = client.wait_for("AuthRegisterResponse", |m| match m {
+        ServerToClientMessage::AuthRegisterResponse(r) => Some(r.clone()),
+        _ => None,
+    });
+    assert_eq!(auth.username, "steve");
+    assert!(server
+        .tmp
+        .path()
+        .join(server::join::SERVER_KEY_FILE)
+        .is_file());
+}
+
+#[test]
+fn a_hub_server_takes_a_valid_proof_and_names_the_player_after_its_certificate() {
+    let hub = TestHub::new();
+    let server = TestServer::start_hub(WORLD_NAME, hub.trust.clone());
+    let mut client = TestClient::connect(server.addr, hub.player_id());
+    let (nonce, server_key, announced) = challenge(&mut client);
+    assert_eq!(announced.as_deref(), Some(TEST_HUB));
+
+    let proof = proof_of(&hub.certificate, &hub.key, &hub.device, &nonce, &server_key);
+    client.send(request_with("impostor", Some(proof)));
+    let auth = client.wait_for("AuthRegisterResponse", |m| match m {
+        ServerToClientMessage::AuthRegisterResponse(r) => Some(r.clone()),
+        _ => None,
+    });
+    assert_eq!(auth.username, "Alex");
+    assert_eq!(auth.session_token, hub.player_id());
+}
+
+/// The reason a hub server gives a client of id `client_id` that answers its challenge with
+/// what `answer` makes of the nonce and the key of the server.
+fn hub_refusal(
+    server: &TestServer,
+    client_id: u64,
+    answer: impl FnOnce(&[u8; 32], &[u8; 32]) -> Option<JoinProof>,
+) -> String {
+    let mut client = TestClient::connect(server.addr, client_id);
+    let (nonce, server_key, _) = challenge(&mut client);
+    client.send(request_with("Alex", answer(&nonce, &server_key)));
+    let reason = dismissed(&mut client);
+    assert!(
+        !client
+            .inbox
+            .iter()
+            .any(|m| matches!(m, ServerToClientMessage::AuthRegisterResponse(_))),
+        "the player was let in"
+    );
+    reason
+}
+
+#[test]
+fn a_hub_server_dismisses_each_bad_proof_with_its_own_reason() {
+    let hub = TestHub::new();
+    let server = TestServer::start_hub(WORLD_NAME, hub.trust.clone());
+    let id = hub.player_id();
+    let (cert, key, device) = (&hub.certificate, &hub.key, &hub.device);
+
+    assert_eq!(
+        hub_refusal(&server, id, |_, _| None),
+        server::join::NO_PROOF
+    );
+
+    let mut expired = cert.clone();
+    expired.issued_at -= 2 * CERTIFICATE_LIFETIME_SECS;
+    expired.expires_at -= 2 * CERTIFICATE_LIFETIME_SECS;
+    let reason = hub_refusal(&server, id, |nonce, server_key| {
+        Some(proof_of(&expired, key, device, nonce, server_key))
+    });
+    assert_eq!(reason, server::join::EXPIRED);
+
+    let other_hub = random_key();
+    let reason = hub_refusal(&server, id, |nonce, server_key| {
+        Some(proof_of(cert, &other_hub, device, nonce, server_key))
+    });
+    assert_eq!(reason, server::join::UNKNOWN_HUB);
+
+    let reason = hub_refusal(&server, id, |_, server_key| {
+        Some(proof_of(cert, key, device, &[7; 32], server_key))
+    });
+    assert_eq!(reason, server::join::WRONG_SIGNATURE);
+
+    let reason = hub_refusal(&server, id, |nonce, _| {
+        Some(proof_of(cert, key, device, nonce, &[7; 32]))
+    });
+    assert_eq!(reason, server::join::WRONG_SIGNATURE);
+
+    // a client that announces another id than its account's
+    let reason = hub_refusal(&server, id ^ 1, |nonce, server_key| {
+        Some(proof_of(cert, key, device, nonce, server_key))
+    });
+    assert_eq!(reason, server::join::WRONG_ID);
+
+    hub.trust.revoked.write().unwrap().insert(cert.id);
+    let reason = hub_refusal(&server, id, |nonce, server_key| {
+        Some(proof_of(cert, key, device, nonce, server_key))
+    });
+    assert_eq!(reason, server::join::REVOKED);
 }

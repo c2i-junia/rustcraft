@@ -5698,16 +5698,20 @@ dependencies = [
  "bincode",
  "clap",
  "ctrlc",
+ "ed25519-dalek",
  "libc",
  "mlua",
  "noise",
  "rand 0.8.5",
  "ron 0.6.6",
+ "rustcraft-protocol",
  "rustix 1.1.2",
  "serde",
  "shared",
  "tempfile",
  "ulid",
+ "ureq",
+ "uuid",
 ]
 
 [[package]]
@@ -5740,6 +5744,7 @@ dependencies = [
  "bevy_platform",
  "bevy_renet",
  "bincode",
+ "ed25519-dalek",
  "log",
  "lz4",
  "noise",
@@ -5748,6 +5753,7 @@ dependencies = [
  "rustcraft-protocol",
  "serde",
  "socket2",
+ "uuid",
 ]
 
 [[package]]

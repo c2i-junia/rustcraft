@@ -13,6 +13,7 @@ use shared::world::lair;
 use shared::world::{BiomeDef, Biomes, TerrainNoises, WorldGenSettings};
 use shared::{get_shared_renet_config, GameServerConfig, SaveCounter, STC_AUTH_CHANNEL};
 
+use crate::account::Account;
 use crate::menus::solo::SelectedWorld;
 use crate::mob::ClientMobs;
 use crate::network::session::{end_session, ConnectError, Dismissal, SessionOrigin};
@@ -330,6 +331,8 @@ pub fn launch_local_server_system(
             max_render_distance: crate::constants::MAX_CHUNK_RENDER_DISTANCE_RADIUS,
             max_players: shared::MAX_PLAYERS,
             new_world: Default::default(),
+            // A solo world is always in offline mode
+            auth: shared::ServerAuth::Offline,
         };
         let result = server::init(socket, config, paths);
         if let Err(err) = &result {
@@ -520,6 +523,7 @@ pub fn establish_authenticated_connection_to_server(
     mut client_time: ResMut<ClientTime>,
     mut world_map: ResMut<ClientWorldMap>,
     mut refusal_logged: Local<bool>,
+    account: Option<Res<Account>>,
 ) {
     if target.session_token.is_some() {
         trace!(
@@ -527,24 +531,6 @@ pub fn establish_authenticated_connection_to_server(
             target.username.as_deref().unwrap_or_default()
         );
         return;
-    }
-
-    // A message sent before netcode connects is dropped, and sent again only after the resend
-    // time of its channel
-    if target.state == TargetServerState::Initial && client.is_connected() {
-        let username = target
-            .username
-            .get_or_insert_with(|| current_profile.name.clone())
-            .clone();
-
-        let auth_msg = AuthRegisterRequest {
-            username,
-            render_distance: render_distance.distance,
-            skin: chosen_skin.skin.clone(),
-        };
-        info!("Sending auth request: {:?}", auth_msg);
-        client.send_game_message(auth_msg.into());
-        target.state = TargetServerState::Establishing;
     }
 
     // The server drops a client whose name it refuses (invalid or already in use); a connection
@@ -563,6 +549,34 @@ pub fn establish_authenticated_connection_to_server(
 
     while let Some(Ok(message)) = client.receive_game_message_by_channel(STC_AUTH_CHANNEL) {
         match message {
+            // The server asks who the player is as soon as it is connected
+            ServerToClientMessage::AuthChallenge {
+                nonce,
+                server_key,
+                hub,
+            } if target.state == TargetServerState::Initial => {
+                let username = target
+                    .username
+                    .get_or_insert_with(|| current_profile.name.clone())
+                    .clone();
+                // A server in hub mode without a proof says why it refuses the player
+                let proof = hub
+                    .zip(account.as_deref())
+                    .and_then(|(hub, account)| account.join_proof(&hub, &nonce, &server_key));
+                let auth_msg = AuthRegisterRequest {
+                    username,
+                    render_distance: render_distance.distance,
+                    skin: chosen_skin.skin.clone(),
+                    proof,
+                };
+                info!(
+                    "Sending auth request as {}, with a proof: {}",
+                    auth_msg.username,
+                    auth_msg.proof.is_some()
+                );
+                client.send_game_message(auth_msg.into());
+                target.state = TargetServerState::Establishing;
+            }
             ServerToClientMessage::AuthRegisterResponse(message) => {
                 target.username = Some(message.username);
                 target.session_token = Some(message.session_token);

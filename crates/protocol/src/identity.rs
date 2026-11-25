@@ -143,6 +143,14 @@ pub fn verify_join(
     .is_ok()
 }
 
+/// The id of the player of an account in the game: the first 8 bytes of its UUID,
+/// little-endian. The game and the servers that check certificates derive the same one.
+pub fn player_id(account: &Uuid) -> u64 {
+    let mut first = [0u8; 8];
+    first.copy_from_slice(&account.as_bytes()[..8]);
+    u64::from_le_bytes(first)
+}
+
 /// The hex form of a 32-byte key, as the JSON of the hub carries it.
 pub fn key_to_hex(key: &[u8; 32]) -> String {
     hex::encode(key)
@@ -308,6 +316,12 @@ mod tests {
         assert!(!verify_join(&cert, &nonce, &[1u8; 32], &signature));
         let other = certificate(&key());
         assert!(!verify_join(&other, &nonce, &server, &signature));
+    }
+
+    #[test]
+    fn the_player_id_is_the_first_eight_bytes_of_the_uuid_little_endian() {
+        let uuid = Uuid::from_bytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+        assert_eq!(player_id(&uuid), 0x0807060504030201);
     }
 
     #[test]

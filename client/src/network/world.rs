@@ -175,7 +175,8 @@ pub fn update_world_from_network(
             }
             // on the authentication channel, which this does not read
             ServerToClientMessage::AuthRegisterResponse(_)
-            | ServerToClientMessage::Dismissed(_) => {}
+            | ServerToClientMessage::Dismissed(_)
+            | ServerToClientMessage::AuthChallenge { .. } => {}
             ServerToClientMessage::DepthReached(tier) => {
                 commands.insert_resource(DepthReached(Some(tier)));
             }

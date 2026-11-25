@@ -18,6 +18,11 @@ clap = { version = "4.5.19", features = ["derive"] }
 ulid = "1.1.4"
 ctrlc = { version = "3.4", features = ["termination"] }
 mlua = { version = "0.12", features = ["luau", "send"] }
+rustcraft-protocol = { path = "../crates/protocol" }
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+uuid = { version = "1", default-features = false, features = ["serde"] }
+# The Docker image has no CA bundle: the roots of webpki come with rustls
+ureq = { version = "3", default-features = false, features = ["rustls", "json"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rustix = { version = "1.1", features = ["fs"] }

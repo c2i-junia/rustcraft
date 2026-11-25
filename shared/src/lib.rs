@@ -1,8 +1,9 @@
 //! What the client and the server have in common: the messages and their encoding, the
 //! world containers, and the player simulation both sides run.
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use bevy_ecs::resource::Resource;
 
@@ -67,6 +68,31 @@ pub struct GameServerConfig {
     pub max_players: usize,
     /// What a new world is made with: ignored for a world that already exists.
     pub new_world: NewWorldSettings,
+    /// Who may join: anyone by the name it gives, or the accounts of a hub. A solo world is
+    /// always `Offline`.
+    pub auth: ServerAuth,
+}
+
+/// How a server knows who its players are.
+#[derive(Clone, Debug, Default)]
+pub enum ServerAuth {
+    /// A player is who it says it is: today's behaviour, for servers among friends.
+    #[default]
+    Offline,
+    /// A player proves its account with a certificate of this hub.
+    Hub(HubTrust),
+}
+
+/// What a server trusts of its hub: the keys that sign the certificates, and the certificates
+/// revoked since, which a thread keeps up to date.
+#[derive(Clone, Debug)]
+pub struct HubTrust {
+    /// The URL of the hub, sent to the clients in the challenge.
+    pub url: String,
+    /// The accepted keys of the hub, with their ids.
+    pub keys: Vec<(u8, ed25519_dalek::VerifyingKey)>,
+    /// The ids of the revoked certificates.
+    pub revoked: Arc<RwLock<HashSet<uuid::Uuid>>>,
 }
 
 /// What a new world is made with where the player chose it, as the command line of a dedicated

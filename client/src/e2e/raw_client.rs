@@ -142,6 +142,7 @@ fn pump(
                     username,
                     render_distance: shared::MIN_RENDER_DISTANCE,
                     skin: Default::default(),
+                    proof: None,
                 };
                 client.send_game_message(request.into());
             }

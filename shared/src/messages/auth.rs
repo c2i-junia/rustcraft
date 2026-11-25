@@ -12,6 +12,22 @@ pub struct AuthRegisterRequest {
     /// The skin the player chose, which the server checks (`PlayerSkin::validated`) and hands
     /// to the others with it.
     pub skin: PlayerSkin,
+    /// Who the player is on the hub of the server, when the server asked for it
+    /// (`ServerToClientMessage::AuthChallenge`) and the player has an account there. A server
+    /// in offline mode ignores it.
+    pub proof: Option<JoinProof>,
+}
+
+/// A certificate of the hub and the signature of the device it names over the challenge of
+/// the server (`rustcraft_protocol::identity::join_message`).
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+pub struct JoinProof {
+    /// The bytes of the certificate, as the hub signed them.
+    pub certificate: Vec<u8>,
+    /// The signature of the hub over `certificate`: 64 bytes.
+    pub certificate_signature: Vec<u8>,
+    /// The signature of the device key over the challenge: 64 bytes.
+    pub signature: Vec<u8>,
 }
 
 impl From<AuthRegisterRequest> for ClientToServerMessage {

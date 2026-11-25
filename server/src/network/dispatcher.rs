@@ -28,14 +28,15 @@ use shared::{
 use std::collections::HashMap;
 
 use super::extensions::SendGameMessageExtension;
-use super::handlers::{self, Access, Clients};
+use super::handlers::{self, Access, Clients, Join};
+use super::join::{send_challenges_system, Challenges, ServerKey};
 use super::permissions::{disconnect_dismissed_system, Dismissals, Permissions};
 
 /// bevy_renet reports connections as observer events: this buffers them as a message so that
 /// `handle_connection_events_system` still reads them in `Update`. The event is copied field by field
 /// because `ServerEvent` is not `Clone`.
 #[derive(Message)]
-enum ServerEventMessage {
+pub(super) enum ServerEventMessage {
     ClientConnected {
         client_id: ClientId,
     },
@@ -70,6 +71,9 @@ pub fn setup_resources_and_events(app: &mut App) {
         // a dedicated server replaces them with those of its files (`init::run`)
         .init_resource::<Permissions>()
         .init_resource::<Dismissals>()
+        .init_resource::<Challenges>()
+        // a server replaces it with the one of its file (`init::run`)
+        .init_resource::<ServerKey>()
         .add_observer(buffer_server_event);
 
     setup_chat_resources(app);
@@ -171,7 +175,12 @@ pub fn register_systems(app: &mut App) {
     app.add_systems(FixedPostUpdate, update_server_time)
         .add_systems(Update, world::locate::answer_locates_system)
         .add_systems(Update, disconnect_dismissed_system)
-        .add_systems(PreUpdate, take_join_requests_system.after(RenetReceive));
+        .add_systems(
+            PreUpdate,
+            (send_challenges_system, take_join_requests_system)
+                .chain()
+                .after(RenetReceive),
+        );
 
     // The mobs and the items move before the inputs of the tick are read
     app.add_systems(
@@ -271,6 +280,7 @@ fn handle_client_messages_system(
     mut join_requests: ResMut<JoinRequests>,
     mut weather: ResMut<ServerWeather>,
     (mut permissions, mut dismissals): (ResMut<Permissions>, ResMut<Dismissals>),
+    (challenges, server_key): (Res<Challenges>, Res<ServerKey>),
 ) {
     // the base game's, for the apps of the tests that set up no world
     let default_generation = WorldGeneration::default();
@@ -328,6 +338,11 @@ fn handle_client_messages_system(
                             permissions: &mut permissions,
                             dismissals: &mut dismissals,
                             is_solo: config.is_solo,
+                        },
+                        Join {
+                            auth: &config.auth,
+                            nonce: challenges.get(client_id),
+                            server_key: &server_key.0,
                         },
                     );
                     // The client was refused: drop the rest of its messages
@@ -478,6 +493,7 @@ mod tests {
                 max_render_distance: shared::DEFAULT_MAX_RENDER_DISTANCE,
                 max_players: shared::MAX_PLAYERS,
                 new_world: Default::default(),
+                auth: Default::default(),
             })
             .insert_resource(GameFolderPaths {
                 game_folder_path: folder.join("game"),
@@ -518,6 +534,7 @@ mod tests {
                     username: "p".into(),
                     render_distance: 1,
                     skin: Default::default(),
+                    proof: None,
                 },
             )),
         );

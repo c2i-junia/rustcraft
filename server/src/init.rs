@@ -3,6 +3,7 @@ use crate::{
     network::{
         cleanup::cleanup_all_players_from_world,
         dispatcher::{self, setup_resources_and_events},
+        join::ServerKey,
         permissions::Permissions,
         status::{publish_player_count, spawn_status_responder, StatusCounter},
     },
@@ -46,11 +47,16 @@ pub struct ServerTime(pub u64);
 #[derive(Debug)]
 pub struct LobbyPlayer {
     pub name: String,
+    /// The account of the player on the hub, for a server in hub mode.
+    pub account: Option<uuid::Uuid>,
 }
 
 impl LobbyPlayer {
     pub fn new(name: String) -> Self {
-        Self { name }
+        Self {
+            name,
+            account: None,
+        }
     }
 }
 
@@ -184,6 +190,10 @@ fn run(
     add_netcode_network(&mut app, socket, max_players)?;
 
     setup_resources_and_events(&mut app);
+
+    app.insert_resource(ServerKey::load_or_create(
+        &game_folder_paths.game_folder_path,
+    )?);
 
     // A solo world keeps no lists: its player is an operator
     if !is_solo {
@@ -371,6 +381,7 @@ mod tests {
                 max_render_distance: shared::DEFAULT_MAX_RENDER_DISTANCE,
                 max_players: shared::MAX_PLAYERS,
                 new_world: Default::default(),
+                auth: Default::default(),
             },
             GameFolderPaths {
                 game_folder_path: tmp.path().into(),

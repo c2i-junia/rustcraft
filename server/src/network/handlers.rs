@@ -14,7 +14,7 @@ use shared::players::Player;
 use shared::utils::unix_time_ms;
 use shared::world::WorldSeed;
 
-use shared::{GameFolderPaths, GameServerConfig};
+use shared::{GameFolderPaths, GameServerConfig, ServerAuth};
 
 use crate::init::{LobbyPlayer, ServerLobby, ServerTime};
 use crate::mods::Mods;
@@ -24,6 +24,7 @@ use crate::network::commands::{
     command_line, list_players, parse_command, refusal, run_command, Command, Place, SERVER_AUTHOR,
 };
 use crate::network::extensions::SendGameMessageExtension;
+use crate::network::join::check_proof;
 use crate::network::permissions::{same_name, Dismissals, Permissions};
 use crate::world::data::ServerWorldMap;
 use crate::world::generation::WorldGeneration;
@@ -38,6 +39,14 @@ use crate::world::weather::{send_to_players, ServerWeather};
 pub(super) struct Clients<'a> {
     pub server: &'a mut RenetServer,
     pub lobby: &'a mut ServerLobby,
+}
+
+/// What a player proves its account against, in hub mode.
+pub(super) struct Join<'a> {
+    pub auth: &'a ServerAuth,
+    /// The challenge of this connection.
+    pub nonce: Option<&'a [u8; 32]>,
+    pub server_key: &'a [u8; 32],
 }
 
 /// Who may do what, and the clients being dismissed.
@@ -77,6 +86,7 @@ pub(super) fn auth_register_request(
     mods: &Mods,
     weather: &ServerWeather,
     access: Access,
+    join: Join,
 ) -> ControlFlow<()> {
     let Clients { server, lobby } = clients;
 
@@ -84,17 +94,40 @@ pub(super) fn auth_register_request(
         debug!("Ignoring a second authentication request from client {client_id}");
         return ControlFlow::Continue(());
     }
-    let Some(username) = sanitize_username(&auth_req.username) else {
+    // In hub mode the player is the account of its certificate, whatever name it asks for
+    let (requested, account) = match join.auth {
+        ServerAuth::Offline => (auth_req.username.clone(), None),
+        ServerAuth::Hub(trust) => {
+            let now = unix_time_ms() / 1000;
+            match check_proof(
+                trust,
+                auth_req.proof.as_ref(),
+                client_id,
+                join.nonce,
+                join.server_key,
+                now,
+            ) {
+                Ok(certificate) => (certificate.name, Some(certificate.account)),
+                Err(reason) => {
+                    warn!("Refusing client {client_id}: {reason}");
+                    access
+                        .dismissals
+                        .dismiss(server, client_id, reason.to_string());
+                    return ControlFlow::Break(());
+                }
+            }
+        }
+    };
+    let Some(username) = sanitize_username(&requested) else {
         warn!("Invalid username, disconnecting client {client_id}");
         server.disconnect(client_id);
         return ControlFlow::Break(());
     };
-    // Whatever the case, as the operators and the bans are known
-    if lobby
-        .players
-        .values()
-        .any(|player| same_name(&player.name, username))
-    {
+    // Whatever the case, as the operators and the bans are known; by account in hub mode
+    if lobby.players.values().any(|player| match account {
+        Some(account) => player.account == Some(account),
+        None => same_name(&player.name, username),
+    }) {
         warn!("Username already in use: {username}, disconnecting client {client_id}");
         server.disconnect(client_id);
         return ControlFlow::Break(());
@@ -130,9 +163,13 @@ pub(super) fn auth_register_request(
     world_map
         .render_distances
         .set(client_id, auth_req.render_distance, max_render_distance);
-    lobby
-        .players
-        .insert(client_id, LobbyPlayer::new(username.to_string()));
+    lobby.players.insert(
+        client_id,
+        LobbyPlayer {
+            account,
+            ..LobbyPlayer::new(username.to_string())
+        },
+    );
     info!("Player {username} authenticated as client {client_id}");
 
     let players: Vec<PlayerSpawnEvent> = world_map

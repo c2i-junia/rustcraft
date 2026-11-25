@@ -11,7 +11,8 @@ use std::time::{Duration, Instant};
 
 use bevy::prelude::*;
 use rustcraft_protocol::api::CertificateResponse;
-use shared::messages::PlayerId;
+use rustcraft_protocol::identity::sign_join;
+use shared::messages::{JoinProof, PlayerId};
 use shared::GameFolderPaths;
 use uuid::Uuid;
 
@@ -52,6 +53,35 @@ impl Account {
         }
     }
 
+    /// What proves the account to a server of `hub` that gave this challenge: its certificate
+    /// and the signature of the device. `None` when logged out, on another hub, or without a
+    /// certificate yet.
+    pub fn join_proof(
+        &self,
+        hub: &str,
+        nonce: &[u8; 32],
+        server_key: &[u8; 32],
+    ) -> Option<JoinProof> {
+        let Account::LoggedIn(file) = self else {
+            return None;
+        };
+        if file.hub.trim_end_matches('/') != hub.trim_end_matches('/') {
+            return None;
+        }
+        let signed = CertificateResponse {
+            certificate: file.certificate.clone()?,
+            signature: file.signature.clone()?,
+            expires_at: file.expires_at.unwrap_or_default(),
+        }
+        .signed_certificate()?;
+        let device = file.signing_key()?;
+        Some(JoinProof {
+            certificate: signed.bytes,
+            certificate_signature: signed.signature.to_vec(),
+            signature: sign_join(&device, nonce, server_key).to_vec(),
+        })
+    }
+
     /// The name and the id the account gives the player, when signed in.
     pub fn profile(&self) -> Option<(String, PlayerId)> {
         match self {
@@ -70,13 +100,7 @@ pub struct HubUrl(pub String);
 #[derive(Resource)]
 pub struct ExplicitPlayerName;
 
-/// The id of the player of an account: the first 8 bytes of its UUID, little-endian. A server
-/// that checks the certificate derives the same one.
-pub fn player_id(account: &Uuid) -> PlayerId {
-    let mut first = [0u8; 8];
-    first.copy_from_slice(&account.as_bytes()[..8]);
-    u64::from_le_bytes(first)
-}
+pub use rustcraft_protocol::identity::player_id;
 
 pub fn account_plugin(app: &mut App) {
     let mut timer = Timer::new(RENEWAL_CHECK_EVERY, TimerMode::Repeating);
@@ -224,12 +248,6 @@ mod tests {
     }
 
     #[test]
-    fn the_id_is_the_first_eight_bytes_of_the_uuid_little_endian() {
-        let uuid = Uuid::from_bytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
-        assert_eq!(player_id(&uuid), 0x0807060504030201);
-    }
-
-    #[test]
     fn a_logged_in_account_gives_its_username_and_id_and_a_logged_out_one_nothing() {
         let account = Account::LoggedIn(AccountFile::new("h", &summary(), "t".into()));
         assert_eq!(
@@ -237,6 +255,39 @@ mod tests {
             Some(("Alex".to_string(), player_id(&Uuid::from_u128(UUID))))
         );
         assert_eq!(Account::LoggedOut.profile(), None);
+    }
+
+    #[test]
+    fn a_join_proof_is_made_for_the_hub_of_the_account_only() {
+        let (nonce, server_key) = ([1u8; 32], [2u8; 32]);
+        let mut file = AccountFile::new("https://hub.example", &summary(), "t".into());
+        let without_certificate = Account::LoggedIn(file.clone());
+        assert_eq!(
+            without_certificate.join_proof("https://hub.example", &nonce, &server_key),
+            None
+        );
+        file.certificate = Some("AQID".into());
+        file.signature = Some(format!("{}==", "A".repeat(86)));
+        let device = file.signing_key().unwrap();
+        let account = Account::LoggedIn(file);
+
+        let proof = account
+            .join_proof("https://hub.example/", &nonce, &server_key)
+            .unwrap();
+        assert_eq!(proof.certificate, vec![1, 2, 3]);
+        assert_eq!(proof.certificate_signature, vec![0; 64]);
+        assert_eq!(
+            proof.signature,
+            sign_join(&device, &nonce, &server_key).to_vec()
+        );
+        assert_eq!(
+            account.join_proof("https://other.example", &nonce, &server_key),
+            None
+        );
+        assert_eq!(
+            Account::LoggedOut.join_proof("https://hub.example", &nonce, &server_key),
+            None
+        );
     }
 
     #[test]

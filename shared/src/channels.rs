@@ -92,7 +92,8 @@ impl ChannelResolvableExt for ServerToClientMessage {
             | ServerToClientMessage::ChunkUnloads(_) => STC_CHUNK_DATA_CHANNEL,
             // read before the authentication too, when a player is refused
             ServerToClientMessage::AuthRegisterResponse(_)
-            | ServerToClientMessage::Dismissed(_) => STC_AUTH_CHANNEL,
+            | ServerToClientMessage::Dismissed(_)
+            | ServerToClientMessage::AuthChallenge { .. } => STC_AUTH_CHANNEL,
             _ => STC_STANDARD_CHANNEL,
         }
     }

@@ -199,12 +199,7 @@ mod tests {
         world_map.players.insert(1, player);
         world_map.home.slept.push((1, IVec3::ZERO));
         let mut lobby = ServerLobby::default();
-        lobby.players.insert(
-            1,
-            LobbyPlayer {
-                name: "sleeper".into(),
-            },
-        );
+        lobby.players.insert(1, LobbyPlayer::new("sleeper".into()));
         let mut world = World::new();
         world.insert_resource(world_map);
         world.insert_resource(lobby);

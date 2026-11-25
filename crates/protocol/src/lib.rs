@@ -8,7 +8,7 @@ pub mod status;
 /// Bump it whenever a network message or an enum sent in one (`BlockId`, `BlockDirection`,
 /// `ItemId`, ...) changes, so that a client and a server of different builds refuse to talk
 /// instead of misreading each other. The hub announces it in its well-known document.
-pub const PROTOCOL_ID: u64 = 50;
+pub const PROTOCOL_ID: u64 = 51;
 
 /// The hub the game talks to unless `--hub` says otherwise.
 pub const DEFAULT_HUB: &str = "https://hub.rustcraft.dev";

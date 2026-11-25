@@ -97,6 +97,14 @@ pub enum ServerToClientMessage {
         progress: Progress,
         earned: Vec<Achievement>,
     },
+    /// Sent on connection, before anything else: what a player of a hub signs to prove its
+    /// account (`AuthRegisterRequest::proof`). `hub` is the URL of the hub whose accounts the
+    /// server takes, none for a server in offline mode.
+    AuthChallenge {
+        nonce: [u8; 32],
+        server_key: [u8; 32],
+        hub: Option<String>,
+    },
 }
 
 /// What the bar of a boss shows.
@@ -131,6 +139,7 @@ mod tests {
             username: String::new(),
             render_distance: 0,
             skin: Default::default(),
+            proof: None,
         };
         let chat = ChatMessageRequest {
             content: String::new(),
@@ -276,6 +285,14 @@ mod tests {
                     earned: vec![],
                 },
                 20,
+            ),
+            (
+                ServerToClientMessage::AuthChallenge {
+                    nonce: [0; 32],
+                    server_key: [0; 32],
+                    hub: None,
+                },
+                21,
             ),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");

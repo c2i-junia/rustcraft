@@ -4,14 +4,15 @@ use std::process::ExitCode;
 use bevy::log::{error, tracing_subscriber::EnvFilter, warn};
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::Parser;
+use rustcraft_protocol::DEFAULT_HUB;
 use server::acquire_socket_by_port;
 use shared::players::game_mode::GameMode;
 use shared::status::status_port;
 use shared::world::hostiles::Difficulty;
 use shared::world::{WorldGenSettings, WorldPreset};
 use shared::{
-    get_game_folder_paths, GameServerConfig, NewWorldSettings, DEFAULT_MAX_RENDER_DISTANCE,
-    DEFAULT_PORT, MAX_PLAYERS,
+    get_game_folder_paths, GameServerConfig, NewWorldSettings, ServerAuth,
+    DEFAULT_MAX_RENDER_DISTANCE, DEFAULT_PORT, MAX_PLAYERS,
 };
 
 /// The exit code of a process interrupted twice: 128 + SIGINT.
@@ -33,6 +34,15 @@ fn game_modes() -> impl clap::builder::TypedValueParser<Value = GameMode> {
 fn difficulties() -> impl clap::builder::TypedValueParser<Value = Difficulty> {
     PossibleValuesParser::new(Difficulty::ALL.map(Difficulty::name))
         .map(|name| Difficulty::from_name(&name).expect("a name of the game"))
+}
+
+/// How the server knows who its players are.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+enum AuthFlag {
+    /// A player is who it says it is
+    Offline,
+    /// A player needs an account of the hub of `--hub`
+    Hub,
 }
 
 #[derive(Parser, Debug)]
@@ -83,6 +93,14 @@ struct Args {
     /// The difficulty of the world, when it is created: normal by default
     #[arg(long, value_parser = difficulties())]
     difficulty: Option<Difficulty>,
+
+    /// Who may join: anyone by the name it gives, or the accounts of the hub only
+    #[arg(long, value_enum, default_value_t = AuthFlag::Offline)]
+    auth: AuthFlag,
+
+    /// The hub whose accounts join in `--auth hub`
+    #[arg(long, default_value = DEFAULT_HUB)]
+    hub: String,
 }
 
 impl Args {
@@ -162,6 +180,22 @@ fn main() -> ExitCode {
         }
     };
 
+    let game_folder_paths = get_game_folder_paths(args.game_folder_path, None);
+    let auth = match args.auth {
+        AuthFlag::Offline => ServerAuth::Offline,
+        AuthFlag::Hub => {
+            match server::hub::hub_trust(&args.hub, &game_folder_paths.game_folder_path) {
+                Ok(trust) => {
+                    server::hub::watch_revocations(&trust);
+                    ServerAuth::Hub(trust)
+                }
+                Err(err) => {
+                    error!("{err}");
+                    return ExitCode::FAILURE;
+                }
+            }
+        }
+    };
     let config = GameServerConfig {
         world_name: args.world,
         is_solo: false,
@@ -169,8 +203,8 @@ fn main() -> ExitCode {
         max_render_distance: args.max_render_distance,
         max_players: args.max_players as usize,
         new_world,
+        auth,
     };
-    let game_folder_paths = get_game_folder_paths(args.game_folder_path, None);
     if !args.ops.is_empty() {
         let folder = &game_folder_paths.game_folder_path;
         if let Err(err) = server::Permissions::add_operators(folder, &args.ops) {
