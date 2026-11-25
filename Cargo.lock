@@ -5383,6 +5383,8 @@ dependencies = [
  "bevy_renet",
  "bincode",
  "clap",
+ "ctrlc",
+ "libc",
  "mlua",
  "noise",
  "rand 0.8.5",

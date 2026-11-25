@@ -16,6 +16,7 @@ noise = "0.9.0"
 ron = "0.6"
 clap = { version = "4.5.19", features = ["derive"] }
 ulid = "1.1.4"
+ctrlc = { version = "3.4", features = ["termination"] }
 mlua = { version = "0.12", features = ["luau", "send"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -42,3 +43,6 @@ workspace = true
 [dev-dependencies]
 shared = { path = "../shared", features = ["test-helpers"] }
 tempfile = "3"
+
+[target.'cfg(unix)'.dev-dependencies]
+libc = "0.2"

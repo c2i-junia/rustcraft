@@ -15,6 +15,9 @@ files named here.
 Solo and multiplayer use the same code path: the client always talks to a server over UDP, on
 the loopback interface in solo. The only difference is `GameServerConfig::is_solo`: a solo
 server stops when its player leaves and saves on request.
+A dedicated server stops on SIGTERM or Ctrl-C: the `server` binary catches them (`ctrlc`) and
+`shutdown_system` saves the world and the players, then sends `AppExit`; a second signal exits
+with status 130.
 
 ## `shared`
 

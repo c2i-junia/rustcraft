@@ -193,6 +193,9 @@ A dedicated server (`rustcraft-server --port 8000`) listens for the game on UDP 
 Open both in a firewall or a router: a server whose status port cannot be reached, or an older
 server that has none, shows as "Offline" in the list, and can still be joined.
 
+Stopping a dedicated server with Ctrl-C or SIGTERM (what `docker stop` sends) saves the world and
+the connected players, then exits. A second signal while it saves exits at once, with status 130.
+
 Each player sets its render distance, from 1 to 64 chunks (12 by default), in Settings > Video or with O and
 P; the server sends the chunks within it, up to `--max-render-distance` chunks (64 by default),
 and the Video tab says when it grants less. A world of Singleplayer grants all 64. A distance of `d` is (2d + 1)² columns of

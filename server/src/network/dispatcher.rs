@@ -160,6 +160,7 @@ pub fn register_systems(app: &mut App) {
     .add_systems(
         FixedUpdate,
         (
+            crate::shutdown::shutdown_system,
             world::save::save_world_system,
             world::unload::unload_far_chunks_system,
         )

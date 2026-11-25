@@ -7,6 +7,9 @@ use server::acquire_socket_by_port;
 use shared::status::status_port;
 use shared::{get_game_folder_paths, GameServerConfig, DEFAULT_MAX_RENDER_DISTANCE, DEFAULT_PORT};
 
+/// The exit code of a process interrupted twice: 128 + SIGINT.
+const INTERRUPTED_EXIT_CODE: i32 = 130;
+
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -36,6 +39,14 @@ fn main() -> ExitCode {
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
+    // SIGTERM (`docker stop`) and Ctrl-C save the world and exit; a second signal exits at once
+    if let Err(err) = ctrlc::set_handler(|| {
+        if server::request_shutdown() {
+            std::process::exit(INTERRUPTED_EXIT_CODE);
+        }
+    }) {
+        warn!("Could not catch the stop signals, the world will not be saved on them: {err}");
+    }
     let ip = Ipv4Addr::UNSPECIFIED.into();
     let socket = match acquire_socket_by_port(ip, args.port) {
         Ok(socket) => socket,
