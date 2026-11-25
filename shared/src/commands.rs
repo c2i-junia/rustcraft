@@ -473,8 +473,8 @@ mod tests {
                 "sheep_spawn_egg",
                 "sign",
                 "slate",
-                "snow",
-                "snowball"
+                "smith_spawn_egg",
+                "snow"
             ]
         );
         // `stone` is a value, the stone tools start with it, and `cobblestone` contains it
