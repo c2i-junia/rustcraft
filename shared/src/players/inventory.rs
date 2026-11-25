@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     messages::PlayerFrameInput,
     players::{
+        armour::ArmourPiece,
         blocks::{CallerType, INTERACTION_DISTANCE},
         Inventory, Player,
     },
@@ -43,6 +44,15 @@ pub const FURNACE_OUTPUT_SLOT: u32 = FURNACE_INPUT_SLOT + 2;
 /// The slots of an open furnace, in the numbering of the inventory actions.
 pub fn furnace_slots() -> Range<u32> {
     FURNACE_INPUT_SLOT..FURNACE_OUTPUT_SLOT + 1
+}
+
+/// The armour slots follow those of a furnace, the helmet first. The pieces worn are kept in the
+/// inventory under these numbers: they are saved, sent and dropped at death with it.
+pub const ARMOUR_SLOT_START: u32 = FURNACE_OUTPUT_SLOT + 1;
+
+/// The armour slots, in the numbering of the inventory actions.
+pub fn armour_slots() -> Range<u32> {
+    ARMOUR_SLOT_START..ARMOUR_SLOT_START + ArmourPiece::ALL.len() as u32
 }
 
 /// Append only, like `NetworkAction`: the position of the variant is what an input carries on
@@ -153,7 +163,7 @@ pub enum InventoryRefusal {
     /// There is no furnace, lit or out, within reach at this position.
     NoFurnace(IVec3),
     /// The slot does not take the item held: the fuel slot of a furnace takes only a fuel, its
-    /// output nothing.
+    /// output nothing, an armour slot only its piece.
     NotTaken(u32),
     /// The action needs a stack held by the cursor.
     NothingHeld,
@@ -751,7 +761,8 @@ fn put_back(inventory: &mut Inventory, stack: ItemStack) -> Option<ItemStack> {
     (kept > 0).then_some(ItemStack { nb: kept, ..stack })
 }
 
-/// Shift+click on `slot`: moves `nb` items of its stack at most, the whole stack with
+/// Shift+click on `slot`: puts a piece of armour on, when its slot is free and nothing is open;
+/// takes off one that is worn, into the inventory; else moves `nb` items of its stack at most, the whole stack with
 /// `u32::MAX`, from the hotbar to the backpack or the other way round, and from a crafting grid
 /// cell into the whole inventory. With a chest open, it moves them from the inventory to the
 /// chest and from the chest to the inventory; with a furnace open, from the inventory to the
@@ -781,7 +792,13 @@ fn quick_move_slot(inventory: &mut Inventory, slot: u32, nb: u32, lent: Lent) ->
             }
             // Neither smelts nor burns: it stays
             Lent::Furnace => Some(slot..slot),
-            Lent::Nothing => None,
+            // A piece of armour is put on, if none is worn in its slot
+            Lent::Nothing => stack
+                .item_id
+                .armour()
+                .map(|armour| armour.piece.slot())
+                .filter(|worn| !inventory.inner.contains_key(worn))
+                .map(|worn| worn..worn + 1),
         }
     };
     let kept = if let Some(range) = range {
@@ -871,6 +888,8 @@ fn zone_of(slot: u32, lent: Lent) -> Vec<u32> {
         chest_slots().collect()
     } else if furnace_slots().contains(&slot) {
         furnace_slots().collect()
+    } else if armour_slots().contains(&slot) {
+        armour_slots().collect()
     } else if lent != Lent::Nothing {
         (0..MAX_INVENTORY_SLOTS).collect()
     } else if slot < HOTBAR_SLOTS {
@@ -918,6 +937,7 @@ fn swap_with_hotbar(
         return Err(InventoryRefusal::HoldingAStack);
     }
     if slot >= MAX_INVENTORY_SLOTS
+        && !armour_slots().contains(&slot)
         && !grid_slots(size).any(|cell| cell == slot)
         && !is_lent(slot, lent)
     {
@@ -1063,16 +1083,19 @@ fn is_lent(slot: u32, lent: Lent) -> bool {
 }
 
 /// Whether `item` may be put into `slot`: the output of a furnace takes nothing, its fuel slot
-/// only a fuel, every other slot anything.
+/// only a fuel, an armour slot only its piece, every other slot anything.
 fn takes(slot: u32, item: ItemId) -> bool {
     match slot {
         FURNACE_OUTPUT_SLOT => false,
         FURNACE_FUEL_SLOT => fuel_ticks(item).is_some(),
+        _ if armour_slots().contains(&slot) => item
+            .armour()
+            .is_some_and(|armour| armour.piece.slot() == slot),
         _ => true,
     }
 }
 
-/// A click may reach the inventory, the grid in use and the open chest or furnace. Cells
+/// A click may reach the inventory, the armour, the grid in use and the open chest or furnace. Cells
 /// beyond the grid may only be emptied, with nothing in the cursor.
 fn check_slot(
     inventory: &Inventory,
@@ -1084,6 +1107,7 @@ fn check_slot(
     let takes_a_leftover =
         is_beyond_the_grid(slot, size) && floating.is_none() && inventory.inner.contains_key(&slot);
     if slot < MAX_INVENTORY_SLOTS
+        || armour_slots().contains(&slot)
         || grid_slots(size).any(|cell| cell == slot)
         || takes_a_leftover
         || is_lent(slot, lent)
@@ -1240,6 +1264,53 @@ mod tests {
 
     fn apply(inventory: &mut Inventory, action: InventoryAction) {
         apply_inventory_action(inventory, action, |_, _| false, None, false).unwrap();
+    }
+
+    #[test]
+    fn an_armour_slot_takes_only_its_piece_by_click_drag_swap_and_quick_move() {
+        let [helmet, chest] = [ArmourPiece::Helmet, ArmourPiece::Chestplate].map(ArmourPiece::slot);
+        let mut inventory = inventory_with(3, stack(ItemId::IronHelmet, 1));
+
+        apply(&mut inventory, InventoryAction::LeftClickSlot(3));
+        for action in [
+            InventoryAction::LeftClickSlot(chest),
+            InventoryAction::RightClickSlot(chest),
+            InventoryAction::Drag {
+                slots: 1 << chest,
+                one_each: false,
+            },
+        ] {
+            assert!(
+                apply_inventory_action(&mut inventory, action, |_, _| false, None, false).is_err()
+            );
+        }
+        apply(&mut inventory, InventoryAction::LeftClickSlot(helmet));
+        assert_eq!(inventory.worn().0[0], Some(ItemId::IronHelmet));
+
+        // Taken off by a quick move, then put on again by one
+        apply(&mut inventory, InventoryAction::QuickMoveSlot(helmet));
+        assert_eq!(inventory.worn().0, [None; 4]);
+        assert_eq!(inventory.inner[&0].item_id, ItemId::IronHelmet);
+        apply(&mut inventory, InventoryAction::QuickMoveSlot(0));
+        assert_eq!(inventory.worn().0[0], Some(ItemId::IronHelmet));
+        // The slot taken, another helmet goes to the backpack
+        inventory.inner.insert(1, stack(ItemId::LeatherHelmet, 1));
+        apply(&mut inventory, InventoryAction::QuickMoveSlot(1));
+        assert_eq!(
+            inventory.inner[&HOTBAR_SLOTS].item_id,
+            ItemId::LeatherHelmet
+        );
+
+        let swap = |slot, hotbar| InventoryAction::SwapWithHotbar { slot, hotbar };
+        inventory.inner.insert(2, stack(ItemId::Dirt, 5));
+        assert_eq!(
+            apply_inventory_action(&mut inventory, swap(helmet, 2), |_, _| false, None, false),
+            Err(InventoryRefusal::NotTaken(helmet))
+        );
+        inventory.inner.insert(4, stack(ItemId::DiamondHelmet, 1));
+        apply(&mut inventory, swap(helmet, 4));
+        assert_eq!(inventory.worn().0[0], Some(ItemId::DiamondHelmet));
+        assert_eq!(inventory.inner[&4].item_id, ItemId::IronHelmet);
     }
 
     #[test]

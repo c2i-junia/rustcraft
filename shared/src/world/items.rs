@@ -195,11 +195,28 @@ pub enum ItemId {
     DrownerSpawnEgg,
     CinderlingSpawnEgg,
     GustOwlSpawnEgg,
+    /// The armour: see `armour`.
+    LeatherHelmet,
+    LeatherChestplate,
+    LeatherLeggings,
+    LeatherBoots,
+    BronzeHelmet,
+    BronzeChestplate,
+    BronzeLeggings,
+    BronzeBoots,
+    IronHelmet,
+    IronChestplate,
+    IronLeggings,
+    IronBoots,
+    DiamondHelmet,
+    DiamondChestplate,
+    DiamondLeggings,
+    DiamondBoots,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 169] = [
+    pub const ALL: [ItemId; 185] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -369,6 +386,22 @@ impl ItemId {
         Self::DrownerSpawnEgg,
         Self::CinderlingSpawnEgg,
         Self::GustOwlSpawnEgg,
+        Self::LeatherHelmet,
+        Self::LeatherChestplate,
+        Self::LeatherLeggings,
+        Self::LeatherBoots,
+        Self::BronzeHelmet,
+        Self::BronzeChestplate,
+        Self::BronzeLeggings,
+        Self::BronzeBoots,
+        Self::IronHelmet,
+        Self::IronChestplate,
+        Self::IronLeggings,
+        Self::IronBoots,
+        Self::DiamondHelmet,
+        Self::DiamondChestplate,
+        Self::DiamondLeggings,
+        Self::DiamondBoots,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -530,12 +563,16 @@ impl ItemId {
         })
     }
 
-    /// The wear at which the item breaks, for the items that wear out: the tools, and the flint
-    /// and steel, which wears by the fires it lights.
+    /// The wear at which the item breaks, for the items that wear out: the tools, the
+    /// armour, which wears by the hits it absorbs, and the flint and steel, which wears by the
+    /// fires it lights.
     pub fn durability(&self) -> Option<u32> {
         match *self {
             Self::FlintAndSteel => Some(64),
-            _ => self.tool().map(|tool| tool.durability),
+            _ => match self.armour() {
+                Some(armour) => Some(armour.durability()),
+                None => self.tool().map(|tool| tool.durability),
+            },
         }
     }
 
@@ -694,7 +731,23 @@ impl ItemId {
             | Self::BronzeSword
             | Self::Spear
             | Self::PortalGun
-            | Self::FlintAndSteel => ItemCategory::Tools,
+            | Self::FlintAndSteel
+            | Self::LeatherHelmet
+            | Self::LeatherChestplate
+            | Self::LeatherLeggings
+            | Self::LeatherBoots
+            | Self::BronzeHelmet
+            | Self::BronzeChestplate
+            | Self::BronzeLeggings
+            | Self::BronzeBoots
+            | Self::IronHelmet
+            | Self::IronChestplate
+            | Self::IronLeggings
+            | Self::IronBoots
+            | Self::DiamondHelmet
+            | Self::DiamondChestplate
+            | Self::DiamondLeggings
+            | Self::DiamondBoots => ItemCategory::Tools,
             Self::FoxSpawnEgg
             | Self::SheepSpawnEgg
             | Self::CowSpawnEgg
@@ -887,7 +940,23 @@ impl ItemId {
             | Self::BronzeShovel
             | Self::BronzeHoe
             | Self::BronzeSword
-            | Self::FlintAndSteel => ItemType::Tool { wear: 0 },
+            | Self::FlintAndSteel
+            | Self::LeatherHelmet
+            | Self::LeatherChestplate
+            | Self::LeatherLeggings
+            | Self::LeatherBoots
+            | Self::BronzeHelmet
+            | Self::BronzeChestplate
+            | Self::BronzeLeggings
+            | Self::BronzeBoots
+            | Self::IronHelmet
+            | Self::IronChestplate
+            | Self::IronLeggings
+            | Self::IronBoots
+            | Self::DiamondHelmet
+            | Self::DiamondChestplate
+            | Self::DiamondLeggings
+            | Self::DiamondBoots => ItemType::Tool { wear: 0 },
         }
     }
 }
@@ -1014,7 +1083,7 @@ pub struct Tool {
 pub enum ItemType {
     Generic,
     Block(BlockId),
-    /// A tool, and the wear of this one: it breaks when the wear reaches its durability. It is
+    /// A tool or a piece of armour, and the wear of this one: it breaks when the wear reaches its durability. It is
     /// held by the stack, of one tool, so that it follows the tool wherever it goes.
     Tool {
         wear: u32,
@@ -1204,6 +1273,22 @@ mod tests {
             (ItemId::DrownerSpawnEgg, 166),
             (ItemId::CinderlingSpawnEgg, 167),
             (ItemId::GustOwlSpawnEgg, 168),
+            (ItemId::LeatherHelmet, 169),
+            (ItemId::LeatherChestplate, 170),
+            (ItemId::LeatherLeggings, 171),
+            (ItemId::LeatherBoots, 172),
+            (ItemId::BronzeHelmet, 173),
+            (ItemId::BronzeChestplate, 174),
+            (ItemId::BronzeLeggings, 175),
+            (ItemId::BronzeBoots, 176),
+            (ItemId::IronHelmet, 177),
+            (ItemId::IronChestplate, 178),
+            (ItemId::IronLeggings, 179),
+            (ItemId::IronBoots, 180),
+            (ItemId::DiamondHelmet, 181),
+            (ItemId::DiamondChestplate, 182),
+            (ItemId::DiamondLeggings, 183),
+            (ItemId::DiamondBoots, 184),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -1258,6 +1343,22 @@ mod tests {
                 | ItemId::DrownerSpawnEgg
                 | ItemId::CinderlingSpawnEgg
                 | ItemId::GustOwlSpawnEgg
+                | ItemId::LeatherHelmet
+                | ItemId::LeatherChestplate
+                | ItemId::LeatherLeggings
+                | ItemId::LeatherBoots
+                | ItemId::BronzeHelmet
+                | ItemId::BronzeChestplate
+                | ItemId::BronzeLeggings
+                | ItemId::BronzeBoots
+                | ItemId::IronHelmet
+                | ItemId::IronChestplate
+                | ItemId::IronLeggings
+                | ItemId::IronBoots
+                | ItemId::DiamondHelmet
+                | ItemId::DiamondChestplate
+                | ItemId::DiamondLeggings
+                | ItemId::DiamondBoots
                 | ItemId::Torch
                 | ItemId::JungleLog
                 | ItemId::JunglePlanks
@@ -1590,7 +1691,7 @@ mod tests {
         let others = ItemId::ALL
             .iter()
             .filter(|item| !tools.iter().any(|(t, ..)| t == *item) && !buckets.contains(item))
-            .filter(|item| **item != ItemId::PortalGun);
+            .filter(|item| **item != ItemId::PortalGun && item.armour().is_none());
         for item in others {
             assert_eq!(item.tool(), None, "{item:?}");
             assert_eq!(item.get_max_stack(), 64, "{item:?}");
@@ -1762,7 +1863,10 @@ mod tests {
             );
             assert_eq!(
                 item.category() == ItemCategory::Tools,
-                item.tool().is_some() || bucket || item == ItemId::PortalGun,
+                item.tool().is_some()
+                    || item.armour().is_some()
+                    || bucket
+                    || item == ItemId::PortalGun,
                 "{item:?}"
             );
         }

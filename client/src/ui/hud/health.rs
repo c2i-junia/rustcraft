@@ -7,6 +7,7 @@ use shared::players::game_mode::{GameMode, MAX_HEALTH};
 use shared::players::Player;
 
 use crate::player::{CurrentPlayerMarker, HurtFeedback};
+use crate::ui::hud::armour::{ArmourBar, ARMOUR_BAND};
 use crate::ui::hud::hotbar::{Hotbar, HotbarItemName};
 use crate::ui::hud::InventoryRoot;
 use crate::ui::theme::{SPACE_S, SPACE_XS};
@@ -162,20 +163,25 @@ pub fn update_health_bar(
     }
 }
 
-/// Raises the name of the selected item over the hearts while they show.
+/// Raises the name of the selected item over the hearts, and over the armour, while they show.
 pub fn raise_item_name_over_the_hearts(
-    bar: Query<&Visibility, (With<HealthBar>, Changed<Visibility>)>,
+    bar: Query<&Visibility, With<HealthBar>>,
+    armour: Query<&Visibility, With<ArmourBar>>,
     mut name: Query<&mut Node, With<HotbarItemName>>,
 ) {
-    let (Ok(visibility), Ok(mut node)) = (bar.single(), name.single_mut()) else {
+    let (Ok(hearts), Ok(mut node)) = (bar.single(), name.single_mut()) else {
         return;
     };
-    let band = if *visibility == Visibility::Hidden {
-        0.0
-    } else {
-        HEALTH_BAND
+    let band = |visibility: &Visibility, height| match visibility {
+        Visibility::Hidden => 0.0,
+        _ => height,
     };
-    node.margin = UiRect::bottom(px(SPACE_S + band));
+    let hearts = band(hearts, HEALTH_BAND);
+    let armour = armour.single().map_or(0.0, |v| band(v, ARMOUR_BAND));
+    let margin = UiRect::bottom(px(SPACE_S + hearts + armour));
+    if node.margin != margin {
+        node.margin = margin;
+    }
 }
 
 #[cfg(test)]

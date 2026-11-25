@@ -4,6 +4,7 @@ use shared::players::{Inventory, Player, ViewMode};
 
 use crate::state::{GameSet, GameState};
 
+pub mod armour;
 mod controller;
 pub mod hand;
 mod hurt;
@@ -106,6 +107,14 @@ pub fn player_plugin(app: &mut App) {
                 .chain()
                 .after(model::animate_players_system)
                 .after(fov_system)
+                .run_if(in_state(GameState::Game)),
+        )
+        .add_systems(
+            Update,
+            (armour::track_the_local_armour, armour::dress_models)
+                .chain()
+                .after(GameSet::Reconciliation)
+                .before(GameSet::Camera)
                 .run_if(in_state(GameState::Game)),
         )
         .add_systems(

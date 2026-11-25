@@ -24,6 +24,7 @@ use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 use bevy::ui::UiGlobalTransform;
 use bevy::window::PrimaryWindow;
+use shared::players::armour::ABSORBED_PER_POINT;
 use shared::players::inventory::{
     chest_slots, craft_result, InventoryAction, CHEST_SLOT_START, FURNACE_FUEL_SLOT,
     FURNACE_INPUT_SLOT, FURNACE_OUTPUT_SLOT, INVENTORY_GRID_SIZE,
@@ -36,6 +37,7 @@ use shared::MAX_INVENTORY_SLOTS;
 /// or of a furnace (`HINT_GRID`), on a slot of the inventory while a chest is open, or while a
 /// furnace is open when it holds what smelts or burns, and on the result.
 pub const HINT_HOTBAR: &str = "Shift+click: move to the backpack";
+pub const HINT_TO_ARMOUR: &str = "Shift+click: put on";
 pub const HINT_BACKPACK: &str = "Shift+click: move to the hotbar";
 pub const HINT_GRID: &str = "Shift+click: move to the inventory";
 pub const HINT_TO_CHEST: &str = "Shift+click: move to the chest";
@@ -394,6 +396,8 @@ pub fn display_inventory_system(
                 }
                 _ => "",
             }
+        } else if cell.id < MAX_INVENTORY_SLOTS && stack.is_some_and(|s| can_wear(&s, &inventory)) {
+            HINT_TO_ARMOUR
         } else if cell.id < MAX_HOTBAR_SLOTS {
             HINT_HOTBAR
         } else if cell.id < MAX_INVENTORY_SLOTS {
@@ -582,11 +586,28 @@ fn tooltip_of(
                 Some((wear, durability)) => durability_detail(wear, durability),
                 None => count_detail(stack.nb),
             },
-            note: String::new(),
+            note: stack
+                .item_id
+                .armour()
+                .map(|armour| armour_note(armour.points()))
+                .unwrap_or_default(),
             hint: hint.to_string(),
         },
         _ => Tooltip::default(),
     }
+}
+
+/// Whether a shift-click puts `stack` on: a piece of armour whose slot is free.
+fn can_wear(stack: &ItemStack, inventory: &Inventory) -> bool {
+    stack
+        .item_id
+        .armour()
+        .is_some_and(|armour| !inventory.inner.contains_key(&armour.piece.slot()))
+}
+
+/// What a piece of armour of `points` does, in words.
+fn armour_note(points: u32) -> String {
+    format!("Absorbs {} % of a blow", points * ABSORBED_PER_POINT)
 }
 
 /// The count of a stack in words.
@@ -2005,11 +2026,11 @@ mod tests {
         world.run_system_once(setup_inventory).unwrap();
 
         let mut cells = world.query::<&InventoryCell>();
-        // The slots of the inventory, then the 3x3 crafting grid, the slots of a chest and those
-        // of a furnace
+        // The slots of the inventory, then the 3x3 crafting grid, the slots of a chest, those of
+        // a furnace and those of the armour
         assert_eq!(
             cells.iter(world).count() as u32,
-            MAX_INVENTORY_SLOTS + 9 + shared::world::CHEST_SLOTS + 3
+            MAX_INVENTORY_SLOTS + 9 + shared::world::CHEST_SLOTS + 3 + 4
         );
 
         // What the cell of `slot` shows: its count, and the atlas index of its visible icon

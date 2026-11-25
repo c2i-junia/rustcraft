@@ -91,6 +91,16 @@ impl DamageSource {
     pub fn pierces_invulnerability(self) -> bool {
         matches!(self, DamageSource::Void | DamageSource::Starvation)
     }
+
+    /// Whether armour absorbs a share of it: the blows and the throws of the mobs, fire and
+    /// lava. Not what comes from within or leaves nothing to stop, drowning, hunger and the
+    /// void, nor a fall: metal does not soften a landing.
+    pub fn is_absorbed_by_armour(self) -> bool {
+        matches!(
+            self,
+            DamageSource::Mob(_) | DamageSource::Fire | DamageSource::Lava
+        )
+    }
 }
 
 /// Why a player died, for the death screen. Append only: it travels in `PlayerUpdateEvent`.

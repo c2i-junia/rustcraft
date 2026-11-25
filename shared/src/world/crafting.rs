@@ -117,6 +117,21 @@ const fn hoe(m: Option<Ingredient>) -> [Option<Ingredient>; 6] {
 const fn sword(m: Option<Ingredient>) -> [Option<Ingredient>; 3] {
     [m, m, STICK]
 }
+const LEATHER: Option<Ingredient> = item(ItemId::Leather);
+
+/// The armour's shapes, the pieces as they are worn, made of `m`.
+const fn helmet(m: Option<Ingredient>) -> [Option<Ingredient>; 6] {
+    [m, m, m, m, None, m]
+}
+const fn chestplate(m: Option<Ingredient>) -> [Option<Ingredient>; 9] {
+    [m, None, m, m, m, m, m, m, m]
+}
+const fn leggings(m: Option<Ingredient>) -> [Option<Ingredient>; 9] {
+    [m, m, m, m, None, m, m, None, m]
+}
+const fn boots(m: Option<Ingredient>) -> [Option<Ingredient>; 6] {
+    [m, None, m, m, None, m]
+}
 const GLASS: Option<Ingredient> = item(ItemId::Glass);
 
 #[rustfmt::skip]
@@ -244,6 +259,22 @@ const RECIPES: &[Recipe] = &[
         nb: 1,
         shapeless: true,
     },
+    Recipe { width: 3, cells: &helmet(LEATHER), output: ItemId::LeatherHelmet, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &chestplate(LEATHER), output: ItemId::LeatherChestplate, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &leggings(LEATHER), output: ItemId::LeatherLeggings, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &boots(LEATHER), output: ItemId::LeatherBoots, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &helmet(BRONZE), output: ItemId::BronzeHelmet, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &chestplate(BRONZE), output: ItemId::BronzeChestplate, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &leggings(BRONZE), output: ItemId::BronzeLeggings, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &boots(BRONZE), output: ItemId::BronzeBoots, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &helmet(IRON), output: ItemId::IronHelmet, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &chestplate(IRON), output: ItemId::IronChestplate, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &leggings(IRON), output: ItemId::IronLeggings, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &boots(IRON), output: ItemId::IronBoots, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &helmet(DIAMOND), output: ItemId::DiamondHelmet, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &chestplate(DIAMOND), output: ItemId::DiamondChestplate, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &leggings(DIAMOND), output: ItemId::DiamondLeggings, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &boots(DIAMOND), output: ItemId::DiamondBoots, nb: 1, shapeless: false },
 ];
 
 /// What the grid makes, if it matches a recipe.
@@ -899,7 +930,7 @@ mod tests {
     #[test]
     fn every_recipe_is_listed_with_its_index_and_size() {
         let all: Vec<RecipeView> = recipes().collect();
-        assert_eq!(all.len(), 86);
+        assert_eq!(all.len(), 102);
         for (position, recipe) in all.iter().enumerate() {
             assert_eq!(recipe.index as usize, position);
             assert_eq!(recipe.cells.len(), recipe.width * recipe.height);
@@ -927,7 +958,7 @@ mod tests {
         assert_eq!(uses(ItemId::OakPlanks), uses(ItemId::SprucePlanks));
         assert_eq!(uses(ItemId::OakPlanks), uses(ItemId::JunglePlanks));
         assert_eq!(counts(ItemId::Cobblestone), (0, 6));
-        assert_eq!(counts(ItemId::IronIngot), (1, 10));
+        assert_eq!(counts(ItemId::IronIngot), (1, 14));
         assert_eq!(counts(ItemId::Torch), (2, 1));
         assert_eq!(counts(ItemId::Bedrock), (0, 0));
         assert!(recipes_for(ItemId::Chest).all(|r| r.output.item_id == ItemId::Chest));

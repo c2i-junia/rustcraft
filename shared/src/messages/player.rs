@@ -3,6 +3,7 @@ use bevy_platform::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use super::PlayerId;
+use crate::players::armour::WornArmour;
 use crate::players::game_mode::{DeathCause, GameMode};
 use crate::players::skin::PlayerSkin;
 use crate::players::{inventory::InventoryAction, Inventory, MovementState, ViewMode};
@@ -72,6 +73,8 @@ pub struct PlayerUpdateEvent {
     /// The item in the player's hand, from its selected hotbar slot (`Inventory::in_hand`): the
     /// others see it held.
     pub held: Option<ItemId>,
+    /// The armour the player wears (`Inventory::worn`): the others see it on its model.
+    pub worn: WornArmour,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]

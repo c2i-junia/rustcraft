@@ -500,6 +500,7 @@ pub fn broadcast_player_updates_system(
                 death_cause: player.death_cause,
                 swinging: player.is_swinging,
                 held: player.inventory.in_hand(player.hotbar_slot),
+                worn: player.inventory.worn(),
             })
         };
         let open_chest = player

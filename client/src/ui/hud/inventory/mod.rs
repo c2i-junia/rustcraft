@@ -3,6 +3,7 @@
 use bevy::prelude::Component;
 use shared::world::ItemId;
 
+mod armour;
 mod display;
 mod drop;
 mod feedback;
@@ -13,6 +14,7 @@ mod ghost;
 mod goldens;
 mod setup;
 
+pub use armour::*;
 pub use display::*;
 pub use drop::*;
 pub use feedback::*;

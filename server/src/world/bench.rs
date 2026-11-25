@@ -428,6 +428,7 @@ fn bench_player_updates() {
             death_cause: None,
             swinging: false,
             held: None,
+            worn: Default::default(),
         }))
         .len()
     };

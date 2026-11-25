@@ -591,6 +591,24 @@ brings it back at its bedroll while the bedroll stands (`home::respawn_position`
 spawn, in full health and fed (food 20, saturation 5), breathing, put out and no longer
 dragged (`Player::respawn`).
 
+### Armour
+
+`players/armour.rs` holds it: `ItemId::armour()` gives the `ArmourPiece` and `ArmourMaterial` of an
+item, as `tool()` does a tool's. The pieces worn are stacks of the inventory in the slots 75 to 78
+(`armour_slots`, helmet first), so they are predicted, saved, sent to their player and dropped at
+death with the rest, and a save without them loads; `takes` refuses any other piece in a slot, and a
+quick move puts one on when nothing is open. `Player::hurt` gives the hit to `Player::absorb`: each
+point of armour absorbs 4 % (a suit is 7 points in leather, 11 in bronze, 15 in iron, 19 in diamond,
+20 at most count) and each piece worn wears by one, then breaks. Health going by whole points, what
+is left is counted in hundredths and the rest carried to the next hit (`armour_carry`).
+`DamageSource::is_absorbed_by_armour` says which hits it stops: the mobs', embers included, fire and
+lava; not drowning, hunger, the void nor falls (armour does not soften a landing). An enchantment
+would add to `absorb` or to the wear there. `PlayerUpdateEvent::worn` (`Inventory::worn`) tells the
+others what a player wears, and the client's `player/armour.rs` puts it on the model: boxes around
+the parts of the body, children of them, cut from `graphics/armour/<material>.png`, laid out as a
+skin with the leggings in the second layer. `scripts/generate_armour.py` draws every texture of the
+armour. The bar (`ui/hud/armour.rs`) shows above the hearts.
+
 ### Combat
 
 A left click on a mob within reach (3 blocks, 5 with the spear) is a blow
@@ -1144,7 +1162,7 @@ the integrated server, on wall-clock time. How to write one is in the README.
   generated: a herd led away is gone for good.
 - An item that does not fit in a full inventory is lost, but for the water bucket of a bucket
   filled from a stack, which is dropped.
-- There is no armour, and a player who dies loses its inventory for good unless it comes back
+- A player who dies loses its inventory for good unless it comes back
   for it within the 5 minutes its items lie there, which count on even where no player is.
 - The hostiles walk straight at their prey and find no way round a wall or down a ledge; the
   spawning ignores the game mode, so hostiles still spawn around a creative player, though

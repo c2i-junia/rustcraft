@@ -1,3 +1,4 @@
+use super::armour::spawn_armour_slots;
 use super::furnace::spawn_furnace_row;
 use super::ghost::{ghost_icon, ghost_tint};
 use crate::constants::MAX_HOTBAR_SLOTS;
@@ -125,7 +126,7 @@ pub fn setup_inventory(
                         .with_children(|inventory| {
                             inventory
                                 .spawn((InventoryTitle, panel_text(INVENTORY_TITLE, &font, TEXT)));
-                            spawn_crafting_row(inventory, atlas, &font);
+                            spawn_crafting_row(inventory, atlas, &font, &asset_server);
                             spawn_chest_grid(inventory, atlas, &font);
                             spawn_furnace_row(inventory, atlas, &font, &asset_server);
                             spawn_backpack(inventory, atlas, &font);
@@ -246,11 +247,13 @@ fn spawn_hotbar(parent: &mut ChildSpawnerCommands, atlas: &AtlasWrapper, font: &
         });
 }
 
-/// The crafting grid, an arrow, and the cell of what the grid makes.
+/// The crafting grid, an arrow, the cell of what the grid makes and, at the right end, the
+/// armour slots.
 fn spawn_crafting_row(
     parent: &mut ChildSpawnerCommands,
     atlas: &AtlasWrapper,
     font: &Handle<Font>,
+    assets: &AssetServer,
 ) {
     parent
         .spawn((
@@ -302,5 +305,6 @@ fn spawn_crafting_row(
                 Tooltip::default(),
                 slot("Crafting result", None, icon(atlas), font.clone()),
             ));
+            spawn_armour_slots(row, atlas, font, assets);
         });
 }

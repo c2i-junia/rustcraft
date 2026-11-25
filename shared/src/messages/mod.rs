@@ -182,6 +182,7 @@ mod tests {
             death_cause: None,
             swinging: false,
             held: None,
+            worn: Default::default(),
         };
         for (message, expected) in [
             (ServerToClientMessage::AuthRegisterResponse(response), 0),

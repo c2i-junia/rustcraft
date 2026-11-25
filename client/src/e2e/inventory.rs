@@ -217,11 +217,12 @@ fn the_open_inventory_keeps_its_hotbar_whole_and_fits_beside_the_item_browser() 
         // Everything else lies above the hotbar
         let hotbar_top = hotbar[0].min.y;
         let above = cells.iter().filter(|rect| !hotbar.contains(rect));
-        // The backpack, the 2x2 grid with the leftover cell at the first size, and the result
+        // The backpack, the 2x2 grid with the leftover cell at the first size, the
+        // result and the armour
         let grid = if (width, height) == (800, 600) { 5 } else { 4 };
         assert_eq!(
             above.clone().count(),
-            27 + grid + 1,
+            27 + grid + 1 + 4,
             "the cells shown at {size}"
         );
         for rect in above {

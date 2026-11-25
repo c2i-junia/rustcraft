@@ -93,7 +93,7 @@ impl BodyPart {
     }
 
     /// Where the centre of the part's box is from its joint, in pixels.
-    fn offset(self) -> Vec3 {
+    pub fn offset(self) -> Vec3 {
         match self {
             BodyPart::Torso => Vec3::new(0.0, 6.0, 0.0),
             BodyPart::Head => Vec3::new(0.0, 4.0, 0.0),

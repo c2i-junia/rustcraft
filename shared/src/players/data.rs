@@ -205,6 +205,10 @@ pub struct Player {
     /// From 0, dead, to `MAX_HEALTH`. Only the server changes it.
     #[serde(default = "full_health")]
     pub health: u32,
+    /// The hundredths of a point of health the armour let through and no hit has taken yet,
+    /// below 100: see `Player::absorb`. Not saved.
+    #[serde(skip)]
+    pub armour_carry: u32,
     /// What killed the player, while it is dead.
     #[serde(default)]
     pub death_cause: Option<DeathCause>,
@@ -353,7 +357,8 @@ impl Player {
     /// lets it and the player was not hit within the last `INVULNERABILITY_TICKS` (unless the
     /// source pierces that), and names the cause when none is left. A hit by a mob is
     /// remembered for `THROWN_OFF_TICKS` even when it is ignored, as its knock back is not.
-    /// Returns whether the hit took health.
+    /// The armour worn absorbs its share first and wears (`Player::absorb`). Returns whether the
+    /// hit landed, even when the armour left nothing of it.
     pub fn hurt(&mut self, amount: u32, source: DamageSource) -> bool {
         if amount == 0 || self.is_dead() || !self.game_mode.takes_damage() {
             return false;
@@ -365,6 +370,7 @@ impl Player {
             return false;
         }
         self.invulnerable_ticks = INVULNERABILITY_TICKS;
+        let amount = self.absorb(amount, source);
         self.health = self.health.saturating_sub(amount);
         self.exhaust(DAMAGE_EXHAUSTION);
         if self.is_dead() {
@@ -420,6 +426,7 @@ impl Player {
             ..Default::default()
         });
         self.health = MAX_HEALTH;
+        self.armour_carry = 0;
         self.death_cause = None;
         self.invulnerable_ticks = 0;
         self.last_mob_hit = None;
@@ -448,6 +455,7 @@ impl Player {
             fall_distance: 0.0,
             game_mode: GameMode::default(),
             health: MAX_HEALTH,
+            armour_carry: 0,
             death_cause: None,
             food: MAX_FOOD,
             saturation: RESPAWN_SATURATION,

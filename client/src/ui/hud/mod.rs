@@ -23,6 +23,7 @@ use crate::ui::theme::WIREFRAME;
 use bevy::ui::UiSystems;
 
 pub mod air;
+pub mod armour;
 pub mod burning;
 pub mod chat;
 pub mod chat_completion;
@@ -71,6 +72,7 @@ pub fn hud_plugin(app: &mut App) {
             (
                 setup_inventory,
                 health::spawn_health_bar,
+                armour::spawn_armour_bar,
                 food::spawn_food_bar,
                 air::spawn_air_bar,
             )
@@ -114,6 +116,7 @@ pub fn hud_plugin(app: &mut App) {
                     wheel_inventory_cells_system,
                     display_inventory_system,
                     display_crafting_system,
+                    show_armour_outlines,
                     clear_grid_ghost,
                     show_grid_ghost,
                     display_furnace_system,
@@ -198,6 +201,7 @@ pub fn hud_plugin(app: &mut App) {
         Update,
         (
             health::update_health_bar,
+            armour::update_armour_bar,
             health::raise_item_name_over_the_hearts,
             food::update_food_bar,
             air::update_air_bar,

@@ -10,6 +10,7 @@ use shared::messages::{
     AuthRegisterRequest, ChatMessageRequest, ClientToServerMessage, FullChatMessage, NetworkAction,
     PlayerFrameInput, ServerToClientMessage,
 };
+use shared::players::armour::{ArmourPiece, WornArmour};
 use shared::players::blocks::HIT_MS;
 use shared::players::inventory::InventoryAction;
 use shared::players::skin::{PlayerSkin, SKIN_BYTES};
@@ -1597,6 +1598,49 @@ fn the_others_see_the_item_of_the_selected_hotbar_slot_in_a_players_hand() {
             _ => None,
         });
     }
+}
+
+#[test]
+fn a_piece_of_armour_is_put_on_saved_and_seen_by_the_others() {
+    let helmet = ArmourPiece::Helmet.slot();
+    let mut inventory = Inventory::new();
+    inventory.inner.insert(0, stack(ItemId::IronHelmet, 1));
+    inventory
+        .inner
+        .insert(ArmourPiece::Boots.slot(), stack(ItemId::LeatherBoots, 1));
+    // The boots were worn when the player was saved
+    let server = start_with_inventory(inventory);
+    let mut wearer = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut wearer, "crafter");
+    let mut watcher = TestClient::connect(server.addr, PLAYER_ID + 1);
+    join(&mut watcher, "watcher");
+
+    // The helmet goes to its slot, refused in that of the leggings
+    let inventory = send_inventory_actions(
+        &mut wearer,
+        1,
+        vec![
+            InventoryAction::SwapWithHotbar {
+                slot: ArmourPiece::Leggings.slot(),
+                hotbar: 0,
+            },
+            InventoryAction::QuickMoveSlot(0),
+        ],
+    );
+    assert_eq!(inventory.inner[&helmet], stack(ItemId::IronHelmet, 1));
+    assert_eq!(inventory.inner.len(), 2);
+    let expected = WornArmour([
+        Some(ItemId::IronHelmet),
+        None,
+        None,
+        Some(ItemId::LeatherBoots),
+    ]);
+    watcher.wait_for("the wearer in its armour", |m| match m {
+        ServerToClientMessage::PlayerUpdate(u) if u.id == PLAYER_ID && u.worn == expected => {
+            Some(())
+        }
+        _ => None,
+    });
 }
 
 #[test]

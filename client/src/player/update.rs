@@ -6,6 +6,7 @@ use crate::{
         TargetServerState, UnacknowledgedInputs,
     },
     player::{
+        armour::Worn,
         hand::{HeldItem, SkinMaterial},
         model::{skin_material, spawn_player_model, PlayerAnimation},
         skin::skin_texture,
@@ -92,6 +93,7 @@ pub fn spawn_players_system(
             Name::new(event.name.clone()),
             PlayerAnimation::default(),
             HeldItem::default(),
+            Worn::default(),
             skin,
         ));
         entity.with_children(|parent| {
@@ -147,7 +149,12 @@ fn spawn_player_label(commands: &mut Commands, assets: &AssetServer, player: Ent
 /// Applies the states the server sends: the other players are placed where it says, and the
 /// local player's prediction is checked against it and corrected if they differ.
 pub fn update_players_system(
-    mut players: Query<(&mut Player, &mut Transform, Option<&mut HeldItem>)>,
+    mut players: Query<(
+        &mut Player,
+        &mut Transform,
+        Option<&mut HeldItem>,
+        Option<&mut Worn>,
+    )>,
     mut ev_player_update: MessageReader<PlayerUpdateEvent>,
     mut unacknowledged_inputs: ResMut<UnacknowledgedInputs>,
     mut tick_buffer: ResMut<PlayerTickInputsBuffer>,
@@ -161,9 +168,9 @@ pub fn update_players_system(
     };
 
     for event in ev_player_update.read() {
-        let Some((mut player, mut transform, held)) = players
+        let Some((mut player, mut transform, held, worn)) = players
             .iter_mut()
-            .find(|(player, _, _)| player.id == event.id)
+            .find(|(player, ..)| player.id == event.id)
         else {
             continue;
         };
@@ -180,6 +187,9 @@ pub fn update_players_system(
             player.is_swinging = event.swinging;
             if let Some(mut held) = held {
                 held.set_if_neq(HeldItem(event.held));
+            }
+            if let Some(mut worn) = worn {
+                worn.set_if_neq(Worn(event.worn));
             }
             transform.translation = event.movement.position;
             continue;
@@ -366,6 +376,7 @@ mod tests {
                 death_cause: None,
                 swinging: false,
                 held,
+                worn: Default::default(),
             });
             app.update();
             assert_eq!(app.world().get::<HeldItem>(other), Some(&HeldItem(held)));
@@ -415,6 +426,7 @@ mod tests {
             death_cause: None,
             swinging: false,
             held: None,
+            worn: Default::default(),
         };
         reconcile_prediction(
             &mut client,
@@ -503,6 +515,7 @@ mod tests {
             death_cause: None,
             swinging: false,
             held: None,
+            worn: Default::default(),
         };
         reconcile_prediction(&mut client, &update, &mut sent, &mut [], &blocks);
 
@@ -571,6 +584,7 @@ mod tests {
             death_cause: None,
             swinging: false,
             held: None,
+            worn: Default::default(),
         });
         app.update();
 
@@ -603,6 +617,7 @@ mod tests {
             death_cause: None,
             swinging: false,
             held: None,
+            worn: Default::default(),
         });
         app.update();
 
@@ -646,6 +661,7 @@ mod tests {
             death_cause: None,
             swinging: false,
             held: None,
+            worn: Default::default(),
         });
         app.update();
 
@@ -685,6 +701,7 @@ mod tests {
             death_cause: None,
             swinging: false,
             held: None,
+            worn: Default::default(),
         });
         app.update();
 
@@ -734,6 +751,7 @@ mod tests {
             death_cause: None,
             swinging: false,
             held: None,
+            worn: Default::default(),
         });
         app.update();
 
@@ -794,6 +812,7 @@ mod tests {
             death_cause: None,
             swinging: false,
             held: None,
+            worn: Default::default(),
         });
         app.update();
 
@@ -1089,6 +1108,7 @@ mod tests {
             death_cause: None,
             swinging: false,
             held: None,
+            worn: Default::default(),
         });
         app.update();
 
@@ -1241,6 +1261,7 @@ mod tests {
                 death_cause: self.server_player.death_cause,
                 swinging: false,
                 held: None,
+                worn: Default::default(),
             };
             for _ in 0..=u32::from(self.repeats_updates) {
                 self.to_client
