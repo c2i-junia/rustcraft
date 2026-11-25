@@ -33,7 +33,8 @@ Minecraft game clone written in Rust, using the Bevy game engine.
 
 # Features
 - Procedurally generated worlds with biomes (Plains, Forest, Mountains, Desert, Savanna, Jungle, Ice Plain, Ice Spikes, Flower plains, Flower forest, Grove, rivers and oceans), trees, cactus, tall grass, ferns and flowers, in four world types: default, large biomes, archipelago and single biome.
-- Multiplayer functionality.
+- Villages whose villagers trade, dungeons with loot and guards, and, at the bottom of the world, the Ember Mother, a boss that a depths compass points to. Below ground, hostile mobs get harder and more rewarding with depth.
+- Multiplayer, on a dedicated server with operators, bans and a whitelist.
 - Day/night cycle
 - Block breaking and placing mechanics.
 - Inventory system with a functional hotbar.
@@ -45,10 +46,16 @@ Minecraft game clone written in Rust, using the Bevy game engine.
 - Seven hostile mobs, which spawn in the dark: Gnawers, Brambles, Rollers, Stumplings, Drowners, Cinderlings, which throw embers, and Gust Owls, which dive at the players of the peaks. Blows knock them back; each drops its loot. `/difficulty peaceful` keeps them away.
 - A furnace that smelts with an input, a fuel and an output slot, also while nobody watches it, as long as its chunk is loaded: iron and gold ore into ingots, diamond ore into diamonds, sand into glass, cobblestone into stone and logs into charcoal. Coal and charcoal burn for 8 items, wood for 1.5, wooden tools and sticks for less. Lit, it glows; it keeps what it holds in the save and drops it when broken.
 - Tool tiers: wooden, stone, iron, golden and diamond pickaxes, axes, shovels, hoes and swords, each tier faster and longer-lasting (gold is the fastest and wears out the soonest). Ores need a pickaxe of their level, or they break without dropping anything: a wooden one for coal, a stone one for iron, an iron one for gold and diamonds, found deep underground. Nine ingots or diamonds make a block of iron, gold or diamond, and a block gives them back.
+- Bow and arrows, a spear, and armour of leather, bronze, iron and diamond.
+- Experience, spent on enchantments at an engraving table: efficiency, durability, sharpness, protection and bow power.
+- Ten kinds of animals, each with its voice, which breed; wolves and cats are tamed and follow their owner.
+- Skins to choose from or to import, worn by a body the other players see; sounds and original music.
+- A world map and a minimap.
 - A bucket, of three iron ingots, takes a water source and pours it elsewhere, where it flows.
 - Weather: clear spells, rain and thunderstorms follow each other on their own, the same for every player and kept in the save. Rain rolls in under thicker, darker clouds and a grey sky that dims the light and closes the fog in; drops slanted by the wind splash on the ground and ring the water, but not under a roof or the leaves; snow falls in the cold, nothing in the deserts. In the High and Ultra shaders the ground open to the rain darkens, glistens and gathers puddles that mirror the sky, and dries after. Thunderstorms strike lightning that lights the world and the clouds, its thunder heard after the flash. The rain hisses in the open and drums on a roof, at its own Weather volume in Settings > Audio.
 - Sprinting, sneaking and swimming.
 - Portals: with the portal gun (`/give portal_gun 1`), a left click shoots your blue portal at a wall, a floor or a ceiling and a right click your orange one: a glowing bolt flies there, every player sees it, and the portal opens where it lands. Through each, you see what lies in front of the other, yourself included, and two facing portals show each other three times over; walk or fall in and you come out of the other, keeping your speed.
+- Credits, opened from the main menu. [docs/ASSETS.md](./docs/ASSETS.md) says where the textures, sounds and fonts come from.
 - In-game chat, with commands completed as they are typed (Tab, ↑↓): `/time set <day|night>`, `/give <item> <count>` (e.g. `/give oak_log 64`), `/gamemode <creative|survival>`, `/weather <clear|rain|thunder>`, `/difficulty <peaceful|easy|normal|hard>` and `/locate <biome|village|ruin|crypt|sanctuary>`; on a server they are its operators' (see [Operators, bans and the whitelist](#operators-bans-and-the-whitelist)), and `/list` names the players online. In Singleplayer you are always an operator.
 - Customizable keybindings, a mouse sensitivity, a field of view, fullscreen, and a render distance set in Settings > Video or with O and P.
 
@@ -60,7 +67,9 @@ Minecraft game clone written in Rust, using the Bevy game engine.
 
 You can download the game for **Windows** and **Linux** from the [Releases page](https://github.com/c2i-junia/rustcraft/releases) of the GitHub repository.
 
-Once downloaded, extract the archive for your operating system. The executable will be located in the `/bin` folder of the extracted directory.
+Once downloaded, extract the archive for your operating system. Run `bin/rustcraft` (`bin\rustcraft.exe` on Windows); `bin/rustcraft-server` is the dedicated server. Keep the `data` folder next to `bin`. `SHA256SUMS.txt` of a release holds the checksums of the archives.
+
+On Linux, the game needs a GPU driver with Vulkan.
 
 ## Package Managers
 
@@ -98,8 +107,10 @@ paru -S rustcraft
 |                   |                        |                             |
 | **Gameplay**      | Destroy Block         | Left Mouse Button           |
 |                   | Place Block           | Right Mouse Button          |
-|                   | Open a crafting table, a chest or a furnace | Right Mouse Button (Left Shift: place a block against it) |
+|                   | Open a crafting table, a chest, a furnace or an engraving table, trade with a villager | Right Mouse Button (Left Shift: place a block against it) |
 |                   | Fill / empty a bucket | Right Mouse Button          |
+|                   | Draw / shoot a bow    | Hold / release Right Mouse Button |
+|                   | Feed or tame an animal | Right Mouse Button         |
 |                   |                        |                             |
 | **Hotbar**        | Select a slot         | 1–9                         |
 |                   | Next / previous slot  | Mouse wheel                 |
@@ -166,8 +177,8 @@ paru -S rustcraft
 |                   | Toggle Chunk Debug    | F4                          |
 |                   | Toggle Block Debug    | F6                          |
 |                   | Toggle Raycast Debug  | F7                          |
-|                   | Decrease Mob Draw Distance | O                      |
-|                   | Increase Mob Draw Distance | P                      |
+|                   | Decrease render distance | O                        |
+|                   | Increase render distance | P                        |
 
 <br>
 
@@ -186,6 +197,13 @@ Each player sets its render distance, from 1 to 64 chunks (12 by default), in Se
 P; the server sends the chunks within it, up to `--max-render-distance` chunks (64 by default),
 and the Video tab says when it grants less. A world of Singleplayer grants all 64. A distance of `d` is (2d + 1)² columns of
 up to 17 chunks per player, so a high maximum costs the server memory and generation time.
+
+A release comes with an image of the server (game data goes to a volume):
+
+```bash
+docker run -p 8000:8000/udp -p 8001:8001/udp -v rustcraft:/root/.local/share/rustcraft \
+  ghcr.io/c2i-junia/rustcraft/rustcraft-server:v1.0.0
+```
 
 While a world opens or a server is joined, a card shows each step and can be cancelled with
 Escape. When it fails, a card says why, with the way back to the list and, when it may help,
