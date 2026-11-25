@@ -12,6 +12,7 @@ mod connecting;
 mod death;
 mod drop;
 mod dungeons;
+mod experience;
 mod feedback;
 mod furnace;
 mod game;

@@ -35,6 +35,8 @@ pub struct DroppedItemState {
     /// How many portals the item went through (`DroppedItem::passes`): when it changes, the
     /// client puts the item where it is told at once.
     pub passes: u32,
+    /// What an orb is worth (`DroppedItem::experience`); 0 for an item.
+    pub experience: u32,
 }
 
 /// Why a client no longer has a dropped item. Append only, like the other enums of the wire.

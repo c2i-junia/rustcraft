@@ -102,6 +102,7 @@ mod tests {
             held_after,
             result: Ok(()),
             thrown: None,
+            smelted: None,
             crafted: None,
         }
     }
@@ -244,6 +245,7 @@ mod tests {
         ] {
             let thrown = InventoryActionOutcome {
                 thrown: dirt(1),
+                smelted: None,
                 ..outcome(action, before, after)
             };
             assert_eq!(inventory_sound(&thrown), None, "{action:?}");

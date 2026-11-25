@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::PlayerId;
 use crate::players::armour::WornArmour;
+use crate::players::experience::Experience;
 use crate::players::game_mode::{DeathCause, GameMode};
 use crate::players::skin::PlayerSkin;
 use crate::players::{inventory::InventoryAction, Inventory, MovementState, ViewMode};
@@ -63,6 +64,8 @@ pub struct PlayerUpdateEvent {
     /// The food of the player (`Player::food`): the client's prediction refuses the sprint
     /// with it as the server does.
     pub food: u8,
+    /// The levels of the player (`Player::experience`), for its bar.
+    pub experience: Experience,
     /// The ticks the player has left to burn (`Player::burning_ticks`).
     pub burning_ticks: u16,
     pub game_mode: GameMode,

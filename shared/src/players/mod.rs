@@ -5,6 +5,7 @@ pub mod bow;
 pub mod collision;
 pub mod constants;
 mod data;
+pub mod experience;
 pub mod fire;
 pub mod game_mode;
 pub mod hunger;

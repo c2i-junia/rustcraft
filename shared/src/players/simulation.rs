@@ -12,7 +12,7 @@ use crate::{
         movement::simulate_player_movement,
         Player,
     },
-    world::{ChunkMap, ItemStack},
+    world::{ChunkMap, ItemId, ItemStack},
 };
 
 /// What one input did that the server acts upon.
@@ -26,6 +26,8 @@ pub struct ActionsOutcome {
     pub dropped: Vec<ItemStack>,
     /// What the player threw out of its inventory, to throw ahead of it.
     pub thrown: Vec<ItemStack>,
+    /// What the player took out of the output of a furnace.
+    pub smelted: Vec<(ItemId, u32)>,
     /// The signs the player reads, and the bedrolls it lies on.
     pub signs: Vec<IVec3>,
     pub bedrolls: Vec<IVec3>,
@@ -68,6 +70,7 @@ pub fn simulate_player_actions(
             .iter()
             .filter_map(|outcome| outcome.thrown)
             .collect(),
+        smelted: inventory.iter().filter_map(|o| o.smelted).collect(),
         fallen: movement.fallen,
         shots: interactions.shots,
         arrow,
@@ -79,7 +82,6 @@ pub fn simulate_player_actions(
 mod tests {
     use super::*;
     use crate::players::inventory::InventoryAction;
-    use crate::world::ItemId;
     use bevy::prelude::{Transform, Vec3};
 
     #[test]

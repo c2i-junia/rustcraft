@@ -5,6 +5,7 @@ use shared::{
     players::{
         blocks::CallerType,
         constants::EYE_HEIGHT,
+        experience::smelting_experience,
         fire::{body_in_fire, body_in_lava, is_doused},
         game_mode::{fall_damage, DamageSource, REGENERATION_TICKS},
         movement::FALL_LIMIT,
@@ -32,6 +33,7 @@ use crate::{
         chunk_files::{read_chunk, CHUNKS_DIR},
         container_files::{insert_with_contents, read_chunk_contents, ChunkContents},
         data::ServerWorldMap,
+        dropped_items::random_points,
         generation::{WorldGeneration, WorldGenerator},
         portals::is_believable,
         weather::ServerWeather,
@@ -379,6 +381,10 @@ pub fn handle_player_inputs_system(
         for block in &outcome.broken {
             dropped_items.drop_block_items(block, &mut rng);
         }
+        for &(item, nb) in &outcome.smelted {
+            let points = random_points(smelting_experience(item) * nb, &mut rng);
+            dropped_items.drop_orb(points, player.position, &mut rng);
+        }
         for stack in outcome.dropped {
             dropped_items.drop_from_player(stack, player);
         }
@@ -513,6 +519,7 @@ pub fn broadcast_player_updates_system(
                 health: player.health,
                 air: player.air,
                 food: player.food,
+                experience: player.experience,
                 burning_ticks: player.burning_ticks,
                 game_mode: player.game_mode,
                 death_cause: player.death_cause,

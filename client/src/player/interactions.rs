@@ -288,6 +288,7 @@ mod tests {
                     held_after: Some(dirt),
                     result: Ok(()),
                     thrown: None,
+                    smelted: None,
                     crafted: None,
                 },
                 InventoryActionOutcome {
@@ -296,6 +297,7 @@ mod tests {
                     held_after: Some(dirt),
                     result: Err(InventoryRefusal::NoRecipe),
                     thrown: None,
+                    smelted: None,
                     crafted: None,
                 },
             ]

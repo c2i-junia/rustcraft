@@ -423,6 +423,7 @@ fn bench_player_updates() {
             health: shared::players::game_mode::MAX_HEALTH,
             air: shared::players::air::MAX_AIR,
             food: shared::players::hunger::MAX_FOOD,
+            experience: Default::default(),
             burning_ticks: 0,
             game_mode: Default::default(),
             death_cause: None,

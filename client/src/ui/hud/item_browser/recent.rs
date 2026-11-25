@@ -89,6 +89,7 @@ mod tests {
             held_after: None,
             result,
             thrown: None,
+            smelted: None,
             crafted,
         })
     }

@@ -20,6 +20,10 @@ pub const ACCENT: Color = Color::srgb_u8(0xF0, 0xB5, 0x4A);
 /// The light and the dark edges of the bevel of a control in the `ACCENT` colour.
 pub const ACCENT_HI: Color = Color::srgb_u8(0xF6, 0xCF, 0x86);
 pub const ACCENT_LO: Color = Color::srgb_u8(0x8A, 0x65, 0x24);
+/// The experience: its bar, its orbs, and the light and the dark edges of its fill.
+pub const EXPERIENCE: Color = Color::srgb_u8(0x3F, 0xC4, 0xB4);
+pub const EXPERIENCE_HI: Color = Color::srgb_u8(0x9C, 0xF2, 0xE4);
+pub const EXPERIENCE_LO: Color = Color::srgb_u8(0x1D, 0x7A, 0x78);
 /// `OK` under the cursor.
 pub const OK_HOVER: Color = Color::srgb_u8(0x8F, 0xD8, 0x77);
 pub const OK: Color = Color::srgb_u8(0x78, 0xC7, 0x5F);

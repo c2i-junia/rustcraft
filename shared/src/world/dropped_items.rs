@@ -8,7 +8,7 @@ use crate::players::{
     constants::{GRAVITY, TERMINAL_VELOCITY},
     movement::is_terrain_loaded,
 };
-use crate::world::{ChunkMap, ItemStack, Passer, PortalRest};
+use crate::world::{ChunkMap, ItemId, ItemStack, Passer, PortalRest};
 
 pub type DroppedItemId = u64;
 
@@ -57,6 +57,10 @@ pub struct DroppedItem {
     /// (`Portals::pass`). Not saved, as the portals.
     #[serde(skip)]
     pub portal_rest: Option<PortalRest>,
+    /// The points an orb of experience is worth; 0 for an item. An orb moves, lasts and is sent
+    /// as an item, but its stack means nothing.
+    #[serde(default)]
+    pub experience: u32,
 }
 
 fn default_pickup_delay() -> u32 {
@@ -74,7 +78,26 @@ impl DroppedItem {
             pickup_delay_ticks: PICKUP_DELAY_TICKS,
             passes: 0,
             portal_rest: None,
+            experience: 0,
         }
+    }
+
+    /// An orb worth `points` of experience.
+    pub fn orb(points: u32, position: Vec3, velocity: Vec3) -> Self {
+        let item_id = ItemId::default();
+        let stack = ItemStack {
+            item_id,
+            item_type: item_id.get_default_type(),
+            nb: 0,
+        };
+        Self {
+            experience: points,
+            ..Self::new(stack, position, velocity)
+        }
+    }
+
+    pub fn is_orb(&self) -> bool {
+        self.experience > 0
     }
 
     pub fn can_be_picked_up(&self) -> bool {
@@ -87,7 +110,11 @@ impl DroppedItem {
     }
 
     /// Whether `other` can be added to this item's stack: same item, and room for all of it.
+    /// Two orbs always merge, an orb and an item never do.
     pub fn can_merge(&self, other: &DroppedItem) -> bool {
+        if self.is_orb() || other.is_orb() {
+            return self.is_orb() && other.is_orb();
+        }
         self.stack.item_id == other.stack.item_id
             && self.stack.item_type == other.stack.item_type
             && self.stack.nb + other.stack.nb <= self.stack.item_id.get_max_stack()

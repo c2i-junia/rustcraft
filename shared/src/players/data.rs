@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::air::{full_air, MAX_AIR};
 use super::constants::DRAG_MS;
+use super::experience::Experience;
 use super::game_mode::{
     DamageSource, DeathCause, GameMode, INVULNERABILITY_TICKS, MAX_HEALTH, THROWN_OFF_TICKS,
 };
@@ -223,6 +224,9 @@ pub struct Player {
     /// The server's only.
     #[serde(default)]
     pub exhaustion: f32,
+    /// The levels of the player. Only the server changes them. Saves from before them have none.
+    #[serde(default)]
+    pub experience: Experience,
     pub inventory: Inventory,
     pub height: f32,
     pub width: f32,
@@ -468,6 +472,7 @@ impl Player {
             food: MAX_FOOD,
             saturation: RESPAWN_SATURATION,
             exhaustion: 0.0,
+            experience: Experience::default(),
             inventory: Inventory::new(),
             height: PLAYER_HEIGHT,
             width: PLAYER_WIDTH,

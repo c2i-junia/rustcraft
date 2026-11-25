@@ -150,6 +150,8 @@ pub fn interact(
                 }
                 if dies {
                     drops.extend(loot(mob, rng));
+                    let points = mob.kind.experience();
+                    world.items.drop_orb(points, position, rng);
                     // The clients are told by the next broadcast, which no longer finds it
                     world.mobs.remove(&id);
                     world.changed.remove(&id);

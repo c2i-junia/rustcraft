@@ -7,6 +7,7 @@ use shared::players::hunger::{drumstick, Drumstick, DRUMSTICKS, MAX_FOOD};
 use shared::players::Player;
 
 use crate::player::CurrentPlayerMarker;
+use crate::ui::hud::experience::EXPERIENCE_BAND;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::InventoryRoot;
 use crate::ui::theme::SPACE_XS;
@@ -18,9 +19,9 @@ pub const FOOD_HALF_PATH: &str = "./graphics/hud/food_half.png";
 /// The side of a drumstick on screen, in logical px: twice its texture, like the hearts.
 const DRUMSTICK_SIZE: f32 = 18.0;
 
-/// The height the drumsticks take above the hotbar, in logical px: their margin and a
-/// drumstick. The air bubbles sit on top of it.
-pub const FOOD_BAND: f32 = SPACE_XS + DRUMSTICK_SIZE;
+/// The height the drumsticks take above the hotbar, in logical px: the bar of experience,
+/// their margin and a drumstick. The air bubbles sit on top of it.
+pub const FOOD_BAND: f32 = EXPERIENCE_BAND + SPACE_XS + DRUMSTICK_SIZE;
 
 /// The row of drumsticks, shown in survival only.
 #[derive(Component)]
@@ -59,7 +60,7 @@ pub fn spawn_food_bar(
                 position_type: PositionType::Absolute,
                 right: px(0.),
                 bottom: percent(100.),
-                margin: UiRect::bottom(px(SPACE_XS)),
+                margin: UiRect::bottom(px(EXPERIENCE_BAND + SPACE_XS)),
                 // The first drumstick on the right
                 flex_direction: FlexDirection::RowReverse,
                 ..default()

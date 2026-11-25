@@ -29,6 +29,7 @@ pub mod chat;
 pub mod chat_completion;
 pub mod corner;
 pub mod debug;
+pub mod experience;
 pub mod food;
 pub mod fps_counter;
 pub mod health;
@@ -71,6 +72,7 @@ pub fn hud_plugin(app: &mut App) {
             OnEnter(GameState::Game),
             (
                 setup_inventory,
+                experience::spawn_experience_bar,
                 health::spawn_health_bar,
                 armour::spawn_armour_bar,
                 food::spawn_food_bar,
@@ -200,6 +202,7 @@ pub fn hud_plugin(app: &mut App) {
     app.add_systems(
         Update,
         (
+            experience::update_experience_bar,
             health::update_health_bar,
             armour::update_armour_bar,
             health::raise_item_name_over_the_hearts,

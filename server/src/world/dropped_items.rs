@@ -7,7 +7,11 @@ use bevy::prelude::*;
 use rand::Rng;
 use shared::{
     messages::{DroppedItemState, DroppedItemsUpdate, ItemRemoval, PlayerId},
-    players::{blocks::BrokenBlock, Player},
+    players::{
+        blocks::BrokenBlock,
+        experience::{ORB_MERGE_RADIUS, ORB_REACH, ORB_SPEED},
+        Player,
+    },
     world::{
         step_dropped_item, world_position_to_chunk_position, ChunkMap, DroppedItem, DroppedItemId,
         ItemStack, DROPPED_ITEM_SIZE, LIFETIME_TICKS, MERGE_RADIUS, THROWN_PICKUP_DELAY_TICKS,
@@ -87,6 +91,34 @@ impl DroppedItems {
         )
     }
 
+    /// Drops an orb worth `points` of experience, if any, at `position`.
+    pub fn drop_orb(&mut self, points: u32, position: Vec3, rng: &mut impl Rng) {
+        if points > 0 {
+            self.spawn(DroppedItem::orb(points, position, pop_velocity(rng)));
+        }
+    }
+
+    /// Sends each orb that can be picked up flying to the nearest living player within
+    /// `ORB_REACH`, faster as it nears.
+    pub fn attract_orbs(&mut self, players: &HashMap<PlayerId, Player>) {
+        for orb in self.items.values_mut() {
+            if !orb.is_orb() || !orb.can_be_picked_up() {
+                continue;
+            }
+            let nearest = players
+                .values()
+                .filter(|player| !player.is_dead())
+                .map(|player| player.position - orb.position)
+                .filter(|way| way.length() <= ORB_REACH)
+                .min_by(|a, b| a.length().total_cmp(&b.length()));
+            if let Some(way) = nearest {
+                let near = 1.0 - way.length() / ORB_REACH;
+                orb.velocity = way.normalize_or_zero() * (ORB_SPEED.0 + ORB_SPEED.1 * near);
+                orb.on_ground = false;
+            }
+        }
+    }
+
     /// Drops the items of `broken` if it was harvested, and what it held if it was a chest or a
     /// furnace, at its centre, each thrown in a random direction.
     pub fn drop_block_items(&mut self, broken: &BrokenBlock, rng: &mut impl Rng) {
@@ -116,13 +148,11 @@ impl DroppedItems {
                 item_type: item_id.get_default_type(),
                 nb: 1,
             });
+        if broken.harvested {
+            self.drop_orb(broken.block.experience(), centre, rng);
+        }
         for stack in drops.chain(sapling).chain(contents).chain(furnace) {
-            let velocity = Vec3::new(
-                rng.gen_range(-POP_HORIZONTAL_SPEED..=POP_HORIZONTAL_SPEED),
-                POP_UPWARD_SPEED,
-                rng.gen_range(-POP_HORIZONTAL_SPEED..=POP_HORIZONTAL_SPEED),
-            );
-            self.spawn(DroppedItem::new(stack, centre, velocity));
+            self.spawn(DroppedItem::new(stack, centre, pop_velocity(rng)));
         }
     }
 
@@ -148,12 +178,15 @@ impl DroppedItems {
 
     /// Drops all that dead `player` held where it died, each stack popping in a random
     /// direction, unless its game mode keeps the inventory (creative never drops): its slots,
-    /// its crafting grid and the stack of its cursor. The inventory is closed. Returns how many
+    /// its crafting grid and the stack of its cursor; and an orb of its
+    /// experience, which it loses (`Experience::lose_at_death`). The inventory is closed. Returns how many
     /// stacks fell.
     pub fn drop_on_death(&mut self, player: &mut Player, rng: &mut impl Rng) -> usize {
         if !player.is_dead() || !player.game_mode.takes_damage() {
             return 0;
         }
+        let points = player.experience.lose_at_death();
+        self.drop_orb(points, player.position, rng);
         let inventory = &mut player.inventory;
         let mut slots: Vec<_> = inventory.inner.drain().collect();
         slots.sort_unstable_by_key(|&(slot, _)| slot);
@@ -167,12 +200,7 @@ impl DroppedItems {
         inventory.open_chest = None;
         inventory.open_furnace = None;
         for &stack in &stacks {
-            let velocity = Vec3::new(
-                rng.gen_range(-POP_HORIZONTAL_SPEED..=POP_HORIZONTAL_SPEED),
-                POP_UPWARD_SPEED,
-                rng.gen_range(-POP_HORIZONTAL_SPEED..=POP_HORIZONTAL_SPEED),
-            );
-            self.spawn(DroppedItem::new(stack, player.position, velocity));
+            self.spawn(DroppedItem::new(stack, player.position, pop_velocity(rng)));
         }
         stacks.len()
     }
@@ -203,13 +231,13 @@ impl DroppedItems {
         }
     }
 
-    /// Adds each item resting on the ground to the stack of an older one of the same kind
+    /// Adds each item resting on the ground, and each orb, to the stack of an older one of the same kind
     /// within `MERGE_RADIUS`, when the two fit in one stack.
     fn merge(&mut self) {
         let mut ids: Vec<_> = self
             .items
             .iter()
-            .filter(|(_, item)| item.on_ground)
+            .filter(|(_, item)| item.on_ground || item.is_orb())
             .map(|(&id, _)| id)
             .collect();
         // The older item, the one with the lower id, takes the other
@@ -220,17 +248,22 @@ impl DroppedItems {
                 else {
                     continue;
                 };
-                if target.position.distance(source.position) > MERGE_RADIUS
-                    || !target.can_merge(source)
-                {
+                let radius = if target.is_orb() {
+                    ORB_MERGE_RADIUS
+                } else {
+                    MERGE_RADIUS
+                };
+                if target.position.distance(source.position) > radius || !target.can_merge(source) {
                     continue;
                 }
                 let wait = target
                     .ticks_before_pickup()
                     .max(source.ticks_before_pickup());
                 let (nb, age) = (source.stack.nb, source.age_ticks);
+                let points = source.experience;
                 let target = self.items.get_mut(&into).expect("checked above");
                 target.stack.nb += nb;
+                target.experience = target.experience.saturating_add(points);
                 // The merged stack lasts as long as the younger of the two, and waits as long
                 // as the one that waits longer
                 target.age_ticks = target.age_ticks.min(age);
@@ -242,7 +275,7 @@ impl DroppedItems {
     }
 
     /// Gives each item that can be picked up to a player close enough, in the order of their
-    /// ids. A player with no room for the whole stack takes what fits.
+    /// ids, and the points of each orb. A player with no room for the whole stack takes what fits.
     pub fn pick_up(&mut self, players: &mut HashMap<PlayerId, Player>) {
         let mut player_ids: Vec<_> = players.keys().copied().collect();
         player_ids.sort_unstable();
@@ -259,6 +292,11 @@ impl DroppedItems {
                 {
                     continue;
                 }
+                if item.is_orb() {
+                    player.experience.gain(item.experience);
+                    self.remove(id, ItemRemoval::PickedUp(*player_id));
+                    break;
+                }
                 let left = player.inventory.add_item_to_inventory(item.stack);
                 if left == 0 {
                     self.remove(id, ItemRemoval::PickedUp(*player_id));
@@ -271,6 +309,20 @@ impl DroppedItems {
             }
         }
     }
+}
+
+/// `hundredths` of a point of experience in whole points: the rest is a chance of one more.
+pub fn random_points(hundredths: u32, rng: &mut impl Rng) -> u32 {
+    hundredths / 100 + u32::from(rng.gen_range(0..100) < hundredths % 100)
+}
+
+/// The velocity of an item popping out of its block.
+fn pop_velocity(rng: &mut impl Rng) -> Vec3 {
+    Vec3::new(
+        rng.gen_range(-POP_HORIZONTAL_SPEED..=POP_HORIZONTAL_SPEED),
+        POP_UPWARD_SPEED,
+        rng.gen_range(-POP_HORIZONTAL_SPEED..=POP_HORIZONTAL_SPEED),
+    )
 }
 
 /// The velocity of an item thrown by `player`: `speed` toward where it looks, along the ground,
@@ -324,6 +376,7 @@ pub fn dropped_items_update(
                         position: item.position,
                         velocity: item.velocity,
                         passes: item.passes,
+                        experience: item.experience,
                     },
                 ));
             }
@@ -334,9 +387,10 @@ pub fn dropped_items_update(
     update
 }
 
-/// Moves the dropped items, once per tick.
+/// Draws the orbs to the players, and moves the dropped items, once per tick.
 pub fn dropped_items_physics_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time<Fixed>>) {
     let world_map = world_map.as_mut();
+    world_map.dropped_items.attract_orbs(&world_map.players);
     world_map
         .dropped_items
         .step(&world_map.chunks, time.delta_secs());
@@ -977,5 +1031,38 @@ mod tests {
     #[test]
     fn a_dropped_item_lies_five_minutes() {
         assert_eq!(LIFETIME_TICKS as f32 * DELTA, 300.0);
+    }
+
+    #[test]
+    fn orbs_merge_fly_to_a_living_player_give_their_points_and_are_left_at_death() {
+        let mut chunks = ChunkMap::with_loaded_region(IVec3::splat(-16), IVec3::splat(15));
+        chunks.fill_box(
+            IVec3::new(-8, 0, -8),
+            IVec3::new(8, 0, 8),
+            shared::world::BlockId::Stone,
+        );
+        let mut items = DroppedItems::default();
+        let at = Vec3::new(4.0, 2.0, 0.0);
+        items.spawn(DroppedItem::orb(6, at, Vec3::ZERO));
+        items.spawn(DroppedItem::orb(5, at + Vec3::X * 0.5, Vec3::ZERO));
+        let player = Player::new(1, "p".into(), Vec3::Y * 2.0, Transform::default());
+        let mut players = HashMap::from([(1, player)]);
+        for _ in 0..60 {
+            items.attract_orbs(&players);
+            items.step(&chunks, 1.0 / 20.0);
+            items.pick_up(&mut players);
+        }
+        assert!(items.items.is_empty());
+        let player = players.get_mut(&1).unwrap();
+        assert_eq!((player.experience.level, player.experience.points), (1, 3));
+
+        player.experience.gain(100);
+        player.health = 0;
+        let mut rng = StdRng::seed_from_u64(1);
+        items.drop_on_death(player, &mut rng);
+        items.drop_on_death(player, &mut rng);
+        assert_eq!(player.experience.total(), 0);
+        let orbs: Vec<u32> = items.items.values().map(|orb| orb.experience).collect();
+        assert_eq!(orbs, [55]);
     }
 }

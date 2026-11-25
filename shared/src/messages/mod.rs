@@ -178,6 +178,7 @@ mod tests {
             health: 0,
             air: 0,
             food: 0,
+            experience: Default::default(),
             burning_ticks: 0,
             game_mode: Default::default(),
             death_cause: None,

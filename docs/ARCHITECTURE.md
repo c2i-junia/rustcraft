@@ -697,6 +697,22 @@ block it sticks, `MobAction::Idle`, falls again if the block goes, and goes as a
 a player with room who touches it, or after 3 minutes. The pictures of the drawn bow,
 `Bow_Draw1` to `Bow_Draw3`, are told by `bow::draw_stage` (`ItemHolder::draw`).
 
+### Experience
+
+`players/experience.rs` (shared) holds `Player::experience`, an `Experience`: a level and the points
+toward the next, which costs `level_cost(level)`, 8 points and 3 more per level. Only the server
+changes it; every `PlayerUpdateEvent` sends it and the save of the player keeps it. An enchanting
+table asks `Player::has_levels` and takes `Player::spend_levels`. An orb is a `DroppedItem` whose
+`experience` is above 0 (its stack means nothing): it moves, lasts, is saved and sent as an item,
+merges with any orb within 1 block, flies to the nearest living player within 6
+(`DroppedItems::attract_orbs`) and gives its points on contact. Orbs come from the hostiles the
+players kill (`MobKind::experience`), from the ores that drop their resource, coal and diamond, when
+harvested (`BlockId::experience`; an ore that drops itself would be placed and mined again for ever)
+and, at the player, from the stacks taken out of a furnace (`InventoryActionOutcome::smelted`,
+`smelting_experience` in hundredths of a point). Death takes all the experience and leaves an orb of
+half of it, 400 points at most (`Experience::lose_at_death`). The bar (`ui/hud/experience.rs`) sits
+right over the hotbar, under the hearts and the drumsticks.
+
 ## One client frame
 
 `GameSet` (`client/src/state.rs`) orders the in-game systems of `Update`; `game_plugin`

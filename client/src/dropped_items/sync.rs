@@ -1,6 +1,6 @@
 //! The server's updates of the dropped items, turned into entities.
 
-use bevy::prelude::*;
+use bevy::{light::NotShadowCaster, prelude::*};
 use shared::{
     messages::{DroppedItemState, DroppedItemsUpdate, ItemRemoval},
     players::Player,
@@ -8,7 +8,7 @@ use shared::{
 };
 
 use super::{
-    mesh::{copies, copy_offset, ItemLook, ItemLooks},
+    mesh::{copies, copy_offset, orb_class, orb_size, ItemLook, ItemLooks, OrbLook},
     DroppedItemEntities, DroppedItemRoot, DroppedItemSpin, FlyingTo, ItemPickedUp,
 };
 use crate::{network::CurrentPlayerProfile, state::GameState, world::MaterialResource};
@@ -21,6 +21,7 @@ pub(super) fn apply_dropped_items_updates(
     mut updates: MessageReader<DroppedItemsUpdate>,
     mut entities: ResMut<DroppedItemEntities>,
     mut looks: ResMut<ItemLooks>,
+    (mut orb_look, mut orb_materials): (ResMut<OrbLook>, ResMut<Assets<StandardMaterial>>),
     mut meshes: ResMut<Assets<Mesh>>,
     materials: Res<MaterialResource>,
     images: Res<Assets<Image>>,
@@ -32,11 +33,17 @@ pub(super) fn apply_dropped_items_updates(
     for update in updates.read() {
         // The upserts first: an item may merge into one this update tells of
         for (id, state) in &update.upserts {
+            let is_orb = state.experience > 0;
+            let copies = if is_orb {
+                orb_class(state.experience) as usize
+            } else {
+                copies(state.stack.nb)
+            };
             let mut shown_at = state.position;
             if let Some(entity) = entities.0.remove(id) {
                 if let Ok((mut root, mut transform)) = roots.get_mut(entity) {
                     follow_update(&mut root, &mut transform, state);
-                    if root.copies == copies(state.stack.nb) {
+                    if root.copies == copies {
                         entities.0.insert(*id, entity);
                         continue;
                     }
@@ -45,11 +52,27 @@ pub(super) fn apply_dropped_items_updates(
                 }
                 commands.entity(entity).despawn();
             }
+            if is_orb {
+                let (mesh, material) = orb_look.get(&mut meshes, &mut orb_materials);
+                let size = orb_size(copies as u32);
+                let (root, spin) = roots_of(*id, state, copies, size, shown_at);
+                let entity = commands
+                    .spawn(root)
+                    .with_child((
+                        spin,
+                        Mesh3d(mesh),
+                        MeshMaterial3d(material),
+                        NotShadowCaster,
+                    ))
+                    .id();
+                entities.0.insert(*id, entity);
+                continue;
+            }
             let Some(look) = looks.get(state.stack.item_id, &materials, &mut meshes, &images)
             else {
                 continue;
             };
-            let entity = spawn_item(&mut commands, *id, state, &look, shown_at);
+            let entity = spawn_item(&mut commands, *id, state, &look, copies, shown_at);
             entities.0.insert(*id, entity);
         }
 
@@ -100,25 +123,24 @@ fn follow_update(root: &mut DroppedItemRoot, transform: &mut Transform, state: &
     }
 }
 
-/// An item shown at `shown_at`, which then moves to where the server says it is, with as
-/// many copies of its look as its stack shows.
-fn spawn_item(
-    commands: &mut Commands,
+/// The entity of an item `size` wide shown at `shown_at`, and the child that turns and bobs.
+fn roots_of(
     id: DroppedItemId,
     state: &DroppedItemState,
-    look: &ItemLook,
+    copies: usize,
+    size: f32,
     shown_at: Vec3,
-) -> Entity {
-    let size = look.size();
-    let copies = copies(state.stack.nb);
+) -> (impl Bundle, impl Bundle) {
     let spin = DroppedItemSpin {
         // The golden angle spreads the phases of the ids evenly
         phase: id as f32 * 2.399_963,
         // A look bigger than the box would sink into the ground
         lift: (size - DROPPED_ITEM_SIZE).max(0.0) / 2.0,
     };
-    commands
-        .spawn((
+    // An orb is one mesh, scaled here
+    let scale = if state.experience > 0 { size } else { 1.0 };
+    (
+        (
             Name::new(format!("Dropped item {id}")),
             DroppedItemRoot {
                 server_position: state.position,
@@ -130,27 +152,48 @@ fn spawn_item(
             Transform::from_translation(shown_at),
             Visibility::default(),
             DespawnOnExit(GameState::Game),
-        ))
+        ),
+        (
+            spin,
+            Transform::from_scale(Vec3::splat(scale)),
+            Visibility::default(),
+        ),
+    )
+}
+
+/// An item shown at `shown_at`, which then moves to where the server says it is, with as
+/// many copies of its look as its stack shows.
+fn spawn_item(
+    commands: &mut Commands,
+    id: DroppedItemId,
+    state: &DroppedItemState,
+    look: &ItemLook,
+    copies: usize,
+    shown_at: Vec3,
+) -> Entity {
+    let size = look.size();
+    let (root, spin) = roots_of(id, state, copies, size, shown_at);
+    commands
+        .spawn(root)
         .with_children(|root| {
-            root.spawn((spin, Transform::default(), Visibility::default()))
-                .with_children(|spin| {
-                    for index in 0..copies {
-                        let transform = Transform::from_translation(copy_offset(index) * size)
-                            .with_scale(Vec3::splat(size));
-                        match look {
-                            ItemLook::Cube(mesh, material) => spin.spawn((
-                                Mesh3d(mesh.clone()),
-                                MeshMaterial3d(material.clone()),
-                                transform,
-                            )),
-                            ItemLook::Sprite(mesh, material) => spin.spawn((
-                                Mesh3d(mesh.clone()),
-                                MeshMaterial3d(material.clone()),
-                                transform,
-                            )),
-                        };
-                    }
-                });
+            root.spawn(spin).with_children(|spin| {
+                for index in 0..copies {
+                    let transform = Transform::from_translation(copy_offset(index) * size)
+                        .with_scale(Vec3::splat(size));
+                    match look {
+                        ItemLook::Cube(mesh, material) => spin.spawn((
+                            Mesh3d(mesh.clone()),
+                            MeshMaterial3d(material.clone()),
+                            transform,
+                        )),
+                        ItemLook::Sprite(mesh, material) => spin.spawn((
+                            Mesh3d(mesh.clone()),
+                            MeshMaterial3d(material.clone()),
+                            transform,
+                        )),
+                    };
+                }
+            });
         })
         .id()
 }
@@ -170,6 +213,7 @@ mod tests {
             position,
             velocity: Vec3::new(-8.0, 0.0, 0.0),
             passes,
+            experience: 0,
         }
     }
 

@@ -11,7 +11,7 @@ mod animate;
 pub(crate) mod mesh;
 mod sync;
 
-/// The local player picked up an item.
+/// The local player picked up an item, or an orb of experience.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct ItemPickedUp;
 
@@ -23,7 +23,8 @@ pub(crate) struct DroppedItemRoot {
     velocity: Vec3,
     /// Seconds since that update.
     since_update: f32,
-    /// The copies of the item drawn, which tell how big the stack is.
+    /// The copies of the item drawn, which tell how big the stack is; the size of an orb
+    /// (`mesh::orb_class`).
     copies: usize,
     /// How many portals the server said the item went through.
     passes: u32,
@@ -54,6 +55,7 @@ pub fn dropped_items_plugin(app: &mut App) {
         .add_message::<ItemPickedUp>()
         .init_resource::<DroppedItemEntities>()
         .init_resource::<mesh::ItemLooks>()
+        .init_resource::<mesh::OrbLook>()
         .add_systems(
             Update,
             (

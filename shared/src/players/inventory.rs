@@ -238,6 +238,8 @@ pub struct InventoryActionOutcome {
     pub thrown: Option<ItemStack>,
     /// The item a craft action the simulation accepted crafted: what the grid made before it.
     pub crafted: Option<ItemId>,
+    /// What the action took out of the output of a furnace, for its experience.
+    pub smelted: Option<(ItemId, u32)>,
 }
 
 /// Applies the inventory actions of `input`, in order, up to `MAX_INVENTORY_ACTIONS_PER_INPUT`,
@@ -301,6 +303,10 @@ pub fn simulate_inventory_actions(
         let mut furnace = inventory
             .open_furnace
             .and_then(|pos| Some((pos, world_map.furnace(pos)?.clone())));
+        let output = |furnace: &Option<(IVec3, Furnace)>| {
+            furnace.as_ref().and_then(|(_, furnace)| furnace.output)
+        };
+        let output_before = output(&furnace);
         let contents = match (&mut chest, &mut furnace) {
             (Some((_, contents)), _) => Some(OpenContents::Chest(contents)),
             (None, Some((_, furnace))) => Some(OpenContents::Furnace(furnace)),
@@ -313,6 +319,11 @@ pub fn simulate_inventory_actions(
             contents,
             creative,
         );
+        // The output only gives
+        let smelted = output_before.and_then(|before| {
+            let left = output(&furnace).map_or(0, |stack| stack.nb);
+            (left < before.nb).then(|| (before.item_id, before.nb - left))
+        });
         if let Some((pos, contents)) = chest {
             if world_map.container(pos) != Some(&contents) {
                 if let Some(stored) = world_map.container_mut(pos) {
@@ -340,6 +351,7 @@ pub fn simulate_inventory_actions(
             held_after: player.inventory.floating,
             result: applied.map(|_| ()),
             thrown: applied.ok().flatten(),
+            smelted,
             crafted: made.filter(|_| applied.is_ok()).map(|made| made.item_id),
         });
     }
@@ -1893,6 +1905,7 @@ mod tests {
                     held_after: dirt,
                     result: Ok(()),
                     thrown: None,
+                    smelted: None,
                     crafted: None,
                 },
                 InventoryActionOutcome {
@@ -1901,6 +1914,7 @@ mod tests {
                     held_after: dirt,
                     result: Err(InventoryRefusal::NoRecipe),
                     thrown: None,
+                    smelted: None,
                     crafted: None,
                 },
                 InventoryActionOutcome {
@@ -1909,6 +1923,7 @@ mod tests {
                     held_after: Some(stack(ItemId::Dirt, 4)),
                     result: Ok(()),
                     thrown: Some(stack(ItemId::Dirt, 1)),
+                    smelted: None,
                     crafted: None,
                 },
             ]

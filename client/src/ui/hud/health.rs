@@ -8,6 +8,7 @@ use shared::players::Player;
 
 use crate::player::{CurrentPlayerMarker, HurtFeedback};
 use crate::ui::hud::armour::{ArmourBar, ARMOUR_BAND};
+use crate::ui::hud::experience::EXPERIENCE_BAND;
 use crate::ui::hud::hotbar::{Hotbar, HotbarItemName};
 use crate::ui::hud::InventoryRoot;
 use crate::ui::theme::{SPACE_S, SPACE_XS};
@@ -22,8 +23,9 @@ const HEART_SIZE: f32 = 18.0;
 /// The hearts: one for every 2 points of health.
 const HEARTS: u32 = MAX_HEALTH / 2;
 
-/// The height the hearts take above the hotbar, in logical px: their margin and a heart.
-pub const HEALTH_BAND: f32 = SPACE_XS + HEART_SIZE;
+/// The height the hearts take above the hotbar, in logical px: the bar of experience, their
+/// margin and a heart.
+pub const HEALTH_BAND: f32 = EXPERIENCE_BAND + SPACE_XS + HEART_SIZE;
 
 /// The row of hearts, shown in survival only.
 #[derive(Component)]
@@ -78,7 +80,7 @@ pub fn spawn_health_bar(
                 position_type: PositionType::Absolute,
                 left: px(0.),
                 bottom: percent(100.),
-                margin: UiRect::bottom(px(SPACE_XS)),
+                margin: UiRect::bottom(px(EXPERIENCE_BAND + SPACE_XS)),
                 ..default()
             },
             Visibility::Hidden,

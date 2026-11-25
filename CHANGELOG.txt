@@ -94,6 +94,7 @@ Date: 11.10.2026
     - Animals and hostile mobs float instead of sinking: they keep their head out of the water, animals swim to the shore and hostiles toward their prey, and they climb onto banks a block high. Drowners still swim under water.
     - A new world starts in the morning, in full daylight, instead of at sunset.
     - Added the bow and arrows: hold the right button to draw, slower on foot, and release to shoot, harder the longer it was drawn. The arrow falls as it flies, hurts mobs and other players, sticks in blocks and can be picked up again. A bow takes five sticks and a rope, four arrows a flint, a stick and a feather; the dungeons hold some, and pieces of armour.
+    - Added experience: hostile mobs killed by the players, coal and diamond ore, and what is taken out of furnaces give orbs, which fly to the players and fill the level bar over the hotbar. Each level costs more than the one before. A dead player loses its levels and leaves half of their points where it died, up to 400.
 
 ----------------------------------------------------------------------------------------------------
 Version: 0.8    

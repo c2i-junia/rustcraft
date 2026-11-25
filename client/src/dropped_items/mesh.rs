@@ -9,6 +9,7 @@ use bevy::{
 use shared::world::{ItemId, ItemType, DROPPED_ITEM_SIZE};
 use std::collections::HashMap;
 
+use crate::ui::theme::EXPERIENCE;
 use crate::world::{meshing::block_item_mesh, ChunkMaterial, GlobalMaterial, MaterialResource};
 
 /// Edge of the picture of an item that is not drawn as a cube, in blocks.
@@ -27,6 +28,49 @@ impl ItemLook {
             ItemLook::Cube(..) => DROPPED_ITEM_SIZE,
             ItemLook::Sprite(..) => SPRITE_SIZE,
         }
+    }
+}
+
+/// The width of an orb of experience worth 1 point, and how many sizes it has above that one.
+const ORB_SIZE: f32 = 0.12;
+const ORB_SIZES: u32 = 5;
+
+/// How big an orb worth `points` shows: a step more each time they double.
+pub(super) fn orb_class(points: u32) -> u32 {
+    points.max(1).ilog2().min(ORB_SIZES)
+}
+
+/// The scale of the orbs of `class`.
+pub(super) fn orb_size(class: u32) -> f32 {
+    ORB_SIZE * (1.0 + 0.2 * class as f32)
+}
+
+/// The mesh and the material of the orbs, made with the first.
+#[derive(Resource, Default)]
+pub(super) struct OrbLook(Option<(Handle<Mesh>, Handle<StandardMaterial>)>);
+
+impl OrbLook {
+    /// A cube of light, a longer bar through it along each axis.
+    pub(super) fn get(
+        &mut self,
+        meshes: &mut Assets<Mesh>,
+        materials: &mut Assets<StandardMaterial>,
+    ) -> (Handle<Mesh>, Handle<StandardMaterial>) {
+        self.0
+            .get_or_insert_with(|| {
+                let mut mesh = Mesh::from(Cuboid::from_length(0.75));
+                for axis in Vec3::AXES {
+                    let bar = Mesh::from(Cuboid::from_size(Vec3::splat(0.4) + axis * 0.6));
+                    mesh.merge(&bar).expect("cuboids share their attributes");
+                }
+                let material = StandardMaterial {
+                    base_color: EXPERIENCE,
+                    emissive: EXPERIENCE.to_linear() * 0.6,
+                    ..default()
+                };
+                (meshes.add(mesh), materials.add(material))
+            })
+            .clone()
     }
 }
 
