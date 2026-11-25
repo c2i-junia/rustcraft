@@ -6,6 +6,7 @@ use crate::{
         TargetServerState, UnacknowledgedInputs,
     },
     player::{
+        hand::{HeldItem, SkinMaterial},
         model::{skin_material, spawn_player_model, PlayerAnimation},
         skin::skin_texture,
         PlayerLabel,
@@ -76,6 +77,7 @@ pub fn spawn_players_system(
 
         let texture = skin_texture(&event.skin, &assets, &mut images);
         let material = materials.add(skin_material(texture));
+        let skin = SkinMaterial(material.clone());
         let height = player.height;
         let body = (
             PlayerBody,
@@ -89,6 +91,8 @@ pub fn spawn_players_system(
             player,
             Name::new(event.name.clone()),
             PlayerAnimation::default(),
+            HeldItem::default(),
+            skin,
         ));
         entity.with_children(|parent| {
             parent.spawn(body).with_children(|body| {
@@ -143,7 +147,7 @@ fn spawn_player_label(commands: &mut Commands, assets: &AssetServer, player: Ent
 /// Applies the states the server sends: the other players are placed where it says, and the
 /// local player's prediction is checked against it and corrected if they differ.
 pub fn update_players_system(
-    mut players: Query<(&mut Player, &mut Transform)>,
+    mut players: Query<(&mut Player, &mut Transform, Option<&mut HeldItem>)>,
     mut ev_player_update: MessageReader<PlayerUpdateEvent>,
     mut unacknowledged_inputs: ResMut<UnacknowledgedInputs>,
     mut tick_buffer: ResMut<PlayerTickInputsBuffer>,
@@ -157,8 +161,9 @@ pub fn update_players_system(
     };
 
     for event in ev_player_update.read() {
-        let Some((mut player, mut transform)) =
-            players.iter_mut().find(|(player, _)| player.id == event.id)
+        let Some((mut player, mut transform, held)) = players
+            .iter_mut()
+            .find(|(player, _, _)| player.id == event.id)
         else {
             continue;
         };
@@ -173,6 +178,9 @@ pub fn update_players_system(
             player.set_movement_state(event.movement);
             player.camera_transform.rotation = event.orientation;
             player.is_swinging = event.swinging;
+            if let Some(mut held) = held {
+                held.set_if_neq(HeldItem(event.held));
+            }
             transform.translation = event.movement.position;
             continue;
         }
@@ -326,6 +334,45 @@ mod tests {
     }
 
     #[test]
+    fn another_player_holds_the_item_the_server_says() {
+        let (mut app, _) = app_with_player();
+        let other = app
+            .world_mut()
+            .spawn((
+                Player::new(
+                    PLAYER_ID + 1,
+                    "other".into(),
+                    Vec3::ZERO,
+                    Transform::default(),
+                ),
+                Transform::default(),
+                HeldItem::default(),
+            ))
+            .id();
+        for held in [Some(shared::world::ItemId::WoodenPickaxe), None] {
+            app.world_mut().write_message(PlayerUpdateEvent {
+                id: PLAYER_ID + 1,
+                movement: MovementState::default(),
+                orientation: Quat::IDENTITY,
+                last_ack_time: 0,
+                inventory: None,
+                open_chest: None,
+                open_furnace: None,
+                health: shared::players::game_mode::MAX_HEALTH,
+                air: shared::players::air::MAX_AIR,
+                food: shared::players::hunger::MAX_FOOD,
+                burning_ticks: 0,
+                game_mode: Default::default(),
+                death_cause: None,
+                swinging: false,
+                held,
+            });
+            app.update();
+            assert_eq!(app.world().get::<HeldItem>(other), Some(&HeldItem(held)));
+        }
+    }
+
+    #[test]
     fn a_knock_back_by_the_server_sticks_through_the_reconciliation() {
         let mut blocks = ChunkMap::with_loaded_region(IVec3::splat(-32), IVec3::splat(63));
         blocks.fill_box(
@@ -367,6 +414,7 @@ mod tests {
             game_mode: server.game_mode,
             death_cause: None,
             swinging: false,
+            held: None,
         };
         reconcile_prediction(
             &mut client,
@@ -454,6 +502,7 @@ mod tests {
             game_mode: server.game_mode,
             death_cause: None,
             swinging: false,
+            held: None,
         };
         reconcile_prediction(&mut client, &update, &mut sent, &mut [], &blocks);
 
@@ -521,6 +570,7 @@ mod tests {
             game_mode: GameMode::Survival,
             death_cause: None,
             swinging: false,
+            held: None,
         });
         app.update();
 
@@ -552,6 +602,7 @@ mod tests {
             game_mode: Default::default(),
             death_cause: None,
             swinging: false,
+            held: None,
         });
         app.update();
 
@@ -594,6 +645,7 @@ mod tests {
             game_mode: Default::default(),
             death_cause: None,
             swinging: false,
+            held: None,
         });
         app.update();
 
@@ -632,6 +684,7 @@ mod tests {
             game_mode: Default::default(),
             death_cause: None,
             swinging: false,
+            held: None,
         });
         app.update();
 
@@ -680,6 +733,7 @@ mod tests {
             game_mode: Default::default(),
             death_cause: None,
             swinging: false,
+            held: None,
         });
         app.update();
 
@@ -739,6 +793,7 @@ mod tests {
             game_mode: Default::default(),
             death_cause: None,
             swinging: false,
+            held: None,
         });
         app.update();
 
@@ -1033,6 +1088,7 @@ mod tests {
             game_mode: Default::default(),
             death_cause: None,
             swinging: false,
+            held: None,
         });
         app.update();
 
@@ -1184,6 +1240,7 @@ mod tests {
                 game_mode: self.server_player.game_mode,
                 death_cause: self.server_player.death_cause,
                 swinging: false,
+                held: None,
             };
             for _ in 0..=u32::from(self.repeats_updates) {
                 self.to_client

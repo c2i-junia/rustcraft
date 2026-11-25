@@ -427,6 +427,7 @@ fn bench_player_updates() {
             game_mode: Default::default(),
             death_cause: None,
             swinging: false,
+            held: None,
         }))
         .len()
     };

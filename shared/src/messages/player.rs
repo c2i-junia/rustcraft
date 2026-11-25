@@ -6,7 +6,7 @@ use super::PlayerId;
 use crate::players::game_mode::{DeathCause, GameMode};
 use crate::players::skin::PlayerSkin;
 use crate::players::{inventory::InventoryAction, Inventory, MovementState, ViewMode};
-use crate::world::{Container, Furnace};
+use crate::world::{Container, Furnace, ItemId};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone, Eq, Hash)]
 pub enum NetworkAction {
@@ -69,6 +69,9 @@ pub struct PlayerUpdateEvent {
     pub death_cause: Option<DeathCause>,
     /// Whether the player swings its arm (`Player::is_swinging`): the others see it strike.
     pub swinging: bool,
+    /// The item in the player's hand, from its selected hotbar slot (`Inventory::in_hand`): the
+    /// others see it held.
+    pub held: Option<ItemId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]

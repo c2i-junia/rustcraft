@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use crate::state::GameState;
 
 mod animate;
-mod mesh;
+pub(crate) mod mesh;
 mod sync;
 
 /// The local player picked up an item.

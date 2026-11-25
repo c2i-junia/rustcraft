@@ -6,7 +6,7 @@ use bevy::{
     input::keyboard::KeyCode,
     input_focus::InputFocus,
     math::Rect,
-    prelude::{Component, State, With, World},
+    prelude::{Component, Entity, State, Visibility, With, World},
     text::EditableText,
     ui::{ComputedNode, UiGlobalTransform},
 };
@@ -55,6 +55,27 @@ pub fn is_in(world: &World, state: GameState) -> bool {
 }
 
 impl Harness {
+    /// Hides the arm and the item the local player sees in its own hand, for a test that
+    /// measures the pixels of the world itself, as it hides the bodies of the players. The
+    /// parts of the view model are hidden rather than its root, which `move_the_hand` shows
+    /// again on every frame.
+    pub fn hide_the_view_model(&mut self) {
+        use crate::player::hand::{Grip, ItemHolder, ViewModelArm};
+        let world = self.world_mut();
+        let mut arms = world.query_filtered::<Entity, With<ViewModelArm>>();
+        let mut parts: Vec<Entity> = arms.iter(world).collect();
+        let mut holders = world.query::<(Entity, &ItemHolder)>();
+        parts.extend(
+            holders
+                .iter(world)
+                .filter(|(_, holder)| holder.grip == Grip::FirstPerson)
+                .map(|(entity, _)| entity),
+        );
+        for part in parts {
+            world.entity_mut(part).insert(Visibility::Hidden);
+        }
+    }
+
     /// Waits for the locator to be visible, then clicks it: a screen takes a few frames to appear.
     #[track_caller]
     pub fn click_when_ready(&mut self, locator: &L) {

@@ -122,6 +122,7 @@ fn enter_with(folder: GameFolder, world: &str, options: Options) -> (Harness, En
         .config_mut::<DefaultGizmoConfigGroup>()
         .0
         .enabled = false;
+    h.hide_the_view_model();
     h.app
         .init_resource::<HeldWeather>()
         .init_resource::<HeldLightning>()

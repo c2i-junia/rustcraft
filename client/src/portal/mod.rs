@@ -48,8 +48,11 @@ pub const BODY_LAYER: usize = 2;
 /// The layer of the chunks the player has only for what a portal shows, beyond its own reach
 /// (`world::rendering::portal_chunks_layers_system`): the portal cameras' only.
 pub const PORTAL_CHUNKS_LAYER: usize = 3;
+/// The layer of the arm and the item the player sees in its hand in first person
+/// (`player::hand`): the player's camera's only, so that no portal shows them.
+pub const VIEW_MODEL_LAYER: usize = 4;
 /// The first of the layers of each portal (`stand_in_layer`, `view_layer`).
-const FIRST_PORTAL_LAYER: usize = 4;
+const FIRST_PORTAL_LAYER: usize = 5;
 /// How many levels of portals are seen through portals: through a portal, the portal seen
 /// again shows its view, and that view the portal once more, in its colour.
 pub const PORTAL_RECURSION: usize = 3;
