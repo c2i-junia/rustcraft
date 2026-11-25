@@ -286,7 +286,6 @@ fn the_view_through_a_portal_is_the_other_side() {
 fn the_view_through_a_portal_looks_as_the_world_with_every_shader() {
     let mut h = enter_world(GameFolder::new().with_world("Portals"), "Portals");
     let scene = build_scene(&mut h);
-    h.set_time("day");
     let feet = scene.feet.as_vec3();
     let far_sand = feet + Vec3::new(12.5, 3.4, -17.0);
     let near_sand = feet + Vec3::new(-6.0, 3.4, -12.0);
@@ -299,6 +298,8 @@ fn the_view_through_a_portal_looks_as_the_world_with_every_shader() {
     ));
     let wall_edge = feet + Vec3::new(-2.0, 2.0, -7.0);
     for quality in ShaderQuality::ALL {
+        // Each time: on a slow machine, the five pictures take longer than the day
+        h.set_time("day");
         h.world_mut().resource_mut::<GraphicsSettings>().shaders = quality;
         // The effects inserted, the exposure settled and TAA's history filled
         h.frames(40);

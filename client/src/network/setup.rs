@@ -5,6 +5,8 @@ use bevy_renet::netcode::{
     ClientAuthentication, NetcodeClientPlugin, NetcodeClientTransport, NetcodeDisconnectReason,
     NetcodeErrorEvent,
 };
+#[cfg(test)]
+use bevy_renet::netcode::{ConnectToken, NETCODE_KEY_BYTES};
 use bevy_renet::{RenetClient, RenetClientPlugin};
 use rand::Rng;
 use shared::world::lair;
@@ -38,7 +40,7 @@ use std::hash::{Hash, Hasher};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::thread::JoinHandle;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use std::{net::UdpSocket, thread, time::SystemTime};
 
 use crate::world::ClientWorldMap;
@@ -392,25 +394,57 @@ fn fail_launch(
     }
 }
 
+#[cfg(not(test))]
+fn authentication(
+    addr: SocketAddr,
+    client_id: u64,
+    _current_time: Duration,
+) -> Result<ClientAuthentication, String> {
+    Ok(ClientAuthentication::Unsecure {
+        server_addr: addr,
+        client_id,
+        user_data: None,
+        protocol_id: shared::PROTOCOL_ID,
+    })
+}
+
+/// As the game's, `Unsecure`, whose token gives a silent peer 15 s: the e2e clients compile the
+/// pipelines of a quality of the shaders within one frame, which lavapipe takes longer for on a
+/// busy machine.
+#[cfg(test)]
+fn authentication(
+    addr: SocketAddr,
+    client_id: u64,
+    current_time: Duration,
+) -> Result<ClientAuthentication, String> {
+    let connect_token = ConnectToken::generate(
+        current_time,
+        shared::PROTOCOL_ID,
+        300,
+        client_id,
+        120,
+        vec![addr],
+        None,
+        &[0; NETCODE_KEY_BYTES],
+    )
+    .map_err(|err| err.to_string())?;
+    Ok(ClientAuthentication::Secure { connect_token })
+}
+
 /// Opens a connection to the server at `addr` as `client_id`: a new client and its transport.
 pub fn open_connection(
     addr: SocketAddr,
     client_id: u64,
 ) -> Result<(RenetClient, NetcodeClientTransport), String> {
-    let authentication = ClientAuthentication::Unsecure {
-        server_addr: addr,
-        client_id,
-        user_data: None,
-        protocol_id: shared::PROTOCOL_ID,
-    };
+    let current_time = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default();
+    let authentication = authentication(addr, client_id, current_time)?;
     info!(
         "Attempting to connect to: {} with data {:?}",
         addr, authentication
     );
 
-    let current_time = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default();
     let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).map_err(|err| err.to_string())?;
     shared::enlarge_socket_buffers(&socket);
     let transport = NetcodeClientTransport::new(current_time, authentication, socket)
