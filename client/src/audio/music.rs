@@ -7,7 +7,7 @@
 
 use std::ops::Range;
 
-use bevy::audio::{AudioSinkPlayback, Volume};
+use bevy::audio::{AudioSinkPlayback, GlobalVolume, Volume};
 use bevy::prelude::*;
 use rand::{seq::SliceRandom, Rng};
 use shared::world::hostiles::is_night;
@@ -286,6 +286,7 @@ fn play_music(
     state: Res<State<GameState>>,
     clock: Option<Res<ClientTime>>,
     settings: Res<AudioSettings>,
+    global: Res<GlobalVolume>,
     asset_server: Res<AssetServer>,
     cameras: Query<&GlobalTransform, (With<Camera3d>, Without<PortalCamera>)>,
     mut pieces: Query<Option<&mut AudioSink>, With<MusicPiece>>,
@@ -322,10 +323,16 @@ fn play_music(
         }
         None => {
             if let Some(Ok(Some(mut sink))) = music.piece.map(|piece| pieces.get_mut(piece)) {
-                sink.set_volume(Volume::Linear(volume));
+                sink.set_volume(sink_volume(volume, *global));
             }
         }
     }
+}
+
+/// The volume of a playing piece: Bevy weighs a sound by the global volume when it starts it,
+/// but a sink's volume set afterwards replaces that, so the fade weighs it again.
+fn sink_volume(volume: f32, global: GlobalVolume) -> Volume {
+    Volume::Linear(volume) * global.volume
 }
 
 #[cfg(test)]
@@ -335,6 +342,18 @@ mod tests {
     use shared::{DAY_DURATION_IN_TICKS, MIDNIGHT_IN_DAY, NOON_IN_DAY};
 
     const STEP: f32 = 0.5;
+
+    #[test]
+    fn a_fading_piece_keeps_to_the_global_volume() {
+        assert_eq!(
+            sink_volume(0.8, GlobalVolume::new(Volume::SILENT)).to_linear(),
+            0.0
+        );
+        assert_eq!(
+            sink_volume(0.8, GlobalVolume::new(Volume::Linear(0.5))).to_linear(),
+            0.4
+        );
+    }
 
     #[test]
     fn the_menus_play_the_title_and_the_world_its_time_and_place() {
