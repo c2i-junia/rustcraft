@@ -658,24 +658,25 @@ fn the_game_mode_and_the_difficulty_are_chosen_with_the_world() {
     h.press(KeyCode::Enter);
     h.wait_for(&card("Plain"), SCREEN);
     let plain = world_meta(&h, "Plain");
-    assert_eq!(plain.game_mode, GameMode::Survival);
+    // creative is checked when the dialog opens
+    assert_eq!(plain.game_mode, GameMode::Creative);
     assert_eq!(plain.difficulty, Difficulty::Normal);
 
     ctrl_n(&mut h);
     h.type_text("Made");
-    h.click(&L::role(Role::RadioButton, "Creative"));
+    h.click(&L::role(Role::RadioButton, "Survival"));
     h.click(&L::role(Role::RadioButton, "Hard"));
     h.frames(3);
     h.snapshot("new_world_choices");
     h.click(&create_button());
     h.wait_for(&card("Made"), SCREEN);
     let made = world_meta(&h, "Made");
-    assert_eq!(made.game_mode, GameMode::Creative);
+    assert_eq!(made.game_mode, GameMode::Survival);
     assert_eq!(made.difficulty, Difficulty::Hard);
     drop(h);
 
     // its player starts in the mode of the world
-    let mut h = enter_world(folder, "Made");
+    let mut h = enter_world(folder, "Plain");
     h.wait_until("a creative player", SERVER, |w| {
         w.try_query_filtered::<&Player, With<CurrentPlayerMarker>>()
             .and_then(|mut players| players.single(w).ok())
