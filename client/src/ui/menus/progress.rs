@@ -1,4 +1,5 @@
-//! The progress of the player in the world, over the pause menu: its achievements, earned or not.
+//! The progress of the player in the world, over the pause menu: its achievements, earned
+//! or not, and its statistics.
 
 use accesskit::{NodeId, Role};
 use bevy::{
@@ -8,7 +9,7 @@ use bevy::{
     prelude::*,
     ui_widgets::{observe, Activate},
 };
-use shared::players::progress::Achievement;
+use shared::players::progress::{Achievement, Stats};
 
 use crate::state::GameState;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
@@ -16,16 +17,16 @@ use crate::ui::hud::progress::PlayerProgress;
 use crate::ui::hud::UiDialog;
 use crate::ui::menus::modal_open;
 use crate::ui::theme::{
-    ACCENT, BEVEL_LO, BEVEL_WIDTH, FONT_M, FONT_S, FONT_XL, MUTED, PANEL, SPACE_L, SPACE_M,
-    SPACE_XL, SPACE_XS, TEXT,
+    ACCENT, BEVEL_LO, BEVEL_WIDTH, FONT_M, FONT_S, FONT_XL, MUTED, PANEL, SLOT, SPACE_L, SPACE_M,
+    SPACE_S, SPACE_XL, SPACE_XS, TEXT,
 };
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::focus::keep_focus_inside;
 use crate::ui::widgets::hints::{hint_bar, Hint, HINT_BAR_HEIGHT};
 use crate::ui::widgets::list::{spawn_list_card, spawn_scroll_list, WheelStep};
-use crate::ui::widgets::raised_bevel;
 use crate::ui::widgets::slot::ICON_SIZE;
 use crate::ui::widgets::tabs::{spawn_tabs, TabButton, TabChange, Tabs};
+use crate::ui::widgets::{raised_bevel, sunken_bevel};
 use crate::world::MaterialResource;
 
 pub const PROGRESS_TITLE: &str = "Progress";
@@ -58,14 +59,16 @@ const UNEARNED_ALPHA: f32 = 0.25;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ProgressTab {
     Achievements,
+    Statistics,
 }
 
 impl ProgressTab {
-    pub const ALL: [ProgressTab; 1] = [ProgressTab::Achievements];
+    pub const ALL: [ProgressTab; 2] = [ProgressTab::Achievements, ProgressTab::Statistics];
 
     pub fn label(self) -> &'static str {
         match self {
             ProgressTab::Achievements => "Achievements",
+            ProgressTab::Statistics => "Statistics",
         }
     }
 }
@@ -108,7 +111,7 @@ pub fn progress_screen_plugin(app: &mut App) {
         Update,
         (
             close_on_escape.run_if(not(modal_open)),
-            show_again.run_if(resource_changed::<PlayerProgress>),
+            (show_again, show_stats).run_if(resource_changed::<PlayerProgress>),
         )
             .run_if(any_with_component::<ProgressRoot>),
     )
@@ -250,7 +253,7 @@ fn show_tab(
     );
 }
 
-/// Shows the current tab again once the progress it shows changed, unless it shows the same.
+/// Shows the current tab again once an achievement was earned.
 fn show_again(
     panels: Query<(Entity, &ProgressPanel)>,
     progress: Res<PlayerProgress>,
@@ -289,6 +292,7 @@ fn fill(
         ProgressTab::Achievements => {
             spawn_achievements(commands, panel, progress, materials, &font)
         }
+        ProgressTab::Statistics => spawn_statistics(commands, panel, progress, &font),
     }
 }
 
@@ -359,6 +363,56 @@ fn spawn_achievements(
             let color = if has { ACCENT } else { MUTED };
             card.spawn((text(state, FONT_S, color, font), TextLayout::no_wrap()));
         });
+    }
+}
+
+/// The value of a statistic, by its place in `Stats::LABELS`.
+#[derive(Component)]
+pub struct StatValue(pub usize);
+
+/// What the statistics read.
+pub fn stat_values(progress: &PlayerProgress) -> [String; Stats::LABELS.len()] {
+    progress
+        .0
+        .as_ref()
+        .map(|progress| progress.stats)
+        .unwrap_or_default()
+        .values()
+}
+
+/// The statistics, a row each.
+fn spawn_statistics(
+    commands: &mut Commands,
+    panel: Entity,
+    progress: &PlayerProgress,
+    font: &Handle<Font>,
+) {
+    for (i, value) in stat_values(progress).into_iter().enumerate() {
+        commands.spawn((
+            Node {
+                justify_content: JustifyContent::SpaceBetween,
+                padding: UiRect::axes(px(SPACE_M), px(SPACE_S)),
+                border: UiRect::all(px(BEVEL_WIDTH)),
+                ..default()
+            },
+            BackgroundColor(SLOT),
+            sunken_bevel(),
+            ChildOf(panel),
+            children![
+                text(Stats::LABELS[i], FONT_M, MUTED, font),
+                (StatValue(i), text(value, FONT_M, TEXT, font))
+            ],
+        ));
+    }
+}
+
+/// Keeps the statistics shown up to date.
+fn show_stats(progress: Res<PlayerProgress>, mut values: Query<(&StatValue, &mut Text)>) {
+    let read = stat_values(&progress);
+    for (stat, mut text) in &mut values {
+        if text.0 != read[stat.0] {
+            text.0.clone_from(&read[stat.0]);
+        }
     }
 }
 

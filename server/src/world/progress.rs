@@ -18,6 +18,8 @@ use crate::network::extensions::SendGameMessageExtension;
 
 /// Ticks between two looks at the players.
 const LOOK_INTERVAL_TICKS: u64 = 10;
+/// Ticks between two messages when only the statistics changed.
+const STATS_INTERVAL_TICKS: u64 = 20;
 
 /// Looks at what the players reached, then tells each of its progress, when it changed. Runs once
 /// the inputs of the tick were applied.
@@ -29,6 +31,9 @@ pub fn progress_system(
     mut server: ResMut<RenetServer>,
     mut told: Local<HashMap<PlayerId, Progress>>,
 ) {
+    for player in world_map.players.values_mut() {
+        player.count_tick();
+    }
     told.retain(|id, _| lobby.players.contains_key(id));
     if time.0.is_multiple_of(LOOK_INTERVAL_TICKS) {
         let ServerWorldMap {
@@ -72,7 +77,13 @@ pub fn progress_system(
             continue;
         }
         let progress = &player.progress;
-        let fresh = told.get(&id).is_none_or(|told| told != progress);
+        let fresh = told.get(&id).is_none_or(|told| {
+            let stats_only = Progress {
+                stats: progress.stats,
+                ..told.clone()
+            } == *progress;
+            !stats_only || (told != progress && time.0.is_multiple_of(STATS_INTERVAL_TICKS))
+        });
         if fresh {
             // Those it had when it joined are not news
             let known = told

@@ -150,6 +150,49 @@ impl Achievement {
     }
 }
 
+/// What a player did in a world. All but the play time counts survival only.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(default)]
+pub struct Stats {
+    pub play_ticks: u64,
+    /// The lowest cell its feet were in, `None` until it was above the void.
+    pub lowest: Option<i32>,
+    pub blocks_mined: u64,
+    pub creatures_beaten: u64,
+    pub deaths: u64,
+}
+
+impl Stats {
+    pub const LABELS: [&'static str; 5] = [
+        "Play time",
+        "Greatest depth",
+        "Blocks mined",
+        "Creatures beaten",
+        "Deaths",
+    ];
+
+    /// What each of them reads, in the order of `LABELS`.
+    pub fn values(&self) -> [String; 5] {
+        let minutes = self.play_ticks / TICKS_PER_SECOND / 60;
+        let time = match minutes / 60 {
+            0 => format!("{minutes} min"),
+            hours => format!("{hours} h {:02} min", minutes % 60),
+        };
+        let depth = match self.lowest {
+            None => "-".to_string(),
+            // As the minimap writes it
+            Some(y) => format!("Y {y}"),
+        };
+        [
+            time,
+            depth,
+            self.blocks_mined.to_string(),
+            self.creatures_beaten.to_string(),
+            self.deaths.to_string(),
+        ]
+    }
+}
+
 /// What a player has achieved in a world.
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 #[serde(default)]
@@ -158,6 +201,7 @@ pub struct Progress {
     pub achievements: Vec<Achievement>,
     /// The night the player has been alive in since it fell, the first of the world being 0.
     pub night: Option<u64>,
+    pub stats: Stats,
 }
 
 impl Progress {
@@ -176,11 +220,32 @@ impl Player {
 
     /// The player beat a creature of `kind`.
     pub fn beat(&mut self, kind: MobKind) {
+        if self.game_mode.takes_damage() {
+            self.progress.stats.creatures_beaten += 1;
+        }
         if kind.is_hostile() {
             self.earn(Achievement::Hostile);
         }
         if kind.is_boss() {
             self.earn(Achievement::Boss);
+        }
+    }
+
+    /// The player broke `blocks` blocks.
+    pub fn mined(&mut self, blocks: usize) {
+        if self.game_mode.takes_damage() {
+            self.progress.stats.blocks_mined += blocks as u64;
+        }
+    }
+
+    /// Counts a tick of the world the player is in.
+    pub fn count_tick(&mut self) {
+        let stats = &mut self.progress.stats;
+        stats.play_ticks += 1;
+        let feet = (self.position.y - self.height / 2.0 + 0.01).floor() as i32;
+        // The void under the world is no depth
+        if feet >= 0 && self.game_mode.takes_damage() && self.health > 0 {
+            stats.lowest = Some(stats.lowest.map_or(feet, |lowest| lowest.min(feet)));
         }
     }
 
@@ -248,6 +313,48 @@ mod tests {
             assert!((*achievement as usize) < Achievement::ALL.len());
             assert!(!Achievement::ALL[..i].contains(achievement));
         }
+    }
+
+    #[test]
+    fn the_statistics_count_survival_only_but_for_the_time() {
+        use crate::players::game_mode::DamageSource;
+        let mut player = Player {
+            game_mode: GameMode::Creative,
+            ..Default::default()
+        };
+        player.position.y = 12.9;
+        player.count_tick();
+        player.mined(3);
+        player.beat(MobKind::Cow);
+        let time = |play_ticks| Stats {
+            play_ticks,
+            ..Default::default()
+        };
+        assert_eq!(player.progress.stats, time(1));
+
+        player.game_mode = GameMode::Survival;
+        player.count_tick();
+        player.position.y = 70.9;
+        player.count_tick();
+        player.position.y = -5.0;
+        player.count_tick();
+        player.mined(3);
+        player.beat(MobKind::Cow);
+        player.hurt(1000, DamageSource::Fall);
+        player.hurt(1000, DamageSource::Fall);
+        let stats = Stats {
+            lowest: Some(12),
+            blocks_mined: 3,
+            creatures_beaten: 1,
+            deaths: 1,
+            ..time(4)
+        };
+        assert_eq!(player.progress.stats, stats);
+        assert_eq!(
+            player.progress.stats.values(),
+            ["0 min", "Y 12", "3", "1", "1"]
+        );
+        assert_eq!(time(20 * 60 * 125).values()[0], "2 h 05 min");
     }
 
     const DAWN: u64 = DAY_DURATION_IN_TICKS / 2;

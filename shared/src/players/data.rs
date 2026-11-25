@@ -404,6 +404,7 @@ impl Player {
         self.health = self.health.saturating_sub(amount);
         self.exhaust(DAMAGE_EXHAUSTION);
         if self.is_dead() {
+            self.progress.stats.deaths += 1;
             let thrown_by = self.last_mob_hit.map(|(kind, _)| kind);
             self.death_cause = Some(DeathCause::of(source, thrown_by));
         }

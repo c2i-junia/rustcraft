@@ -794,7 +794,9 @@ is earned there, though what was taken there is if held back in survival.
 (tiers, dungeons, lair) and the night it lives through; kills, trades, births, the bedroll and the
 boss earn theirs where they happen, and so does an enchantment (`Player::enchant`). A player is told of its `Progress` alone, with what it has just earned, when it joins
 and when it changes: the client shows toasts (`ui/hud/progress.rs`) and the Progress screen of the
-pause menu (`ui/menus/progress.rs`).
+pause menu (`ui/menus/progress.rs`). `Progress::stats` counts the play time, the lowest height, the
+blocks mined, the creatures beaten and the deaths, all but the time in survival only; it is sent
+once a second at most, and shown on the same screen and in the credits.
 
 ## One client frame
 

@@ -27,6 +27,7 @@ use crate::network::CurrentPlayerProfile;
 use crate::state::GameState;
 use crate::ui::assets::{load_font, load_title_image, MONO_FONT_PATH};
 use crate::ui::credits::{spawn_credits, Credits};
+use crate::ui::hud::progress::PlayerProgress;
 use crate::ui::theme::{
     BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_L, FONT_S, MUTED, PANEL, SPACE_L, SPACE_M, SPACE_S,
     SPACE_XL, SPACE_XS, SPACE_XXL, TEXT,
@@ -387,7 +388,8 @@ fn open_credits(
     focus: &mut InputFocus,
     button: Entity,
 ) {
-    let root = spawn_credits(commands, asset_server);
+    // No game, no statistics
+    let root = spawn_credits(commands, asset_server, &PlayerProgress::default());
     commands
         .entity(root)
         .insert(DespawnOnExit(MenuState::Main))

@@ -1,13 +1,17 @@
 //! The credits (`data/credits.txt`), which scroll up over the whole window until their end, or
-//! until the player skips them. They show over the game once the Ember Mother is beaten, and
-//! over the main menu from its Credits button (`spawn_credits`).
+//! until the player skips them. They show over the game once the Ember Mother is beaten, with the
+//! statistics of the player after their opening, and over the main menu from its Credits button
+//! (`spawn_credits`), without them.
 
 use bevy::input_focus::InputFocus;
 use bevy::prelude::*;
+use shared::players::progress::Stats;
 
 use crate::state::GameState;
 use crate::ui::assets::FONT_PATH;
+use crate::ui::hud::progress::PlayerProgress;
 use crate::ui::hud::UiDialog;
+use crate::ui::menus::progress::stat_values;
 use crate::ui::theme::{ACCENT, FONT_L, FONT_M, FONT_XL, MUTED, SPACE_L, SPACE_S, TEXT};
 
 const CREDITS: &str = include_str!("../../../data/credits.txt");
@@ -17,6 +21,8 @@ const SPEED: f32 = 42.0;
 const FAST: f32 = 4.0;
 /// How long the last lines stay.
 const HOLD_SECONDS: f32 = 3.0;
+/// The title over the statistics of the player.
+pub const STATS_TITLE: &str = "Your journey";
 pub const SKIP_HINT: &str = "Esc  Skip";
 
 /// A line of the credits.
@@ -25,6 +31,21 @@ pub enum CreditsLine {
     Title(&'static str),
     Text(&'static str),
     Space,
+}
+
+/// The statistic of this place in `Stats::LABELS`, kept up to date: the server tells the last of
+/// them a moment after the boss fell.
+#[derive(Component)]
+struct CreditsStat(usize);
+
+fn stat_line(progress: &PlayerProgress, i: usize) -> String {
+    format!("{}: {}", Stats::LABELS[i], stat_values(progress)[i])
+}
+
+fn show_stats(progress: Res<PlayerProgress>, mut stats: Query<(&CreditsStat, &mut Text)>) {
+    for (stat, mut text) in &mut stats {
+        text.0 = stat_line(&progress, stat.0);
+    }
 }
 
 /// The lines of the credits, from the first to the last.
@@ -57,6 +78,7 @@ pub fn credits_plugin(app: &mut App) {
             (
                 show_credits_due.run_if(in_state(GameState::Game)),
                 scroll_credits,
+                show_stats.run_if(resource_changed::<PlayerProgress>),
             )
                 .chain()
                 .after(crate::state::GameSet::UiMode),
@@ -71,20 +93,26 @@ fn show_credits_due(
     mut commands: Commands,
     assets: Res<AssetServer>,
     mut focus: ResMut<InputFocus>,
+    progress: Res<PlayerProgress>,
     showing: Query<(), With<Credits>>,
 ) {
     if due.0 {
         due.0 = false;
         if showing.is_empty() {
             focus.clear();
-            let root = spawn_credits(&mut commands, &assets);
+            let root = spawn_credits(&mut commands, &assets, &progress);
             commands.entity(root).insert(DespawnOnExit(GameState::Game));
         }
     }
 }
 
-/// Spawns the credits over the window. They go by themselves, or when the player skips them.
-pub fn spawn_credits(commands: &mut Commands, assets: &AssetServer) -> Entity {
+/// Spawns the credits over the window, with the statistics of the game `progress` is of, if any.
+/// They go by themselves, or when the player skips them.
+pub fn spawn_credits(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    progress: &PlayerProgress,
+) -> Entity {
     let font: Handle<Font> = assets.load(FONT_PATH);
     let text = |text: &str, size: f32, color: Color| {
         (
@@ -134,7 +162,20 @@ pub fn spawn_credits(commands: &mut Commands, assets: &AssetServer) -> Entity {
             Pickable::IGNORE,
         ))
         .id();
+    let mut stats_due = progress.0.is_some();
     for (i, line) in lines().enumerate() {
+        if line == CreditsLine::Space && std::mem::take(&mut stats_due) {
+            let space = Node {
+                height: px(SPACE_L * 2.0),
+                ..default()
+            };
+            commands.spawn((space, ChildOf(roll)));
+            commands.spawn((text(STATS_TITLE, FONT_L, ACCENT), ChildOf(roll)));
+            for stat in 0..Stats::LABELS.len() {
+                let line = stat_line(progress, stat);
+                commands.spawn((CreditsStat(stat), text(&line, FONT_M, TEXT), ChildOf(roll)));
+            }
+        }
         let mut entity = match line {
             CreditsLine::Title(title) if i == 0 => {
                 commands.spawn(text(title, FONT_XL * 2.0, ACCENT))
