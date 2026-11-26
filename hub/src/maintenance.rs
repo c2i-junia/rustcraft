@@ -48,6 +48,8 @@ async fn daily(state: &AppState) -> Result<(), sqlx::Error> {
     let mut conn = state.db.acquire().await?;
     let names = purge_deleted_accounts(&mut conn, OffsetDateTime::now_utc()).await?;
     tracing::info!(names, "freed the names of deleted accounts");
+    // Archives can take minutes: the pool gets its connection back before
+    drop(conn);
     realms::daily(state).await
 }
 
