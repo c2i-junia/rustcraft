@@ -296,13 +296,13 @@ fn a_cinderling_hatched_next_to_a_survival_player_sets_it_burning_with_its_ember
             .any(|&(kind, at)| kind == MobKind::Cinderling && at.distance(player) > 4.5);
         far && drawn.iter().any(|&(kind, _)| kind == MobKind::Ember)
     });
-    h.frames(3);
+    // Where the wait saw it: a few frames later, on a slow machine, it may have hit already
     let (_, ember) = animals(h.world())
         .into_iter()
         .find(|&(kind, _)| kind == MobKind::Ember)
         .unwrap();
     look_at(&mut h, ember);
-    h.frames(1);
+    h.frames(3);
     h.snapshot("ember");
     h.wait_until("the player hit and burning", SERVER, |w| {
         let player = local_player(w);
