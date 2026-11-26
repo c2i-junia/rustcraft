@@ -32,10 +32,17 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Name the image tags
+      env:
+        VERSION: ${{ inputs.version }}
       run: |
         image=ghcr.io/${{ github.repository }}/rustcraft-server
-        if [ -n "${{ inputs.version }}" ]; then
-          echo "image_tags=${image}:${{ inputs.version }} ${image}:latest" >> $GITHUB_ENV
+        if [ -n "$VERSION" ]; then
+          tags="${image}:${VERSION}"
+          # `latest` is the last final release (the tag v1.2.0), never a pre-release (v1.2.0-rc1)
+          if [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            tags="${tags} ${image}:latest"
+          fi
+          echo "image_tags=${tags}" >> $GITHUB_ENV
         else
           echo "image_tags=${image}:dev-$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_ENV
         fi
