@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, WindowEvent};
 use shared::players::game_mode::{GameMode, MAX_HEALTH};
 use shared::players::Player;
-use shared::world::{ItemId, MobKind};
+use shared::world::{ItemId, MobAction, MobKind};
 
 use super::game::{aimed_cells, enter_world, slot};
 use super::harness::{Harness, SERVER};
@@ -215,12 +215,33 @@ fn a_stumpling_hatched_at_night_next_to_a_survival_player_hits_it() {
         .find(|&(kind, _)| kind == MobKind::Stumpling)
         .unwrap();
     look_at(&mut h, stumpling);
-    h.wait_until("a blow", SERVER, |w| local_player(w).health < MAX_HEALTH);
-    let health = local_player(h.world()).health;
-    assert!(
-        health > 0 && (MAX_HEALTH - health).is_multiple_of(3),
-        "health {health}"
-    );
+    // The night brings hostiles of its own, which may strike first on a slow machine: the blow
+    // counted is a loss of health while the Stumpling strikes, its strike and the health being
+    // told in messages of their own, a few frames apart at most
+    let striking = |w: &mut World| {
+        w.query::<&Mob>()
+            .iter(w)
+            .any(|mob| mob.kind == MobKind::Stumpling && mob.action == MobAction::Attack)
+    };
+    let start = Instant::now();
+    let (mut health, mut last_strike, mut loss) = (MAX_HEALTH, None, None);
+    let blow = (0u32..)
+        .find_map(|frame| {
+            assert!(start.elapsed() < SERVER, "timed out waiting for a blow");
+            h.frames(1);
+            let now = local_player(h.world()).health;
+            if now < health {
+                loss = Some((frame, health - now));
+            }
+            health = now;
+            if striking(h.world_mut()) {
+                last_strike = Some(frame);
+            }
+            let (lost_at, lost) = loss?;
+            (last_strike?.abs_diff(lost_at) <= 5).then_some(lost)
+        })
+        .unwrap();
+    assert!(health > 0 && blow.is_multiple_of(3), "a blow of {blow}");
     h.snapshot("stumpling");
 }
 
