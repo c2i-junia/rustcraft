@@ -60,7 +60,20 @@ generate-release-folder-server:
 check:
     cargo fmt --all -- --check
     cargo clippy --workspace --all-targets -- -D warnings
-    cargo test --workspace
+    just test
+
+# Every test. The client's, end-to-end for the most part, take the longest: the other crates' run
+# beside them rather than after. Each client draws with lavapipe, whose threads default to one
+# per core: with 16 clients at once, 8 each spend less CPU on keeping them busy (the suite took
+# 255 s instead of 330), and 4 slow the tests of the shaders past their waits.
+test:
+    #!/usr/bin/env bash
+    set -u
+    cargo test --workspace --no-run --quiet || exit 1
+    cargo test --workspace --exclude client & others=$!
+    LP_NUM_THREADS="${LP_NUM_THREADS:-8}" cargo test -p client; client=$?
+    wait $others; others=$?
+    exit $(( client || others ))
 
 test-fast:
     cargo test --workspace -- --skip e2e::
