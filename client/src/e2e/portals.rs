@@ -2074,6 +2074,19 @@ fn the_body_is_not_drawn(h: &mut Harness, frame: u32) {
         let w = h.world_mut();
         w.query::<&mut CameraController>().single_mut(w).unwrap()
     }
+    // The hand, which no portal draws, out of the pictures: it strikes while the button that
+    // shot the portal is held, and would count as the body where it moved between them
+    let hand = |h: &mut Harness, visibility: Visibility| {
+        let w = h.world_mut();
+        let frames: Vec<Entity> = w
+            .query_filtered::<Entity, With<crate::player::hand::ViewModelFrame>>()
+            .iter(w)
+            .collect();
+        for frame in frames {
+            w.entity_mut(frame).insert(visibility);
+        }
+    };
+    hand(h, Visibility::Hidden);
     h.app.add_systems(First, hold_the_player);
     h.world_mut().insert_resource(HeldPlayer);
     hold_the_player_now(h);
@@ -2132,6 +2145,7 @@ fn the_body_is_not_drawn(h: &mut Harness, frame: u32) {
         seen.push((angle, differing));
     }
     pitch(h).angle_y = own;
+    hand(h, Visibility::Inherited);
     // Given back to the clock
     h.world_mut().remove_resource::<HeldPlayer>();
     h.world_mut().resource_mut::<SyncTime>().curr_time_ms = shared::utils::unix_time_ms();
