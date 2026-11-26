@@ -145,6 +145,19 @@ code {
 	white-space: nowrap;
 }
 
+.phone-only {
+	display: none;
+}
+.by-word {
+	margin-inline-end: 0.35em;
+	font-family: var(--body);
+}
+@media (max-width: 640px) {
+	.phone-only {
+		display: inline;
+	}
+}
+
 .visually-hidden {
 	position: absolute;
 	width: 1px;
@@ -576,6 +589,50 @@ td .reason {
 
 @media (max-width: 640px) {
 	.hide-sm {
+		display: none;
+	}
+	/* The audit log as one block per entry: five columns do not fit a phone. */
+	table.audit thead {
+		display: none;
+	}
+	table.audit tr {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		grid-template-areas: 'act when' 'acct by' 'details details';
+		gap: 4px 12px;
+		padding: 10px 12px;
+		border-bottom: 1px solid var(--line);
+	}
+	table.audit tbody tr:last-child {
+		border-bottom: 0;
+	}
+	table.audit td {
+		padding: 0;
+		border: 0;
+		min-width: 0;
+	}
+	table.audit td.when {
+		grid-area: when;
+		color: var(--muted);
+		font-size: 0.8125rem;
+	}
+	table.audit td.act {
+		grid-area: act;
+	}
+	table.audit td.acct {
+		grid-area: acct;
+	}
+	table.audit td.by {
+		grid-area: by;
+		text-align: right;
+		white-space: normal;
+		overflow-wrap: anywhere;
+	}
+	table.audit td.details {
+		grid-area: details;
+		min-width: 0;
+	}
+	table.audit td.details:empty {
 		display: none;
 	}
 	.page {

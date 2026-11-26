@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -75,6 +76,8 @@
 	});
 
 	let timer: ReturnType<typeof setTimeout> | undefined;
+	// A search typed just before leaving must not land in the next page's URL.
+	onDestroy(() => clearTimeout(timer));
 	function typed(value: string) {
 		clearTimeout(timer);
 		timer = setTimeout(() => setQuery({ q: value.trim(), page: null }), 250);

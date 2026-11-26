@@ -30,6 +30,7 @@
 	import Time from '#lib/components/Time.svelte';
 	import { plural } from '#lib/format.ts';
 	import { session } from '#lib/session.svelte.ts';
+	import { temporary } from '#lib/temporary.svelte.ts';
 
 	const id = $derived(page.params.id ?? '');
 
@@ -56,12 +57,16 @@
 		void id;
 		account = null;
 		missing = false;
+		error = null;
 		load();
 	});
 
 	const self = $derived(account !== null && session.me?.id === account.id);
 	const deleted = $derived(account?.status === 'deleted');
 	const isAdmin = $derived(account?.roles.includes('admin') ?? false);
+	const archivedWorlds = $derived(
+		account?.realms.filter((realm) => realm.state === 'archived').length ?? 0
+	);
 	const isHost = $derived(account?.roles.includes('host') ?? false);
 
 	function blockedFor(selfReason: string | null): string | null {
@@ -185,38 +190,27 @@
 
 	// Password and sessions
 
-	let temporary = $state<{ username: string; password: string } | null>(null);
-	let passwordOpen = $state(false);
-	let copied = $state(false);
-
 	async function resetPassword() {
 		if (!account) return;
 		const { id, username } = account;
-		let password = '';
-		const done = await ask({
+		await ask({
 			title: `Reset the password of ${username}?`,
 			description: `The current password stops working, every session of ${username} ends and their certificates are revoked. You will see a temporary password once.`,
 			confirmLabel: 'Reset password',
 			destructive: true,
+			// Handed to the layout as soon as the hub answers: neither leaving this page nor the
+			// question closing on Back can lose it.
 			run: async () => {
-				password = (await api.resetPassword(id)).password;
+				temporary.resetting = true;
+				try {
+					const { password } = await api.resetPassword(id);
+					temporary.value = { username, password };
+				} finally {
+					temporary.resetting = false;
+				}
 			}
 		});
-		if (!done) return;
-		temporary = { username, password };
-		copied = false;
-		passwordOpen = true;
 		await load();
-	}
-
-	async function copy() {
-		if (!temporary) return;
-		try {
-			await navigator.clipboard.writeText(temporary.password);
-			copied = true;
-		} catch {
-			toast.error('Copy failed', { description: 'Select the password and copy it by hand.' });
-		}
 	}
 
 	function endSessions() {
@@ -262,6 +256,13 @@
 				Joined <Time at={account.created_at} exact /> · <span class="mono-small">{account.id}</span>
 			</p>
 		</div>
+
+		{#if error}
+			<div class="card refresh-error" role="alert">
+				<p><strong>Could not refresh this account.</strong> {error} What is shown may be out of date.</p>
+				<Button onclick={load}>Retry</Button>
+			</div>
+		{/if}
 
 		{#if account.status === 'suspended'}
 			<div class="banner" role="status">
@@ -355,7 +356,9 @@
 					<dt>Certificates</dt>
 					<dd>{plural(account.active_certificates, 'active certificate')}</dd>
 					<dt>Worlds</dt>
-					<dd>{account.realms.filter((realm) => realm.state !== 'archived').length} owned</dd>
+					<dd>
+						{account.realms.length} owned{#if archivedWorlds > 0}, {archivedWorlds} of them archived{/if}
+					</dd>
 				</dl>
 				<div class="danger-zone">
 					{#if account.status !== 'suspended'}
@@ -532,36 +535,15 @@
 	{/if}
 </div>
 
-<!-- The temporary password, shown once -->
-<Dialog
-	bind:open={passwordOpen}
-	closeOnOutsidePress={false}
-	onOpenChangeComplete={(open) => {
-		if (!open) temporary = null;
-	}}
->
-	<DialogBackdrop />
-	<DialogContent>
-		{#if temporary}
-			<div class="stack-tight">
-				<DialogTitle>Temporary password of {temporary.username}</DialogTitle>
-				<DialogDescription>
-					Give it to {temporary.username} through a channel you trust; they should change it after logging in.
-					<strong>It will not be shown again.</strong>
-				</DialogDescription>
-			</div>
-			<div class="secret">
-				<code aria-label="Temporary password">{temporary.password}</code>
-				<Button onclick={copy}>{copied ? 'Copied' : 'Copy'}</Button>
-			</div>
-			<div class="dialog-actions">
-				<DialogClose data-variant="solid">Done</DialogClose>
-			</div>
-		{/if}
-	</DialogContent>
-</Dialog>
-
 <style>
+	.refresh-error {
+		flex-direction: row;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		border-color: color-mix(in oklab, var(--danger) 45%, transparent);
+		color: var(--danger);
+	}
 	.small {
 		font-size: 0.8125rem;
 	}
@@ -614,19 +596,5 @@
 		padding: 0 8px;
 		border-bottom: 1px solid var(--line);
 		overflow-x: auto;
-	}
-	.secret {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-	}
-	.secret code {
-		flex: 1;
-		padding: 10px 12px;
-		border: 1px dashed var(--line-strong);
-		font-size: 1rem;
-		letter-spacing: 0.04em;
-		user-select: all;
-		overflow-wrap: anywhere;
 	}
 </style>

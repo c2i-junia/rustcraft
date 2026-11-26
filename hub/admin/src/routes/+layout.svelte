@@ -2,20 +2,31 @@
 	import '@fontsource/pixelify-sans/600.css';
 	import '@ui-sdk/core/web.css';
 	import '../app.css';
-	import { goto } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { asset, resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { Button } from '@ui-sdk/svelte/button';
-	import { Toast, ToastClose, ToastDescription, ToastRegion, ToastTitle } from '@ui-sdk/svelte/toast';
+	import {
+		Toast,
+		ToastClose,
+		ToastDescription,
+		ToastRegion,
+		ToastTitle,
+		toast
+	} from '@ui-sdk/svelte/toast';
 	import { api, ApiError, messageOf } from '#lib/api.ts';
 	import ConfirmHost from '#lib/components/ConfirmHost.svelte';
+	import TemporaryPassword from '#lib/components/TemporaryPassword.svelte';
+	import { temporary } from '#lib/temporary.svelte.ts';
 	import { session } from '#lib/session.svelte.ts';
 	import type { LayoutProps } from './$types';
 
 	let { children }: LayoutProps = $props();
 
 	const onLogin = $derived(page.route.id === '/login');
-	let refused = $state<string | null>(null);
+	/** Why /me failed: refused (403, the hub's message) or unreachable (anything else). */
+	let failure = $state<{ refused: boolean; message: string } | null>(null);
+	let attempt = $state(0);
 
 	const nav = [
 		{ href: resolve('/'), label: 'Overview', match: (id: string) => id === '/' },
@@ -26,24 +37,39 @@
 
 	// Who is logged in, once per session of the page; a 401 sends to the login page.
 	$effect(() => {
+		void attempt;
 		if (onLogin || session.me) return;
-		refused = null;
+		failure = null;
 		api.me().then(
 			(me) => (session.me = me),
 			(error) => {
-				if (error instanceof ApiError && error.status === 403) refused = error.message;
-				else if (!(error instanceof ApiError && error.status === 401)) refused = messageOf(error);
+				if (error instanceof ApiError && error.status === 403)
+					failure = { refused: true, message: error.message };
+				else if (!(error instanceof ApiError && error.status === 401))
+					failure = { refused: false, message: messageOf(error) };
 			}
 		);
 	});
 
+	// Leaving while the hub resets a password would lose the only copy of the new one.
+	beforeNavigate((navigation) => {
+		if (temporary.resetting) navigation.cancel();
+	});
+
+	/** Leaves only once the hub has ended the session: a failed logout must not look done. */
 	async function logout() {
 		try {
 			await api.logout();
-		} finally {
-			session.me = null;
-			await goto(resolve('/login'), { replace: true });
+		} catch (error) {
+			// A 401 means there is no session left: as good as logged out.
+			if (!(error instanceof ApiError && error.status === 401)) {
+				toast.error('Not logged out', { description: messageOf(error) });
+				return;
+			}
 		}
+		session.me = null;
+		failure = null;
+		await goto(resolve('/login'), { replace: true });
 	}
 </script>
 
@@ -73,7 +99,9 @@
 			</nav>
 			<div class="who">
 				{#if session.me}
-					<span class="me" title="Logged in as {session.me.username}">{session.me.username}</span>
+					<span class="me" title="Logged in as {session.me.username}"
+						><span class="visually-hidden">Logged in as </span>{session.me.username}</span
+					>
 				{/if}
 				<Button onclick={logout}>Log out</Button>
 			</div>
@@ -81,12 +109,18 @@
 	</header>
 
 	<main id="main" tabindex="-1">
-		{#if refused}
+		{#if failure}
 			<div class="page">
 				<div class="card refused" role="alert">
-					<h1>No access</h1>
-					<p>{refused}</p>
-					<div><Button data-variant="solid" onclick={logout}>Log in again</Button></div>
+					{#if failure.refused}
+						<h1>No access</h1>
+						<p>{failure.message}</p>
+						<div><Button data-variant="solid" onclick={logout}>Log in again</Button></div>
+					{:else}
+						<h1>The hub did not answer</h1>
+						<p>{failure.message}</p>
+						<div><Button data-variant="solid" onclick={() => attempt++}>Retry</Button></div>
+					{/if}
 				</div>
 			</div>
 		{:else if session.me}
@@ -98,6 +132,7 @@
 {/if}
 
 <ConfirmHost />
+<TemporaryPassword />
 
 <ToastRegion side="bottom" align="end">
 	{#snippet children()}
@@ -231,6 +266,11 @@
 			padding-bottom: 6px;
 		}
 		.me {
+			max-width: 10ch;
+		}
+	}
+	@media (max-width: 430px) {
+		.tag {
 			display: none;
 		}
 	}
