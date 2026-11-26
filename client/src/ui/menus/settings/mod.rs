@@ -6,6 +6,7 @@ pub mod controls;
 pub mod interface;
 pub mod video;
 
+use crate::i18n::tr;
 use accesskit::{NodeId, Role};
 use bevy::{
     a11y::AccessibilityNode,
@@ -77,10 +78,10 @@ impl SettingsTab {
 
     pub fn label(self) -> &'static str {
         match self {
-            SettingsTab::Controls => "Controls",
-            SettingsTab::Video => "Video",
-            SettingsTab::Audio => "Audio",
-            SettingsTab::Interface => "Interface",
+            SettingsTab::Controls => tr("settings.controls"),
+            SettingsTab::Video => tr("settings.video"),
+            SettingsTab::Audio => tr("settings.audio"),
+            SettingsTab::Interface => tr("settings.interface"),
         }
     }
 }
@@ -161,6 +162,17 @@ pub fn spawn_settings(
     context: SettingsContext,
     restore_focus: Option<Entity>,
 ) -> Entity {
+    spawn_settings_on(commands, assets, context, restore_focus, 0)
+}
+
+/// Spawns the settings open on the tab `tab` of `SettingsTab::ALL`.
+pub fn spawn_settings_on(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    context: SettingsContext,
+    restore_focus: Option<Entity>,
+    tab: usize,
+) -> Entity {
     let font: Handle<Font> = assets.load(FONT_PATH);
     let root = match context {
         SettingsContext::Menu => commands
@@ -236,7 +248,7 @@ pub fn spawn_settings(
         ))
         .id();
     commands.spawn((
-        Text::new("Settings"),
+        Text::new(tr("settings.title")),
         TextFont {
             font: font.clone().into(),
             font_size: px(FONT_XL).into(),
@@ -247,9 +259,9 @@ pub fn spawn_settings(
     ));
     let labels = SettingsTab::ALL.map(SettingsTab::label);
     let tabs = Tabs {
-        label: "Settings",
+        label: tr("settings.title"),
         tabs: &labels,
-        selected: 0,
+        selected: tab,
     };
     let bar = spawn_tabs(commands, &tabs, font.clone());
     commands
@@ -277,7 +289,7 @@ pub fn spawn_settings(
         ChildOf(panel),
         children![
             (
-                button("Back", ButtonVariant::Default, font.clone()),
+                button(tr("common.back"), ButtonVariant::Default, font.clone()),
                 observe(move |_: On<Activate>, mut commands: Commands| {
                     commands.entity(root).insert(CloseSettings);
                 }),
@@ -295,7 +307,7 @@ pub fn spawn_settings(
     // the first tab shows, with its key hints, as if the player had chosen it
     commands.trigger(TabChange {
         entity: bar,
-        index: 0,
+        index: tab,
     });
     root
 }

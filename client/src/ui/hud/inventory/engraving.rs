@@ -25,7 +25,7 @@ use crate::ui::widgets::slot::slot;
 use crate::ui::widgets::tooltip::Tooltip;
 use crate::world::AtlasWrapper;
 
-pub const ENGRAVING_TITLE: &str = "Engraving Table";
+pub const ENGRAVING_TITLE: &str = "engraving.title";
 
 /// The most enchantments an item takes: an axe's.
 const MAX_CHOICES: usize = 3;
@@ -262,8 +262,8 @@ pub fn display_engraving(
             false if creative => "Free".to_string(),
             false => levels(cost),
         };
-        let effect = enchantment.effect(if full { level } else { next });
-        let name = enchantment.title(if full { level } else { next });
+        let effect = crate::i18n::enchantment_effect(enchantment, if full { level } else { next });
+        let name = crate::i18n::enchantment_title(enchantment, if full { level } else { next });
         let described = format!("{name}: {effect}, {price}");
         if label.0 != described {
             commands
@@ -273,7 +273,7 @@ pub fn display_engraving(
         for child in children.iter() {
             if let Ok((part, mut text)) = texts.get_mut(child) {
                 match part {
-                    ChoiceText::Name => set(&mut text, enchantment.name()),
+                    ChoiceText::Name => set(&mut text, crate::i18n::enchantment_name(enchantment)),
                     ChoiceText::Effect => set(&mut text, &effect),
                     ChoiceText::Cost => set(&mut text, &price),
                 }

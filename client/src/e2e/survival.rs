@@ -137,7 +137,7 @@ fn a_deadly_fall_opens_the_death_screen_and_respawn_brings_the_player_back() {
 
     // Back in survival, it falls to its death
     h.set_game_mode(GameMode::Survival);
-    h.wait_for(&L::text(DEATH_TITLE), SERVER);
+    h.wait_for(&L::text(crate::i18n::tr(DEATH_TITLE)), SERVER);
     assert!(h.is_visible(&L::text("You hit the ground too hard")));
     assert!(player(h.world()).is_dead());
     assert!(!h.is_visible(&L::marker::<HudBottom>()), "the hotbar shows");
@@ -145,7 +145,7 @@ fn a_deadly_fall_opens_the_death_screen_and_respawn_brings_the_player_back() {
     h.snapshot("death_screen");
 
     // Respawn: the screen goes once the server brings the player back to the spawn
-    h.click(&L::text(RESPAWN));
+    h.click(&L::text(crate::i18n::tr(RESPAWN)));
     h.wait_until("the respawn", SERVER, |w| !player(w).is_dead());
     h.frames(5);
     assert!(h.find(&L::marker::<DeathScreen>()).is_empty());
@@ -357,7 +357,7 @@ fn a_player_in_lava_burns_loses_health_and_sees_an_orange_fog() {
         fogs.iter(w).any(|fog| fog.color == LAVA_FOG_COLOR)
     });
     h.snapshot("lava");
-    h.wait_for(&L::text(DEATH_TITLE), SERVER);
+    h.wait_for(&L::text(crate::i18n::tr(DEATH_TITLE)), SERVER);
     assert!(h.is_visible(&L::text("You tried to swim in lava")));
 }
 

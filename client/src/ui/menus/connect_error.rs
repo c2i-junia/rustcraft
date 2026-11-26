@@ -26,7 +26,7 @@ use crate::ui::widgets::dialog::{set_dialog_width, spawn_dialog_with_hints, Dial
 use crate::ui::widgets::hints::Hint;
 
 /// The primary action of the card, which opens the session again.
-pub const TRY_AGAIN: &str = "Try again";
+pub const TRY_AGAIN: &str = "connect.try_again";
 
 /// The index of Try again among the actions of the card: after Back.
 const TRY_AGAIN_ACTION: usize = 1;
@@ -198,7 +198,7 @@ fn connect_error_setup(
     let (title, body) = error_text(error, origin);
     let retry = can_try_again(error);
     let back = (back_label(origin), ButtonVariant::Default);
-    let actions = [back, (TRY_AGAIN, ButtonVariant::Primary)];
+    let actions = [back, (crate::i18n::tr(TRY_AGAIN), ButtonVariant::Primary)];
     let actions = if retry { &actions[..] } else { &actions[..1] };
     let dialog = Dialog {
         title: &title,

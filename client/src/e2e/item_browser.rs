@@ -46,7 +46,7 @@ use shared::players::game_mode::GameMode;
 
 /// The search field of the browser.
 fn search_field() -> L {
-    L::role(Role::TextInput, SEARCH_LABEL)
+    L::role(Role::TextInput, crate::i18n::tr(SEARCH_LABEL))
 }
 
 /// The slot of `name` in the catalog.
@@ -671,7 +671,7 @@ fn creative_takes_from_the_catalog_and_the_list_destroys_the_held_stack() {
     h.press(KeyCode::KeyE);
     h.wait_for(&L::text("Items"), SCREEN);
     h.frames(2);
-    assert!(h.is_visible(&L::text(TRASH_HINT)));
+    assert!(h.is_visible(&L::text(crate::i18n::tr(TRASH_HINT))));
     let held = |h: &mut Harness, what: &str, expected: Option<(ItemId, u32)>| {
         h.wait_until(what, SERVER, |w| floating(w) == expected);
     };
@@ -747,7 +747,7 @@ fn creative_takes_from_the_catalog_and_the_list_destroys_the_held_stack() {
     h.press(KeyCode::KeyE);
     h.wait_for(&L::text("Items"), SCREEN);
     h.frames(2);
-    assert!(!h.is_visible(&L::text(TRASH_HINT)));
+    assert!(!h.is_visible(&L::text(crate::i18n::tr(TRASH_HINT))));
     h.click(&L::cell(0));
     held(&mut h, "the sand", Some((ItemId::Sand, 3)));
     let list = h.rect_of(&L::marker::<CatalogList>());

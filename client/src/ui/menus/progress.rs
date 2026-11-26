@@ -316,7 +316,7 @@ fn spawn_achievements(
     ));
     for achievement in Achievement::ALL {
         let has = has(achievement);
-        let (title, goal) = (achievement.title(), achievement.goal());
+        let (title, goal) = (crate::i18n::achievement_title(achievement), crate::i18n::achievement_goal(achievement));
         let (state, title_color) = if has {
             ("Earned", TEXT)
         } else {

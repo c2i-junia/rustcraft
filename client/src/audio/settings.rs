@@ -1,5 +1,6 @@
 //! The volumes the player chose, saved in `audio.ron` in the game folder.
 
+use crate::i18n::tr;
 use bevy::prelude::*;
 use ron::{from_str, ser::PrettyConfig};
 use serde::{Deserialize, Serialize};
@@ -32,11 +33,11 @@ impl Channel {
 
     pub fn label(self) -> &'static str {
         match self {
-            Channel::Master => "Master",
-            Channel::Effects => "Effects",
-            Channel::Interface => "Interface",
-            Channel::Weather => "Weather",
-            Channel::Music => "Music",
+            Channel::Master => tr("audio.master"),
+            Channel::Effects => tr("audio.effects"),
+            Channel::Interface => tr("audio.interface"),
+            Channel::Weather => tr("audio.weather"),
+            Channel::Music => tr("audio.music"),
         }
     }
 }

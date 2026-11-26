@@ -17,6 +17,10 @@ bevy_renet = "5.0"
 bincode = "1.3.3"
 serde = { version = "1.0", features = ["derive"] }
 ron = "0.6"
+# The language of the system, the default one of the game
+sys-locale = "0.3"
+# The fallback of the pixel font, glyph by glyph (`ui/fonts.rs`)
+fontique = "=0.9.0"
 shared = { path = "../shared" }
 # Its default features link Bevy dynamically: a release would not start without its library
 server = { path = "../server", default-features = false }

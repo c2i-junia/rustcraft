@@ -422,7 +422,7 @@ fn closing_the_window_in_a_world_saves_then_quits() {
     h.click(&button("Save and quit to title"));
     // a close while the world is written waits for it too, with no confirmation
     h.request_close();
-    assert!(h.is_visible(&L::text(QUITTING_TITLE)));
+    assert!(h.is_visible(&L::text(crate::i18n::tr(QUITTING_TITLE))));
     assert!(!h.has_exited());
 
     release.send(()).unwrap();
@@ -441,7 +441,7 @@ fn closing_the_window_while_a_world_starts_waits_for_it() {
     assert_eq!(h.game_state(), GameState::PreGameLoading);
     let release = hold_the_local_server(&mut h);
     h.request_close();
-    let card = L::role(Role::Dialog, QUITTING_TITLE);
+    let card = L::role(Role::Dialog, crate::i18n::tr(QUITTING_TITLE));
     assert!(h.is_visible(&card));
     assert!(!h.has_exited());
 
@@ -456,7 +456,7 @@ fn closing_the_window_while_a_world_starts_waits_for_it() {
     h.frames(2);
     assert_eq!(h.menu_state(), menu);
     assert_eq!(h.game_state(), GameState::Menu);
-    assert!(!h.is_visible(&L::text(QUIT_TITLE)));
+    assert!(!h.is_visible(&L::text(crate::i18n::tr(QUIT_TITLE))));
     assert!(h.is_visible(&card));
     assert!(!h.has_exited());
 
@@ -477,7 +477,7 @@ fn closing_the_window_during_gameplay_saves_then_quits() {
     let release = hold_the_local_server(&mut h);
     let before = written();
     h.request_close();
-    assert!(h.is_visible(&L::role(Role::Dialog, QUITTING_TITLE)));
+    assert!(h.is_visible(&L::role(Role::Dialog, crate::i18n::tr(QUITTING_TITLE))));
     assert!(!h.has_exited());
     h.frames(3);
     assert!(!h.has_exited());

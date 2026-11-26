@@ -7,6 +7,7 @@ use shared::GameFolderPaths;
 use std::fs;
 
 use crate::constants::INTERFACE_SETTINGS_PATH;
+use crate::i18n::{Language, tr};
 
 /// The UI scale the player asked for.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,7 +32,7 @@ impl UiScaleChoice {
 
     pub fn label(self) -> &'static str {
         match self {
-            UiScaleChoice::Auto => "Auto",
+            UiScaleChoice::Auto => tr("interface.ui_scale.auto"),
             UiScaleChoice::X1 => "1",
             UiScaleChoice::X1_5 => "1.5",
             UiScaleChoice::X2 => "2",
@@ -71,9 +72,9 @@ impl FpsCounterChoice {
 
     pub fn label(self) -> &'static str {
         match self {
-            FpsCounterChoice::Off => "Off",
-            FpsCounterChoice::Number => "Number",
-            FpsCounterChoice::Graph => "Graph",
+            FpsCounterChoice::Off => tr("common.off"),
+            FpsCounterChoice::Number => tr("interface.fps.number"),
+            FpsCounterChoice::Graph => tr("interface.fps.graph"),
         }
     }
 
@@ -97,8 +98,8 @@ impl MinimapChoice {
 
     pub fn label(self) -> &'static str {
         match self {
-            MinimapChoice::Off => "Off",
-            MinimapChoice::On => "On",
+            MinimapChoice::Off => tr("common.off"),
+            MinimapChoice::On => tr("common.on"),
         }
     }
 }
@@ -116,8 +117,8 @@ impl HintsChoice {
 
     pub fn label(self) -> &'static str {
         match self {
-            HintsChoice::Off => "Off",
-            HintsChoice::On => "On",
+            HintsChoice::Off => tr("common.off"),
+            HintsChoice::On => tr("common.on"),
         }
     }
 }
@@ -137,8 +138,8 @@ impl InventoryTweaksChoice {
 
     pub fn label(self) -> &'static str {
         match self {
-            InventoryTweaksChoice::Off => "Off",
-            InventoryTweaksChoice::On => "On",
+            InventoryTweaksChoice::Off => tr("common.off"),
+            InventoryTweaksChoice::On => tr("common.on"),
         }
     }
 }
@@ -153,6 +154,19 @@ pub struct InterfaceSettings {
     pub hints: HintsChoice,
     /// Chosen on the Controls tab.
     pub inventory_tweaks: InventoryTweaksChoice,
+    /// The language of the game; that of the system until the player chooses one.
+    pub language: Option<Language>,
+}
+
+impl InterfaceSettings {
+    /// The language the game is in: the one chosen, or that of the system. The tests run in
+    /// English whatever the system.
+    pub fn language(&self) -> Language {
+        if cfg!(test) {
+            return self.language.unwrap_or_default();
+        }
+        self.language.unwrap_or_else(Language::of_system)
+    }
 }
 
 /// The saved settings, or the default ones when none were saved or the file cannot be read.
@@ -202,6 +216,7 @@ mod tests {
             minimap: MinimapChoice::Off,
             hints: HintsChoice::Off,
             inventory_tweaks: InventoryTweaksChoice::Off,
+            language: Some(Language::French),
         };
         write_interface_settings(&settings, &paths);
         let reloaded = load_interface_settings(&paths);

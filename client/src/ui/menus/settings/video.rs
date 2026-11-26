@@ -3,6 +3,7 @@
 //! with a note saying what each style draws, the biome blend, the shaders, with a note saying
 //! what each quality draws, and the lighting, the brightness, the shadows and the effects.
 
+use crate::i18n::{tr, trf};
 use bevy::{prelude::*, ui_widgets::ValueChange};
 use shared::{GameFolderPaths, MIN_RENDER_DISTANCE};
 
@@ -42,22 +43,22 @@ pub struct ShadersNote;
 
 fn shaders_label(quality: ShaderQuality) -> &'static str {
     match quality {
-        ShaderQuality::Off => "Off",
-        ShaderQuality::Low => "Low",
-        ShaderQuality::Medium => "Medium",
-        ShaderQuality::High => "High",
-        ShaderQuality::Ultra => "Ultra",
+        ShaderQuality::Off => tr("video.shaders.off"),
+        ShaderQuality::Low => tr("video.shaders.low"),
+        ShaderQuality::Medium => tr("video.shaders.medium"),
+        ShaderQuality::High => tr("video.shaders.high"),
+        ShaderQuality::Ultra => tr("video.shaders.ultra"),
     }
 }
 
 /// What the note under the shaders says of `quality`: what it draws more than the one below.
 fn shaders_note(quality: ShaderQuality) -> &'static str {
     match quality {
-        ShaderQuality::Off => "The look of the game without shaders",
-        ShaderQuality::Low => "A real sky, light that follows the sun, and glow",
-        ShaderQuality::Medium => "Adds reflections on the water and steadier edges",
-        ShaderQuality::High => "Adds rays of light, soft shade and longer shadows",
-        ShaderQuality::Ultra => "Finer shadows and rays of light, for a strong graphics card",
+        ShaderQuality::Off => tr("video.shaders.off.note"),
+        ShaderQuality::Low => tr("video.shaders.low.note"),
+        ShaderQuality::Medium => tr("video.shaders.medium.note"),
+        ShaderQuality::High => tr("video.shaders.high.note"),
+        ShaderQuality::Ultra => tr("video.shaders.ultra.note"),
     }
 }
 
@@ -66,18 +67,18 @@ const CLOUD_STYLES: [CloudStyle; 3] = [CloudStyle::Fancy, CloudStyle::Fast, Clou
 
 fn clouds_label(style: CloudStyle) -> &'static str {
     match style {
-        CloudStyle::Fancy => "Fancy",
-        CloudStyle::Fast => "Fast",
-        CloudStyle::Off => "Off",
+        CloudStyle::Fancy => tr("video.clouds.fancy"),
+        CloudStyle::Fast => tr("video.clouds.fast"),
+        CloudStyle::Off => tr("video.clouds.off"),
     }
 }
 
 /// What the note under the clouds says of `style`.
 fn clouds_note(style: CloudStyle) -> &'static str {
     match style {
-        CloudStyle::Fancy => "Clouds made of blocks",
-        CloudStyle::Fast => "A flat layer of clouds",
-        CloudStyle::Off => "No clouds",
+        CloudStyle::Fancy => tr("video.clouds.fancy.note"),
+        CloudStyle::Fast => tr("video.clouds.fast.note"),
+        CloudStyle::Off => tr("video.clouds.off.note"),
     }
 }
 
@@ -90,9 +91,13 @@ fn note_font(font: &Handle<Font>) -> TextFont {
 }
 
 /// The options of the lighting, in the order of the control: smooth first.
-const LIGHTING_OPTIONS: [&str; 2] = ["Smooth", "Flat"];
+fn lighting_options() -> [&'static str; 2] {
+    [tr("video.smooth"), tr("video.flat")]
+}
 /// The options of the shadows and of the effects: on first.
-const ON_OFF: [&str; 2] = ["On", "Off"];
+fn on_off() -> [&'static str; 2] {
+    [tr("common.on"), tr("common.off")]
+}
 
 /// A step of 5 %, from Minecraft's "Moody" to its "Bright".
 const BRIGHTNESS_SCALE: SliderScale = SliderScale {
@@ -106,8 +111,8 @@ const BRIGHTNESS_SCALE: SliderScale = SliderScale {
 /// The brightness as Minecraft shows it: "Moody", "Bright", or "+40%" in between.
 fn brightness_label(value: f32) -> String {
     match value.round() {
-        0. => "Moody".to_string(),
-        100. => "Bright".to_string(),
+        0. => tr("video.brightness.moody").to_string(),
+        100. => tr("video.brightness.bright").to_string(),
         percent => format!("+{percent}%"),
     }
 }
@@ -189,7 +194,7 @@ pub fn spawn_video_tab(
         ))
         .id();
     let field = SliderField {
-        label: "Field of view",
+        label: tr("video.fov"),
         value: view.fov,
         scale: FOV_SCALE,
     };
@@ -202,7 +207,7 @@ pub fn spawn_video_tab(
     spawn_choice(
         commands,
         (column, &font),
-        ("Fullscreen", &ON_OFF, !view.fullscreen),
+        (tr("video.fullscreen"), &on_off(), !view.fullscreen),
     )
     .observe(choose_fullscreen);
 
@@ -218,7 +223,7 @@ pub fn spawn_video_tab(
         ))
         .id();
     let field = SliderField {
-        label: "Render distance",
+        label: tr("video.render_distance"),
         value: render_distance.distance as f32,
         scale: RENDER_DISTANCE_SCALE,
     };
@@ -254,10 +259,10 @@ pub fn spawn_video_tab(
             ChildOf(panel),
         ))
         .id();
-    let row = spawn_row(commands, column, "Clouds", &font);
+    let row = spawn_row(commands, column, tr("video.clouds"), &font);
     let labels = CLOUD_STYLES.map(clouds_label);
     let segmented = Segmented {
-        label: "Clouds",
+        label: tr("video.clouds"),
         options: &labels,
         selected: CLOUD_STYLES
             .iter()
@@ -279,7 +284,7 @@ pub fn spawn_video_tab(
     ));
 
     let field = SliderField {
-        label: "Biome blend",
+        label: tr("video.biome_blend"),
         value: biome_blend.radius as f32,
         scale: BIOME_BLEND_SCALE,
     };
@@ -302,10 +307,10 @@ pub fn spawn_video_tab(
             ChildOf(panel),
         ))
         .id();
-    let row = spawn_row(commands, column, "Shaders", &font);
+    let row = spawn_row(commands, column, tr("video.shaders"), &font);
     let labels = ShaderQuality::ALL.map(shaders_label);
     let segmented = Segmented {
-        label: "Shaders",
+        label: tr("video.shaders"),
         options: &labels,
         selected: ShaderQuality::ALL
             .iter()
@@ -340,12 +345,12 @@ pub fn spawn_video_tab(
     spawn_choice(
         commands,
         (graphics_column, &font),
-        ("Lighting", &LIGHTING_OPTIONS, !graphics.smooth_lighting),
+        (tr("video.lighting"), &lighting_options(), !graphics.smooth_lighting),
     )
     .observe(choose_lighting);
 
     let field = SliderField {
-        label: "Brightness",
+        label: tr("video.brightness"),
         value: graphics.brightness * 100.,
         scale: BRIGHTNESS_SCALE,
     };
@@ -359,13 +364,13 @@ pub fn spawn_video_tab(
     spawn_choice(
         commands,
         (graphics_column, &font),
-        ("Shadows", &ON_OFF, !graphics.shadows),
+        (tr("video.shadows"), &on_off(), !graphics.shadows),
     )
     .observe(choose_shadows);
     spawn_choice(
         commands,
         (graphics_column, &font),
-        ("Effects", &ON_OFF, !graphics.effects),
+        (tr("video.effects"), &on_off(), !graphics.effects),
     )
     .observe(choose_effects);
 }
@@ -587,8 +592,8 @@ fn save_on_release(
 /// the game grants less, when its `limit` is below the `distance` chosen.
 fn render_distance_note(distance: u32, limit: Option<u32>) -> String {
     match limit {
-        Some(limit) if limit < distance => format!("Limited to {limit} by this server"),
-        _ => "Chunks loaded in every direction around you".to_string(),
+        Some(limit) if limit < distance => trf("video.render_distance.limited", &[("limit", &limit)]),
+        _ => tr("video.render_distance.note").to_string(),
     }
 }
 

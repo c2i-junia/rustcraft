@@ -146,7 +146,7 @@ fn settings_opens_the_settings() {
 fn quit_exits_the_game() {
     let mut h = main_menu();
     h.click(&L::text("Quit game"));
-    h.wait_for(&L::text(QUIT_TITLE), SCREEN);
+    h.wait_for(&L::text(crate::i18n::tr(QUIT_TITLE)), SCREEN);
     assert!(!h.has_exited());
     h.click(&L::role(Role::Button, "Quit"));
     assert!(h.has_exited());
@@ -166,7 +166,7 @@ fn closing_the_window_in_the_menus_quits_at_once() {
 fn escape_asks_before_quitting_with_cancel_focused() {
     let mut h = main_menu();
     h.press(KeyCode::Escape);
-    h.wait_for(&L::text(QUIT_TITLE), SCREEN);
+    h.wait_for(&L::text(crate::i18n::tr(QUIT_TITLE)), SCREEN);
     assert_eq!(h.focus_label().as_deref(), Some("Cancel"));
     assert!(!h.has_exited());
     // opened from the keyboard, the dialog shows where Enter goes
@@ -179,9 +179,9 @@ fn escape_asks_before_quitting_with_cancel_focused() {
 
     // Escape closes the dialog, and the same key does not open it again
     h.press(KeyCode::Escape);
-    assert!(!h.is_visible(&L::text(QUIT_TITLE)));
+    assert!(!h.is_visible(&L::text(crate::i18n::tr(QUIT_TITLE))));
     h.frames(2);
-    assert!(!h.is_visible(&L::text(QUIT_TITLE)), "the dialog reopened");
+    assert!(!h.is_visible(&L::text(crate::i18n::tr(QUIT_TITLE))), "the dialog reopened");
     assert!(!h.has_exited());
     assert_eq!(h.focus_label().as_deref(), Some("Singleplayer"));
     assert!(
@@ -192,15 +192,15 @@ fn escape_asks_before_quitting_with_cancel_focused() {
 
     // Enter on Cancel closes it
     h.press(KeyCode::Escape);
-    h.wait_for(&L::text(QUIT_TITLE), SCREEN);
+    h.wait_for(&L::text(crate::i18n::tr(QUIT_TITLE)), SCREEN);
     h.press(KeyCode::Enter);
     h.frames(2);
-    assert!(!h.is_visible(&L::text(QUIT_TITLE)));
+    assert!(!h.is_visible(&L::text(crate::i18n::tr(QUIT_TITLE))));
     assert!(!h.has_exited());
 
     // Tab then Enter quits
     h.press(KeyCode::Escape);
-    h.wait_for(&L::text(QUIT_TITLE), SCREEN);
+    h.wait_for(&L::text(crate::i18n::tr(QUIT_TITLE)), SCREEN);
     h.press(KeyCode::Tab);
     h.press(KeyCode::Enter);
     h.frames(2);
@@ -214,7 +214,7 @@ fn the_credits_open_from_the_main_menu_and_escape_leaves_them() {
         let mut h = main_menu();
         h.resize(width, height);
         h.snapshot("menu");
-        h.click_when_ready(&L::role(Role::Button, CREDITS_LABEL));
+        h.click_when_ready(&L::role(Role::Button, crate::i18n::tr(CREDITS_LABEL)));
         h.wait_for(&L::marker::<Credits>(), SCREEN);
         // no key reaches the menu under them
         for key in [KeyCode::Tab, KeyCode::ArrowDown, KeyCode::Enter] {
@@ -222,7 +222,7 @@ fn the_credits_open_from_the_main_menu_and_escape_leaves_them() {
         }
         h.frames(2);
         assert_eq!(h.menu_state(), MenuState::Main);
-        assert!(!h.is_visible(&L::text(QUIT_TITLE)));
+        assert!(!h.is_visible(&L::text(crate::i18n::tr(QUIT_TITLE))));
         let start = Instant::now();
         while start.elapsed() < Duration::from_secs(5) {
             h.frames(5);
@@ -232,8 +232,8 @@ fn the_credits_open_from_the_main_menu_and_escape_leaves_them() {
         h.press(KeyCode::Escape);
         h.frames(2);
         assert!(h.find(&L::marker::<Credits>()).is_empty());
-        assert!(!h.is_visible(&L::text(QUIT_TITLE)), "Escape asked to quit");
-        assert_eq!(h.focus_label().as_deref(), Some(CREDITS_LABEL));
+        assert!(!h.is_visible(&L::text(crate::i18n::tr(QUIT_TITLE))), "Escape asked to quit");
+        assert_eq!(h.focus_label().as_deref(), Some(crate::i18n::tr(CREDITS_LABEL)));
         assert_eq!(h.menu_state(), MenuState::Main);
     }
 }
@@ -253,12 +253,12 @@ fn the_keyboard_alone_opens_a_screen() {
     // the arrows walk the column, then go across to the skin
     for (key, label) in [
         (KeyCode::ArrowDown, "Multiplayer"),
-        (KeyCode::ArrowDown, CREDITS_LABEL),
+        (KeyCode::ArrowDown, crate::i18n::tr(CREDITS_LABEL)),
         (KeyCode::ArrowDown, "Settings"),
         (KeyCode::ArrowRight, "Quit game"),
         (KeyCode::ArrowRight, SKINS_TITLE),
         (KeyCode::ArrowLeft, "Quit game"),
-        (KeyCode::ArrowUp, CREDITS_LABEL),
+        (KeyCode::ArrowUp, crate::i18n::tr(CREDITS_LABEL)),
     ] {
         h.press(key);
         assert_eq!(h.focus_label().as_deref(), Some(label), "after {key:?}");

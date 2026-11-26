@@ -1,9 +1,12 @@
 //! The Interface tab of the settings: the UI scale, with a note when the window is too small for
 //! it, the FPS counter, the minimap and the first hints, each saved as soon as it is chosen.
 
+use crate::i18n::{tr, trf};
 use bevy::{prelude::*, window::PrimaryWindow};
 use shared::GameFolderPaths;
 
+use super::{spawn_settings_on, SettingsRoot, SettingsTab};
+use crate::i18n::{set_language, Language};
 use crate::ui::settings::{
     write_interface_settings, FpsCounterChoice, HintsChoice, InterfaceSettings, MinimapChoice,
     UiScaleChoice,
@@ -66,6 +69,23 @@ pub fn spawn_interface_tab(
     settings: &InterfaceSettings,
     font: Handle<Font>,
 ) {
+    let row = spawn_row(commands, panel, tr("interface.language"), &font);
+    let labels = Language::ALL.map(Language::native_name);
+    let selected = Language::ALL
+        .iter()
+        .position(|&language| language == settings.language())
+        .unwrap_or_default();
+    let segmented = Segmented {
+        label: tr("interface.language"),
+        options: &labels,
+        selected,
+    };
+    let group = spawn_segmented(commands, &segmented, font.clone());
+    commands
+        .entity(group)
+        .insert(ChildOf(row))
+        .observe(choose_language);
+
     // the control, and its note under it
     let column = commands
         .spawn((
@@ -77,14 +97,14 @@ pub fn spawn_interface_tab(
             ChildOf(panel),
         ))
         .id();
-    let row = spawn_row(commands, column, "UI scale", &font);
+    let row = spawn_row(commands, column, tr("interface.ui_scale"), &font);
     let labels = UiScaleChoice::ALL.map(UiScaleChoice::label);
     let selected = UiScaleChoice::ALL
         .iter()
         .position(|&choice| choice == settings.ui_scale)
         .unwrap_or_default();
     let segmented = Segmented {
-        label: "UI scale",
+        label: tr("interface.ui_scale"),
         options: &labels,
         selected,
     };
@@ -107,14 +127,14 @@ pub fn spawn_interface_tab(
         ChildOf(column),
     ));
 
-    let row = spawn_row(commands, panel, "FPS counter", &font);
+    let row = spawn_row(commands, panel, tr("interface.fps_counter"), &font);
     let labels = FpsCounterChoice::ALL.map(FpsCounterChoice::label);
     let selected = FpsCounterChoice::ALL
         .iter()
         .position(|&choice| choice == settings.fps_counter)
         .unwrap_or_default();
     let segmented = Segmented {
-        label: "FPS counter",
+        label: tr("interface.fps_counter"),
         options: &labels,
         selected,
     };
@@ -124,14 +144,14 @@ pub fn spawn_interface_tab(
         .insert(ChildOf(row))
         .observe(choose_fps_counter);
 
-    let row = spawn_row(commands, panel, "Minimap", &font);
+    let row = spawn_row(commands, panel, tr("interface.minimap"), &font);
     let labels = MinimapChoice::ALL.map(MinimapChoice::label);
     let selected = MinimapChoice::ALL
         .iter()
         .position(|&choice| choice == settings.minimap)
         .unwrap_or_default();
     let segmented = Segmented {
-        label: "Minimap",
+        label: tr("interface.minimap"),
         options: &labels,
         selected,
     };
@@ -141,14 +161,14 @@ pub fn spawn_interface_tab(
         .insert(ChildOf(row))
         .observe(choose_minimap);
 
-    let row = spawn_row(commands, panel, "First hints", &font);
+    let row = spawn_row(commands, panel, tr("interface.hints"), &font);
     let labels = HintsChoice::ALL.map(HintsChoice::label);
     let selected = HintsChoice::ALL
         .iter()
         .position(|&choice| choice == settings.hints)
         .unwrap_or_default();
     let segmented = Segmented {
-        label: "First hints",
+        label: tr("interface.hints"),
         options: &labels,
         selected,
     };
@@ -157,6 +177,33 @@ pub fn spawn_interface_tab(
         .entity(group)
         .insert(ChildOf(row))
         .observe(choose_hints);
+}
+
+/// Applies and saves the chosen language, and spawns the settings again in it, on this tab. The
+/// rest of the UI takes it when it is spawned again.
+fn choose_language(
+    change: On<SegmentChange>,
+    mut settings: ResMut<InterfaceSettings>,
+    paths: Res<GameFolderPaths>,
+    root: Single<(Entity, &SettingsRoot)>,
+    assets: Res<AssetServer>,
+    mut commands: Commands,
+) {
+    let language = Language::ALL[change.index];
+    if language == crate::i18n::language() {
+        return;
+    }
+    settings.language = Some(language);
+    set_language(language);
+    write_interface_settings(&settings, &paths);
+    let (entity, root) = root.into_inner();
+    let (context, restore_focus) = (root.context, root.restore_focus);
+    commands.entity(entity).despawn();
+    let tab = SettingsTab::ALL
+        .iter()
+        .position(|&tab| tab == SettingsTab::Interface)
+        .unwrap_or_default();
+    spawn_settings_on(&mut commands, &assets, context, restore_focus, tab);
 }
 
 /// Applies and saves the chosen UI scale.
@@ -204,7 +251,7 @@ fn choose_hints(
 fn scale_limit(choice: UiScaleChoice, window_height: f32) -> Option<String> {
     let factor = choice.factor()?;
     let scale = ui_scale_for(choice, window_height);
-    (scale < factor).then(|| format!("Limited to {scale} by the window height"))
+    (scale < factor).then(|| trf("interface.ui_scale.limited", &[("scale", &scale)]))
 }
 
 /// Shows the note while the window is too small for the chosen scale, and says to what the

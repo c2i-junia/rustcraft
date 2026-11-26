@@ -22,8 +22,8 @@ const FAST: f32 = 4.0;
 /// How long the last lines stay.
 const HOLD_SECONDS: f32 = 3.0;
 /// The title over the statistics of the player.
-pub const STATS_TITLE: &str = "Your journey";
-pub const SKIP_HINT: &str = "Esc  Skip";
+pub const STATS_TITLE: &str = "credits.stats_title";
+pub const SKIP_HINT: &str = "credits.skip";
 
 /// A line of the credits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -173,7 +173,7 @@ pub fn spawn_credits(
                 ..default()
             };
             commands.spawn((space, ChildOf(roll)));
-            commands.spawn((text(STATS_TITLE, FONT_L, ACCENT), ChildOf(roll)));
+            commands.spawn((text(crate::i18n::tr(STATS_TITLE), FONT_L, ACCENT), ChildOf(roll)));
             for stat in 0..Stats::LABELS.len() {
                 let line = stat_line(progress, stat);
                 commands.spawn((CreditsStat(stat), text(&line, FONT_M, TEXT), ChildOf(roll)));
@@ -193,7 +193,7 @@ pub fn spawn_credits(
         entity.insert(ChildOf(roll));
     }
     commands.spawn((
-        text(SKIP_HINT, FONT_M, MUTED),
+        text(crate::i18n::tr(SKIP_HINT), FONT_M, MUTED),
         Node {
             position_type: PositionType::Absolute,
             right: px(SPACE_L),

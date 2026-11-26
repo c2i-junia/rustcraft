@@ -8,6 +8,7 @@ mod dropped_items;
 #[cfg(test)]
 mod e2e;
 mod game;
+mod i18n;
 mod input;
 mod mob;
 mod network;

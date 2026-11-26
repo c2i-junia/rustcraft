@@ -28,7 +28,7 @@ use crate::world::{AtlasWrapper, MaterialResource};
 
 /// The sprite of the directions a cartographer sells.
 const DIRECTIONS_PATH: &str = "./graphics/hud/directions.png";
-const DIRECTIONS_TITLE: &str = "Directions to a dungeon";
+const DIRECTIONS_TITLE: &str = "trade.directions";
 
 /// What the server said of the trade of the player.
 #[derive(Message, Debug, Clone)]
@@ -267,7 +267,7 @@ pub fn display_trade(
         }
         let title = match offer.goods {
             Goods::Items(item, nb) => counted((item, nb)),
-            Goods::Directions => DIRECTIONS_TITLE.to_string(),
+            Goods::Directions => crate::i18n::tr(DIRECTIONS_TITLE).to_string(),
         };
         let text = format!("{title} for {}", counted(offer.cost));
         if label.0 != text {

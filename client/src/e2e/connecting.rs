@@ -344,7 +344,7 @@ fn a_server_that_never_answers_times_out_then_says_it_runs_another_version() {
         "the error card at {panel:?}, the connecting card at {card:?}"
     );
     assert!(h.is_visible(&L::text_containing("127.0.0.1:9").within(no_answer)));
-    assert_eq!(h.focus_label().as_deref(), Some(TRY_AGAIN));
+    assert_eq!(h.focus_label().as_deref(), Some(crate::i18n::tr(TRY_AGAIN)));
     assert_eq!(h.menu_state(), MenuState::ConnectError);
     assert_eq!(h.game_state(), GameState::Menu);
 
@@ -359,7 +359,7 @@ fn a_server_that_never_answers_times_out_then_says_it_runs_another_version() {
     h.wait_for(&incompatible, SERVER);
     // trying again cannot help: only the way back is offered
     h.frames(1);
-    assert!(!h.is_visible(&L::text(TRY_AGAIN).within(incompatible)));
+    assert!(!h.is_visible(&L::text(crate::i18n::tr(TRY_AGAIN)).within(incompatible)));
     assert_eq!(h.focus_label().as_deref(), Some("Back to Servers"));
 
     h.press(KeyCode::Escape);
@@ -390,7 +390,7 @@ fn an_invalid_player_name_is_said_before_connecting() {
     assert!(!h.world().contains_resource::<NetcodeClientTransport>());
     // trying again cannot help: only the way back is offered
     h.frames(1);
-    assert!(!h.is_visible(&L::text(TRY_AGAIN).within(invalid_name)));
+    assert!(!h.is_visible(&L::text(crate::i18n::tr(TRY_AGAIN)).within(invalid_name)));
     assert_eq!(h.focus_label().as_deref(), Some("Back to Servers"));
 
     h.hover_at(Vec2::ZERO);
@@ -425,7 +425,7 @@ fn a_world_that_cannot_load_says_why_and_returns_to_its_card() {
     assert!(h.is_visible(&L::text_containing("could not be loaded").within(error_card(title))));
     // opening the world again would stop the same way: only the way back is offered
     h.frames(1);
-    assert!(!h.is_visible(&L::text(TRY_AGAIN).within(error_card(title))));
+    assert!(!h.is_visible(&L::text(crate::i18n::tr(TRY_AGAIN)).within(error_card(title))));
     assert_eq!(h.focus_label().as_deref(), Some("Back to Worlds"));
 
     h.press(KeyCode::Escape);
@@ -519,7 +519,7 @@ fn a_refused_join_says_why_and_a_stopped_server_sends_the_player_back_to_its_car
     let refused = "\"Local test\" refused you";
     h.wait_for(&error_card(refused), SERVER);
     assert!(h.is_visible(&L::text_containing("\"Tester\"").within(error_card(refused))));
-    assert_eq!(h.focus_label().as_deref(), Some(TRY_AGAIN));
+    assert_eq!(h.focus_label().as_deref(), Some(crate::i18n::tr(TRY_AGAIN)));
 
     // the name is free once the server no longer counts the other player
     intruder.leave();
@@ -594,7 +594,7 @@ fn a_player_off_the_whitelist_or_kicked_is_told_why_on_the_error_card() {
             .within(error_card(dismissed))
     ));
     assert_eq!(h.game_state(), GameState::Menu);
-    assert_eq!(h.focus_label().as_deref(), Some(TRY_AGAIN));
+    assert_eq!(h.focus_label().as_deref(), Some(crate::i18n::tr(TRY_AGAIN)));
 
     assert_eq!(
         admin.run_command("/whitelist add Tester", SERVER),

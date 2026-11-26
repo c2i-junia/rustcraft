@@ -78,7 +78,7 @@ pub fn show_boss_bar(
         DespawnOnExit(GameState::Game),
         children![
             (
-                Text::new(bar.kind.display_name()),
+                Text::new(crate::i18n::mob_name(bar.kind)),
                 TextFont {
                     font: assets.load(FONT_PATH).into(),
                     font_size: px(FONT_L).into(),

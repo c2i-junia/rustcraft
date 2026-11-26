@@ -48,7 +48,7 @@ impl Harness {
     /// Waits for the death screen, and checks that it says `message`.
     #[track_caller]
     fn wait_for_death(&mut self, message: &str) {
-        self.wait_for(&L::text(DEATH_TITLE), SERVER);
+        self.wait_for(&L::text(crate::i18n::tr(DEATH_TITLE)), SERVER);
         assert!(
             self.is_visible(&L::text(message)),
             "the death screen does not say {message:?}: {:?}",
@@ -103,7 +103,7 @@ fn a_starving_player_dies_leaves_its_inventory_where_it_died_and_respawns_fed() 
     );
 
     // Back at the spawn, fed and breathing; its items still lie where it died
-    h.click(&L::text(RESPAWN));
+    h.click(&L::text(crate::i18n::tr(RESPAWN)));
     h.wait_until("the respawn", SERVER, |w| !player(w).is_dead());
     let back = player(h.world());
     assert!(

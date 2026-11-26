@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use bevy::prelude::Component;
 use serde::{Deserialize, Serialize};
 
@@ -57,10 +58,10 @@ impl ActionCategory {
     /// The heading of the category on the Controls tab.
     pub fn label(self) -> &'static str {
         match self {
-            ActionCategory::Movement => "Movement",
-            ActionCategory::Interface => "Interface",
-            ActionCategory::View => "View",
-            ActionCategory::Debug => "Debug",
+            ActionCategory::Movement => tr("controls.category.movement"),
+            ActionCategory::Interface => tr("controls.category.interface"),
+            ActionCategory::View => tr("controls.category.view"),
+            ActionCategory::Debug => tr("controls.category.debug"),
         }
     }
 }
@@ -98,32 +99,32 @@ impl GameAction {
     /// The name of the action for the player.
     pub fn name(self) -> &'static str {
         match self {
-            GameAction::MoveForward => "Move forward",
-            GameAction::MoveBackward => "Move backward",
-            GameAction::MoveLeft => "Move left",
-            GameAction::MoveRight => "Move right",
-            GameAction::Jump => "Jump",
-            GameAction::Sprint => "Sprint",
-            GameAction::Escape => "Pause",
-            GameAction::ToggleFlyMode => "Toggle flying",
-            GameAction::FlyUp => "Fly up",
-            GameAction::FlyDown => "Sneak / fly down",
-            GameAction::ToggleInventory => "Inventory",
-            GameAction::Drop => "Drop item",
-            GameAction::OpenChat => "Chat",
-            GameAction::CycleFpsCounter => "FPS counter",
-            GameAction::OpenMap => "Map",
-            GameAction::MinimapZoomIn => "Zoom in the map",
-            GameAction::MinimapZoomOut => "Zoom out the map",
-            GameAction::ToggleViewMode => "Camera view",
-            GameAction::Zoom => "Zoom",
-            GameAction::RenderDistanceMinus => "Lower render distance",
-            GameAction::RenderDistancePlus => "Raise render distance",
-            GameAction::ToggleFps => "Debug overlay",
-            GameAction::ToggleChunkDebugMode => "Chunk borders",
-            GameAction::ToggleBlockWireframeDebugMode => "Block wireframe",
-            GameAction::ToggleRaycastDebugMode => "Raycast debug",
-            GameAction::ReloadChunks => "Reload chunks",
+            GameAction::MoveForward => tr("action.forward"),
+            GameAction::MoveBackward => tr("action.backward"),
+            GameAction::MoveLeft => tr("action.left"),
+            GameAction::MoveRight => tr("action.right"),
+            GameAction::Jump => tr("action.jump"),
+            GameAction::Sprint => tr("action.sprint"),
+            GameAction::Escape => tr("action.pause"),
+            GameAction::ToggleFlyMode => tr("action.toggle_fly"),
+            GameAction::FlyUp => tr("action.fly_up"),
+            GameAction::FlyDown => tr("action.fly_down"),
+            GameAction::ToggleInventory => tr("action.inventory"),
+            GameAction::Drop => tr("action.drop"),
+            GameAction::OpenChat => tr("action.chat"),
+            GameAction::CycleFpsCounter => tr("action.fps"),
+            GameAction::OpenMap => tr("action.map"),
+            GameAction::MinimapZoomIn => tr("action.map_zoom_in"),
+            GameAction::MinimapZoomOut => tr("action.map_zoom_out"),
+            GameAction::ToggleViewMode => tr("action.camera"),
+            GameAction::Zoom => tr("action.zoom"),
+            GameAction::RenderDistanceMinus => tr("action.render_down"),
+            GameAction::RenderDistancePlus => tr("action.render_up"),
+            GameAction::ToggleFps => tr("action.debug"),
+            GameAction::ToggleChunkDebugMode => tr("action.chunk_borders"),
+            GameAction::ToggleBlockWireframeDebugMode => tr("action.wireframe"),
+            GameAction::ToggleRaycastDebugMode => tr("action.raycast"),
+            GameAction::ReloadChunks => tr("action.reload_chunks"),
         }
     }
 

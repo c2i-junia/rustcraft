@@ -55,14 +55,27 @@ impl Enchantment {
         format!("{}{numeral}", self.name())
     }
 
+    /// The number its effect is measured by at `level`: percent of speed, of durability or
+    /// absorbed, or points of damage.
+    pub fn amount(self, level: u32) -> u32 {
+        level
+            * match self {
+                Self::Efficiency => EFFICIENCY_PER_LEVEL,
+                Self::Durability => DURABILITY_PER_LEVEL,
+                Self::Sharpness | Self::BowPower => DAMAGE_PER_LEVEL,
+                Self::Protection => PROTECTION_PER_LEVEL,
+            }
+    }
+
     /// What it does at `level`, in a few words.
     pub fn effect(self, level: u32) -> String {
+        let n = self.amount(level);
         match self {
-            Self::Efficiency => format!("+{} % mining speed", level * EFFICIENCY_PER_LEVEL),
-            Self::Durability => format!("+{} % durability", level * DURABILITY_PER_LEVEL),
-            Self::Sharpness => format!("+{} damage", level * DAMAGE_PER_LEVEL),
-            Self::Protection => format!("+{} % absorbed", level * PROTECTION_PER_LEVEL),
-            Self::BowPower => format!("+{} arrow damage", level * DAMAGE_PER_LEVEL),
+            Self::Efficiency => format!("+{n} % mining speed"),
+            Self::Durability => format!("+{n} % durability"),
+            Self::Sharpness => format!("+{n} damage"),
+            Self::Protection => format!("+{n} % absorbed"),
+            Self::BowPower => format!("+{n} arrow damage"),
         }
     }
 

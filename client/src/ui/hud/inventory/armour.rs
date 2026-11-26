@@ -42,7 +42,7 @@ pub(super) fn spawn_armour_slots(
                 grid.spawn((
                     InventoryCell { id: piece.slot() },
                     Tooltip::default(),
-                    slot(piece.name(), None, icon(atlas), font.clone()),
+                    slot(crate::i18n::armour_piece_name(piece), None, icon(atlas), font.clone()),
                 ))
                 .with_child((
                     ArmourOutline(piece),

@@ -50,7 +50,7 @@ pub fn announce_depth(
     commands.spawn((
         DepthBanner { age: 0.0 },
         Name::new("Depth reached"),
-        Text::new(tier.title()),
+        Text::new(crate::i18n::depth_title(tier)),
         TextFont {
             font: assets.load(FONT_PATH).into(),
             font_size: px(FONT_XL).into(),

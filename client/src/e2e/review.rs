@@ -295,7 +295,7 @@ fn every_screen_at_three_resolutions() {
         h.wait_for(&L::text("Singleplayer"), SCREEN);
         h.settled_snapshot("main");
         h.press(KeyCode::Escape);
-        h.wait_for(&L::role(Role::Dialog, QUIT_TITLE), SCREEN);
+        h.wait_for(&L::role(Role::Dialog, crate::i18n::tr(QUIT_TITLE)), SCREEN);
         h.settled_snapshot("quit_dialog");
         h.press(KeyCode::Escape);
         h.review_worlds();

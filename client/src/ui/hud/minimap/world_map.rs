@@ -41,7 +41,7 @@ use crate::ui::widgets::raised_bevel;
 use crate::ui::widgets::scroll::scroll_steps;
 
 /// The title of the world map.
-pub const WORLD_MAP_TITLE: &str = "Map";
+pub const WORLD_MAP_TITLE: &str = "map.title";
 
 /// The logical px a block takes on the world map, from the farthest view to the nearest.
 pub const SCALES: [f32; 4] = [1.0, 2.0, 4.0, 8.0];
@@ -185,7 +185,7 @@ pub fn spawn_world_map(commands: &mut Commands, assets: &AssetServer, map: &Worl
             Name::new("World map"),
             UiDialog,
             AccessibilityNode(accesskit::Node::new(Role::Dialog)),
-            AccessibleLabel::new(WORLD_MAP_TITLE),
+            AccessibleLabel::new(crate::i18n::tr(WORLD_MAP_TITLE)),
             Node {
                 position_type: PositionType::Absolute,
                 width: percent(100),
@@ -265,7 +265,7 @@ pub fn spawn_world_map(commands: &mut Commands, assets: &AssetServer, map: &Worl
         ))
         .id();
     commands.spawn((
-        Text::new(WORLD_MAP_TITLE),
+        Text::new(crate::i18n::tr(WORLD_MAP_TITLE)),
         TextFont {
             font: font.clone().into(),
             font_size: px(FONT_L).into(),

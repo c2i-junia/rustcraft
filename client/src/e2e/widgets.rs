@@ -436,7 +436,7 @@ fn escape_in_a_text_field_cancels_it() {
     assert_eq!(cancels(&mut h), 1);
     assert!(submits(&mut h).is_empty());
     // the field took the Escape: the main menu behind does not also ask to quit
-    assert!(!h.is_visible(&L::text(QUIT_TITLE)));
+    assert!(!h.is_visible(&L::text(crate::i18n::tr(QUIT_TITLE))));
 }
 
 #[test]
@@ -1014,7 +1014,7 @@ fn escape_in_a_form_field_closes_only_the_dialog() {
     assert!(h.is_visible(&L::role(Role::Button, "Before")));
     assert_eq!(h.focus_label().as_deref(), Some("Before"));
     assert_eq!(closes(&mut h), [None]);
-    assert!(!h.is_visible(&L::text(QUIT_TITLE)));
+    assert!(!h.is_visible(&L::text(crate::i18n::tr(QUIT_TITLE))));
 }
 
 /// Whether the probe form gives the focus back when its submit closes it.

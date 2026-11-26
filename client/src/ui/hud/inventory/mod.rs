@@ -27,16 +27,9 @@ pub use ghost::*;
 pub use setup::*;
 pub use trade::*;
 
-/// The name of an item as a player reads it: its identifier split into words.
+/// The name of an item as a player reads it, in the language of the game.
 pub fn item_name(item: ItemId) -> String {
-    let mut name = String::new();
-    for letter in format!("{item:?}").chars() {
-        if letter.is_uppercase() && !name.is_empty() {
-            name.push(' ');
-        }
-        name.push(letter);
-    }
-    name
+    crate::i18n::item_name(item).to_string()
 }
 
 /// The node over the whole window holding the panel, at the bottom and centred, and the item

@@ -46,6 +46,7 @@ pub fn widgets_plugin(app: &mut App) {
     // `add_client` inserts the saved settings; this is for apps that do not
     app.init_resource::<InterfaceSettings>();
     button::plugin(app);
+    crate::ui::fonts::plugin(app);
     dialog::plugin(app);
     focus::plugin(app);
     list::plugin(app);

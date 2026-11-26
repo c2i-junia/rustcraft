@@ -660,7 +660,7 @@ pub fn show_view(
     }
     for (mut text, is_title, is_name) in &mut parts.texts {
         let content = match (is_title, is_name, view) {
-            (true, _, None) => super::ITEM_BROWSER_TITLE.to_string(),
+            (true, _, None) => crate::i18n::tr(super::ITEM_BROWSER_TITLE).to_string(),
             (true, _, Some(view)) => view_title(view.tab).to_string(),
             (false, true, Some(view)) => item_name(view.item),
             (false, false, Some(view)) => {

@@ -41,9 +41,9 @@ pub enum MainMenuButton {
 }
 
 /// The title of the confirmation asked before quitting.
-pub const QUIT_TITLE: &str = "Quit Rustcraft?";
+pub const QUIT_TITLE: &str = "home.quit_title";
 /// The button of the credits.
-pub const CREDITS_LABEL: &str = "Credits";
+pub const CREDITS_LABEL: &str = "home.credits";
 
 /// The key hints of the main menu.
 pub const MAIN_HINTS: [Hint; 4] = [
@@ -179,7 +179,7 @@ pub fn home_setup(
     let singleplayer = wide(&mut commands, "Singleplayer", MainMenuButton::Singleplayer);
     commands.entity(singleplayer).insert(AutoFocus);
     wide(&mut commands, "Multiplayer", MainMenuButton::Multiplayer);
-    wide(&mut commands, CREDITS_LABEL, MainMenuButton::Credits);
+    wide(&mut commands, crate::i18n::tr(CREDITS_LABEL), MainMenuButton::Credits);
     // Settings and Quit, half as wide each, a little apart from the rows above
     let pair = commands
         .spawn((
@@ -333,7 +333,7 @@ pub fn open_quit_dialog_on_escape(
 /// button does: a world still saving is waited for.
 fn open_quit_dialog(commands: &mut Commands, asset_server: &Res<AssetServer>, focus: &InputFocus) {
     let dialog = Dialog {
-        title: QUIT_TITLE,
+        title: crate::i18n::tr(QUIT_TITLE),
         body: "",
         actions: &[
             ("Cancel", ButtonVariant::Default),

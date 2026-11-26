@@ -547,12 +547,12 @@ pub fn display_crafting_system(
         (Some(_), _, _) => CHEST_TITLE,
         (None, Some(_), _) => FURNACE_TITLE,
         (None, None, Some(_)) => CRAFTING_TABLE_TITLE,
-        (None, None, None) if is_engraving_shown(&inventory) => ENGRAVING_TITLE,
+        (None, None, None) if is_engraving_shown(&inventory) => crate::i18n::tr(ENGRAVING_TITLE),
         (None, None, None) => INVENTORY_TITLE,
     };
     let customer_of = trade.as_ref().and_then(|trade| trade.0.as_ref());
     let trade_open = customer_of.is_some();
-    let name = customer_of.map_or(name, |trade| trade.kind.display_name());
+    let name = customer_of.map_or(name, |trade| crate::i18n::mob_name(trade.kind));
     if let Ok(mut title) = title.single_mut() {
         if title.0 != name {
             title.0 = name.to_string();
@@ -650,8 +650,8 @@ fn notes(stack: &ItemStack) -> String {
     let enchantments = stack.enchantments().map(|(enchantment, level)| {
         format!(
             "{}: {}",
-            enchantment.title(level),
-            enchantment.effect(level)
+            crate::i18n::enchantment_title(enchantment, level),
+            crate::i18n::enchantment_effect(enchantment, level)
         )
     });
     let lines: Vec<String> = armour.into_iter().chain(enchantments).collect();

@@ -203,7 +203,7 @@ pub const EMPTY_SEARCH_HINTS: [Hint; 2] = [
 ];
 
 /// What the search field says while it is empty, and its accessible label.
-pub const SEARCH_LABEL: &str = "Search actions or keys";
+pub const SEARCH_LABEL: &str = "controls.search";
 
 /// The key hints while a slot waits for a key.
 pub const CAPTURE_HINTS: [Hint; 2] = [
@@ -510,8 +510,8 @@ pub fn spawn_controls_tab(
     let field = spawn_text_field(
         commands,
         &TextField {
-            label: SEARCH_LABEL,
-            placeholder: SEARCH_LABEL,
+            label: crate::i18n::tr(SEARCH_LABEL),
+            placeholder: crate::i18n::tr(SEARCH_LABEL),
             max_characters: Some(32),
             font: font.clone(),
             font_size: FONT_S,

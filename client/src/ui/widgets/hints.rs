@@ -2,6 +2,8 @@
 
 use bevy::prelude::*;
 
+use crate::i18n::tr_as;
+
 use crate::ui::theme::{
     BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_S, MUTED, PANEL, SLOT, SPACE_L, SPACE_S, SPACE_XS, TEXT,
 };
@@ -44,7 +46,7 @@ pub fn hint_bar(hints: &[Hint], font: Handle<Font>, glyph_font: Handle<Font>) ->
                 children![
                     key_cap(hint.keys, font.clone(), glyph_font.clone()),
                     (
-                        Text::new(hint.action),
+                        Text::new(tr_as("hint", hint.action)),
                         TextFont {
                             font: font.clone().into(),
                             font_size: px(FONT_S).into(),
@@ -77,6 +79,7 @@ pub fn hint_bar(hints: &[Hint], font: Handle<Font>, glyph_font: Handle<Font>) ->
 
 /// A key cap: `keys` on a sunken square. `glyph_font` replaces `font` when `keys` has an arrow.
 pub fn key_cap(keys: &str, font: Handle<Font>, glyph_font: Handle<Font>) -> impl Bundle {
+    let keys = tr_as("keycap", keys);
     let font = if uses_glyph_font(keys) {
         glyph_font
     } else {

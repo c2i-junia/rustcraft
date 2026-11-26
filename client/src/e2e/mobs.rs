@@ -184,7 +184,7 @@ fn a_gnawer_hatched_next_to_a_survival_player_bites_it() {
     h.snapshot("bitten");
 
     // It bites on to the death, 2 points every 15 ticks
-    h.wait_for(&L::text(DEATH_TITLE), SERVER);
+    h.wait_for(&L::text(crate::i18n::tr(DEATH_TITLE)), SERVER);
     assert!(h.is_visible(&L::text("A Gnawer got you")));
 }
 

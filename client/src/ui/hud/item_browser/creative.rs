@@ -7,9 +7,9 @@ use shared::world::{ItemId, ItemStack};
 use crate::ui::hud::item_name;
 
 /// What the footer says in Creative, beside the trash.
-pub const TRASH_HINT: &str = "Drop a stack here, or on the list, to destroy it.";
+pub const TRASH_HINT: &str = "browser.trash_hint";
 /// The accessible label of the trash.
-pub const TRASH_LABEL: &str = "Trash";
+pub const TRASH_LABEL: &str = "browser.trash";
 
 /// A gesture on an item of the catalog: a click (or Enter), a right click (or Space), or
 /// Shift with the click.

@@ -25,10 +25,10 @@ use crate::ui::theme::{FONT_L, FONT_XL, SPACE_L, SPACE_S, SPACE_XL, TEXT};
 use crate::ui::widgets::button::{button, set_label, ButtonVariant};
 use crate::ui::widgets::focus::{keep_focus_inside, ArrowNav};
 
-pub const DEATH_TITLE: &str = "You died!";
-pub const RESPAWN: &str = "Respawn";
+pub const DEATH_TITLE: &str = "death.title";
+pub const RESPAWN: &str = "death.respawn";
 /// The label of Respawn once clicked, until the server brings the player back.
-pub const RESPAWNING: &str = "Respawning...";
+pub const RESPAWNING: &str = "death.respawning";
 
 /// The width of the buttons of the death screen.
 const BUTTON_WIDTH: f32 = 320.0;
@@ -73,7 +73,7 @@ fn show_death_screen(
                 let shooter = everyone
                     .iter()
                     .find(|other| cause == DeathCause::Shot(other.id) && other.id != player.id);
-                cause.message_naming(shooter.map(|shooter| shooter.name.as_str()))
+                crate::i18n::death_message(cause, shooter.map(|shooter| shooter.name.as_str()))
             });
             spawn_death_screen(&mut commands, &assets, cause.as_deref(), origin.as_deref());
         }
@@ -97,7 +97,7 @@ fn spawn_death_screen(
             DeathScreen,
             UiDialog,
             AccessibilityNode(accesskit::Node::new(Role::Dialog)),
-            AccessibleLabel::new(DEATH_TITLE),
+            AccessibleLabel::new(crate::i18n::tr(DEATH_TITLE)),
             TabGroup::modal(),
             Node {
                 position_type: PositionType::Absolute,
@@ -117,7 +117,7 @@ fn spawn_death_screen(
         ))
         .id();
     commands.spawn((
-        Text::new(DEATH_TITLE),
+        Text::new(crate::i18n::tr(DEATH_TITLE)),
         TextFont {
             font: font.clone().into(),
             font_size: px(FONT_XL * 1.5).into(),
@@ -159,7 +159,7 @@ fn spawn_death_screen(
         .id();
     let respawn = commands
         .spawn((
-            button(RESPAWN, ButtonVariant::Primary, font.clone()),
+            button(crate::i18n::tr(RESPAWN), ButtonVariant::Primary, font.clone()),
             RespawnButton,
             AutoFocus,
             observe(respawn_on_click),
@@ -191,6 +191,6 @@ fn respawn_on_click(
     client.send_game_message(ClientToServerMessage::Respawn);
     commands
         .entity(event.entity)
-        .queue(set_label(RESPAWNING))
+        .queue(set_label(crate::i18n::tr(RESPAWNING)))
         .insert(InteractionDisabled);
 }

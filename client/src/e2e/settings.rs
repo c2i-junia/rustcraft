@@ -1235,7 +1235,7 @@ fn ctrl_f_searches_the_actions_by_name_or_key_and_escape_clears_then_leaves() {
     let hint = |text: &str| L::text(text).within(L::marker::<HintBar>());
     assert!(h.is_visible(&hint("Search")));
     h.ctrl_f();
-    assert_eq!(h.focus_label().as_deref(), Some(SEARCH_LABEL));
+    assert_eq!(h.focus_label().as_deref(), Some(crate::i18n::tr(SEARCH_LABEL)));
     h.wait_for(&hint("Results"), SCREEN);
 
     // a key's name finds the actions it is bound to; the other rows and categories hide
@@ -1260,7 +1260,7 @@ fn ctrl_f_searches_the_actions_by_name_or_key_and_escape_clears_then_leaves() {
 
     // Ctrl+F selects the search: what is typed replaces it
     h.ctrl_f();
-    assert_eq!(h.focus_label().as_deref(), Some(SEARCH_LABEL));
+    assert_eq!(h.focus_label().as_deref(), Some(crate::i18n::tr(SEARCH_LABEL)));
     h.type_text("xyz");
     h.wait_for(
         &L::text("No action or key matches \u{201c}xyz\u{201d}"),
@@ -1279,7 +1279,7 @@ fn ctrl_f_searches_the_actions_by_name_or_key_and_escape_clears_then_leaves() {
     h.wait_for(&L::text("Move forward"), SCREEN);
     assert!(!h.is_visible(&L::text("1 of 25")));
     assert_eq!(h.menu_state(), MenuState::Settings);
-    assert_eq!(h.focus_label().as_deref(), Some(SEARCH_LABEL));
+    assert_eq!(h.focus_label().as_deref(), Some(crate::i18n::tr(SEARCH_LABEL)));
     h.wait_for(&hint("Back"), SCREEN);
     h.press(KeyCode::Escape);
     h.wait_for(&L::text("Singleplayer"), SCREEN);
@@ -1296,7 +1296,7 @@ fn ctrl_f_comes_back_to_the_controls_and_the_search_outlives_the_tab() {
     h.open_tab_showing("Audio", &master());
     h.ctrl_f();
     h.wait_for(&L::text("5 of 25"), SCREEN);
-    assert_eq!(h.focus_label().as_deref(), Some(SEARCH_LABEL));
+    assert_eq!(h.focus_label().as_deref(), Some(crate::i18n::tr(SEARCH_LABEL)));
     assert!(h.is_visible(&L::text("Chunk borders")));
     assert!(!h.is_visible(&L::text("Jump")));
     // Up from the first row goes back to the field
@@ -1306,7 +1306,7 @@ fn ctrl_f_comes_back_to_the_controls_and_the_search_outlives_the_tab() {
         Some("Debug overlay, primary key")
     );
     h.press(KeyCode::ArrowUp);
-    assert_eq!(h.focus_label().as_deref(), Some(SEARCH_LABEL));
+    assert_eq!(h.focus_label().as_deref(), Some(crate::i18n::tr(SEARCH_LABEL)));
     // a slot waiting for a key takes Ctrl+F for itself
     h.press(KeyCode::ArrowDown);
     h.press(KeyCode::Enter);

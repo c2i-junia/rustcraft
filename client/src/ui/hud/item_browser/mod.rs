@@ -33,9 +33,9 @@ pub use setup::*;
 pub use view::*;
 
 /// The title of the panel.
-pub const ITEM_BROWSER_TITLE: &str = "Items";
+pub const ITEM_BROWSER_TITLE: &str = "browser.title";
 /// The accessible label and the placeholder of the search field.
-pub const SEARCH_LABEL: &str = "Search items";
+pub const SEARCH_LABEL: &str = "browser.search";
 
 /// What the browser shows. It outlives the game screen: the search is still there the next time
 /// the inventory opens, for the session.

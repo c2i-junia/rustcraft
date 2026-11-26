@@ -26,9 +26,9 @@ use crate::ui::widgets::dialog::DIALOG_Z;
 use crate::ui::widgets::raised_bevel;
 
 /// The title of the card shown while the world is saved before quitting.
-pub const QUITTING_TITLE: &str = "Saving the world...";
+pub const QUITTING_TITLE: &str = "quit.saving";
 /// The note under it.
-pub const QUIT_NOW_NOTE: &str = "Close the window again to quit now.";
+pub const QUIT_NOW_NOTE: &str = "quit.now";
 
 /// The card shown while the world is saved before quitting.
 #[derive(Component)]
@@ -181,7 +181,7 @@ pub fn spawn_quitting_card(commands: &mut Commands, assets: &AssetServer) -> Ent
             Visibility::Visible,
             // the role before the label: the label's default node must not win
             AccessibilityNode(accesskit::Node::new(Role::Dialog)),
-            AccessibleLabel::new(QUITTING_TITLE),
+            AccessibleLabel::new(crate::i18n::tr(QUITTING_TITLE)),
             // Tab stays in it, where there is nothing to focus
             TabGroup::modal(),
             Node {
@@ -209,8 +209,8 @@ pub fn spawn_quitting_card(commands: &mut Commands, assets: &AssetServer) -> Ent
         raised_bevel(),
         ChildOf(root),
         children![
-            text(QUITTING_TITLE, FONT_L, TEXT),
-            text(QUIT_NOW_NOTE, FONT_S, MUTED),
+            text(crate::i18n::tr(QUITTING_TITLE), FONT_L, TEXT),
+            text(crate::i18n::tr(QUIT_NOW_NOTE), FONT_S, MUTED),
         ],
     ));
     root

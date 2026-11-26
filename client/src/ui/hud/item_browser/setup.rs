@@ -32,7 +32,7 @@ use crate::world::{AtlasWrapper, MaterialResource};
 /// The most characters the search field takes.
 const SEARCH_MAX_CHARACTERS: usize = 32;
 /// The label of the chip keeping the items craftable now.
-pub const CRAFTABLE_CHIP: &str = "Craftable";
+pub const CRAFTABLE_CHIP: &str = "browser.craftable";
 /// The side of the dot of a craftable item, its border included.
 const DOT_SIZE: f32 = 8.0;
 /// The room above and below the label of a chip; beside it, `SPACE_XS`, so that the chips take
@@ -84,7 +84,7 @@ pub fn setup_item_browser(
             ItemBrowser,
             // the role before the label: the label's default node must not win
             AccessibilityNode(accesskit::Node::new(Role::Group)),
-            AccessibleLabel::new(ITEM_BROWSER_TITLE),
+            AccessibleLabel::new(crate::i18n::tr(ITEM_BROWSER_TITLE)),
             Node {
                 position_type: PositionType::Absolute,
                 top: px(SPACE_L),
@@ -121,7 +121,7 @@ pub fn setup_item_browser(
         },
         ChildOf(panel),
         children![
-            (BrowserTitle, label(ITEM_BROWSER_TITLE, &font, FONT_L, TEXT)),
+            (BrowserTitle, label(crate::i18n::tr(ITEM_BROWSER_TITLE), &font, FONT_L, TEXT)),
             (ItemCount, label("", &font, FONT_S, MUTED)),
         ],
     ));
@@ -206,7 +206,7 @@ fn spawn_footer(
     commands
         .spawn((
             TrashSlot,
-            slot(TRASH_LABEL, None, ImageNode::default(), font.clone()),
+            slot(crate::i18n::tr(TRASH_LABEL), None, ImageNode::default(), font.clone()),
             ChildOf(creative),
         ))
         .with_child((
@@ -216,7 +216,7 @@ fn spawn_footer(
                 ..default()
             },
         ));
-    commands.spawn((label(TRASH_HINT, font, FONT_S, MUTED), ChildOf(creative)));
+    commands.spawn((label(crate::i18n::tr(TRASH_HINT), font, FONT_S, MUTED), ChildOf(creative)));
 }
 
 /// The handle of the drawer, at mid-height of the right edge: a `B` key cap over the title of the
@@ -232,7 +232,7 @@ fn spawn_handle(
             DrawerHandle,
             // the widget before the label: its `Role::Button` must win over the label's node
             UiButton,
-            AccessibleLabel::new(ITEM_BROWSER_TITLE),
+            AccessibleLabel::new(crate::i18n::tr(ITEM_BROWSER_TITLE)),
             TabIndex(-1),
             FocusRing,
             Hovered::default(),
@@ -274,7 +274,7 @@ fn spawn_handle(
                     },
                     Pickable::IGNORE,
                     children![(
-                        label(ITEM_BROWSER_TITLE, font, FONT_S, TEXT),
+                        label(crate::i18n::tr(ITEM_BROWSER_TITLE), font, FONT_S, TEXT),
                         Node {
                             position_type: PositionType::Absolute,
                             left: percent(50),
@@ -304,8 +304,8 @@ fn spawn_search_field(
     let field = spawn_text_field(
         commands,
         &TextField {
-            label: SEARCH_LABEL,
-            placeholder: SEARCH_LABEL,
+            label: crate::i18n::tr(SEARCH_LABEL),
+            placeholder: crate::i18n::tr(SEARCH_LABEL),
             max_characters: Some(SEARCH_MAX_CHARACTERS),
             font: font.clone(),
             font_size: FONT_S,
@@ -394,7 +394,7 @@ fn spawn_chips(commands: &mut Commands, panel: Entity, font: &Handle<Font>) {
         .spawn((
             // the widget before the label: its `Role::Button` must win over the label's node
             UiButton,
-            AccessibleLabel::new(CRAFTABLE_CHIP),
+            AccessibleLabel::new(crate::i18n::tr(CRAFTABLE_CHIP)),
             CraftableChip,
             TabIndex(0),
             FocusRing,
@@ -413,7 +413,7 @@ fn spawn_chips(commands: &mut Commands, panel: Entity, font: &Handle<Font>) {
                 right: BEVEL_LO,
             },
             ChildOf(row),
-            children![label(CRAFTABLE_CHIP, font, FONT_S, MUTED)],
+            children![label(crate::i18n::tr(CRAFTABLE_CHIP), font, FONT_S, MUTED)],
         ))
         .observe(toggle_craftable);
 }
@@ -536,7 +536,7 @@ fn spawn_grid(commands: &mut Commands, panel: Entity, atlas: &AtlasWrapper, font
         .spawn((
             CatalogGrid,
             AccessibilityNode(accesskit::Node::new(Role::Grid)),
-            AccessibleLabel::new(ITEM_BROWSER_TITLE),
+            AccessibleLabel::new(crate::i18n::tr(ITEM_BROWSER_TITLE)),
             Node {
                 display: Display::Grid,
                 grid_template_columns: RepeatedGridTrack::px(1, SLOT_SIZE),
@@ -563,7 +563,7 @@ fn spawn_grid(commands: &mut Commands, panel: Entity, atlas: &AtlasWrapper, font
         ChildOf(list),
         children![
             (NoMatchMessage, label("", font, FONT_S, TEXT)),
-            (NoMatchHint, label(NO_MATCH_HINT, font, FONT_S, MUTED)),
+            (NoMatchHint, label(crate::i18n::tr(NO_MATCH_HINT), font, FONT_S, MUTED)),
         ],
     ));
 }

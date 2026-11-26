@@ -2,10 +2,11 @@
 
 use shared::world::{ItemCategory, ItemId};
 
+use crate::i18n::{category_name, folded, tr, trf};
 use crate::ui::hud::item_name;
 
 /// Under the message saying that nothing matches.
-pub const NO_MATCH_HINT: &str = "Esc clears the search.";
+pub const NO_MATCH_HINT: &str = "browser.no_match_hint";
 
 /// Every item, by category in the order of `ItemCategory::ALL`, then in the order of `ItemId::ALL`.
 pub fn catalog() -> Vec<ItemId> {
@@ -19,15 +20,15 @@ pub fn catalog() -> Vec<ItemId> {
         .collect()
 }
 
-/// Whether `item` answers the search `query`, whose every word must match, whatever the case. A
+/// Whether `item` answers the search `query`, whose every word must match, whatever the case and
+/// the accents, in the language of the game. A
 /// word starting with `#` matches when the name of the item's category starts with the rest; any
 /// other word matches when the name of the item holds it, which covers a word of the name starting
 /// with it.
 pub fn matches(query: &str, item: ItemId) -> bool {
-    let name = item_name(item).to_lowercase();
-    let category = item.category().name().to_lowercase();
-    query
-        .to_lowercase()
+    let name = folded(&item_name(item));
+    let category = folded(category_name(item.category()));
+    folded(query)
         .split_whitespace()
         .all(|word| match word.strip_prefix('#') {
             Some(prefix) => category.starts_with(prefix),
@@ -46,33 +47,33 @@ pub fn count_label(shown: usize, total: usize) -> String {
 }
 
 /// Under the message saying that nothing is craftable now, with an empty search.
-pub const NO_CRAFTABLE_HINT: &str = "Gather more, or turn Craftable off.";
+pub const NO_CRAFTABLE_HINT: &str = "browser.no_craftable_hint";
 
 /// What the catalog says when nothing answers `query` in `category`, among the items craftable
 /// now when `craftable`.
 pub fn no_match_message(query: &str, category: Option<ItemCategory>, craftable: bool) -> String {
-    let within = category.map_or(String::new(), |category| format!(" in {}", category.name()));
+    let within = category.map_or(String::new(), |category| trf("browser.within", &[("category", &category_name(category))]));
     if craftable && query.trim().is_empty() {
-        format!("No craftable item{within}.")
+        trf("browser.no_craftable", &[("within", &within)])
     } else {
-        format!("No item matches \"{query}\"{within}.")
+        trf("browser.no_match", &[("query", &query), ("within", &within)])
     }
 }
 
 /// Under `no_match_message`: how to see more.
 pub fn no_match_hint(query: &str, craftable: bool) -> &'static str {
     if craftable && query.trim().is_empty() {
-        NO_CRAFTABLE_HINT
+        tr(NO_CRAFTABLE_HINT)
     } else {
-        NO_MATCH_HINT
+        tr(NO_MATCH_HINT)
     }
 }
 
 /// The second line of the tooltip of an item: its category, and whether it is a tool.
 pub fn category_detail(item: ItemId) -> String {
-    let category = item.category().name();
+    let category = category_name(item.category());
     if item.tool().is_some() {
-        format!("{category} · Tool")
+        trf("browser.category_tool", &[("category", &category)])
     } else {
         category.to_string()
     }

@@ -13,7 +13,7 @@ use super::{ItemView, RecipeTab};
 use crate::ui::hud::item_name;
 
 /// The line of the tooltip of an item craftable now, in Survival.
-pub const CRAFTABLE_NOTE: &str = "You have the ingredients";
+pub const CRAFTABLE_NOTE: &str = "browser.craftable_note";
 /// The keys of the tooltip of an item of the browser; A removes a bookmarked item from the
 /// bookmarks.
 pub fn item_keys_hint(bookmarked: bool) -> String {
@@ -22,14 +22,14 @@ pub fn item_keys_hint(bookmarked: bool) -> String {
 }
 
 /// What Ctrl+click on a catalog slot does, on the key line of its tooltip.
-pub const CTRL_CLICK_HINT: &str = "Ctrl+click fill";
+pub const CTRL_CLICK_HINT: &str = "browser.ctrl_click";
 
 /// The keys of the tooltip of a catalog slot (the grid, a bookmark, a recent item): those of an
 /// item slot, then Ctrl+click when the item has a recipe of the crafting grid to fill it with.
 pub fn catalog_keys_hint(item: ItemId, bookmarked: bool) -> String {
     let keys = item_keys_hint(bookmarked);
     if recipes_for(item).next().is_some() {
-        format!("{keys}  {CTRL_CLICK_HINT}")
+        format!("{keys}  {}", crate::i18n::tr(CTRL_CLICK_HINT))
     } else {
         keys
     }
@@ -80,7 +80,7 @@ pub fn station_label(recipe: &RecipeView) -> &'static str {
 pub fn ingredient_name(ingredient: Ingredient) -> String {
     match ingredient {
         Ingredient::Item(item) => item_name(item),
-        Ingredient::Tag(tag) => tag.name().to_string(),
+        Ingredient::Tag(tag) => crate::i18n::tag_name(tag).to_string(),
     }
 }
 
@@ -113,15 +113,15 @@ pub fn recipe_problem(
     }
     // The chest or the furnace takes the place of the crafting grid in the panel
     if inventory.open_chest.is_some() {
-        return Some(NOT_BESIDE_A_CHEST.to_string());
+        return Some(crate::i18n::tr(NOT_BESIDE_A_CHEST).to_string());
     }
     if inventory.open_engraver.is_some() {
-        return Some(NOT_BESIDE_AN_ENGRAVING_TABLE.to_string());
+        return Some(crate::i18n::tr(NOT_BESIDE_AN_ENGRAVING_TABLE).to_string());
     }
     inventory
         .open_furnace
         .is_some()
-        .then(|| NOT_BESIDE_A_FURNACE.to_string())
+        .then(|| crate::i18n::tr(NOT_BESIDE_A_FURNACE).to_string())
 }
 
 /// What `+ Fill grid` does on a card: fill the grid with its recipe, or lay a ghost of it.
@@ -151,11 +151,11 @@ pub fn fill_button(
 }
 
 /// Why a recipe cannot fill the grid while an engraving table is open.
-pub const NOT_BESIDE_AN_ENGRAVING_TABLE: &str = "Not beside an engraving table";
+pub const NOT_BESIDE_AN_ENGRAVING_TABLE: &str = "browser.not_beside_engraving";
 /// Why a recipe cannot fill the grid while a chest is open.
-pub const NOT_BESIDE_A_CHEST: &str = "Not beside a chest";
+pub const NOT_BESIDE_A_CHEST: &str = "browser.not_beside_chest";
 /// Why a recipe cannot fill the grid while a furnace is open.
-pub const NOT_BESIDE_A_FURNACE: &str = "Not beside a furnace";
+pub const NOT_BESIDE_A_FURNACE: &str = "browser.not_beside_furnace";
 
 /// A card of the view: a recipe of the crafting grid, or one of the furnace.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -294,7 +294,7 @@ mod tests {
         let pickaxe = recipes_for(ItemId::WoodenPickaxe).next().unwrap();
         assert_eq!(station_label(&stick), "Inventory 2x2");
         assert_eq!(station_label(&pickaxe), "Crafting Table 3x3");
-        assert_eq!(CRAFTABLE_NOTE, "You have the ingredients");
+        assert_eq!(crate::i18n::tr(CRAFTABLE_NOTE), "You have the ingredients");
         assert_eq!(item_keys_hint(false), "R Recipes  U Uses  A Bookmark");
         assert_eq!(item_keys_hint(true), "R Recipes  U Uses  A Unbookmark");
         assert_eq!(bookmarked_detail(ItemId::Chest, false), "Stations");

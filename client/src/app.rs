@@ -59,9 +59,11 @@ pub fn add_client(app: &mut App, settings: ClientSettings) {
     };
     network::add_base_netcode(app);
     let (render_distance, clouds, biome_blend, graphics) = load_video_settings(&game_folder_paths);
+    let interface = load_interface_settings(&game_folder_paths);
+    crate::i18n::set_language(interface.language());
     app.insert_resource(get_bindings(&game_folder_paths))
         .insert_resource(load_audio_settings(&game_folder_paths))
-        .insert_resource(load_interface_settings(&game_folder_paths))
+        .insert_resource(interface)
         .insert_resource(load_view_settings(&game_folder_paths))
         .insert_resource(ChosenSkin::load(&game_folder_paths))
         .insert_resource(render_distance)
