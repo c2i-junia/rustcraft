@@ -367,6 +367,13 @@ The options about the seed, type, game mode and difficulty apply only to a world
 
 With `--auth hub`, a player proves its account with the certificate the hub gave its game and a signature of the server's challenge, so the server calls the hub only at start, for its keys, and every hour, for the revoked certificates. The keys are kept in `hub_keys.ron` of the game folder for a start while the hub cannot be reached; a server that has neither does not start. A server in hub mode has its own key in `server_key.ron`, made at its first start. A hosted world (`--realm`) reads its members from the hub (`GET /v1/realms/<id>/config`, with `Authorization: Realm <token>`) when it starts, which it refuses to do without, and every minute: the whitelist is on and holds exactly the members, and the operators are its operator members and its owner. It reads and writes no `ops.ron`, `banned.ron` nor `whitelist.ron`, and `/op`, `/deop`, `/ban`, `/pardon` and `/whitelist` only answer that the members are managed from the Hosted worlds tab of the game. A member removed is dismissed with "You were removed from this world."; a failed read keeps the last members, and a hub that refuses the token or does not know the world (deleted, token renewed) stops the server after saving. Whatever the mode, a client that has not joined 5 seconds after connecting is let go.
 
+A proof is accepted for every address of `--public-address`. A loopback, private or link-local
+address (`localhost`, `127.0.0.1`, `192.168.1.10`, `[fd00::1]`) is also that of servers on other
+networks: listed beside a public one, it lets a server at the same address elsewhere, run by
+anyone, pass this one the proofs of the players who join it, and so join here under their
+accounts. List such an address only for a server reached on its own network; the server logs a
+warning when local and public addresses are mixed.
+
 Both executables also read the `RUST_LOG` environment variable to choose what they log, e.g. `RUST_LOG=server=debug,warn rustcraft-server`.
 
 <br>

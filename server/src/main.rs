@@ -1,4 +1,4 @@
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::process::ExitCode;
 
 use bevy::log::{error, tracing_subscriber::EnvFilter, warn};
@@ -123,6 +123,41 @@ fn public_address(typed: &str) -> Result<String, String> {
     normalize_address(typed).ok_or_else(|| format!("{typed} is not host[:port]"))
 }
 
+/// Whether `address` (`host:port`, normalized) is one that other machines may have too:
+/// `localhost`, or a loopback, private, link-local or unspecified IP address.
+fn is_local_address(address: &str) -> bool {
+    let host = address.rsplit_once(':').map_or(address, |(host, _)| host);
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    if host == "localhost" || host.ends_with(".localhost") {
+        return true;
+    }
+    match host.parse::<IpAddr>() {
+        Ok(IpAddr::V4(ip)) => {
+            ip.is_loopback() || ip.is_private() || ip.is_link_local() || ip.is_unspecified()
+        }
+        Ok(IpAddr::V6(ip)) => {
+            ip.is_loopback()
+                || ip.is_unique_local()
+                || ip.is_unicast_link_local()
+                || ip.is_unspecified()
+        }
+        Err(_) => false,
+    }
+}
+
+/// The local addresses of `addresses` when a public one is among them: a proof made for a
+/// server at the same local address elsewhere could then be relayed to this public server.
+fn local_beside_public(addresses: &[String]) -> Vec<&str> {
+    if addresses.iter().all(|address| is_local_address(address)) {
+        return Vec::new();
+    }
+    addresses
+        .iter()
+        .map(String::as_str)
+        .filter(|address| is_local_address(address))
+        .collect()
+}
+
 impl Args {
     /// What the options say of a new world, or why they contradict each other.
     fn new_world(&self) -> Result<NewWorldSettings, String> {
@@ -208,6 +243,13 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
         AuthFlag::Hub => {
+            let local = local_beside_public(&args.public_addresses);
+            if !local.is_empty() {
+                warn!(
+                    "--public-address lists local addresses beside public ones: {}. A server at the same address on another network could pass this one the proofs of its players; give them only for a server reached on this network alone",
+                    local.join(", ")
+                );
+            }
             match server::hub::hub_trust(
                 &args.hub,
                 args.public_addresses.clone(),
@@ -380,6 +422,48 @@ mod tests {
         .unwrap();
         assert_eq!(args.public_addresses, ["play.example.com:8000", "[::1]:9"]);
         assert!(parse(&["--public-address", "a b"]).is_err());
+    }
+
+    #[test]
+    fn loopback_private_and_link_local_addresses_are_local() {
+        for local in [
+            "localhost:8000",
+            "a.localhost:8000",
+            "127.0.0.1:8000",
+            "10.1.2.3:8000",
+            "172.16.0.1:8000",
+            "192.168.1.10:8000",
+            "169.254.0.1:8000",
+            "0.0.0.0:8000",
+            "[::1]:8000",
+            "[fd30:80:81::1]:8000",
+            "[fe80::1]:8000",
+        ] {
+            assert!(is_local_address(local), "{local}");
+        }
+        for public in [
+            "play.example.com:8000",
+            "203.0.113.7:8000",
+            "172.32.0.1:8000",
+            "[2001:db8::1]:8000",
+        ] {
+            assert!(!is_local_address(public), "{public}");
+        }
+    }
+
+    #[test]
+    fn local_addresses_are_told_only_beside_public_ones() {
+        let addresses = |list: &[&str]| list.iter().map(|a| a.to_string()).collect::<Vec<_>>();
+        assert!(local_beside_public(&addresses(&["play.example.com:8000"])).is_empty());
+        assert!(local_beside_public(&addresses(&["127.0.0.1:8000", "[::1]:8000"])).is_empty());
+        assert_eq!(
+            local_beside_public(&addresses(&[
+                "play.example.com:8000",
+                "192.168.1.10:8000",
+                "localhost:8000"
+            ])),
+            ["192.168.1.10:8000", "localhost:8000"]
+        );
     }
 
     #[test]
