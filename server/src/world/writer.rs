@@ -14,7 +14,6 @@ use bevy::{
     log::{debug, error, info},
     math::IVec3,
 };
-use shared::messages::PlayerId;
 use shared::world::Chunk;
 use shared::SaveCounter;
 
@@ -37,7 +36,7 @@ const PLAYERS_DIR: &str = "players";
 /// copy of each chunk to write, with what its chests and furnaces hold.
 pub struct SaveJob {
     pub meta: WorldMeta,
-    pub players: Vec<(PlayerId, String)>,
+    pub players: Vec<(String, String)>,
     pub chunks: Vec<(IVec3, Chunk, ChunkContents)>,
 }
 
@@ -90,8 +89,8 @@ pub fn write_job(world_dir: &std::path::Path, job: SaveJob) -> JobOutcome {
         ),
     }
     let players_dir = world_dir.join(PLAYERS_DIR);
-    for (id, contents) in &job.players {
-        let path = players_dir.join(format!("{id}.ron"));
+    for (stem, contents) in &job.players {
+        let path = players_dir.join(format!("{stem}.ron"));
         match std::fs::create_dir_all(&players_dir)
             .and_then(|()| write_pending(&path, contents.as_bytes()))
         {
@@ -589,7 +588,7 @@ mod tests {
     fn the_players_of_a_job_are_written_in_their_folder() {
         let tmp = tempfile::tempdir().unwrap();
         let mut with_player = job(&[IVec3::ZERO]);
-        with_player.players = vec![(7, "(name: \"Zed\")".into())];
+        with_player.players = vec![("7".into(), "(name: \"Zed\")".into())];
 
         assert!(write_job(tmp.path(), with_player).is_complete());
 

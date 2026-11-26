@@ -6,6 +6,7 @@ use bevy::prelude::Transform;
 use bevy_renet::netcode::{ClientAuthentication, NetcodeClientTransport};
 use bevy_renet::RenetClient;
 use ed25519_dalek::SigningKey;
+use rustcraft_protocol::api::Profile;
 use rustcraft_protocol::identity::{
     player_id, sign, sign_join, Certificate, CERTIFICATE_LIFETIME_SECS, CERTIFICATE_VERSION,
 };
@@ -125,10 +126,16 @@ impl TestServer {
 
     /// A dedicated server whose players join with the accounts of the hub `trust` describes.
     fn start_hub(world_name: &str, trust: HubTrust) -> Self {
+        Self::start_hub_in(tempfile::tempdir().unwrap(), world_name, trust)
+    }
+
+    /// Same, in the game folder `tmp`, which may hold its lists and the saves of a server.
+    fn start_hub_in(tmp: tempfile::TempDir, world_name: &str, trust: HubTrust) -> Self {
+        server::set_profile_lookup(hub_profile);
         let socket =
             server::acquire_local_ephemeral_udp_socket(IpAddr::V4(Ipv4Addr::LOCALHOST)).unwrap();
         Self::start_on(
-            tempfile::tempdir().unwrap(),
+            tmp,
             world_name,
             false,
             socket,
@@ -3615,4 +3622,234 @@ fn a_player_whose_certificate_is_revoked_is_dismissed() {
         .unwrap()
         .insert(hub.certificate.id);
     assert_eq!(dismissed(&mut client), server::join::REVOKED);
+}
+
+/// The accounts the hub of the tests knows: Bob, whose account is `BOB`. Another name is not
+/// one of the hub, but "Unreachable", which the hub fails to answer.
+fn hub_profile(_hub: &str, name: &str) -> Result<Option<Profile>, String> {
+    match name {
+        "Bob" => Ok(Some(Profile {
+            id: BOB,
+            username: "Bob".into(),
+        })),
+        "Unreachable" => Err("down".into()),
+        _ => Ok(None),
+    }
+}
+
+const BOB: Uuid = account(0xb0b);
+
+/// The account number `n`: its first bytes, from which the id of its player comes, are not zero.
+const fn account(n: u128) -> Uuid {
+    Uuid::from_u128(n << 64 | n)
+}
+
+impl TestHub {
+    /// The certificate of the account `account`, named `name`, for the device of this hub.
+    fn certificate_of(&self, account: Uuid, name: &str) -> Certificate {
+        Certificate {
+            account,
+            name: name.into(),
+            id: Uuid::from_u128(rand::random()),
+            ..self.certificate.clone()
+        }
+    }
+
+    /// Joins `server` with `certificate`, and returns the client once it is in.
+    fn join(&self, server: &TestServer, certificate: &Certificate) -> TestClient {
+        let mut client = self.connect(server, certificate);
+        accepted_name(&mut client);
+        client
+    }
+
+    /// Asks to join `server` with `certificate`.
+    fn connect(&self, server: &TestServer, certificate: &Certificate) -> TestClient {
+        let mut client = TestClient::connect(server.addr, player_id(&certificate.account));
+        let (nonce, server_key, _) = challenge(&mut client);
+        let proof = proof_of(
+            certificate,
+            &self.key,
+            &self.device,
+            &nonce,
+            &server_key,
+            PUBLIC_ADDRESS,
+        );
+        client.send(request_with(&certificate.name, Some(proof)));
+        client
+    }
+
+    /// A server of this hub whose game folder holds the lists `files`.
+    fn start_with_files(&self, files: &[(&str, String)]) -> TestServer {
+        let tmp = tempfile::tempdir().unwrap();
+        for (name, text) in files {
+            std::fs::write(tmp.path().join(name), text).unwrap();
+        }
+        TestServer::start_hub_in(tmp, WORLD_NAME, self.trust.clone())
+    }
+}
+
+const ALEX: Uuid = account(0xa1e);
+
+fn account_entry(id: Uuid, name: &str) -> String {
+    format!(r#"(id: "{id}", name: "{name}")"#)
+}
+
+/// Whether the list `text`, as the server writes it, has the entry of `id` named `name`.
+fn has_entry(text: &str, id: Uuid, name: &str) -> bool {
+    let squashed: String = text.split_whitespace().collect();
+    squashed.contains(&format!(r#"(id:"{id}",name:"{name}",)"#))
+}
+
+/// Whether the operator `client` may still run `/give`.
+fn may_give(client: &mut TestClient) -> bool {
+    client.send(chat_message("/give dirt 1"));
+    let answer = client.wait_for("the answer to /give", |m| match m {
+        ServerToClientMessage::ChatMessage(c) if c.author == "Server" => Some(c.content.clone()),
+        _ => None,
+    });
+    answer == "Gave 1 Dirt"
+}
+
+#[test]
+fn an_operator_of_a_hub_is_its_account_and_stays_one_when_renamed() {
+    let hub = TestHub::new();
+    let ops = format!("[{}]", account_entry(ALEX, "Alex"));
+    let server = hub.start_with_files(&[(server::OPS_FILE, ops)]);
+
+    let mut renamed = hub.join(&server, &hub.certificate_of(ALEX, "Alexandra"));
+    assert!(may_give(&mut renamed));
+    // another account that has the name of the operator now is not one
+    let mut other = hub.join(&server, &hub.certificate_of(account(2), "Alex"));
+    assert!(!may_give(&mut other));
+    // the entry has the new name, for whoever reads the file
+    let ops = std::fs::read_to_string(server.tmp.path().join(server::OPS_FILE)).unwrap();
+    assert!(
+        ops.contains("Alexandra") && !ops.contains("\"Alex\""),
+        "{ops}"
+    );
+}
+
+#[test]
+fn a_name_in_a_list_of_a_hub_is_rewritten_with_its_account_when_it_joins() {
+    let hub = TestHub::new();
+    let server = hub.start_with_files(&[
+        (server::OPS_FILE, r#"["alex", "carol"]"#.into()),
+        (
+            server::WHITELIST_FILE,
+            r#"(enabled: true, players: ["ALEX"])"#.into(),
+        ),
+    ]);
+    let mut alex = hub.join(&server, &hub.certificate_of(ALEX, "Alex"));
+    assert!(may_give(&mut alex));
+    let read = |file| std::fs::read_to_string(server.tmp.path().join(file)).unwrap();
+    let ops = read(server::OPS_FILE);
+    assert!(has_entry(&ops, ALEX, "Alex"), "{ops}");
+    // the name of a player that did not join yet stays a name
+    assert!(ops.contains("\"carol\""), "{ops}");
+    let whitelist = read(server::WHITELIST_FILE);
+    assert!(has_entry(&whitelist, ALEX, "Alex"), "{whitelist}");
+}
+
+#[test]
+fn a_banned_account_is_refused_whatever_its_name() {
+    let hub = TestHub::new();
+    let banned =
+        format!(r#"[(id: "{ALEX}", name: "Alex", reason: Some("griefing")), (name: "Eve")]"#);
+    let server = hub.start_with_files(&[(server::BANNED_FILE, banned)]);
+    let mut client = hub.connect(&server, &hub.certificate_of(ALEX, "Somebody else"));
+    assert_eq!(
+        dismissed(&mut client),
+        "You are banned from this server: griefing"
+    );
+    // a name only is banned by its name
+    let mut eve = hub.connect(&server, &hub.certificate_of(account(5), "eve"));
+    assert_eq!(dismissed(&mut eve), "You are banned from this server.");
+    hub.join(&server, &hub.certificate_of(account(6), "Alex"));
+}
+
+#[test]
+fn the_commands_of_a_hub_find_the_account_of_a_name_online_or_on_the_hub() {
+    let hub = TestHub::new();
+    let ops = format!("[{}]", account_entry(ALEX, "Alex"));
+    let server = hub.start_with_files(&[(server::OPS_FILE, ops)]);
+    let mut alex = hub.join(&server, &hub.certificate_of(ALEX, "Alex"));
+    let carol = account(0xca401);
+    let mut carol_client = hub.join(&server, &hub.certificate_of(carol, "Carol"));
+
+    // Carol is online: the hub, which does not know her, is not asked
+    alex.send(chat_message("/op Carol"));
+    command_answer(&mut alex, "Made Carol an operator");
+    assert!(may_give(&mut carol_client));
+
+    alex.send(chat_message("/op Nobody"));
+    command_answer(&mut alex, "The hub does not know a player named Nobody");
+    alex.send(chat_message("/ban Unreachable"));
+    command_answer(&mut alex, "Could not ask the hub for Unreachable: down");
+
+    // Bob is not online: the hub tells who he is, and the game goes on meanwhile
+    alex.send(chat_message("/op Bob"));
+    command_answer(&mut alex, "Made Bob an operator");
+    let ops = std::fs::read_to_string(server.tmp.path().join(server::OPS_FILE)).unwrap();
+    assert!(has_entry(&ops, BOB, "Bob"), "{ops}");
+    let mut bob = hub.join(&server, &hub.certificate_of(BOB, "Robert"));
+    assert!(may_give(&mut bob));
+
+    // banned by the account the hub gave, whatever he calls himself, and pardoned by it
+    alex.send(chat_message("/ban Robert"));
+    command_answer(&mut alex, "Banned Robert");
+    assert_eq!(dismissed(&mut bob), "You are banned from this server.");
+    let mut again = hub.connect(&server, &hub.certificate_of(BOB, "Bobby"));
+    assert_eq!(dismissed(&mut again), "You are banned from this server.");
+    alex.send(chat_message("/pardon Bob"));
+    command_answer(&mut alex, "Pardoned Bob");
+    hub.join(&server, &hub.certificate_of(BOB, "Bobby"));
+
+    alex.send(chat_message("/whitelist add Bob"));
+    command_answer(&mut alex, "Added Bob to the whitelist");
+    let whitelist =
+        std::fs::read_to_string(server.tmp.path().join(server::WHITELIST_FILE)).unwrap();
+    assert!(has_entry(&whitelist, BOB, "Bob"), "{whitelist}");
+}
+
+#[test]
+fn a_player_of_a_hub_is_saved_under_its_account_and_finds_its_old_file() {
+    let hub = TestHub::new();
+    let certificate = hub.certificate_of(ALEX, "Alex");
+    let id = player_id(&ALEX);
+    let tmp = tempfile::tempdir().unwrap();
+    let players_dir = tmp.path().join("saves").join(WORLD_NAME).join("players");
+    std::fs::create_dir_all(&players_dir).unwrap();
+    // the file that a server of before named after the id of the player
+    let old = Player::new(
+        id,
+        "Alex".into(),
+        Vec3::new(0., 80., 0.),
+        Transform::default(),
+    );
+    let old_file = players_dir.join(format!("{id}.ron"));
+    std::fs::write(&old_file, ron::ser::to_string(&old).unwrap()).unwrap();
+    let server = TestServer::start_hub_in(tmp, WORLD_NAME, hub.trust.clone());
+
+    let mut client = hub.connect(&server, &certificate);
+    let spawn = client.wait_for("AuthRegisterResponse", |m| match m {
+        ServerToClientMessage::AuthRegisterResponse(r) => r
+            .players
+            .iter()
+            .find(|player| player.id == id)
+            .map(|player| player.data.position),
+        _ => None,
+    });
+    assert_eq!(spawn, Vec3::new(0., 80., 0.));
+    let new_file = players_dir.join(format!("{ALEX}.ron"));
+    assert!(new_file.is_file() && !old_file.exists());
+
+    // leaving saves it under its account only
+    std::fs::remove_file(&new_file).unwrap();
+    client.transport.disconnect();
+    let start = Instant::now();
+    while !new_file.is_file() {
+        assert!(start.elapsed() < WAIT_TIMEOUT, "the player was not saved");
+        thread::sleep(PUMP_INTERVAL);
+    }
+    assert!(!old_file.exists());
 }

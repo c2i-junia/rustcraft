@@ -13,6 +13,7 @@ use shared::messages::{
 use shared::players::Player;
 use shared::utils::unix_time_ms;
 use shared::world::WorldSeed;
+use uuid::Uuid;
 
 use shared::{GameFolderPaths, GameServerConfig, ServerAuth};
 
@@ -25,7 +26,8 @@ use crate::network::commands::{
 };
 use crate::network::extensions::SendGameMessageExtension;
 use crate::network::join::{check_proof, BAD_NAME};
-use crate::network::permissions::{same_name, Dismissals, Permissions};
+use crate::network::permissions::{same_name, Admin, Dismissals, Permissions};
+use crate::network::profiles::ProfileLookups;
 use crate::world::data::ServerWorldMap;
 use crate::world::generation::WorldGeneration;
 use crate::world::load_from_file::load_player_data;
@@ -54,6 +56,37 @@ pub(super) struct Access<'a> {
     pub permissions: &'a mut Permissions,
     pub dismissals: &'a mut Dismissals,
     pub is_solo: bool,
+    /// How the players are known: by their account in hub mode, whose names are asked to the hub.
+    pub auth: &'a ServerAuth,
+    pub lookups: &'a mut ProfileLookups,
+}
+
+/// Runs `admin`, on the account `account` of its player in hub mode, and dismisses the players
+/// it bans or kicks. Returns the answer to its author.
+pub(super) fn run_admin(
+    server: &mut RenetServer,
+    lobby: &ServerLobby,
+    (permissions, dismissals): (&mut Permissions, &mut Dismissals),
+    admin: Admin,
+    account: Option<Uuid>,
+) -> String {
+    let outcome = permissions.apply(
+        admin,
+        |name| lobby.players.values().any(|p| same_name(&p.name, name)),
+        account,
+    );
+    if let Some((name, message)) = outcome.dismiss {
+        let dismissed = lobby
+            .players
+            .iter()
+            .filter(|(_, p)| same_name(&p.name, &name))
+            .map(|(id, _)| *id)
+            .collect::<Vec<_>>();
+        for id in dismissed {
+            dismissals.dismiss(server, id, message.clone());
+        }
+    }
+    outcome.answer
 }
 
 pub(super) fn client_connected(client_id: ClientId) {
@@ -140,7 +173,10 @@ pub(super) fn auth_register_request(
         return ControlFlow::Break(());
     }
     // A banned player, or one off the whitelist, is told why before it is disconnected
-    if let Err(message) = access.permissions.admission(username) {
+    if let Some(account) = account {
+        access.permissions.identify(username, account);
+    }
+    if let Err(message) = access.permissions.admission(username, account) {
         warn!("Refusing {username}, client {client_id}: {message}");
         access.dismissals.dismiss(server, client_id, message);
         return ControlFlow::Break(());
@@ -152,6 +188,7 @@ pub(super) fn auth_register_request(
             &world_map.name,
             &client_id,
             username,
+            account,
             spawn,
             world_map.game_mode,
             game_folder_paths,
@@ -163,6 +200,9 @@ pub(super) fn auth_register_request(
                 return ControlFlow::Break(());
             }
         };
+    }
+    if let Some(account) = account {
+        world_map.accounts.insert(client_id, account);
     }
     if let Some(player) = world_map.players.get_mut(&client_id) {
         player.skin = auth_req.skin.validated();
@@ -248,6 +288,7 @@ pub(super) fn chat_message(
         return;
     };
     let author = current_author.name.clone();
+    let author_account = current_author.account;
 
     if let Some(line) = command_line(&chat_msg.content) {
         // An authenticated client always has its player in the world
@@ -261,7 +302,9 @@ pub(super) fn chat_message(
             .iter()
             .any(|command| command.name == name)
             || mods.command_names().iter().any(|command| command == name);
-        let is_operator = access.permissions.may_run(&author, access.is_solo);
+        let is_operator = access
+            .permissions
+            .may_run(&author, author_account, access.is_solo);
         let refused = refusal(name, known, is_operator);
         let mut overflow = Vec::new();
         let answer = match parse_command(line) {
@@ -273,21 +316,42 @@ pub(super) fn chat_message(
                 list_players(lobby.players.values().map(|p| p.name.as_str()).collect())
             }
             Ok(Command::Admin(admin)) => {
-                let outcome = access.permissions.apply(admin, |name| {
-                    lobby.players.values().any(|p| same_name(&p.name, name))
+                let hub = match access.auth {
+                    ServerAuth::Hub(trust) => Some(trust.url.as_str()),
+                    ServerAuth::Offline => None,
+                };
+                let to_resolve = hub.and_then(|hub| {
+                    let name = access.permissions.name_to_resolve(&admin)?;
+                    Some((hub, name.to_string()))
                 });
-                if let Some((name, message)) = outcome.dismiss {
-                    let dismissed = lobby
-                        .players
-                        .iter()
-                        .filter(|(_, p)| same_name(&p.name, &name))
-                        .map(|(id, _)| *id)
-                        .collect::<Vec<_>>();
-                    for id in dismissed {
-                        access.dismissals.dismiss(server, id, message.clone());
+                match to_resolve {
+                    None => run_admin(
+                        server,
+                        lobby,
+                        (access.permissions, access.dismissals),
+                        admin,
+                        None,
+                    ),
+                    Some((hub, name)) => {
+                        let online = lobby
+                            .players
+                            .values()
+                            .find(|p| same_name(&p.name, &name))
+                            .and_then(|p| p.account);
+                        if online.is_some() {
+                            run_admin(
+                                server,
+                                lobby,
+                                (access.permissions, access.dismissals),
+                                admin,
+                                online,
+                            )
+                        } else {
+                            access.lookups.start(hub, client_id, admin, &name);
+                            String::new()
+                        }
                     }
                 }
-                outcome.answer
             }
             Ok(command) => run_command(
                 command,

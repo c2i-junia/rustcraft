@@ -13,6 +13,7 @@ use shared::TICKS_PER_SECOND;
 use std::collections::HashMap;
 #[cfg(test)]
 use std::path::Path;
+use uuid::Uuid;
 
 #[derive(Message)]
 pub enum SaveRequestEvent {
@@ -58,7 +59,12 @@ pub fn save_world_system(
         if let SaveRequestEvent::Player(id) = ev {
             let world_map = world_map.as_mut();
             if let Some(player) = world_map.players.get(id) {
-                queue_player_save(&mut world_map.players_to_save, &world_map.name, player);
+                queue_player_save(
+                    &mut world_map.players_to_save,
+                    &world_map.name,
+                    player,
+                    world_map.accounts.get(id),
+                );
             }
         }
     }
@@ -68,7 +74,13 @@ pub fn save_world_system(
         // A crash must not revert the connected players to their state at join
         let world_map = world_map.as_mut();
         for player in world_map.players.values() {
-            queue_player_save(&mut world_map.players_to_save, &world_map.name, player);
+            let account = world_map.accounts.get(&player.id);
+            queue_player_save(
+                &mut world_map.players_to_save,
+                &world_map.name,
+                player,
+                account,
+            );
         }
     }
     if save_requested || autosave_due {
@@ -165,16 +177,23 @@ fn by_local_pos<'a, T: Clone + 'a>(
     held
 }
 
+/// The name, without `.ron`, of the file of the player `id` of the account `account`, if it has
+/// one (hub mode): the account, rather than the id the game derives from it.
+pub fn player_file_stem(id: PlayerId, account: Option<&Uuid>) -> String {
+    account.map_or_else(|| id.to_string(), Uuid::to_string)
+}
+
 /// Puts the file of `player`, of the world `world_name`, among `players_to_save`: the next save
 /// hands it to the writer, which syncs it with the chunks. Syncing it alone took the tick
-/// several milliseconds.
+/// several milliseconds. `account` is the one of the player on a server in hub mode.
 pub fn queue_player_save(
-    players_to_save: &mut Vec<(PlayerId, String)>,
+    players_to_save: &mut Vec<(String, String)>,
     world_name: &str,
     player: &Player,
+    account: Option<&Uuid>,
 ) {
     match player_file(player) {
-        Ok(contents) => players_to_save.push((player.id, contents)),
+        Ok(contents) => players_to_save.push((player_file_stem(player.id, account), contents)),
         Err(err) => error!(
             "[{}] Could not save data for player {} : {}",
             world_name, player.id, err

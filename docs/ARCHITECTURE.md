@@ -426,6 +426,15 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    and disconnected `DISMISS_DELAY` (500 ms) later (`Dismissals`), so that the message arrives
    first: the client ends its session on it, with the reason on the error card. Until then the
    server ignores what it sends. A name is taken, banned or an operator's whatever its case.
+   In hub mode the lists hold `Entry`s, an account (`id`, `name`) or a name alone, and a
+   player is compared by account when the entry has one; `Permissions::identify` rewrites a
+   name entry with the account and the name of the player it matches when it joins. The
+   account of a name given to `/op`, `/ban`, `/pardon`, `/whitelist` (`name_to_resolve`: not
+   a name that a list to remove from holds) is the one of the player online, or comes from
+   `GET /v1/profiles?name=` in a thread (`network/profiles.rs`, `ProfileLookups`, polled by
+   `finish_lookups_system`, which runs the command and answers its author); `--op` asks it
+   at start (`hub::resolve_names`). Tests replace the question with `set_profile_lookup`.
+   `ServerWorldMap::accounts` gives the files of the players their account for name.
    Joining starts with a challenge: as soon as a client connects, `send_challenges_system`
    (`network/join.rs`, in `PreUpdate`) sends it `AuthChallenge`, a nonce of its own, the
    server's key and the hub of a server in hub mode, and the client answers with its
@@ -1364,7 +1373,7 @@ A world is a folder under `saves/`:
 | `chunks/<x>_<y>_<z>.bin` | One chunk, encoded the same way, as worlds saved before version 5 hold them: read when its region does not hold it | worlds saved before |
 | `containers/<x>_<y>_<z>.bin` | The contents of the chests of one chunk, encoded the same way; only a chunk holding a chest has one | the writer thread |
 | `furnaces/<x>_<y>_<z>.bin` | The furnaces of one chunk, what they hold and how far they burnt and cooked, likewise | the writer thread |
-| `players/<id>.ron` | Position, orientation and inventory of one player | the writer thread |
+| `players/<id>.ron` | Position, orientation and inventory of one player; `<account uuid>` instead of the id on a server in hub mode | the writer thread |
 
 Every file is written to a temporary file and renamed, so a crash never leaves a half-written
 file (`server/src/world/format.rs`). The writer thread (`world/writer.rs`) keeps the disk out

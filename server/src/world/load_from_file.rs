@@ -12,12 +12,14 @@ use crate::world::chunk_files::{has_chunk_files, read_chunks_with, write_chunk, 
 use crate::world::data::{world_dir, SAVE_PATH};
 use crate::world::format::{write_meta, WorldData, WorldMeta, FORMAT_VERSION, WORLD_FILE};
 use crate::world::legacy::{decode_chunk_v1, LegacyWorldData};
+use crate::world::save::player_file_stem;
 #[cfg(test)]
 use crate::world::{
     chunk_files::read_chunks,
     container_files::{read_containers, CONTAINERS_DIR},
 };
 use std::path::PathBuf;
+use uuid::Uuid;
 
 /// What a `world.ron` turned out to hold.
 enum WorldFile {
@@ -279,7 +281,9 @@ fn sync_dir(dir: &Path) {
     }
 }
 
-/// Loads the saved player `player_id` of `world_name`, or a new player at `spawn`.
+/// Loads the saved player `player_id` of `world_name`, or a new player at `spawn`. A player of a
+/// server in hub mode has `account`: its file is named after it, not after `player_id`, and one
+/// that a server of an earlier version named after `player_id` is moved to it.
 ///
 /// Only what is worth persisting is taken from the file: position, camera, fly mode and
 /// inventory. A file that cannot be read is reported and moved aside to `<name>.ron.corrupt`
@@ -290,14 +294,29 @@ pub fn load_player_data(
     world_name: &str,
     player_id: &PlayerId,
     player_name: &str,
+    account: Option<Uuid>,
     spawn: Vec3,
     game_mode: GameMode,
     game_folder_paths: &GameFolderPaths,
 ) -> Result<Player, String> {
-    let file_path: PathBuf = game_folder_paths
+    let players_dir = game_folder_paths
         .game_folder_path
         .join(SAVE_PATH)
-        .join(format!("{world_name}/players/{player_id}.ron"));
+        .join(world_name)
+        .join("players");
+    let stem = player_file_stem(*player_id, account.as_ref());
+    let mut file_path: PathBuf = players_dir.join(format!("{stem}.ron"));
+    let old_path = players_dir.join(format!("{player_id}.ron"));
+    if account.is_some() && !file_path.exists() && old_path.exists() {
+        match fs::rename(&old_path, &file_path) {
+            Ok(()) => info!("Moved {} to {}", old_path.display(), file_path.display()),
+            // Read it where it is: the next save writes the new file
+            Err(err) => {
+                warn!("Could not move {}: {err}", old_path.display());
+                file_path = old_path;
+            }
+        }
+    }
     let path: &Path = file_path.as_path();
 
     let mut player = Player::new(
@@ -416,6 +435,7 @@ mod tests {
             WORLD,
             &7,
             "new name",
+            None,
             Vec3::ZERO,
             GameMode::Survival,
             &paths,
@@ -449,8 +469,16 @@ mod tests {
         saved.progress.achievements = vec![shared::players::progress::Achievement::Iron];
         save_player_data(&saved, &player_file(&tmp, 7)).unwrap();
 
-        let loaded =
-            load_player_data(WORLD, &7, "builder", SPAWN, GameMode::Survival, &paths).unwrap();
+        let loaded = load_player_data(
+            WORLD,
+            &7,
+            "builder",
+            None,
+            SPAWN,
+            GameMode::Survival,
+            &paths,
+        )
+        .unwrap();
         assert_eq!(loaded.game_mode, GameMode::Creative);
         assert!(loaded.is_dead());
         assert_eq!(loaded.death_cause, Some(DeathCause::Fall));
@@ -465,7 +493,8 @@ mod tests {
         // A save from before the game modes is a survival player in full health
         let old = "(id: 7, name: \"old\", position: (1.0, 2.0, 3.0), camera_transform: (translation: (0.0, 0.0, 0.0), rotation: (0.0, 0.0, 0.0, 1.0), scale: (1.0, 1.0, 1.0)), velocity: (0.0, 0.0, 0.0), on_ground: true, is_flying: true, inventory: (inner: {}), height: 1.8, width: 0.8, last_input_processed: 0)";
         fs::write(player_file(&tmp, 7), old).unwrap();
-        let loaded = load_player_data(WORLD, &7, "old", SPAWN, GameMode::Survival, &paths).unwrap();
+        let loaded =
+            load_player_data(WORLD, &7, "old", None, SPAWN, GameMode::Survival, &paths).unwrap();
         assert_eq!(loaded.position, Vec3::new(1.0, 2.0, 3.0));
         assert_eq!(loaded.game_mode, GameMode::Survival);
         assert_eq!(loaded.health, MAX_HEALTH);
@@ -495,6 +524,7 @@ mod tests {
             WORLD,
             &7,
             "engraver",
+            None,
             Vec3::ZERO,
             GameMode::Survival,
             &paths,
@@ -502,6 +532,38 @@ mod tests {
         .unwrap();
 
         assert_eq!(loaded.inventory.inner[&3], axe);
+    }
+
+    #[test]
+    fn a_player_of_an_account_is_kept_in_a_file_named_after_it_and_an_old_file_moves_there() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = paths(&tmp);
+        let account = Uuid::from_u128(0x0102030405060708_090a0b0c0d0e0f10);
+        let id = rustcraft_protocol::identity::player_id(&account);
+        let old_file = player_file(&tmp, id);
+        let new_file = old_file.with_file_name(format!("{account}.ron"));
+        let mut saved = Player::new(id, "Alex".into(), Vec3::new(3.0, 70.0, 4.0), default());
+        saved.inventory.inner.insert(0, dirt(9));
+        save_player_data(&saved, &old_file).unwrap();
+
+        let load = || {
+            load_player_data(
+                WORLD,
+                &id,
+                "Alex",
+                Some(account),
+                SPAWN,
+                GameMode::Survival,
+                &paths,
+            )
+            .unwrap()
+        };
+        let loaded = load();
+        assert_eq!(loaded.position, Vec3::new(3.0, 70.0, 4.0));
+        assert_eq!(loaded.inventory.inner.get(&0), Some(&dirt(9)));
+        assert!(new_file.is_file() && !old_file.exists());
+        // from now on the file of the account is the one that counts
+        assert_eq!(load().position, Vec3::new(3.0, 70.0, 4.0));
     }
 
     #[test]
@@ -513,8 +575,16 @@ mod tests {
         saved.inventory.open_furnace = Some(bevy::math::IVec3::new(4, 5, 6));
         save_player_data(&saved, &player_file(&tmp, 7)).unwrap();
 
-        let loaded =
-            load_player_data(WORLD, &7, "crafter", Vec3::ZERO, GameMode::Survival, &paths).unwrap();
+        let loaded = load_player_data(
+            WORLD,
+            &7,
+            "crafter",
+            None,
+            Vec3::ZERO,
+            GameMode::Survival,
+            &paths,
+        )
+        .unwrap();
 
         assert_eq!(loaded.inventory.open_table, None);
         assert_eq!(loaded.inventory.open_furnace, None);
@@ -523,8 +593,16 @@ mod tests {
     #[test]
     fn missing_file_spawns_a_new_player() {
         let tmp = tempfile::tempdir().unwrap();
-        let loaded =
-            load_player_data(WORLD, &7, "fresh", SPAWN, GameMode::Creative, &paths(&tmp)).unwrap();
+        let loaded = load_player_data(
+            WORLD,
+            &7,
+            "fresh",
+            None,
+            SPAWN,
+            GameMode::Creative,
+            &paths(&tmp),
+        )
+        .unwrap();
 
         assert_eq!(loaded.game_mode, GameMode::Creative);
         assert_eq!(loaded.position, SPAWN);
@@ -540,7 +618,7 @@ mod tests {
         fs::write(&file, "this is not ron").unwrap();
 
         let loaded =
-            load_player_data(WORLD, &7, "fresh", SPAWN, GameMode::Survival, &paths).unwrap();
+            load_player_data(WORLD, &7, "fresh", None, SPAWN, GameMode::Survival, &paths).unwrap();
 
         assert_eq!(loaded.position, SPAWN);
         assert!(!file.exists());
@@ -616,7 +694,7 @@ mod tests {
         fs::create_dir(&squatter).unwrap();
         fs::write(squatter.join("keep"), "x").unwrap();
 
-        let result = load_player_data(WORLD, &7, "fresh", SPAWN, GameMode::Survival, &paths);
+        let result = load_player_data(WORLD, &7, "fresh", None, SPAWN, GameMode::Survival, &paths);
 
         assert!(result.is_err());
         assert_eq!(fs::read_to_string(file).unwrap(), "this is not ron");

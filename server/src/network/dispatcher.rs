@@ -34,6 +34,7 @@ use super::join::{
     AuthTimeout, Challenges, ServerKey,
 };
 use super::permissions::{disconnect_dismissed_system, Dismissals, Permissions};
+use super::profiles::{finish_lookups_system, ProfileLookups};
 
 /// bevy_renet reports connections as observer events: this buffers them as a message so that
 /// `handle_connection_events_system` still reads them in `Update`. The event is copied field by field
@@ -74,6 +75,7 @@ pub fn setup_resources_and_events(app: &mut App) {
         // a dedicated server replaces them with those of its files (`init::run`)
         .init_resource::<Permissions>()
         .init_resource::<Dismissals>()
+        .init_resource::<ProfileLookups>()
         .init_resource::<Challenges>()
         .init_resource::<AuthTimeout>()
         // a server replaces it with the one of its file (`init::run`)
@@ -123,6 +125,7 @@ pub fn register_systems(app: &mut App) {
         (
             handle_connection_events_system,
             handle_client_messages_system,
+            finish_lookups_system,
         )
             .chain()
             .in_set(ServerSet::Receive),
@@ -291,7 +294,11 @@ fn handle_client_messages_system(
     mods: Res<Mods>,
     mut join_requests: ResMut<JoinRequests>,
     mut weather: ResMut<ServerWeather>,
-    (mut permissions, mut dismissals): (ResMut<Permissions>, ResMut<Dismissals>),
+    (mut permissions, mut dismissals, mut lookups): (
+        ResMut<Permissions>,
+        ResMut<Dismissals>,
+        ResMut<ProfileLookups>,
+    ),
     (challenges, server_key): (Res<Challenges>, Res<ServerKey>),
 ) {
     // the base game's, for the apps of the tests that set up no world
@@ -350,6 +357,8 @@ fn handle_client_messages_system(
                             permissions: &mut permissions,
                             dismissals: &mut dismissals,
                             is_solo: config.is_solo,
+                            auth: &config.auth,
+                            lookups: &mut lookups,
                         },
                         Join {
                             auth: &config.auth,
@@ -381,6 +390,8 @@ fn handle_client_messages_system(
                             permissions: &mut permissions,
                             dismissals: &mut dismissals,
                             is_solo: config.is_solo,
+                            auth: &config.auth,
+                            lookups: &mut lookups,
                         },
                     );
                 }

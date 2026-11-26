@@ -24,7 +24,13 @@ pub fn cleanup_player_from_world(
 ) {
     // The player must be queued before it is dropped from the map
     if let Some(player) = world_map.players.remove(player_id) {
-        queue_player_save(&mut world_map.players_to_save, &world_map.name, &player);
+        let account = world_map.accounts.remove(player_id);
+        queue_player_save(
+            &mut world_map.players_to_save,
+            &world_map.name,
+            &player,
+            account.as_ref(),
+        );
         save_event_writer.write(SaveRequestEvent::World);
     }
 

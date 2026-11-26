@@ -225,7 +225,14 @@ fn main() -> ExitCode {
     };
     if !args.ops.is_empty() {
         let folder = &game_folder_paths.game_folder_path;
-        if let Err(err) = server::Permissions::add_operators(folder, &args.ops) {
+        // In hub mode an operator is an account: the hub tells which
+        let players = match &config.auth {
+            ServerAuth::Offline => Ok(args.ops.iter().map(server::Entry::named).collect()),
+            ServerAuth::Hub(trust) => server::hub::resolve_names(&trust.url, &args.ops),
+        };
+        let added =
+            players.and_then(|players| server::Permissions::add_operators(folder, &players));
+        if let Err(err) = added {
             error!("{err}");
             return ExitCode::FAILURE;
         }

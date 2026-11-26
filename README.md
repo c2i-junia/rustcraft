@@ -252,6 +252,15 @@ at each change; a server whose list cannot be read does not start. The first ope
 with `rustcraft-server --op <name>`, or by writing `ops.ron` (`["name"]`) while the server is
 stopped.
 
+On a server started with `--auth hub` a player is its account, not its name: the lists hold
+entries `(id: "<account uuid>", name: "<name>")`, an operator stays one when it changes its name,
+and a player's file is `players/<account uuid>.ron` (one named after its id by an earlier version
+is moved there). `/op`, `/ban`, `/whitelist add` and the like find the account of the name among
+the players online, or ask the hub for it (`GET /v1/profiles?name=`) and answer when the hub has;
+`--op <name>` asks it before the server starts, which fails when the hub does not know the name.
+A plain name in a list matches the account of that name when it first joins, and is rewritten
+with its account then.
+
 <br>
 
 # Saves

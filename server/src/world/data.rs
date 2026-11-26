@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use bevy::math::{IVec3, Vec3};
 use bevy_ecs::resource::Resource;
+use uuid::Uuid;
 
 use super::dropped_items::DroppedItems;
 use super::home::{HomeEvents, Places};
@@ -39,8 +40,11 @@ pub struct ServerWorldMap {
     pub sent_items: HashMap<PlayerId, HashSet<DroppedItemId>>,
     /// The chunks that are new or changed since they were last handed to the writer.
     pub dirty_chunks: HashSet<IVec3>,
-    /// The files of the players that the next save hands to the writer, as they read.
-    pub players_to_save: Vec<(PlayerId, String)>,
+    /// The files of the players that the next save hands to the writer, as they read, each with
+    /// its name without `.ron` (`player_file_stem`).
+    pub players_to_save: Vec<(String, String)>,
+    /// The account of each connected player of a server in hub mode, which names its file.
+    pub accounts: HashMap<PlayerId, Uuid>,
     /// The folder of the world, whose files hold the saved chunks not loaded yet: a chunk is
     /// read from there when a player first needs it. `None` generates every chunk.
     pub saved: Option<PathBuf>,

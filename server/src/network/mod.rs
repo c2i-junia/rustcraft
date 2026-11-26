@@ -6,4 +6,5 @@ pub mod extensions;
 mod handlers;
 pub mod join;
 pub mod permissions;
+pub mod profiles;
 pub(crate) mod status;

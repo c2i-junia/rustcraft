@@ -305,6 +305,7 @@ fn load_world(
         sent_items: HashMap::new(),
         dirty_chunks: HashSet::new(),
         players_to_save: Vec::new(),
+        accounts: HashMap::new(),
         saved: Some(world_dir(game_folder_paths, world_name)?),
         spawn: spawn_position(world_data.seed.0, &generation),
         places: crate::world::home::Places::load(&world_dir(game_folder_paths, world_name)?),
