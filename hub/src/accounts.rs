@@ -44,7 +44,7 @@ pub fn routes() -> Router<AppState> {
         .layer(DefaultBodyLimit::max(16 * 1024))
 }
 
-fn bad_credentials() -> AppError {
+pub(crate) fn bad_credentials() -> AppError {
     AppError::new(
         ErrorCode::BadCredentials,
         "The username or the password is wrong.",
@@ -73,9 +73,9 @@ fn device_name(name: Option<String>) -> Result<Option<String>, AppError> {
 
 /// An active or suspended account and its hashes.
 #[derive(sqlx::FromRow)]
-struct Credentials {
-    id: Uuid,
-    username: String,
+pub(crate) struct Credentials {
+    pub(crate) id: Uuid,
+    pub(crate) username: String,
     suspended: bool,
     status_reason: Option<String>,
     password_hash: String,
@@ -87,7 +87,7 @@ const CREDENTIALS: &str = "SELECT a.id, a.username::text AS username, \
      FROM accounts a JOIN password_credentials p ON p.account_id = a.id \
      WHERE a.status IN ('active', 'suspended')";
 
-async fn credentials_by_name(
+pub(crate) async fn credentials_by_name(
     db: &PgPool,
     username: &str,
 ) -> Result<Option<Credentials>, sqlx::Error> {
@@ -107,14 +107,14 @@ async fn credentials_by_id(db: &PgPool, id: Uuid) -> Result<Credentials, AppErro
 
 /// Which secret of the account a request gives.
 #[derive(Clone, Copy)]
-enum Secret {
+pub(crate) enum Secret {
     Password,
     RecoveryCode,
 }
 
 /// Checks `given` against the account's secret, within the limits on failed logins. The attempt
 /// counts towards them until it succeeds; a failure is written in the audit log.
-async fn authenticate(
+pub(crate) async fn authenticate(
     state: &AppState,
     ip: IpAddr,
     username: &str,

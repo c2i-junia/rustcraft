@@ -2,6 +2,7 @@
 
 pub mod accounts;
 pub mod admin;
+pub mod admin_web;
 pub mod audit;
 pub mod certificates;
 pub mod config;
