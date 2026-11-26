@@ -33,7 +33,7 @@ use uuid::Uuid;
 
 use crate::{
     accounts::{authenticate, bad_credentials, credentials_by_name, Secret},
-    admin::{self, Actor, AdminError, Target},
+    admin::{self, Actor, AdminError, Target, MAX_REALM_QUOTA},
     audit,
     config::RoleArg,
     error::AppError,
@@ -63,30 +63,30 @@ const REASON_LENGTH: usize = 200;
 
 pub fn routes(state: &AppState) -> Router<AppState> {
     let origin: Arc<str> = origin(&state.public_url).into();
-    Router::new()
-        .route("/v1/admin/session", post(log_in).delete(log_out))
-        .route("/v1/admin/me", get(me))
-        .route("/v1/admin/overview", get(overview))
-        .route("/v1/admin/accounts", get(accounts))
-        .route("/v1/admin/accounts/{id}", get(account))
+    let api = Router::new()
+        .route("/session", post(log_in).delete(log_out))
+        .route("/me", get(me))
+        .route("/overview", get(overview))
+        .route("/accounts", get(accounts))
+        .route("/accounts/{id}", get(account))
         .route(
-            "/v1/admin/accounts/{id}/roles/{role}",
+            "/accounts/{id}/roles/{role}",
             put(grant_role).delete(revoke_role),
         )
-        .route("/v1/admin/accounts/{id}/quota", put(set_quota))
-        .route("/v1/admin/accounts/{id}/suspend", post(suspend))
-        .route("/v1/admin/accounts/{id}/unsuspend", post(unsuspend))
-        .route(
-            "/v1/admin/accounts/{id}/reset-password",
-            post(reset_password),
-        )
-        .route("/v1/admin/accounts/{id}/sessions", delete(end_sessions))
-        .route("/v1/admin/realms", get(realms))
-        .route("/v1/admin/realms/{id}", delete(archive_realm))
-        .route("/v1/admin/realms/{id}/stop", post(stop_realm))
-        .route("/v1/admin/audit", get(audit_log))
+        .route("/accounts/{id}/quota", put(set_quota))
+        .route("/accounts/{id}/suspend", post(suspend))
+        .route("/accounts/{id}/unsuspend", post(unsuspend))
+        .route("/accounts/{id}/reset-password", post(reset_password))
+        .route("/accounts/{id}/sessions", delete(end_sessions))
+        .route("/realms", get(realms))
+        .route("/realms/{id}", delete(archive_realm))
+        .route("/realms/{id}/stop", post(stop_realm))
+        .route("/audit", get(audit_log))
         .layer(DefaultBodyLimit::max(16 * 1024))
-        .layer(middleware::from_fn_with_state(origin, guard))
+        // Inside the guard, so that an unknown path is checked and marked like the others.
+        .fallback(|| async { AppError::new(ErrorCode::NotFound, "There is no such endpoint.") })
+        .layer(middleware::from_fn_with_state(origin, guard));
+    Router::new().nest("/v1/admin", api)
 }
 
 /// The origin of a URL, as a browser sends it in `Origin`: `scheme://host[:port]`, lowercase,
@@ -301,7 +301,11 @@ async fn log_in(
     }
     // The session the browser held before, if any, ends: a login always starts a new one.
     if let Some(old) = admin_cookie(&headers) {
-        sessions::delete_admin(&mut tx, &old).await?;
+        if let Some((id, username)) = sessions::delete_admin(&mut tx, &old).await? {
+            Actor::web(id, &username)
+                .record(&mut tx, "admin_logout", Some(id), json!({"replaced": true}))
+                .await?;
+        }
     }
     let token = sessions::create_admin(&mut tx, account.id).await?;
     Actor::web(account.id, &account.username)
@@ -814,6 +818,15 @@ async fn grant_role(
 ) -> Result<StatusCode, AppError> {
     let target = Target::Id(account_id(&id)?);
     let role = parse_role(&role)?;
+    // The cap of the quota endpoint; the command line has none.
+    if request
+        .realm_quota
+        .is_some_and(|quota| !(0..=MAX_REALM_QUOTA).contains(&quota))
+    {
+        return Err(invalid(format!(
+            "A quota of worlds is 0 to {MAX_REALM_QUOTA}."
+        )));
+    }
     admin::grant_role(
         &state.db,
         &actor(&session),

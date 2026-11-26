@@ -1,6 +1,7 @@
 //! The static files of the web admin, from `--admin-dir`, under `/admin/`. A path with no file
 //! is client routing and gets `index.html`, but under `_app/`, where the built assets are. No
-//! directory is listed, and no path leads out of the directory.
+//! directory is listed, no path leads out of the directory, and no path with a segment that
+//! starts with `.` is served.
 
 use std::{fs, path::PathBuf, sync::Arc};
 
@@ -115,6 +116,16 @@ async fn to_slash(State(ui): State<Arc<AdminUi>>) -> Response {
     harden(&ui, response, "no-cache")
 }
 
+/// Whether a segment of `path` starts with `.` once percent-decoded, as `ServeDir` decodes it:
+/// a hidden file, or `..`. A segment ends at `/`, `\\` or their encodings.
+fn has_hidden_segment(path: &str) -> bool {
+    let path = path.to_ascii_lowercase();
+    path.replace("%2f", "/")
+        .replace("%5c", "/")
+        .split(['/', '\\'])
+        .any(|segment| segment.starts_with('.') || segment.starts_with("%2e"))
+}
+
 async fn serve(State(ui): State<Arc<AdminUi>>, request: Request) -> Response {
     let path = request
         .uri()
@@ -125,6 +136,9 @@ async fn serve(State(ui): State<Arc<AdminUi>>, request: Request) -> Response {
     let Ok(uri) = path.parse::<Uri>() else {
         return harden(&ui, StatusCode::NOT_FOUND.into_response(), "no-cache");
     };
+    if has_hidden_segment(&path) {
+        return harden(&ui, StatusCode::NOT_FOUND.into_response(), "no-cache");
+    }
     let (mut parts, _) = request.into_parts();
     parts.uri = uri;
     let file = Request::from_parts(parts.clone(), Body::empty());
@@ -157,6 +171,24 @@ async fn serve(State(ui): State<Arc<AdminUi>>, request: Request) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_segment_that_starts_with_a_dot_is_hidden() {
+        for hidden in [
+            "/.env",
+            "/_app/.cache/x",
+            "/%2Eenv",
+            "/_app%2F.git",
+            "/a%5c.b",
+            "/a\\.b",
+            "/..",
+        ] {
+            assert!(has_hidden_segment(hidden), "{hidden}");
+        }
+        for shown in ["/", "/index.html", "/_app/immutable/a.b.js", "/a%2e"] {
+            assert!(!has_hidden_segment(shown), "{shown}");
+        }
+    }
 
     #[test]
     fn the_inline_scripts_are_hashed_and_the_others_not() {

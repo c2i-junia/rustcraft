@@ -222,8 +222,10 @@ async fn an_admin_logs_in_with_a_secure_cookie_and_out() {
 #[tokio::test]
 async fn a_login_replaces_the_session_the_browser_held() {
     let hub = TestHub::start().await;
-    new_admin(&hub, "Alex").await;
-    let old = admin_cookie(&hub, "Alex").await;
+    let alex = new_admin(&hub, "Alex").await;
+    let sam = new_admin(&hub, "Sam").await;
+    // Sam's session, then Alex logs in in the same browser.
+    let old = admin_cookie(&hub, "Sam").await;
     let response = call(
         &hub.app,
         "POST",
@@ -235,6 +237,54 @@ async fn a_login_replaces_the_session_the_browser_held() {
     .await;
     assert_eq!(response.status(), 200);
     assert_eq!(get(&hub, "/v1/admin/me", &old).await.status(), 401);
+    let rows = audit(&hub).await;
+    let (actor, action, account, details) = &rows[rows.len() - 2];
+    assert_eq!(
+        (actor.as_str(), action.as_str()),
+        ("admin:Sam", "admin_logout")
+    );
+    assert_eq!(*account, Some(sam));
+    assert_eq!(details["admin_id"], sam.to_string());
+    assert_eq!(details["replaced"], true);
+    let (actor, action, account, _) = &rows[rows.len() - 1];
+    assert_eq!(
+        (actor.as_str(), action.as_str()),
+        ("admin:Alex", "admin_login")
+    );
+    assert_eq!(*account, Some(alex));
+}
+
+#[tokio::test]
+async fn an_unknown_admin_path_is_guarded_and_not_found() {
+    let hub = TestHub::start().await;
+    new_admin(&hub, "Alex").await;
+    let cookie = admin_cookie(&hub, "Alex").await;
+    let response = get(&hub, "/v1/admin/nothing/here", &cookie).await;
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(
+        response.headers()[header::X_CONTENT_TYPE_OPTIONS],
+        "nosniff"
+    );
+    assert_eq!(refusal(response).await, (404, "not_found".to_owned()));
+    let foreign = call(
+        &hub.app,
+        "GET",
+        "/v1/admin/nothing",
+        None,
+        &[("origin", "https://evil.example")],
+        None,
+    )
+    .await;
+    assert_eq!(refusal(foreign).await, (403, "forbidden".to_owned()));
+    let request = Request::post("/v1/admin/nothing")
+        .body(Body::empty())
+        .unwrap();
+    let response = hub.app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), 403, "the header is checked first");
+    // Other paths keep the router's plain 404.
+    let other = hub.get("/v1/nothing").await;
+    assert_eq!(other.status(), 404);
+    assert!(other.headers().get(header::CACHE_CONTROL).is_none());
 }
 
 #[tokio::test]
@@ -621,6 +671,22 @@ async fn every_mutation_is_done_and_audited_as_the_admin() {
         .await,
         (400, "invalid_request".to_owned())
     );
+    for wrong in [101, i32::MAX] {
+        let response = send(
+            &hub,
+            "PUT",
+            &format!("{account}/roles/host"),
+            &cookie,
+            Some(json!({"realm_quota": wrong})),
+        )
+        .await;
+        let status = response.status();
+        assert_eq!(status, 400);
+        assert_eq!(
+            body(response).await["message"],
+            "A quota of worlds is 0 to 100."
+        );
+    }
     assert_eq!(
         send(
             &hub,
@@ -1323,6 +1389,10 @@ fn admin_dir() -> (PathBuf, PathBuf) {
     std::fs::write(dir.join("_app/version.json"), "{}").unwrap();
     std::fs::write(dir.join("favicon.png"), [0x89, b'P', b'N', b'G']).unwrap();
     std::fs::write(root.join("secret.txt"), "top secret").unwrap();
+    std::fs::write(dir.join(".env"), "hidden").unwrap();
+    std::fs::create_dir_all(dir.join("_app/.cache")).unwrap();
+    std::fs::write(dir.join("_app/.cache/x.js"), "hidden").unwrap();
+    std::fs::write(dir.join("_app/immutable/.map"), "hidden").unwrap();
     (root, dir)
 }
 
@@ -1424,6 +1494,23 @@ async fn the_interface_is_served_with_its_headers_and_routing() {
         assert!(!content.contains("top secret"), "{path}");
         assert!(!content.contains("root:"), "{path}");
         assert!(status == 404 || content == page, "{path}: {status}");
+    }
+
+    // Nothing hidden, by any spelling.
+    for path in [
+        "/admin/.env",
+        "/admin/%2eenv",
+        "/admin/%2Eenv",
+        "/admin/_app/.cache/x.js",
+        "/admin/_app/%2ecache/x.js",
+        "/admin/_app%2f.cache/x.js",
+        "/admin/_app/immutable/.map",
+        "/admin/..",
+    ] {
+        let response = fetch(path).await;
+        assert_eq!(response.status(), 404, "{path}");
+        assert_eq!(response.headers()[header::X_FRAME_OPTIONS], "DENY");
+        assert!(!text(response).await.contains("hidden"), "{path}");
     }
 
     // Only reads.
