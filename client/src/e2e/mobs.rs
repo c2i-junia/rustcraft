@@ -216,15 +216,23 @@ fn a_stumpling_hatched_at_night_next_to_a_survival_player_hits_it() {
         .unwrap();
     look_at(&mut h, stumpling);
     // The night brings hostiles of its own, which may strike first on a slow machine: the blow
-    // counted is a loss of health while the Stumpling strikes, its strike and the health being
-    // told in messages of their own, a few frames apart at most
-    let striking = |w: &mut World| {
-        w.query::<&Mob>()
+    // counted is a loss of health while the Stumpling strikes and no other hostile does, the
+    // strikes and the health being told in messages of their own, a few frames apart at most
+    let strikers = |w: &mut World| {
+        let kinds: Vec<MobKind> = w
+            .query::<&Mob>()
             .iter(w)
-            .any(|mob| mob.kind == MobKind::Stumpling && mob.action == MobAction::Attack)
+            .filter(|mob| mob.action == MobAction::Attack)
+            .map(|mob| mob.kind)
+            .collect();
+        (
+            kinds.contains(&MobKind::Stumpling),
+            kinds.iter().any(|kind| *kind != MobKind::Stumpling),
+        )
     };
     let start = Instant::now();
-    let (mut health, mut last_strike, mut loss) = (MAX_HEALTH, None, None);
+    let (mut health, mut loss) = (MAX_HEALTH, None);
+    let (mut stumpling_struck, mut other_struck): (Option<u32>, Option<u32>) = (None, None);
     let blow = (0u32..)
         .find_map(|frame| {
             assert!(start.elapsed() < SERVER, "timed out waiting for a blow");
@@ -234,11 +242,12 @@ fn a_stumpling_hatched_at_night_next_to_a_survival_player_hits_it() {
                 loss = Some((frame, health - now));
             }
             health = now;
-            if striking(h.world_mut()) {
-                last_strike = Some(frame);
-            }
+            let (stumpling, other) = strikers(h.world_mut());
+            stumpling_struck = stumpling.then_some(frame).or(stumpling_struck);
+            other_struck = other.then_some(frame).or(other_struck);
             let (lost_at, lost) = loss?;
-            (last_strike?.abs_diff(lost_at) <= 5).then_some(lost)
+            let near = |struck: Option<u32>| struck.is_some_and(|at| at.abs_diff(lost_at) <= 5);
+            (near(stumpling_struck) && !near(other_struck)).then_some(lost)
         })
         .unwrap();
     assert!(health > 0 && blow.is_multiple_of(3), "a blow of {blow}");
