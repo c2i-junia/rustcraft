@@ -60,6 +60,27 @@ rustcraft-hub admin reset-password <user>            # prints a 16-character pas
 rustcraft-hub admin realms                           # id, name, owner, state, slot, players, last played
 ```
 
+## Web admin
+
+The web admin, `https://hub.rustcraft.dev/admin/`, does what the admin commands do, and shows the
+overview, the accounts with their sessions, worlds and audit rows, the worlds and the audit log.
+Log in with the username and password of an account that holds `admin`; give the first one with
+`rustcraft-hub admin grant <user> admin`. An admin cannot revoke their own `admin`, suspend
+themselves, reset their own password or end their own sessions there: the commands still can.
+
+- Its source is `hub/admin/`, a SvelteKit app built to static files (`bun install && bun run
+  build` writes `hub/admin/build/`). The image builds it in its `admin-ui` stage and puts it in
+  `/usr/share/rustcraft-hub/admin`, which compose gives as `HUB_ADMIN_DIR`. Without
+  `--admin-dir`, the hub serves no `/admin`.
+- The hub reads `index.html` at startup, for the hashes of its policy: restart it after replacing
+  the build.
+- Its API is under `/v1/admin`, on a session cookie of its own (`__Host-rustcraft-admin`, 12 hours
+  idle, 24 at most), and needs the header `X-Rustcraft-Admin: 1`. Its actions are written in
+  `audit_log` as `admin:<username>`.
+- Locally: `bun run build` in `hub/admin`, then `serve --admin-dir hub/admin/build --public-url
+  http://localhost:<port>` and open `http://localhost:<port>/admin/` (a browser keeps the
+  `Secure` cookie of `localhost`).
+
 ## Hosted worlds
 
 - An account with the `host` role creates worlds (`POST /v1/realms`, `{name, settings}`) while it

@@ -126,7 +126,7 @@ paru -S rustcraft-bin</code></pre>
 		<a href="https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit">Pixel Perfection</a> resource
 		pack by XSSheep and Nova_Wostra.
 	</p>
-	<p>Not affiliated with Mojang or Microsoft.</p>
+	<p>Not affiliated with Mojang or Microsoft. <a href="https://hub.rustcraft.dev/admin/">Admin</a></p>
 </footer>
 
 <style>
