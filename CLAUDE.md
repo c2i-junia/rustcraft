@@ -51,10 +51,11 @@ pack (XSSheep's, kept up by Nova_Wostra): https://github.com/NovaWostra/Pixel-Pe
 
 ## Running the game
 
-Headless only, never on the desktop, under gamescope:
+Agents run the game headless only, never on the desktop, under gamescope:
 
 ```
 gamescope --backend headless -W 1280 -H 720 -- env -u WAYLAND_DISPLAY <command>
 ```
 
 To play at release speed with fast rebuilds, use `just play [client args]` (the `play` profile).
+Agents wrap it in gamescope like any other command; the owner runs it directly.

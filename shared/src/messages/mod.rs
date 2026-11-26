@@ -61,6 +61,9 @@ pub const SIGN_LINES: usize = 4;
 /// The most characters a line of a sign holds.
 pub const SIGN_LINE_LENGTH: usize = 30;
 
+// A message is encoded and sent at once, never held in bulk: the size of its largest variant
+// costs nothing worth a box.
+#[allow(clippy::large_enum_variant)]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ServerToClientMessage {
     AuthRegisterResponse(AuthRegisterResponse),
