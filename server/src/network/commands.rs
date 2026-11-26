@@ -6,7 +6,7 @@ use shared::players::game_mode::GameMode;
 use shared::players::Player;
 use shared::world::hostiles::Difficulty;
 use shared::world::{ItemId, ItemStack, WeatherKind};
-use shared::{DAY_DURATION_IN_TICKS, MIDNIGHT_IN_DAY, NOON_IN_DAY};
+use shared::{DAY_DURATION_IN_TICKS, MAX_INVENTORY_SLOTS, MIDNIGHT_IN_DAY, NOON_IN_DAY};
 
 use crate::init::ServerTime;
 use crate::network::permissions::{Admin, WhitelistAction};
@@ -219,12 +219,14 @@ pub fn parse_command(line: &str) -> Result<Command, String> {
 /// the lobby and the permissions), for `player`, its author, and returns the answer. `locate`
 /// starts the search of a biome by its key from the position of the player, and returns the
 /// answer to give at once (`Locator::start`). A world made peaceful loses its hostiles on the
-/// next tick (`mob::spawning`).
+/// next tick (`mob::spawning`). What `/give` finds no room for goes to `overflow`, for the
+/// caller to drop at the feet of the player.
 pub fn run_command(
     command: Command,
     (time, weather, difficulty): (&mut ServerTime, &mut ServerWeather, &mut Difficulty),
     player: &mut Player,
     locate: impl FnOnce(Place, Vec3) -> String,
+    overflow: &mut Vec<ItemStack>,
 ) -> String {
     match command {
         Command::SetTime(time_of_day) => {
@@ -241,11 +243,27 @@ pub fn run_command(
                 item_type: item.get_default_type(),
                 nb: count,
             });
-            let given = count - lost;
-            if lost == 0 {
-                format!("Gave {given} {item:?}")
-            } else {
+            // What does not fit falls at the feet of the player, a backpack of it at most
+            let max_stack = item.get_max_stack();
+            let dropped = lost.min(max_stack * MAX_INVENTORY_SLOTS);
+            let mut left = dropped;
+            while left > 0 {
+                let nb = left.min(max_stack);
+                overflow.push(ItemStack {
+                    item_id: item,
+                    item_type: item.get_default_type(),
+                    nb,
+                });
+                left -= nb;
+            }
+            let given = count - lost + dropped;
+            let lost = lost - dropped;
+            if lost > 0 {
                 format!("Gave {given} {item:?}, {lost} did not fit in the inventory")
+            } else if dropped > 0 {
+                format!("Gave {given} {item:?}, {dropped} fell at your feet")
+            } else {
+                format!("Gave {given} {item:?}")
             }
         }
         Command::SetGameMode(mode) => {
@@ -412,6 +430,7 @@ mod tests {
             ),
             &mut player,
             |_, _| unreachable!(),
+            &mut Vec::new(),
         );
         assert_eq!(player.game_mode, GameMode::Creative);
         assert_eq!(answer, "Game mode set to creative");
@@ -440,6 +459,7 @@ mod tests {
             ),
             &mut Player::default(),
             |_, _| unreachable!(),
+            &mut Vec::new(),
         );
         assert_eq!(difficulty, Difficulty::Peaceful);
         assert_eq!(answer, "Difficulty set to peaceful");
@@ -472,6 +492,7 @@ mod tests {
             (&mut ServerTime(0), &mut weather, &mut Difficulty::Normal),
             &mut Player::default(),
             |_, _| unreachable!(),
+            &mut Vec::new(),
         );
         assert_eq!(answer, "Weather set to rain");
         assert_eq!(weather.kind, WeatherKind::Rain);
@@ -514,6 +535,7 @@ mod tests {
             ),
             &mut player.clone(),
             |place, from| format!("{place:?} from {from}"),
+            &mut Vec::new(),
         );
         assert_eq!(
             answer,

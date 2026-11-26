@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{ItemId, ItemStack, ItemType, ToolKind};
+use super::{ItemId, ItemName, ItemStack, ItemType, ToolKind};
 
 /// The levels each enchantment has.
 pub const MAX_ENCHANTMENT_LEVEL: u32 = 3;
@@ -117,7 +117,7 @@ impl Enchantments {
     }
 
     /// These, with `enchantment` at `level`.
-    fn with(self, enchantment: Enchantment, level: u32) -> Self {
+    pub fn with(self, enchantment: Enchantment, level: u32) -> Self {
         let shift = 2 * enchantment as u16;
         let level = level.min(MAX_ENCHANTMENT_LEVEL) as u16;
         Self(self.0 & !(3 << shift) | level << shift)
@@ -141,7 +141,9 @@ impl ItemType {
     /// The wear of an item that wears.
     pub fn wear(self) -> Option<u32> {
         match self {
-            Self::Tool { wear } | Self::Enchanted { wear, .. } => Some(wear),
+            Self::Tool { wear } | Self::Enchanted { wear, .. } | Self::Forged { wear, .. } => {
+                Some(wear)
+            }
             Self::Generic | Self::Block(_) => None,
         }
     }
@@ -151,7 +153,61 @@ impl ItemType {
         match self {
             Self::Enchanted { enchantments, .. } => Self::Enchanted { wear, enchantments },
             Self::Tool { .. } => Self::Tool { wear },
+            Self::Forged {
+                enchantments,
+                repairs,
+                name,
+                ..
+            } => Self::Forged {
+                wear,
+                enchantments,
+                repairs,
+                name,
+            },
             other => other,
+        }
+    }
+
+    /// The enchantments the item carries, none for one that carries none.
+    pub fn enchantments(self) -> Enchantments {
+        match self {
+            Self::Enchanted { enchantments, .. } | Self::Forged { enchantments, .. } => {
+                enchantments
+            }
+            _ => Enchantments::default(),
+        }
+    }
+
+    /// How many times the item was repaired or merged at an anvil.
+    pub fn repairs(self) -> u8 {
+        match self {
+            Self::Forged { repairs, .. } => repairs,
+            _ => 0,
+        }
+    }
+
+    /// The name an anvil gave the item, empty for none.
+    pub fn name(self) -> ItemName {
+        match self {
+            Self::Forged { name, .. } => name,
+            _ => ItemName::default(),
+        }
+    }
+
+    /// The type of an item that wears, with all of this: the simplest variant that holds it, so
+    /// that an item never worked at an anvil keeps the variant it had.
+    pub fn worked(wear: u32, enchantments: Enchantments, repairs: u8, name: ItemName) -> Self {
+        if repairs > 0 || !name.is_empty() {
+            Self::Forged {
+                wear,
+                enchantments,
+                repairs,
+                name,
+            }
+        } else if enchantments != Enchantments::default() {
+            Self::Enchanted { wear, enchantments }
+        } else {
+            Self::Tool { wear }
         }
     }
 }
@@ -164,12 +220,10 @@ fn raised(value: u32, percent: u32, level: u32) -> u32 {
 impl ItemStack {
     /// The level of `enchantment` the stack carries, 0 for none.
     pub fn enchantment_level(&self, enchantment: Enchantment) -> u32 {
-        match self.item_type {
-            ItemType::Enchanted { enchantments, .. } if enchantment.fits(self.item_id) => {
-                enchantments.level(enchantment)
-            }
-            _ => 0,
+        if !enchantment.fits(self.item_id) {
+            return 0;
         }
+        self.item_type.enchantments().level(enchantment)
     }
 
     /// The enchantments the stack carries, with their levels.
@@ -191,15 +245,15 @@ impl ItemStack {
         if !enchantment.fits(self.item_id) || level > MAX_ENCHANTMENT_LEVEL {
             return None;
         }
-        let carried = match self.item_type {
-            ItemType::Enchanted { enchantments, .. } => enchantments,
-            _ => Enchantments::default(),
-        };
+        let kind = self.item_type;
+        let carried = kind.enchantments();
         Some(ItemStack {
-            item_type: ItemType::Enchanted {
-                wear: self.item_type.wear().unwrap_or(0),
-                enchantments: carried.with(enchantment, level),
-            },
+            item_type: ItemType::worked(
+                kind.wear().unwrap_or(0),
+                carried.with(enchantment, level),
+                kind.repairs(),
+                kind.name(),
+            ),
             ..*self
         })
     }

@@ -157,6 +157,8 @@ pub fn hud_plugin(app: &mut App) {
                     show_grid_ghost,
                     display_furnace_system,
                     display_engraving,
+                    spawn_anvil_name_field,
+                    display_anvil,
                     style_inventory_panel,
                 )
                     .chain()

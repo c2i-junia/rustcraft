@@ -8,7 +8,7 @@ use super::sounds::Sound;
 use crate::player::InventoryActionPredicted;
 use crate::ui::widgets::slot::{ActionRefused, RefusalShake};
 
-/// The sound of an accepted inventory action: a craft knocks; the engraving table opens and engraves; a stack onto the cursor (more of
+/// The sound of an accepted inventory action: a craft knocks; the engraving table opens and engraves; the anvil opens and strikes; a stack onto the cursor (more of
 /// its item, or another stack) is picked, items off it into slots placed, by the actions on the
 /// cursor; every other action is silent, a drop too, as in Minecraft: the item seen flying is
 /// enough. A refusal sounds through its `ActionRefused`.
@@ -20,6 +20,8 @@ pub fn inventory_sound(outcome: &InventoryActionOutcome) -> Option<Sound> {
         | InventoryAction::CraftToHotbar(_) => Some(Sound::Craft),
         InventoryAction::OpenEngravingTable(_) => Some(Sound::EngravingOpen),
         InventoryAction::Enchant(_) => Some(Sound::Enchant),
+        InventoryAction::OpenAnvil(_) => Some(Sound::AnvilOpen),
+        InventoryAction::Forge(_) => Some(Sound::AnvilUse),
         InventoryAction::LeftClickSlot(_)
         | InventoryAction::RightClickSlot(_)
         | InventoryAction::Drag { .. }
@@ -105,6 +107,7 @@ mod tests {
             result: Ok(()),
             thrown: None,
             smelted: None,
+            dropped: Vec::new(),
             crafted: None,
         }
     }
@@ -248,6 +251,7 @@ mod tests {
             let thrown = InventoryActionOutcome {
                 thrown: dirt(1),
                 smelted: None,
+                dropped: Vec::new(),
                 ..outcome(action, before, after)
             };
             assert_eq!(inventory_sound(&thrown), None, "{action:?}");

@@ -51,6 +51,9 @@ pub struct Inventory {
     /// The engraving table the player is using, if any. Never at the same time as another block.
     #[serde(default)]
     pub open_engraver: Option<IVec3>,
+    /// The anvil the player is using, if any. Never at the same time as another block.
+    #[serde(default)]
+    pub open_anvil: Option<IVec3>,
 }
 
 impl Default for Inventory {
@@ -68,11 +71,14 @@ impl Inventory {
             open_chest: None,
             open_furnace: None,
             open_engraver: None,
+            open_anvil: None,
         }
     }
 
-    /// Closes the table, the chest, the furnace or the engraving table the player is using.
+    /// Closes the table, the chest, the furnace, the engraving table or the anvil the player is
+    /// using.
     pub fn close_blocks(&mut self) {
+        self.open_anvil = None;
         self.open_table = None;
         self.open_chest = None;
         self.open_furnace = None;
@@ -92,7 +98,8 @@ impl Inventory {
     }
 
     /// Adds `stack` to the inventory: first on the stacks of the same item, then in empty slots,
-    /// in slot order. Returns how many items did not fit; those are lost.
+    /// in slot order. Returns how many items did not fit, for the caller to drop at the feet of
+    /// the player.
     pub fn add_item_to_inventory(&mut self, stack: ItemStack) -> u32 {
         self.add_item_to_range(stack, 0..MAX_INVENTORY_SLOTS)
     }

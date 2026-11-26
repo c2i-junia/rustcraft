@@ -22,6 +22,7 @@ pub fn fills_now(inventory: &Inventory, recipe: &RecipeView, grid_size: u32) -> 
     inventory.open_chest.is_none()
         && inventory.open_furnace.is_none()
         && inventory.open_engraver.is_none()
+        && inventory.open_anvil.is_none()
         && plan_grid_fill(inventory, recipe.index, 1, grid_size)
             .is_ok_and(|fill| fill.plan.is_some())
 }

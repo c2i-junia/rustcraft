@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Procedurally generates the sounds of the later features into data/sounds/: the armour, the
-bow and its arrows, the experience, the engraving table, the trade and the villagers' voices,
+bow and its arrows, the experience, the engraving table, the anvil, the trade and the villagers' voices,
 the breeding and the taming, a mob falling into water, and the stings of the progress (a depth
 reached, an achievement, a boss, the victory, the credits, a skin imported), and the critical
 blows and the sweeps of the melee.
@@ -258,6 +258,34 @@ def build_enchant_refused(rng):
     return finish(band(tone * 0.6 + body, high=1500), -22)
 
 
+# --- anvil ------------------------------------------------------------------
+
+
+def anvil_strike(rng, f0, tau):
+    """A hammer on the anvil: a heavy inharmonic ring over a dull knock."""
+    d = 0.9
+    ring = modes(rng, d, [(f0, tau, 1.0), (f0 * 2.76, tau * 0.7, 0.7), (f0 * 5.40, tau * 0.45, 0.45), (f0 * 8.93, tau * 0.3, 0.25)], 0.01)
+    tick = band(white(rng, d), 2500, 10000) * env(d, 0.0002, 0.002) * 0.5
+    knock = thump(rng, d, 180, 90, 0.03) * 0.6
+    return ring + tick + knock
+
+
+def build_anvil_open(rng):
+    """The hammer laid on the anvil: a light double tap."""
+    d = 0.6
+    taps = clinks(rng, d, [0.0, 0.11], 1700, 2100, 0.09)
+    return finish(outdoors(rng, taps, 0.1), -24)
+
+
+def build_anvil_use(rng):
+    """Two strikes of the hammer, the second the louder."""
+    d = 1.2
+    first = anvil_strike(rng, 1150, 0.16) * 0.6
+    second = anvil_strike(rng, 1180, 0.22)
+    x = place_at(d, first, 0.0) + place_at(d, second, 0.22)
+    return finish(outdoors(rng, x, 0.12), -19)
+
+
 # --- trade ------------------------------------------------------------------
 
 
@@ -465,6 +493,8 @@ def main():
     write_ogg("ui/engraving_open", build_engraving_open)
     write_ogg("ui/enchant", build_enchant)
     write_ogg("ui/enchant_refused", build_enchant_refused)
+    write_ogg("ui/anvil_open", build_anvil_open)
+    write_ogg("ui/anvil_use", build_anvil_use)
     write_ogg("ui/trade_open", build_trade_open)
     write_ogg("ui/trade_done", build_trade_done)
     write_ogg("ui/trade_refused", build_trade_refused)

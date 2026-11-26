@@ -185,7 +185,7 @@ fn choose_enchantment(
 }
 
 /// "1 level", "5 levels".
-fn levels(count: u32) -> String {
+pub(super) fn levels(count: u32) -> String {
     match count {
         1 => tr("engraving.one_level").to_string(),
         count => trf("engraving.levels", &[("count", &count)]),

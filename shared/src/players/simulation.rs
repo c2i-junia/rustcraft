@@ -22,7 +22,8 @@ pub struct ActionsOutcome {
     pub broken: Vec<BrokenBlock>,
     /// The mobs the player made appear with a spawn egg.
     pub spawned: Vec<SpawnedMob>,
-    /// What the player filled and had no room for, to drop.
+    /// What the player filled, or put back into its inventory at a close, and had no room for,
+    /// to drop.
     pub dropped: Vec<ItemStack>,
     /// What the player threw out of its inventory, to throw ahead of it.
     pub thrown: Vec<ItemStack>,
@@ -65,7 +66,11 @@ pub fn simulate_player_actions(
     ActionsOutcome {
         broken: interactions.broken,
         spawned: interactions.spawned,
-        dropped: interactions.dropped,
+        dropped: interactions
+            .dropped
+            .into_iter()
+            .chain(inventory.iter().flat_map(|o| o.dropped.iter().copied()))
+            .collect(),
         signs: interactions.signs,
         bedrolls: interactions.bedrolls,
         placed: interactions.placed,

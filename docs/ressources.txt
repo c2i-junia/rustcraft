@@ -105,6 +105,8 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
    RipePotatoes}.png), the pack's block/carrots_stage{0,1,2,3}.png and
    block/potatoes_stage{0,1,2,3}.png; of the carrot, the potato and the baked potato
    (items/{Carrot,Potato,BakedPotato}.png), the pack's item/{carrot,potato,baked_potato}.png.
+-> The textures of the anvil (blocks/Anvil.png, AnvilTop.png), the pack's block/anvil.png and
+   block/anvil_top.png, the top laid over the side where it is transparent.
 
 -> Drawn for Rustcraft, not from the pack: HewnStone, Limestone, Slate, Clay, BrickWall, RammedEarth, Thatch, CoalBlock, CopperOre, TinOre, CopperBlock, TinBlock, BronzeBlock, WillowLog, WillowLogTop, WillowPlanks, WillowLeaves, AcaciaLog, AcaciaLogTop, AcaciaPlanks, AcaciaLeaves, WoodenSlab, HewnStoneSlab, BrickSlab, Lantern, Reed, Heather, Mushroom, CopperIngot, TinIngot, BronzeIngot, FiredBrick, Fiber, Rope, Flint, RoastMushroom, BronzePickaxe, BronzeAxe, BronzeShovel, BronzeHoe, BronzeSword.
 -> Also drawn for Rustcraft: AcaciaSapling, Barrel, BarrelTop, Bedroll, Berries, BerryBush, BrickStairs, Campfire, CampfireFlame, Door, DoorTop, Fence, FullRainCisternTop, GlassPane, HewnStoneStairs, JungleSapling, Ladder, OakSapling, RainCistern, RainCisternTop, RawMutton, RipeBerryBush, RipeRye, RoastMutton, Rye, RyeBread, RyeSprout, Sign, Spear, SpruceSapling, TilledSoil, WillowSapling, WoodenStairs, Wool, YoungRye.
@@ -117,7 +119,7 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
 All the sounds and the music are original, synthesised by our own scripts (MIT, like the code):
 scripts/generate_sounds.py (the sound effects, the creatures' voices included),
 scripts/generate_feature_sounds.py (the armour, the bow and arrows, the experience, the engraving
-table, the trade and the villagers' voices, the breeding and taming, and the stings of the
+table, the anvil, the trade and the villagers' voices, the breeding and taming, and the stings of the
 progress) and
 scripts/generate_music.py (the eight pieces of music in data/music/).
 

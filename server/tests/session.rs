@@ -2408,14 +2408,17 @@ fn give_adds_the_items_to_the_inventory_of_its_author() {
     expected.inner.insert(1, stack(ItemId::Dirt, 11));
     assert_eq!(inventory, expected);
 
-    // What does not fit is lost, and the answer says so
+    // What does not fit falls at the feet of the player, a backpack of it at most; the rest
+    // is lost, and the answer says so
     let room = (MAX_INVENTORY_SLOTS - 2) * 64;
+    let fell = MAX_INVENTORY_SLOTS * 64;
     client.send(chat_message("/give stone 99999"));
     command_answer(
         &mut client,
         &format!(
-            "Gave {room} Stone, {} did not fit in the inventory",
-            99999 - room
+            "Gave {} Stone, {} did not fit in the inventory",
+            room + fell,
+            99999 - room - fell
         ),
     );
     let inventory = send_inventory_actions(&mut client, 2, vec![]);

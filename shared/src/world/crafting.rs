@@ -274,6 +274,17 @@ const RECIPES: &[Recipe] = &[
         nb: 1,
         shapeless: false,
     },
+    Recipe {
+        width: 3,
+        cells: &[
+            item(ItemId::IronBlock), item(ItemId::IronBlock), item(ItemId::IronBlock),
+            None, IRON, None,
+            IRON, IRON, IRON,
+        ],
+        output: ItemId::Anvil,
+        nb: 1,
+        shapeless: false,
+    },
     Recipe { width: 3, cells: &helmet(LEATHER), output: ItemId::LeatherHelmet, nb: 1, shapeless: false },
     Recipe { width: 3, cells: &chestplate(LEATHER), output: ItemId::LeatherChestplate, nb: 1, shapeless: false },
     Recipe { width: 3, cells: &leggings(LEATHER), output: ItemId::LeatherLeggings, nb: 1, shapeless: false },
@@ -948,7 +959,7 @@ mod tests {
     #[test]
     fn every_recipe_is_listed_with_its_index_and_size() {
         let all: Vec<RecipeView> = recipes().collect();
-        assert_eq!(all.len(), 106);
+        assert_eq!(all.len(), 107);
         for (position, recipe) in all.iter().enumerate() {
             assert_eq!(recipe.index as usize, position);
             assert_eq!(recipe.cells.len(), recipe.width * recipe.height);

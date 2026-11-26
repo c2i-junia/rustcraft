@@ -25,7 +25,7 @@ use crate::state::GameState;
 use crate::ui::credits::Credits;
 use crate::ui::hud::boss::NearBoss;
 use crate::ui::hud::depths::DepthReached;
-use crate::ui::hud::inventory::{EnchantChoice, TradeOffer, TradeUpdated};
+use crate::ui::hud::inventory::{EnchantChoice, ForgeButton, TradeOffer, TradeUpdated};
 use crate::ui::hud::progress::JustEarned;
 use crate::world::ClientWorldMap;
 
@@ -367,12 +367,15 @@ pub fn trade_cues(
 /// else.
 pub fn refused_click(
     click: On<Pointer<Click>>,
-    buttons: Query<(Has<TradeOffer>, Has<EnchantChoice>), With<InteractionDisabled>>,
+    buttons: Query<
+        (Has<TradeOffer>, Has<EnchantChoice>, Has<ForgeButton>),
+        With<InteractionDisabled>,
+    >,
     mut sounds: MessageWriter<PlaySound>,
 ) {
     let sound = match buttons.get(click.entity) {
-        Ok((true, _)) => Sound::TradeRefused,
-        Ok((_, true)) => Sound::EnchantRefused,
+        Ok((true, _, _)) => Sound::TradeRefused,
+        Ok((_, true, _) | (_, _, true)) => Sound::EnchantRefused,
         _ => return,
     };
     sounds.write(PlaySound::here(sound));

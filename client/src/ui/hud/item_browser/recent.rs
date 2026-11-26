@@ -90,6 +90,7 @@ mod tests {
             result,
             thrown: None,
             smelted: None,
+            dropped: Vec::new(),
             crafted,
         })
     }

@@ -40,6 +40,8 @@ pub fn refused_targets(action: InventoryAction) -> Vec<RefusedTarget> {
         | InventoryAction::OpenFurnace(_)
         | InventoryAction::OpenEngravingTable(_)
         | InventoryAction::Enchant(_)
+        | InventoryAction::OpenAnvil(_)
+        | InventoryAction::Forge(_)
         | InventoryAction::TakeFromCatalog { .. }
         | InventoryAction::DestroyFloating
         | InventoryAction::FillCraftingGrid { .. }
@@ -150,6 +152,7 @@ mod tests {
             result,
             thrown: None,
             smelted: None,
+            dropped: Vec::new(),
             crafted: None,
         })
     }

@@ -204,6 +204,7 @@ fn opened(
     match block {
         Some(BlockId::CraftingTable) => Some(InventoryAction::OpenCraftingTable(position)),
         Some(BlockId::EngravingTable) => Some(InventoryAction::OpenEngravingTable(position)),
+        Some(BlockId::Anvil) => Some(InventoryAction::OpenAnvil(position)),
         Some(BlockId::Chest | BlockId::Barrel) => Some(InventoryAction::OpenChest(position)),
         Some(BlockId::Furnace | BlockId::LitFurnace) => {
             Some(InventoryAction::OpenFurnace(position))
@@ -238,7 +239,7 @@ fn is_outlined(
 /// What one inventory action of the local player did, as predicted when the player made it.
 /// Replays of the reconciliation are not reported: each action is reported once, which the
 /// sounds and the shake of a refused slot rely on.
-#[derive(Message, Debug, Clone, Copy, PartialEq)]
+#[derive(Message, Debug, Clone, PartialEq)]
 pub struct InventoryActionPredicted(pub InventoryActionOutcome);
 
 /// Predicts the inventory actions of the frame on the local player, shows the result, and
@@ -317,6 +318,7 @@ mod tests {
                     result: Ok(()),
                     thrown: None,
                     smelted: None,
+                    dropped: Vec::new(),
                     crafted: None,
                 },
                 InventoryActionOutcome {
@@ -326,6 +328,7 @@ mod tests {
                     result: Err(InventoryRefusal::NoRecipe),
                     thrown: None,
                     smelted: None,
+                    dropped: Vec::new(),
                     crafted: None,
                 },
             ]

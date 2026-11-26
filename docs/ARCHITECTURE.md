@@ -777,6 +777,35 @@ and drifts to violet, whose material is shared by every glint of a texture and c
 frame. `Inventory::in_hand` gives the item held with whether it is enchanted (`Held`), so that the
 others see the glint too.
 
+### The anvil
+
+`world/anvil.rs` (shared) is what it does: `forge` takes the item of its first slot, which must wear,
+what its second slot holds and the name asked for, and gives a `Forging` (the item made, its cost in
+levels, what it takes from the second slot) or a `ForgeRefusal`. A unit of the material of the item
+(`repair_material`: planks, cobble, an ingot, a diamond, leather, rope) repairs a quarter of its
+durability, for a level each; another item of its kind merges with it, their durabilities added with
+12 % more and their enchantments combined, two of the same level making the next, for 2 levels and
+those of the enchantments it brings; a name costs a level, an empty one gives back the name of the
+kind. Each repair or merge counts on the item, and adds 1, 3, 7, 15... levels to the next work; beyond
+39 levels it is too dear. The count and the name are in a variant of the type of the stack,
+`ItemType::Forged`, built by `ItemType::worked`, which keeps the older variants for what was never
+worked; `ItemName` holds the name inline, up to 24 characters, so that a stack stays `Copy`, and saves
+and sends it as a string.
+
+The anvil (`BlockId::Anvil`, from three blocks and four ingots of iron) opens the inventory panel
+with `ANVIL_LEFT_SLOT` and `ANVIL_RIGHT_SLOT`, kept in the inventory as the crafting grid.
+`InventoryAction::Forge` carries the name typed (`players/anvil.rs`): the server alone applies it,
+free in creative. `ui/hud/inventory/anvil.rs` shows the name field, filled with the name of the item
+put in, what the work does and costs, and the button.
+
+### Nothing is lost
+
+What a player gets and has no room for falls at its feet (`DroppedItems::drop_from_player`) instead of
+vanishing: what a block it uses gives (`ActionsOutcome::dropped`), what a close puts back from the
+cursor, the crafting grid, the engraving table and the anvil (`InventoryActionOutcome::dropped`), and
+what `/give` gives, a backpack of it at most. Crafting into the inventory and trades are refused
+without room, and an item on the ground stays there until there is.
+
 ### The depth tiers
 
 `world/depths.rs` (shared) is their one definition: `DepthTier` is the caves (y 50 to 20), the depths
@@ -1339,8 +1368,10 @@ the integrated server, on wall-clock time. How to write one is in the README.
   a client with a higher frame rate breaks blocks faster.
 - A player is not held back by the mobs it pushes; no animal is born after a chunk is
   generated: a herd led away is gone for good.
-- An item that does not fit in a full inventory is lost, but for the water bucket of a bucket
-  filled from a stack, which is dropped.
+- What `/give` finds no room for falls at the feet of the player up to a backpack of it (36 stacks);
+  the rest is lost, and the answer says so. The item browser of creative puts into the inventory
+  what fits of a stack taken from it, and forgets the rest.
+- A name given at an anvil is checked by nobody: a server shows any word a player writes on its items.
 - A player who dies loses its inventory for good unless it comes back
   for it within the 5 minutes its items lie there, which count on even where no player is.
 - The Gnawer and the Stumpling find their way to their prey (`mob::path`, an A* of at most 400

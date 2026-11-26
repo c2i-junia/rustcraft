@@ -17,8 +17,8 @@ use crate::{
     },
     world::{
         fuel_ticks, grid_slot, lacking_cells, match_recipe, plan_fill, recipes, smelting_result,
-        BlockId, ChunkMap, Container, CraftingGrid, Enchantment, FillPlan, Furnace, ItemId,
-        ItemStack, ItemType, RecipeView, CHEST_SLOTS, CRAFTING_GRID_SIZE, CRAFTING_GRID_START,
+        BlockId, ChunkMap, Container, CraftingGrid, Enchantment, FillPlan, ForgeRefusal, Furnace,
+        ItemId, ItemName, ItemStack, ItemType, RecipeView, CHEST_SLOTS, CRAFTING_GRID_SIZE, CRAFTING_GRID_START,
     },
     HALF_BLOCK, HOTBAR_SLOTS, MAX_INVENTORY_ACTIONS_PER_INPUT, MAX_INVENTORY_SLOTS,
 };
@@ -58,6 +58,18 @@ pub fn armour_slots() -> Range<u32> {
 /// The slot of the engraving table follows those of the armour. As the crafting grid, what it
 /// holds is in the inventory under this number, and goes back into it at the close.
 pub const ENGRAVING_SLOT: u32 = ARMOUR_SLOT_START + ArmourPiece::ALL.len() as u32;
+
+/// The first slot of the anvil follows that of the engraving table: it takes what wears, and
+/// what the anvil works. As the crafting grid, what the anvil holds is in the inventory under
+/// these numbers, and goes back into it at the close.
+pub const ANVIL_LEFT_SLOT: u32 = ENGRAVING_SLOT + 1;
+/// The second slot of the anvil: the material that repairs, or another item of the same kind.
+pub const ANVIL_RIGHT_SLOT: u32 = ANVIL_LEFT_SLOT + 1;
+
+/// The slots of the anvil, in the numbering of the inventory actions.
+pub fn anvil_slots() -> Range<u32> {
+    ANVIL_LEFT_SLOT..ANVIL_RIGHT_SLOT + 1
+}
 
 /// Append only, like `NetworkAction`: the position of the variant is what an input carries on
 /// the network. Bump `PROTOCOL_ID` with any change.
@@ -143,6 +155,12 @@ pub enum InventoryAction {
     /// Raises this enchantment by a level on the item of the engraving slot, for its cost in
     /// levels of experience. Only the server does it.
     Enchant(Enchantment),
+    /// Right click on the anvil at this position: its slots can be used while it stays within
+    /// reach.
+    OpenAnvil(IVec3),
+    /// Works the items of the anvil (`world::forge`), giving the first the name, empty for the
+    /// name of its kind, for its cost in levels of experience. Only the server does it.
+    Forge(ItemName),
 }
 
 /// Why an inventory action changed nothing.
@@ -185,6 +203,10 @@ pub enum InventoryRefusal {
     NothingHeld,
     /// No slot has room for what the action puts there.
     NoRoom,
+    /// There is no anvil within reach at this position, or none open.
+    NoAnvil,
+    /// The anvil has nothing to do with what its slots hold.
+    CannotForge(ForgeRefusal),
 }
 
 /// The slots of the cells of a grid of `size` by `size`, in its top left corner.
@@ -243,7 +265,7 @@ enum Lent {
 }
 
 /// What one inventory action of an input did: the client's feedback.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct InventoryActionOutcome {
     pub action: InventoryAction,
     /// The stack held by the cursor before the action, and after it.
@@ -252,6 +274,9 @@ pub struct InventoryActionOutcome {
     pub result: Result<(), InventoryRefusal>,
     /// What the action threw out of the inventory, for the server to drop ahead of the player.
     pub thrown: Option<ItemStack>,
+    /// What found no room in the inventory, put back into it at a close, for the server to
+    /// drop at the feet of the player.
+    pub dropped: Vec<ItemStack>,
     /// The item a craft action the simulation accepted crafted: what the grid made before it.
     pub crafted: Option<ItemId>,
     /// What the action took out of the output of a furnace, for its experience.
@@ -297,6 +322,11 @@ pub fn simulate_inventory_actions(
             inventory.open_engraver = None;
         }
     }
+    if let Some(anvil) = inventory.open_anvil {
+        if !block_in_reach(world_map, position, anvil, BlockId::Anvil) {
+            inventory.open_anvil = None;
+        }
+    }
     let creative = player.game_mode.is_creative();
     let actions = input.inventory_actions.iter();
     let mut outcomes = Vec::new();
@@ -334,7 +364,19 @@ pub fn simulate_inventory_actions(
             (None, None) => None,
         };
         let in_reach = |pos, id| block_in_reach(world_map, position, pos, id);
+        let mut dropped = Vec::new();
         let applied = match action {
+            InventoryAction::Forge(name) => {
+                let anvil = player.inventory.open_anvil;
+                if !anvil.is_some_and(|pos| in_reach(pos, BlockId::Anvil)) {
+                    Err(InventoryRefusal::NoAnvil)
+                } else if matches!(caller_type, CallerType::Client) {
+                    // The next update of the player shows it
+                    player.forging(name).map(|_| None)
+                } else {
+                    player.forge(name).map(|()| None)
+                }
+            }
             InventoryAction::Enchant(enchantment) => {
                 let table = player.inventory.open_engraver;
                 if !table.is_some_and(|pos| in_reach(pos, BlockId::EngravingTable)) {
@@ -346,9 +388,14 @@ pub fn simulate_inventory_actions(
                     player.enchant(enchantment).map(|()| None)
                 }
             }
-            _ => {
-                apply_inventory_action(&mut player.inventory, action, in_reach, contents, creative)
-            }
+            _ => apply_inventory_action_dropping(
+                &mut player.inventory,
+                action,
+                in_reach,
+                contents,
+                creative,
+                &mut dropped,
+            ),
         };
         // The output only gives
         let smelted = output_before.and_then(|before| {
@@ -382,6 +429,7 @@ pub fn simulate_inventory_actions(
             held_after: player.inventory.floating,
             result: applied.map(|_| ()),
             thrown: applied.ok().flatten(),
+            dropped,
             smelted,
             crafted: made.filter(|_| applied.is_ok()).map(|made| made.item_id),
         });
@@ -393,12 +441,28 @@ pub fn simulate_inventory_actions(
 /// any. `in_reach` tells whether a position holds a block of this kind the player can use.
 /// `contents` is what the open chest or furnace holds, `None` when it is unknown: its slots
 /// cannot be used then. The actions of the item browser's catalog need `creative`.
+///
+/// What a close finds no room for is forgotten: `apply_inventory_action_dropping` gives it.
 pub fn apply_inventory_action(
     inventory: &mut Inventory,
     action: InventoryAction,
     in_reach: impl Fn(IVec3, BlockId) -> bool,
     contents: Option<OpenContents>,
     creative: bool,
+) -> Result<Option<ItemStack>, InventoryRefusal> {
+    let mut dropped = Vec::new();
+    apply_inventory_action_dropping(inventory, action, in_reach, contents, creative, &mut dropped)
+}
+
+/// `apply_inventory_action`, which puts into `dropped` what a close put back into the inventory
+/// and found no room for, for the server to drop at the feet of the player.
+pub fn apply_inventory_action_dropping(
+    inventory: &mut Inventory,
+    action: InventoryAction,
+    in_reach: impl Fn(IVec3, BlockId) -> bool,
+    contents: Option<OpenContents>,
+    creative: bool,
+    dropped: &mut Vec<ItemStack>,
 ) -> Result<Option<ItemStack>, InventoryRefusal> {
     let creative_only = matches!(
         action,
@@ -409,7 +473,7 @@ pub fn apply_inventory_action(
     }
     let mut thrown = None;
     with_lent(inventory, contents, |inventory, lent| {
-        apply_action(inventory, action, &in_reach, lent, &mut thrown)
+        apply_action(inventory, action, &in_reach, lent, &mut thrown, dropped)
     })
     .map(|()| thrown)
 }
@@ -501,6 +565,7 @@ fn apply_action(
     in_reach: impl Fn(IVec3, BlockId) -> bool,
     lent: Lent,
     thrown: &mut Option<ItemStack>,
+    dropped: &mut Vec<ItemStack>,
 ) -> Result<(), InventoryRefusal> {
     let size = grid_size(inventory, &in_reach);
     let mut floating = inventory.floating.take();
@@ -518,14 +583,14 @@ fn apply_action(
         }
         InventoryAction::Close => {
             inventory.close_blocks();
-            if let Some(stack) = floating {
-                floating = put_back(inventory, stack);
+            // What finds no room falls at the feet of the player instead of being lost
+            if let Some(stack) = floating.take() {
+                dropped.extend(put_back(inventory, stack));
             }
-            for slot in grid_slots(CRAFTING_GRID_SIZE).chain([ENGRAVING_SLOT]) {
+            let grid = grid_slots(CRAFTING_GRID_SIZE);
+            for slot in grid.chain([ENGRAVING_SLOT]).chain(anvil_slots()) {
                 if let Some(stack) = inventory.inner.remove(&slot) {
-                    if let Some(kept) = put_back(inventory, stack) {
-                        inventory.inner.insert(slot, kept);
-                    }
+                    dropped.extend(put_back(inventory, stack));
                 }
             }
             Ok(())
@@ -569,6 +634,16 @@ fn apply_action(
         }
         // `simulate_inventory_actions` applies it: it spends the levels of the player
         InventoryAction::Enchant(_) => Err(InventoryRefusal::NoEngravingTable),
+        InventoryAction::OpenAnvil(anvil) => {
+            if in_reach(anvil, BlockId::Anvil) {
+                inventory.close_blocks();
+                inventory.open_anvil = Some(anvil);
+                Ok(())
+            } else {
+                Err(InventoryRefusal::NoAnvil)
+            }
+        }
+        InventoryAction::Forge(_) => Err(InventoryRefusal::NoAnvil),
         InventoryAction::TakeFromCatalog {
             item,
             count,
@@ -847,6 +922,7 @@ fn quick_move_slot(inventory: &mut Inventory, slot: u32, nb: u32, lent: Lent) ->
             {
                 Some(ENGRAVING_SLOT..ENGRAVING_SLOT + 1)
             }
+            Lent::Nothing if inventory.open_anvil.is_some() => anvil_slot_for(inventory, &stack),
             // A piece of armour is put on, if none is worn in its slot
             Lent::Nothing => stack
                 .item_id
@@ -947,6 +1023,8 @@ fn zone_of(slot: u32, lent: Lent) -> Vec<u32> {
         armour_slots().collect()
     } else if slot == ENGRAVING_SLOT {
         vec![ENGRAVING_SLOT]
+    } else if anvil_slots().contains(&slot) {
+        anvil_slots().collect()
     } else if lent != Lent::Nothing {
         (0..MAX_INVENTORY_SLOTS).collect()
     } else if slot < HOTBAR_SLOTS {
@@ -998,6 +1076,7 @@ fn swap_with_hotbar(
         && !grid_slots(size).any(|cell| cell == slot)
         && !is_lent(slot, lent)
         && !is_open_engraver(inventory, slot)
+        && !is_open_anvil(inventory, slot)
     {
         return Err(InventoryRefusal::InvalidSlot(slot));
     }
@@ -1145,14 +1224,37 @@ fn is_open_engraver(inventory: &Inventory, slot: u32) -> bool {
     slot == ENGRAVING_SLOT && inventory.open_engraver.is_some()
 }
 
+/// Whether `slot` is one of the anvil the player has open.
+fn is_open_anvil(inventory: &Inventory, slot: u32) -> bool {
+    anvil_slots().contains(&slot) && inventory.open_anvil.is_some()
+}
+
+/// The anvil slot a shift-click sends `stack` to: the first, for what wears while it is empty;
+/// the second, for what works the item of the first. `None` sends it on through the inventory.
+fn anvil_slot_for(inventory: &Inventory, stack: &ItemStack) -> Option<Range<u32>> {
+    let left = inventory.inner.get(&ANVIL_LEFT_SLOT);
+    match left {
+        None if stack.item_id.durability().is_some() => Some(ANVIL_LEFT_SLOT..ANVIL_LEFT_SLOT + 1),
+        Some(left)
+            if left.item_id == stack.item_id
+                || crate::world::repair_material(left.item_id)
+                    .is_some_and(|material| material.matches(stack.item_id)) =>
+        {
+            Some(ANVIL_RIGHT_SLOT..ANVIL_RIGHT_SLOT + 1)
+        }
+        _ => None,
+    }
+}
+
 /// Whether `item` may be put into `slot`: the output of a furnace takes nothing, its fuel slot
 /// only a fuel, an armour slot only its piece, the engraving slot only what may be enchanted,
-/// every other slot anything.
+/// the first slot of the anvil only what wears, every other slot anything.
 fn takes(slot: u32, item: ItemId) -> bool {
     match slot {
         FURNACE_OUTPUT_SLOT => false,
         FURNACE_FUEL_SLOT => fuel_ticks(item).is_some(),
         ENGRAVING_SLOT => item.is_enchantable(),
+        ANVIL_LEFT_SLOT => item.durability().is_some(),
         _ if armour_slots().contains(&slot) => item
             .armour()
             .is_some_and(|armour| armour.piece.slot() == slot),
@@ -1169,7 +1271,9 @@ fn check_slot(
     floating: Option<ItemStack>,
     lent: Lent,
 ) -> Result<(), InventoryRefusal> {
-    let may_be_left = is_beyond_the_grid(slot, size) || slot == ENGRAVING_SLOT;
+    let may_be_left = is_beyond_the_grid(slot, size)
+        || slot == ENGRAVING_SLOT
+        || anvil_slots().contains(&slot);
     let takes_a_leftover = may_be_left && floating.is_none() && inventory.inner.contains_key(&slot);
     if slot < MAX_INVENTORY_SLOTS
         || armour_slots().contains(&slot)
@@ -1177,6 +1281,7 @@ fn check_slot(
         || takes_a_leftover
         || is_lent(slot, lent)
         || is_open_engraver(inventory, slot)
+        || is_open_anvil(inventory, slot)
     {
         Ok(())
     } else {
@@ -1531,7 +1636,7 @@ mod tests {
     }
 
     #[test]
-    fn close_keeps_what_does_not_fit_in_a_full_inventory() {
+    fn close_drops_the_held_stack_that_does_not_fit_in_a_full_inventory() {
         let mut inventory = Inventory::new();
         for slot in 0..MAX_INVENTORY_SLOTS {
             inventory
@@ -1540,9 +1645,13 @@ mod tests {
         }
         inventory.floating = Some(stack(ItemId::Sand, 5));
 
-        apply(&mut inventory, InventoryAction::Close);
+        let mut dropped = Vec::new();
+        let close = InventoryAction::Close;
+        apply_inventory_action_dropping(&mut inventory, close, |_, _| false, None, false, &mut dropped)
+            .unwrap();
 
-        assert_eq!(inventory.floating, Some(stack(ItemId::Sand, 5)));
+        assert_eq!(inventory.floating, None);
+        assert_eq!(dropped, [stack(ItemId::Sand, 5)]);
     }
 
     fn planks(nb: u32) -> ItemStack {
@@ -1657,7 +1766,7 @@ mod tests {
     }
 
     #[test]
-    fn close_keeps_in_the_grid_what_does_not_fit() {
+    fn close_drops_what_the_grid_held_and_does_not_fit() {
         let mut inventory = Inventory::new();
         for slot in 0..MAX_INVENTORY_SLOTS {
             inventory
@@ -1665,10 +1774,16 @@ mod tests {
                 .insert(slot, stack(ItemId::Dirt, max_dirt()));
         }
         inventory.inner.insert(grid_slot(0, 0), planks(3));
+        inventory.inner.insert(grid_slot(2, 2), stack(ItemId::Dirt, 1));
 
-        apply(&mut inventory, InventoryAction::Close);
+        let mut dropped = Vec::new();
+        let close = InventoryAction::Close;
+        apply_inventory_action_dropping(&mut inventory, close, |_, _| false, None, false, &mut dropped)
+            .unwrap();
 
-        assert_eq!(inventory.inner[&grid_slot(0, 0)], planks(3));
+        assert!(!inventory.inner.contains_key(&grid_slot(0, 0)));
+        assert!(!inventory.inner.contains_key(&grid_slot(2, 2)));
+        assert_eq!(dropped, [planks(3), stack(ItemId::Dirt, 1)]);
     }
 
     const TABLE: IVec3 = IVec3::new(0, 0, -3);
@@ -1960,6 +2075,7 @@ mod tests {
                     result: Ok(()),
                     thrown: None,
                     smelted: None,
+                    dropped: Vec::new(),
                     crafted: None,
                 },
                 InventoryActionOutcome {
@@ -1969,6 +2085,7 @@ mod tests {
                     result: Err(InventoryRefusal::NoRecipe),
                     thrown: None,
                     smelted: None,
+                    dropped: Vec::new(),
                     crafted: None,
                 },
                 InventoryActionOutcome {
@@ -1978,6 +2095,7 @@ mod tests {
                     result: Ok(()),
                     thrown: Some(stack(ItemId::Dirt, 1)),
                     smelted: None,
+                    dropped: Vec::new(),
                     crafted: None,
                 },
             ]

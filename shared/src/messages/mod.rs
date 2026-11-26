@@ -356,6 +356,8 @@ mod tests {
                 InventoryAction::Enchant(crate::world::Enchantment::Efficiency),
                 21,
             ),
+            (InventoryAction::OpenAnvil(IVec3::ZERO), 22),
+            (InventoryAction::Forge(crate::world::ItemName::default()), 23),
         ] {
             assert_eq!(variant_index(&action), expected, "{ENCODING_WARNING}");
         }

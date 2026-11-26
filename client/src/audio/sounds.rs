@@ -106,7 +106,8 @@ impl SoundMaterial {
             | BlockId::Lantern
             | BlockId::Obsidian
             | BlockId::EmberHeart
-            | BlockId::EngravingTable => Self::Stone,
+            | BlockId::EngravingTable
+            | BlockId::Anvil => Self::Stone,
             BlockId::OakLog
             | BlockId::OakPlanks
             | BlockId::SpruceLog
@@ -314,6 +315,10 @@ pub enum Sound {
     Enchant,
     /// An enchantment clicked that the player cannot have.
     EnchantRefused,
+    /// The anvil opens: the hammer laid on it.
+    AnvilOpen,
+    /// The anvil works an item: the hammer strikes.
+    AnvilUse,
     /// A trade with a villager opens.
     TradeOpen,
     /// An offer is taken: coins.
@@ -407,6 +412,8 @@ impl Sound {
         Sound::EngravingOpen,
         Sound::Enchant,
         Sound::EnchantRefused,
+        Sound::AnvilOpen,
+        Sound::AnvilUse,
         Sound::TradeOpen,
         Sound::TradeDone,
         Sound::TradeRefused,
@@ -443,6 +450,8 @@ impl Sound {
             | Sound::EngravingOpen
             | Sound::Enchant
             | Sound::EnchantRefused
+            | Sound::AnvilOpen
+            | Sound::AnvilUse
             | Sound::TradeOpen
             | Sound::TradeDone
             | Sound::TradeRefused
@@ -514,6 +523,8 @@ impl Sound {
             Sound::EngravingOpen => one("ui/engraving_open"),
             Sound::Enchant => one("ui/enchant"),
             Sound::EnchantRefused => one("ui/enchant_refused"),
+            Sound::AnvilOpen => one("ui/anvil_open"),
+            Sound::AnvilUse => one("ui/anvil_use"),
             Sound::TradeOpen => one("ui/trade_open"),
             Sound::TradeDone => one("ui/trade_done"),
             Sound::TradeRefused => one("ui/trade_refused"),

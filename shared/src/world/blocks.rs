@@ -147,6 +147,8 @@ pub enum BlockId {
     Gloomrock,
     /// What gloomrock breaks into, as stone into cobblestone.
     CobbledGloomrock,
+    /// Repairs, merges and renames what wears, for levels of experience: see `players::anvil`.
+    Anvil,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -360,7 +362,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 111] = [
+    pub const ALL: [BlockId; 112] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -472,6 +474,7 @@ impl BlockId {
         BlockId::EngravingTable,
         BlockId::Gloomrock,
         BlockId::CobbledGloomrock,
+        BlockId::Anvil,
     ];
 
     pub fn is_stairs(&self) -> bool {
@@ -691,7 +694,7 @@ impl BlockId {
             Self::Vine => 1,
             Self::Cocoa => 2,
             Self::GoldBlock => 15,
-            Self::IronBlock | Self::DiamondBlock => 25,
+            Self::IronBlock | Self::DiamondBlock | Self::Anvil => 25,
             Self::HewnStone => 12,
             Self::Limestone => 8,
             Self::Slate => 12,
@@ -807,6 +810,7 @@ impl BlockId {
                     | Self::RainCistern
                     | Self::FullRainCistern
                     | Self::EngravingTable
+                    | Self::Anvil
             ),
             ToolKind::Axe => matches!(
                 *self,
@@ -884,7 +888,8 @@ impl BlockId {
             | Self::BrickSlab
             | Self::HewnStoneStairs
             | Self::BrickStairs
-            | Self::EngravingTable => 0,
+            | Self::EngravingTable
+            | Self::Anvil => 0,
             Self::IronOre | Self::IronBlock | Self::TinOre | Self::TinBlock | Self::BronzeBlock => {
                 1
             }
@@ -1036,6 +1041,7 @@ impl BlockId {
             BlockId::Obsidian => vec![(1, ItemId::Obsidian, 1)],
             BlockId::EmberHeart => vec![(1, ItemId::EmberHeart, 1)],
             BlockId::EngravingTable => vec![(1, ItemId::EngravingTable, 1)],
+            BlockId::Anvil => vec![(1, ItemId::Anvil, 1)],
             _ => vec![],
         }
     }
@@ -1047,6 +1053,7 @@ impl BlockId {
             *self,
             Self::CraftingTable
                 | Self::EngravingTable
+                | Self::Anvil
                 | Self::Chest
                 | Self::Barrel
                 | Self::Sign
@@ -1172,7 +1179,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 111] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 112] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 3] = [BlockId::Bedrock, BlockId::Water, BlockId::Lava];
@@ -1290,7 +1297,8 @@ mod tests {
             | BlockId::EmberHeart
             | BlockId::EngravingTable
             | BlockId::Gloomrock
-            | BlockId::CobbledGloomrock => {}
+            | BlockId::CobbledGloomrock
+            | BlockId::Anvil => {}
         }
     }
 
@@ -1449,6 +1457,7 @@ mod tests {
                 BlockId::EngravingTable => 108,
                 BlockId::Gloomrock => 109,
                 BlockId::CobbledGloomrock => 110,
+                BlockId::Anvil => 111,
             };
             assert_eq!(encoded(&id), [expected], "{id:?}: {ENCODING_WARNING}");
         }
@@ -1952,7 +1961,8 @@ mod tests {
                 | BlockId::BrickSlab
                 | BlockId::HewnStoneStairs
                 | BlockId::BrickStairs
-                | BlockId::EngravingTable => Some(0),
+                | BlockId::EngravingTable
+                | BlockId::Anvil => Some(0),
                 BlockId::IronOre
                 | BlockId::IronBlock
                 | BlockId::TinOre

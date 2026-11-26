@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use serde::de::value::{Error as ValueError, StrDeserializer};
 use serde::{Deserialize, Serialize};
 
-use super::{BlockId, Enchantments, GameElementId, MobKind};
+use super::{BlockId, Enchantments, GameElementId, ItemName, MobKind};
 
 /// Append only: never reorder or remove a variant. Player files store items by name (RON), but
 /// network messages carry the position of the variant (bincode), so another order breaks the
@@ -227,11 +227,13 @@ pub enum ItemId {
     EngravingTable,
     Gloomrock,
     CobbledGloomrock,
+    /// Repairs, merges and renames what wears: see `anvil`.
+    Anvil,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 196] = [
+    pub const ALL: [ItemId; 197] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -428,6 +430,7 @@ impl ItemId {
         Self::EngravingTable,
         Self::Gloomrock,
         Self::CobbledGloomrock,
+        Self::Anvil,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -726,6 +729,7 @@ impl ItemId {
             | Self::BakedPotato => ItemCategory::Materials,
             Self::CraftingTable
             | Self::EngravingTable
+            | Self::Anvil
             | Self::Furnace
             | Self::Chest
             | Self::Bedroll
@@ -898,6 +902,7 @@ impl ItemId {
             Self::EngravingTable => ItemType::Block(BlockId::EngravingTable),
             Self::Gloomrock => ItemType::Block(BlockId::Gloomrock),
             Self::CobbledGloomrock => ItemType::Block(BlockId::CobbledGloomrock),
+            Self::Anvil => ItemType::Block(BlockId::Anvil),
             Self::Rye => ItemType::Block(BlockId::RyeSprout),
             Self::Carrot => ItemType::Block(BlockId::CarrotSprout),
             Self::Potato => ItemType::Block(BlockId::PotatoSprout),
@@ -1146,6 +1151,14 @@ pub enum ItemType {
         wear: u32,
         enchantments: Enchantments,
     },
+    /// One worked at an anvil (`players::anvil`): its wear, its enchantments, how many times it
+    /// was repaired or merged, which raises the price of the next time, and the name given to it.
+    Forged {
+        wear: u32,
+        enchantments: Enchantments,
+        repairs: u8,
+        name: ItemName,
+    },
 }
 
 impl Default for ItemType {
@@ -1358,6 +1371,7 @@ mod tests {
             (ItemId::EngravingTable, 193),
             (ItemId::Gloomrock, 194),
             (ItemId::CobbledGloomrock, 195),
+            (ItemId::Anvil, 196),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -1557,7 +1571,8 @@ mod tests {
                 | ItemId::EmberHeart
                 | ItemId::EngravingTable
                 | ItemId::Gloomrock
-                | ItemId::CobbledGloomrock => {}
+                | ItemId::CobbledGloomrock
+                | ItemId::Anvil => {}
             }
         }
         for (id, expected) in table {

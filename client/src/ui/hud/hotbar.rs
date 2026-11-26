@@ -1,4 +1,4 @@
-use super::{item_name, InventoryRoot, UIMode};
+use super::{InventoryRoot, UIMode};
 use crate::constants::MAX_HOTBAR_SLOTS;
 use crate::ui::theme::{FONT_M, SPACE_S};
 use crate::ui::widgets::scroll::scroll_steps;
@@ -131,7 +131,7 @@ pub fn show_selected_item_name(
     }
     match inventory.inner.get(&hotbar.selected) {
         Some(stack) => {
-            text.0 = item_name(stack.item_id);
+            text.0 = super::inventory::stack_name(stack);
             name.hide_at = Some(now + ITEM_NAME_DURATION);
             *visibility = Visibility::Inherited;
         }

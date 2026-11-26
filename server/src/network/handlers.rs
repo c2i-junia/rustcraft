@@ -218,6 +218,7 @@ pub(super) fn chat_message(
             || mods.command_names().iter().any(|command| command == name);
         let is_operator = access.permissions.may_run(&author, access.is_solo);
         let refused = refusal(name, known, is_operator);
+        let mut overflow = Vec::new();
         let answer = match parse_command(line) {
             _ if line.starts_with("sign ") => {
                 crate::world::home::write_sign(world_map, client_id, &line[5..])
@@ -254,9 +255,15 @@ pub(super) fn chat_message(
                     }
                     Place::Village => locator.start_village(client_id, (seed.0, generation), from),
                 },
+                &mut overflow,
             ),
             Err(error) => mods.run_command(line, &author, world_map).unwrap_or(error),
         };
+        if let Some(player) = world_map.players.get(&client_id) {
+            for stack in overflow {
+                world_map.dropped_items.drop_from_player(stack, player);
+            }
+        }
         if time.0 != clock {
             // A night cut short is not lived through
             for player in world_map.players.values_mut() {

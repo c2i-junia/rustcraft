@@ -230,6 +230,11 @@ impl VoxelShape {
                 shape.faces[BOTTOM].texture += "Top";
                 shape
             }
+            BlockId::Anvil => {
+                let mut shape = Self::full_cube(block);
+                shape.faces[TOP].texture += "Top";
+                shape
+            }
             BlockId::EngravingTable => {
                 let mut shape = Self::full_cube(block);
                 shape.faces[TOP].texture += "Top";

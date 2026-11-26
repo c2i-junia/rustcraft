@@ -1,7 +1,7 @@
 use crate::i18n::{tr, trf};
 use super::gestures::{planned_drag, CellGestures};
 use super::{
-    item_name, CHEST_TITLE, CRAFTING_TABLE_TITLE, ENGRAVING_TITLE, FURNACE_TITLE, INVENTORY_TITLE,
+    ANVIL_TITLE, CHEST_TITLE, CRAFTING_TABLE_TITLE, ENGRAVING_TITLE, FURNACE_TITLE, INVENTORY_TITLE,
 };
 use crate::constants::MAX_HOTBAR_SLOTS;
 use crate::input::data::GameAction;
@@ -12,7 +12,7 @@ use crate::state::KeyMap;
 use crate::ui::hud::hotbar::{hotbar_key_index, Hotbar};
 use crate::ui::hud::item_browser::ItemBrowser;
 use crate::ui::hud::{
-    ChestGrid, CraftResultCell, CraftingGridCell, CraftingRow, EngravingRow, FloatingStack,
+    AnvilRow, ChestGrid, CraftResultCell, CraftingGridCell, CraftingRow, EngravingRow, FloatingStack,
     FurnaceRow, InventoryCell, InventoryDialog, InventoryRoot, InventoryTitle, OpenTrade,
     TradeGrid, UIMode,
 };
@@ -47,6 +47,7 @@ pub const HINT_BACKPACK: &str = "inventory.hint.backpack";
 pub const HINT_GRID: &str = "inventory.hint.grid";
 pub const HINT_TO_CHEST: &str = "inventory.hint.chest";
 pub const HINT_TO_ENGRAVER: &str = "inventory.hint.engraver";
+pub const HINT_TO_ANVIL: &str = "inventory.hint.anvil";
 pub const HINT_TO_FURNACE: &str = "inventory.hint.furnace";
 pub const HINT_RESULT: &str = "inventory.hint.result";
 
@@ -71,6 +72,7 @@ type DurabilityBars<'w, 's> = Query<
         Without<FurnaceRow>,
         Without<TradeGrid>,
         Without<EngravingRow>,
+        Without<AnvilRow>,
     ),
 >;
 
@@ -398,6 +400,11 @@ pub fn display_inventory_system(
             && takes_enchantments
         {
             crate::i18n::tr(HINT_TO_ENGRAVER)
+        } else if inventory.open_anvil.is_some()
+            && cell.id < MAX_INVENTORY_SLOTS
+            && stack.is_some_and(|stack| goes_to_anvil(&stack, &inventory))
+        {
+            crate::i18n::tr(HINT_TO_ANVIL)
         } else if inventory.open_chest.is_some() && cell.id < MAX_INVENTORY_SLOTS {
             crate::i18n::tr(HINT_TO_CHEST)
         } else if inventory.open_furnace.is_some() && cell.id < MAX_INVENTORY_SLOTS {
@@ -456,6 +463,26 @@ pub(crate) fn stack_in(
         FURNACE_OUTPUT_SLOT => furnace()?.output,
         _ => inventory.inner.get(&slot).copied(),
     }
+}
+
+/// Whether a shift-click puts `stack` on the anvil: what wears while its first slot is empty, what
+/// works the item in it.
+fn goes_to_anvil(stack: &ItemStack, inventory: &Inventory) -> bool {
+    match inventory.inner.get(&shared::players::inventory::ANVIL_LEFT_SLOT) {
+        None => stack.item_id.durability().is_some(),
+        Some(left) => {
+            left.item_id == stack.item_id
+                || shared::world::repair_material(left.item_id)
+                    .is_some_and(|material| material.matches(stack.item_id))
+        }
+    }
+}
+
+/// Whether the panel shows the anvil's section: while one is open, or while its slots still hold
+/// what was left there when it went out of reach.
+pub fn is_anvil_shown(inventory: &Inventory) -> bool {
+    inventory.open_anvil.is_some()
+        || shared::players::inventory::anvil_slots().any(|slot| inventory.inner.contains_key(&slot))
 }
 
 /// Whether the panel shows the engraving table's section: while one is open, or while its slot
@@ -519,6 +546,7 @@ pub fn display_crafting_system(
             Has<FurnaceRow>,
             Has<EngravingRow>,
             Has<TradeGrid>,
+            Has<AnvilRow>,
         ),
         (
             Or<(
@@ -527,6 +555,7 @@ pub fn display_crafting_system(
                 With<FurnaceRow>,
                 With<EngravingRow>,
                 With<TradeGrid>,
+                With<AnvilRow>,
             )>,
             Without<CraftingGridCell>,
         ),
@@ -548,6 +577,7 @@ pub fn display_crafting_system(
         (Some(_), _, _) => crate::i18n::tr(CHEST_TITLE),
         (None, Some(_), _) => crate::i18n::tr(FURNACE_TITLE),
         (None, None, Some(_)) => crate::i18n::tr(CRAFTING_TABLE_TITLE),
+        (None, None, None) if is_anvil_shown(&inventory) => crate::i18n::tr(ANVIL_TITLE),
         (None, None, None) if is_engraving_shown(&inventory) => crate::i18n::tr(ENGRAVING_TITLE),
         (None, None, None) => crate::i18n::tr(INVENTORY_TITLE),
     };
@@ -561,10 +591,14 @@ pub fn display_crafting_system(
     }
     let chest_open = inventory.open_chest.is_some();
     let furnace_open = inventory.open_furnace.is_some();
-    let engraving = is_engraving_shown(&inventory) && !chest_open && !furnace_open && !trade_open;
-    for (mut node, is_chest, is_furnace, is_engraving, is_trade) in &mut rows {
+    let anvil = is_anvil_shown(&inventory) && !chest_open && !furnace_open && !trade_open;
+    let engraving =
+        is_engraving_shown(&inventory) && !chest_open && !furnace_open && !trade_open && !anvil;
+    for (mut node, is_chest, is_furnace, is_engraving, is_trade, is_anvil) in &mut rows {
         let shown = if is_trade {
             trade_open
+        } else if is_anvil {
+            anvil
         } else if is_chest {
             chest_open && !trade_open
         } else if is_furnace {
@@ -572,7 +606,7 @@ pub fn display_crafting_system(
         } else if is_engraving {
             engraving
         } else {
-            !chest_open && !furnace_open && !engraving && !trade_open
+            !chest_open && !furnace_open && !engraving && !anvil && !trade_open
         };
         let display = match (shown, is_chest || is_trade) {
             (true, true) => Display::Grid,
@@ -624,7 +658,7 @@ fn tooltip_of(
 ) -> Tooltip {
     match stack {
         Some(stack) if is_open && inventory.floating.is_none() => Tooltip {
-            title: item_name(stack.item_id),
+            title: super::stack_name(&stack),
             detail: match tool_wear(&stack) {
                 Some((wear, durability)) => durability_detail(wear, durability),
                 None => count_detail(stack.nb),

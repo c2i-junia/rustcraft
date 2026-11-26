@@ -3,6 +3,7 @@
 use bevy::prelude::Component;
 use shared::world::ItemId;
 
+mod anvil;
 mod armour;
 mod display;
 mod drop;
@@ -16,6 +17,7 @@ mod goldens;
 mod setup;
 mod trade;
 
+pub use anvil::*;
 pub use armour::*;
 pub use display::*;
 pub use drop::*;
@@ -30,6 +32,14 @@ pub use trade::*;
 /// The name of an item as a player reads it, in the language of the game.
 pub fn item_name(item: ItemId) -> String {
     crate::i18n::item_name(item).to_string()
+}
+
+/// The name of a stack as a player reads it: the one an anvil gave it, else that of its item.
+pub fn stack_name(stack: &shared::world::ItemStack) -> String {
+    match stack.custom_name() {
+        Some(name) => name.to_string(),
+        None => item_name(stack.item_id),
+    }
 }
 
 /// The node over the whole window holding the panel, at the bottom and centred, and the item
@@ -63,9 +73,13 @@ pub struct CraftingGridCell {
 }
 
 /// The crafting grid, its arrow and its result: hidden while a chest, a furnace, an
-/// engraving table or a trade is open.
+/// engraving table, an anvil or a trade is open.
 #[derive(Component)]
 pub struct CraftingRow;
+
+/// The slots, the name and the work of the open anvil: shown while one is open.
+#[derive(Component)]
+pub struct AnvilRow;
 
 /// The slot and the enchantments of the open engraving table: shown while one is open.
 #[derive(Component)]

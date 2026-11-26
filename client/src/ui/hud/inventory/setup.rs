@@ -1,5 +1,6 @@
 use crate::i18n::{tr, trf};
 use super::armour::spawn_armour_slots;
+use super::anvil::spawn_anvil_row;
 use super::engraving::spawn_engraving_row;
 use super::furnace::spawn_furnace_row;
 use super::ghost::{ghost_icon, ghost_tint};
@@ -133,6 +134,7 @@ pub fn setup_inventory(
                             spawn_chest_grid(inventory, atlas, &font);
                             spawn_furnace_row(inventory, atlas, &font, &asset_server);
                             spawn_engraving_row(inventory, atlas, &font);
+                            spawn_anvil_row(inventory, atlas, &font);
                             spawn_trade_grid(inventory, atlas, &font, &asset_server);
                             spawn_backpack(inventory, atlas, &font);
                         });

@@ -1,3 +1,4 @@
+pub mod anvil;
 pub mod biome;
 pub mod blocks;
 pub mod chunk;
@@ -28,6 +29,7 @@ pub mod trade;
 mod utils;
 pub mod weather;
 
+pub use anvil::*;
 pub use biome::*;
 pub use blocks::*;
 pub use chunk::*;
