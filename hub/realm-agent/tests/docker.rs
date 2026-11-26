@@ -90,7 +90,8 @@ impl Client {
 #[ignore = "needs Docker"]
 async fn a_world_starts_stops_and_is_archived_then_purged() {
     let realm = Uuid::new_v4();
-    let _cleanup = Cleanup(realm);
+    let other = Uuid::new_v4();
+    let _cleanup = (Cleanup(realm), Cleanup(other));
     let mut build = Command::new("docker")
         .args(["build", "--quiet", "--tag", IMAGE, "-"])
         .stdin(Stdio::piped())
@@ -185,9 +186,28 @@ async fn a_world_starts_stops_and_is_archived_then_purged() {
         "8000/udp -> 0.0.0.0:47312",
         "8000/udp -> [::]:47312",
         "8001/udp -> 0.0.0.0:47313",
+        "8001/udp -> [::]:47313",
     ] {
         assert!(ports.contains(expected), "{ports}");
     }
+    // Another world on the same slot cannot take its ports, and leaves nothing behind
+    let taken = Request::Start {
+        realm: other,
+        slot: 1,
+        token: TOKEN.into(),
+        settings: RealmSettings::default(),
+    };
+    assert!(matches!(
+        client.request(taken).await,
+        Response::Failed { .. }
+    ));
+    assert!(volumes_of(other).is_empty());
+    assert_eq!(
+        client.request(Request::Status { realm: other }).await,
+        Response::Status {
+            state: RealmState::Absent
+        }
+    );
 
     // The stand-in leaves at once on SIGTERM: far within the grace
     let stopping = std::time::Instant::now();
@@ -204,18 +224,32 @@ async fn a_world_starts_stops_and_is_archived_then_purged() {
     );
     assert_eq!(volumes_of(realm), [format!("rustcraft-realm-{realm}")]);
 
-    // Archived while it runs: stopped first
-    assert_eq!(client.request(start(0)).await, Response::Done);
-    assert_eq!(
-        client.request(Request::Archive { realm }).await,
-        Response::Done
-    );
+    // An archive interrupted earlier today left its copy and a partial archive
     let today = time::OffsetDateTime::now_utc().date();
     let archive = format!(
         "rustcraft-realm-{realm}-archived-{:04}{:02}{:02}",
         today.year(),
         u8::from(today.month()),
         today.day()
+    );
+    docker(&["volume", "create", &archive]);
+    docker(&[
+        "create",
+        "--name",
+        &format!("rustcraft-realm-{realm}-archiving"),
+        "--volume",
+        &format!("{archive}:/data"),
+        "--entrypoint",
+        "touch",
+        IMAGE,
+        "/data/partial",
+    ]);
+
+    // Archived while it runs: stopped first, and the interrupted archive redone
+    assert_eq!(client.request(start(0)).await, Response::Done);
+    assert_eq!(
+        client.request(Request::Archive { realm }).await,
+        Response::Done
     );
     assert_eq!(volumes_of(realm), std::slice::from_ref(&archive));
     let args = docker(&[
@@ -230,6 +264,28 @@ async fn a_world_starts_stops_and_is_archived_then_purged() {
         IMAGE,
         "/data/args",
     ]);
+    let listed = docker(&[
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--volume",
+        &format!("{archive}:/data:ro"),
+        "--entrypoint",
+        "ls",
+        IMAGE,
+        "/data",
+    ]);
+    assert_eq!(listed.trim(), "args");
+    assert!(docker(&[
+        "ps",
+        "--all",
+        "--quiet",
+        "--filter",
+        &format!("name={realm}-archiving")
+    ])
+    .trim()
+    .is_empty());
     assert_eq!(
         args.trim(),
         format!(

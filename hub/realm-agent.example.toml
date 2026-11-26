@@ -22,9 +22,9 @@ max_players = 10
 base_port = 25000
 slots = 20
 
-# How long a world has to save after SIGTERM before Docker kills it.
+# How long a world has to save after SIGTERM before Docker kills it (at most 100).
 stop_grace_seconds = 30
-# The Docker network of the worlds' containers.
+# The Docker network of the worlds' containers (not host, none or container:…).
 network = "bridge"
 # How many days `purge` keeps an archived world.
 archive_days = 30

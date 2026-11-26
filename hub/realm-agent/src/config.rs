@@ -136,6 +136,16 @@ impl Config {
         if !(1..=64).contains(&self.max_players) {
             bail!("max_players must be 1 to 64");
         }
+        // Docker's client gives up on a request after 120 s, a stop among them
+        if self.stop_grace_seconds > 100 {
+            bail!("stop_grace_seconds must be at most 100");
+        }
+        // A world shares neither the host's network nor another container's
+        if ["host", "none"].contains(&self.network.as_str())
+            || self.network.starts_with("container:")
+        {
+            bail!("network must be a Docker network, not host, none or container:…");
+        }
         check_hub_url(&self.hub_url).map_err(anyhow::Error::msg)?;
         // A port after it would make `host:port:port`; an IPv6 address needs its brackets
         let bare_ipv6 = !self.public_host.starts_with('[') && self.public_host.contains(':');
@@ -203,6 +213,13 @@ pub(crate) mod tests {
         assert!(replaced("cpus = 1.5", "cpus = 0.0").is_err());
         assert!(replaced("cpus = 1.5", "cpus = nan").is_err());
         assert!(replaced("max_players = 10", "max_players = 65").is_err());
+        assert!(replaced("stop_grace_seconds = 30", "stop_grace_seconds = 100").is_ok());
+        assert!(replaced("stop_grace_seconds = 30", "stop_grace_seconds = 101").is_err());
+        for network in ["host", "none", "container:hub"] {
+            let network = format!("network = \"{network}\"");
+            assert!(replaced("network = \"bridge\"", &network).is_err());
+        }
+        assert!(replaced("network = \"bridge\"", "network = \"realms\"").is_ok());
         assert!(replaced("memory = \"1536m\"", "memory = \"lots\"").is_err());
         assert!(parse(&format!("color = \"red\"\n{EXAMPLE}")).is_err());
         assert!(replaced("https://hub.rustcraft.dev", "http://hub.rustcraft.dev").is_err());

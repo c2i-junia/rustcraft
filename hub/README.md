@@ -81,7 +81,8 @@ A malformed or out-of-bounds request gets `{"result":"refused","reason":…}`, a
 A world's container runs the configured image as user 10001 with a read-only root filesystem,
 `/tmp` on a tmpfs, the world on its volume at `/data`, `cap_drop ALL`, `no-new-privileges`,
 `memory` (1536m, no swap), `cpus` (1.5) and `pids` (256), on the Docker network `network`
-(`bridge`). Slot `n` publishes UDP `base_port + 2n` (game) and the next port (status) on
+(`bridge`; never `host`, `none` or `container:…`), its logs rotated (json-file, 3 files of
+10 MB). Slot `n` publishes UDP `base_port + 2n` (game) and the next port (status) on
 `0.0.0.0` and `::`, to the server's 8000 and 8001. The command is `--world world --port 8000
 --auth hub --hub <hub_url> --public-address <public_host>:<game port> --realm <uuid>
 --max-render-distance 12 --max-players 10` and the settings, with the token in
@@ -89,10 +90,15 @@ A world's container runs the configured image as user 10001 with a read-only roo
 
 Docker cannot rename a volume, so `archive` copies it: it creates the archive volume, runs a
 throwaway container of the configured image (`cp -a`, user 10001, no network, the world's
-volume read-only) and removes the world's volume once the copy has succeeded; on a failure the
-archive is removed and the world stays as it was. The image must therefore have `cp`, as the
-game's (Debian) does. Archiving a world that has no volume does nothing; a second archive the
-same day is refused.
+volume read-only, the limits of a world, 15 minutes at most) and removes the world's volume once
+the copy has succeeded; on a failure the archive is removed and the world stays as it was. The
+image must therefore have `cp`, as the game's (Debian) does. Archiving a world that has no
+volume does nothing. An archive of today beside the world's volume, or a copy container left
+over, are the remains of an interrupted archive: they are removed and the archive redone.
+
+A start that fails (a port taken, say) removes the container, and the volume if the start
+created it. `stop_grace_seconds` is at most 100, below the 120 s after which the agent's Docker
+client gives up on a request.
 
 The agent does not pull: `docker pull` the image on the host. As a world takes the image at each
 start, a new image upgrades the worlds as they restart.

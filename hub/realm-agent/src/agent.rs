@@ -17,7 +17,10 @@ use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::config::Config;
-use crate::spec::{self, archived_name, archived_on, realm_name};
+use crate::spec::{self, archive_plan, archived_name, archived_on, realm_name, ArchivePlan};
+
+/// How long an archive's copy may take.
+const COPY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
 /// The agent: its configuration, Docker, and a lock per world, so that two requests on one
 /// world do not overlap while requests on different worlds run at once.
@@ -98,28 +101,46 @@ impl Agent {
             RealmState::Exited { .. } => self.remove_container(&name).await?,
             RealmState::Absent => {}
         }
-        self.docker
-            .create_volume(VolumeCreateRequest {
-                name: Some(name.clone()),
-                labels: Some(spec::labels(realm)),
-                ..Default::default()
-            })
-            .await
-            .map_err(failed("create the volume"))?;
+        let new_volume = !self.volume_exists(&name).await?;
+        if new_volume {
+            self.docker
+                .create_volume(VolumeCreateRequest {
+                    name: Some(name.clone()),
+                    labels: Some(spec::labels(realm)),
+                    ..Default::default()
+                })
+                .await
+                .map_err(failed("create the volume"))?;
+        }
         let body = spec::server_spec(&self.config, realm, slot, token, settings)
             .expect("checked by check_start");
         let options = CreateContainerOptionsBuilder::default().name(&name).build();
-        self.docker
-            .create_container(Some(options), body)
-            .await
-            .map_err(failed("create the container"))?;
-        if let Err(err) = self.docker.start_container(&name, None).await {
+        let started = match self.docker.create_container(Some(options), body).await {
+            Ok(_) => self
+                .docker
+                .start_container(&name, None)
+                .await
+                .map_err(failed("start the container")),
+            Err(err) => Err(failed("create the container")(err)),
+        };
+        if let Err(error) = started {
             // A port taken by another world, say: nothing is left behind
             self.remove_container(&name).await?;
-            return Err(failed("start the container")(err));
+            if new_volume {
+                let _ = self.docker.remove_volume(&name, None::<RemoveVolume>).await;
+            }
+            return Err(error);
         }
         tracing::info!(%realm, slot, "started");
         Ok(Response::Done)
+    }
+
+    async fn volume_exists(&self, name: &str) -> Result<bool, Failure> {
+        match self.docker.inspect_volume(name).await {
+            Ok(_) => Ok(true),
+            Err(err) if is_not_found(&err) => Ok(false),
+            Err(err) => Err(failed("inspect a volume")(err)),
+        }
     }
 
     async fn stop(&self, realm: Uuid) -> Result<(), Failure> {
@@ -169,21 +190,24 @@ impl Agent {
     async fn archive(&self, realm: Uuid) -> Result<Response, Failure> {
         self.stop(realm).await?;
         let volume = realm_name(realm);
-        match self.docker.inspect_volume(&volume).await {
-            Ok(_) => {}
-            // Never started, or archived already
-            Err(err) if is_not_found(&err) => return Ok(Response::Done),
-            Err(err) => return Err(failed("inspect the volume")(err)),
-        }
         let archive = archived_name(realm, OffsetDateTime::now_utc().date());
-        match self.docker.inspect_volume(&archive).await {
-            Ok(_) => {
-                return Ok(Response::Refused {
-                    reason: format!("{archive} exists already"),
-                })
+        let plan = archive_plan(
+            self.volume_exists(&volume).await?,
+            self.volume_exists(&archive).await?,
+        );
+        match plan {
+            ArchivePlan::Nothing => return Ok(Response::Done),
+            ArchivePlan::Copy { remove_partial } => {
+                // The copy of an interrupted archive may still be there, and hold its volume
+                self.remove_container(&copy_name(realm)).await?;
+                if remove_partial {
+                    tracing::warn!(%realm, archive, "redoing an interrupted archive");
+                    self.docker
+                        .remove_volume(&archive, None::<RemoveVolume>)
+                        .await
+                        .map_err(failed("remove an interrupted archive"))?;
+                }
             }
-            Err(err) if is_not_found(&err) => {}
-            Err(err) => return Err(failed("inspect the archive")(err)),
         }
         let mut labels = spec::labels(realm);
         labels.insert(
@@ -215,7 +239,7 @@ impl Agent {
     }
 
     async fn copy(&self, realm: Uuid, archive: &str) -> Result<(), Failure> {
-        let name = format!("{}-archiving", realm_name(realm));
+        let name = copy_name(realm);
         let options = CreateContainerOptionsBuilder::default().name(&name).build();
         self.docker
             .create_container(Some(options), spec::copy_spec(&self.config, realm, archive))
@@ -229,7 +253,9 @@ impl Agent {
             let options = WaitContainerOptionsBuilder::default()
                 .condition("not-running")
                 .build();
-            let mut wait = self.docker.wait_container(&name, Some(options));
+            // Longer than the client's 120 s: a large world takes its time
+            let docker = self.docker.clone().with_timeout(COPY_TIMEOUT);
+            let mut wait = docker.wait_container(&name, Some(options));
             match wait.next().await {
                 Some(Ok(_)) => Ok(()),
                 Some(Err(DockerError::DockerContainerWaitError { code, .. })) => {
@@ -280,6 +306,11 @@ impl Agent {
             Err(err) => Err(failed("remove the container")(err)),
         }
     }
+}
+
+/// The throwaway container of an archive's copy.
+fn copy_name(realm: Uuid) -> String {
+    format!("{}-archiving", realm_name(realm))
 }
 
 type RemoveVolume = bollard::query_parameters::RemoveVolumeOptions;

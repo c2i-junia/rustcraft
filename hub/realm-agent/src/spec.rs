@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use bollard::models::{ContainerCreateBody, HostConfig, PortBinding};
+use bollard::models::{ContainerCreateBody, HostConfig, HostConfigLogConfig, PortBinding};
 use rustcraft_protocol::api::RealmSettings;
 use time::Date;
 use uuid::Uuid;
@@ -53,6 +53,26 @@ pub fn archived_on(name: &str) -> Option<Date> {
     let number = |range: std::ops::Range<usize>| date[range].parse::<u32>().ok();
     let month = time::Month::try_from(number(4..6)? as u8).ok()?;
     Date::from_calendar_date(number(0..4)? as i32, month, number(6..8)? as u8).ok()
+}
+
+/// What `archive` does, from the volumes there are.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArchivePlan {
+    /// The world has no volume: never started, or archived already.
+    Nothing,
+    /// Copy the world's volume into today's archive, after removing an archive of today that
+    /// is there beside the world's volume: the remains of an interrupted archive, as a finished
+    /// one removes the world's volume.
+    Copy { remove_partial: bool },
+}
+
+pub fn archive_plan(world_volume: bool, todays_archive: bool) -> ArchivePlan {
+    match world_volume {
+        false => ArchivePlan::Nothing,
+        true => ArchivePlan::Copy {
+            remove_partial: todays_archive,
+        },
+    }
 }
 
 /// Checks what a `start` request chooses: the slot, the token and the settings, which end up on
@@ -145,10 +165,6 @@ pub fn server_spec(
         stop_signal: Some("SIGTERM".into()),
         stop_timeout: Some(config.stop_grace_seconds.into()),
         host_config: Some(HostConfig {
-            memory: Some(config.memory),
-            memory_swap: Some(config.memory),
-            nano_cpus: Some((config.cpus * 1e9) as i64),
-            pids_limit: Some(config.pids),
             binds: Some(vec![format!("{}:/data", realm_name(realm))]),
             tmpfs: Some(HashMap::from([("/tmp".into(), "rw,nosuid,nodev".into())])),
             port_bindings: Some(HashMap::from([
@@ -156,7 +172,14 @@ pub fn server_spec(
                 (STATUS_PORT.into(), published(game_port + 1)),
             ])),
             network_mode: Some(config.network.clone()),
-            ..locked_down()
+            log_config: Some(HostConfigLogConfig {
+                typ: Some("json-file".into()),
+                config: Some(HashMap::from([
+                    ("max-size".into(), "10m".into()),
+                    ("max-file".into(), "3".into()),
+                ])),
+            }),
+            ..locked_down(config)
         }),
         ..Default::default()
     })
@@ -180,7 +203,7 @@ pub fn copy_spec(config: &Config, realm: Uuid, archive: &str) -> ContainerCreate
                 format!("{archive}:/data"),
             ]),
             network_mode: Some("none".into()),
-            ..locked_down()
+            ..locked_down(config)
         }),
         ..Default::default()
     }
@@ -191,9 +214,13 @@ pub fn labels(realm: Uuid) -> HashMap<String, String> {
     HashMap::from([(REALM_LABEL.into(), realm.to_string())])
 }
 
-/// The options every container of the agent runs with.
-fn locked_down() -> HostConfig {
+/// The options and limits every container of the agent runs with.
+fn locked_down(config: &Config) -> HostConfig {
     HostConfig {
+        memory: Some(config.memory),
+        memory_swap: Some(config.memory),
+        nano_cpus: Some((config.cpus * 1e9) as i64),
+        pids_limit: Some(config.pids),
         readonly_rootfs: Some(true),
         cap_drop: Some(vec!["ALL".into()]),
         security_opt: Some(vec!["no-new-privileges".into()]),
@@ -237,6 +264,24 @@ mod tests {
         ] {
             assert_eq!(archived_on(&other), None, "{other}");
         }
+    }
+
+    #[test]
+    fn an_interrupted_archive_is_redone_and_a_finished_one_left_alone() {
+        assert_eq!(archive_plan(false, false), ArchivePlan::Nothing);
+        assert_eq!(archive_plan(false, true), ArchivePlan::Nothing);
+        assert_eq!(
+            archive_plan(true, false),
+            ArchivePlan::Copy {
+                remove_partial: false
+            }
+        );
+        assert_eq!(
+            archive_plan(true, true),
+            ArchivePlan::Copy {
+                remove_partial: true
+            }
+        );
     }
 
     #[test]
@@ -355,6 +400,13 @@ mod tests {
             ["rustcraft-realm-00000000-0000-0000-0000-00000000007a:/data"]
         );
         assert!(host.tmpfs.unwrap().contains_key("/tmp"));
+        let logs = host.log_config.unwrap();
+        assert_eq!(logs.typ.as_deref(), Some("json-file"));
+        let logs = logs.config.unwrap();
+        assert_eq!(
+            (logs["max-size"].as_str(), logs["max-file"].as_str()),
+            ("10m", "3")
+        );
         assert_eq!(host.privileged, None);
         let ports = host.port_bindings.unwrap();
         assert_eq!(ports.len(), 2);
@@ -404,6 +456,9 @@ mod tests {
         );
         assert_eq!(host.network_mode.as_deref(), Some("none"));
         assert_eq!(host.readonly_rootfs, Some(true));
+        assert_eq!(host.memory, Some(1536 << 20));
+        assert_eq!(host.nano_cpus, Some(1_500_000_000));
+        assert_eq!(host.pids_limit, Some(256));
         assert_eq!(host.cap_drop.unwrap(), ["ALL"]);
     }
 }
