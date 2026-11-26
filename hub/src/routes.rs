@@ -15,14 +15,19 @@ use serde::de::DeserializeOwned;
 use crate::{accounts, admin_web, certificates, error::AppError, realms, AppState, SIGNING_KEY_ID};
 
 pub fn router(state: AppState) -> Router {
-    Router::new()
+    let admin_ui = state.admin_ui.clone();
+    let router = Router::new()
         .route("/.well-known/rustcraft-hub", get(well_known))
         .route("/healthz", get(healthz))
         .merge(accounts::routes())
         .merge(certificates::routes())
         .merge(realms::routes())
         .merge(admin_web::routes(&state))
-        .with_state(state)
+        .with_state(state);
+    match admin_ui {
+        Some(ui) => router.merge(admin_web::files::routes(ui)),
+        None => router,
+    }
 }
 
 async fn well_known(State(state): State<AppState>) -> Json<WellKnown> {

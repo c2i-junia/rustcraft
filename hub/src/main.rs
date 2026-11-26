@@ -3,6 +3,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 use clap::Parser;
 use rustcraft_hub::{
     admin,
+    admin_web::files::AdminUi,
     config::{self, Cli, Command, ServeArgs},
     connect, maintenance,
     realms::{
@@ -38,6 +39,7 @@ async fn main() -> anyhow::Result<()> {
 async fn serve(args: ServeArgs) -> anyhow::Result<()> {
     let signing_key = config::read_signing_key(&args.signing_key_file)?;
     let ip_secret = config::read_ip_secret(&args.ip_secret_file)?;
+    let admin_ui = args.admin_dir.map(AdminUi::load).transpose()?;
     let db = connect(&args.database.database_url()?).await?;
     let realms = Hosting::new(
         Arc::new(SocketAgent::new(args.agent_socket)),
@@ -65,6 +67,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         signups: Default::default(),
         certificates: Default::default(),
         realms: Arc::new(realms),
+        admin_ui: admin_ui.map(Arc::new),
     };
     maintenance::spawn(state.clone());
     monitor::spawn(state.clone(), Timings::default());

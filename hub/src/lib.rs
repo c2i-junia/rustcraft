@@ -45,6 +45,8 @@ pub struct AppState {
     pub signups: Arc<SignupGate>,
     pub certificates: Arc<CertificateLimiter>,
     pub realms: Arc<realms::Hosting>,
+    /// The built web admin, served under `/admin/` when `--admin-dir` is given.
+    pub admin_ui: Option<Arc<admin_web::files::AdminUi>>,
 }
 
 /// Connects to the database and applies the migrations.

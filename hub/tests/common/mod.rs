@@ -214,6 +214,7 @@ impl TestHub {
             signups: Default::default(),
             certificates: Default::default(),
             realms: Arc::new(realms),
+            admin_ui: None,
         };
         Self {
             app: router(state.clone()),

@@ -195,6 +195,7 @@ Migrations (`migrations/`) are applied at start. Every option has an environment
 | `--realm-slots` | `HUB_REALM_SLOTS` | `20` (the agent's `slots`) |
 | `--max-running` | `HUB_MAX_RUNNING` | `3` (hosted worlds running at once) |
 | `--agent-socket` | `HUB_AGENT_SOCKET` | `/run/realm-agent/agent.sock` |
+| `--admin-dir` | `HUB_ADMIN_DIR` | (none: no web admin; the built `hub/admin`, served under `/admin/`) |
 
 ## Deploy
 

@@ -28,6 +28,8 @@ sha2 = "0.10"
 sqlx = { version = "0.8", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls", "uuid", "time", "json", "migrate", "macros"] }
 time = "0.3"
 tokio = { version = "1", features = ["full"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["fs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -36,7 +38,6 @@ zxcvbn = { version = "3", default-features = false }
 [dev-dependencies]
 futures = "0.3"
 http-body-util = "0.1"
-tower = { version = "0.5", features = ["util"] }
 
 # Argon2 and zxcvbn are far too slow unoptimised: the tests hash many passwords.
 [profile.dev.package."*"]

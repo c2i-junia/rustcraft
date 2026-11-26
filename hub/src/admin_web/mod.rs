@@ -1,9 +1,12 @@
-//! The web admin: its API under `/v1/admin`, for an [`AdminSession`] cookie. The API does what
-//! [`crate::admin`] does for the command line, as the admin of the session.
+//! The web admin: its API under `/v1/admin`, for an [`AdminSession`] cookie, and its static
+//! files under `/admin` ([`files`]). The API does what [`crate::admin`] does for the command
+//! line, as the admin of the session.
 //!
 //! Every API request goes through [`guard`]: a request from another site is refused, and any
 //! request but a GET or HEAD must carry `X-Rustcraft-Admin: 1`, which a page of another origin
 //! cannot add without a CORS preflight that the hub never answers.
+
+pub mod files;
 
 use std::{fmt, sync::Arc};
 

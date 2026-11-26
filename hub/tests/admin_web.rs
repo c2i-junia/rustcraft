@@ -1,6 +1,6 @@
 mod common;
 
-use std::{net::SocketAddr, time::Duration};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use axum::{
     body::Body,
@@ -8,10 +8,12 @@ use axum::{
     http::{header, Request, Response},
     Router,
 };
+use base64::{engine::general_purpose::STANDARD, Engine};
 use common::TestHub;
 use http_body_util::BodyExt;
-use rustcraft_hub::{admin, config::RoleArg};
+use rustcraft_hub::{admin, admin_web::files::AdminUi, config::RoleArg, router};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -23,6 +25,11 @@ const ORIGIN: &str = "https://hub.example";
 async fn body(response: Response<Body>) -> Value {
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     serde_json::from_slice(&bytes).unwrap()
+}
+
+async fn text(response: Response<Body>) -> String {
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    String::from_utf8(bytes.to_vec()).unwrap()
 }
 
 /// The status and error code of a refusal.
@@ -1298,5 +1305,146 @@ async fn the_overview_detail_and_worlds_show_the_hub() {
         robin["realms"].as_array().unwrap().len(),
         2,
         "archived ones included"
+    );
+}
+
+/// A built interface in a new directory, beside a file that must not be served.
+fn admin_dir() -> (PathBuf, PathBuf) {
+    let root = std::env::temp_dir().join(format!("hub-admin-{}", Uuid::new_v4()));
+    let dir = root.join("admin");
+    std::fs::create_dir_all(dir.join("_app/immutable/entry")).unwrap();
+    std::fs::write(
+        dir.join("index.html"),
+        "<!doctype html><script type=\"module\" src=\"./_app/x.js\"></script>\
+         <script>start()</script>",
+    )
+    .unwrap();
+    std::fs::write(dir.join("_app/immutable/entry/app.js"), "console.log(1)").unwrap();
+    std::fs::write(dir.join("_app/version.json"), "{}").unwrap();
+    std::fs::write(dir.join("favicon.png"), [0x89, b'P', b'N', b'G']).unwrap();
+    std::fs::write(root.join("secret.txt"), "top secret").unwrap();
+    (root, dir)
+}
+
+#[tokio::test]
+async fn the_interface_is_served_with_its_headers_and_routing() {
+    let hub = TestHub::start().await;
+    let (root, dir) = admin_dir();
+    let mut state = hub.state.clone();
+    state.admin_ui = Some(Arc::new(AdminUi::load(dir).unwrap()));
+    let app = router(state);
+    let fetch = |path: &'static str| {
+        let app = app.clone();
+        async move {
+            app.oneshot(Request::get(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap()
+        }
+    };
+    let hash = STANDARD.encode(Sha256::digest("start()"));
+    let csp = format!(
+        "default-src 'self'; script-src 'self' 'sha256-{hash}'; style-src 'self' 'unsafe-inline'; \
+         img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; \
+         form-action 'self'; object-src 'none'"
+    );
+
+    let index = fetch("/admin/").await;
+    assert_eq!(index.status(), 200);
+    let headers = index.headers().clone();
+    assert_eq!(headers[header::CONTENT_SECURITY_POLICY], csp.as_str());
+    assert_eq!(headers[header::X_FRAME_OPTIONS], "DENY");
+    assert_eq!(headers["referrer-policy"], "no-referrer");
+    assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+    assert_eq!(headers[header::CACHE_CONTROL], "no-cache");
+    assert!(headers[header::CONTENT_TYPE]
+        .to_str()
+        .unwrap()
+        .starts_with("text/html"));
+    let page = text(index).await;
+    assert!(page.contains("start()"));
+
+    // Client routing gets the page.
+    for path in ["/admin/accounts/42", "/admin/index.html", "/admin/_app"] {
+        let response = fetch(path).await;
+        assert_eq!(response.status(), 200, "{path}");
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-cache");
+        assert_eq!(text(response).await, page, "{path}");
+    }
+    let redirect = fetch("/admin").await;
+    assert_eq!(redirect.status(), 308);
+    assert_eq!(redirect.headers()[header::LOCATION], "/admin/");
+
+    let asset = fetch("/admin/_app/immutable/entry/app.js").await;
+    assert_eq!(asset.status(), 200);
+    assert_eq!(
+        asset.headers()[header::CACHE_CONTROL],
+        "public, max-age=31536000, immutable"
+    );
+    assert_eq!(
+        asset.headers()[header::CONTENT_SECURITY_POLICY],
+        csp.as_str()
+    );
+    assert!(asset.headers()[header::CONTENT_TYPE]
+        .to_str()
+        .unwrap()
+        .contains("javascript"));
+    assert_eq!(text(asset).await, "console.log(1)");
+    let version = fetch("/admin/_app/version.json").await;
+    assert_eq!(version.status(), 200);
+    assert_eq!(version.headers()[header::CACHE_CONTROL], "no-cache");
+    assert_eq!(
+        fetch("/admin/favicon.png").await.headers()[header::CONTENT_TYPE],
+        "image/png"
+    );
+
+    // A missing asset is missing, not the page; a directory is not listed.
+    for path in [
+        "/admin/_app/immutable/entry/gone.js",
+        "/admin/_app/immutable/",
+        "/admin/_app/immutable/entry",
+    ] {
+        let response = fetch(path).await;
+        assert_eq!(response.status(), 404, "{path}");
+        assert_eq!(response.headers()[header::X_FRAME_OPTIONS], "DENY");
+    }
+
+    // Nothing outside the directory.
+    for path in [
+        "/admin/../secret.txt",
+        "/admin/%2e%2e/secret.txt",
+        "/admin/%2e%2e%2fsecret.txt",
+        "/admin/_app/../../secret.txt",
+        "/admin/_app/%2e%2e/%2e%2e/secret.txt",
+        "/admin//etc/passwd",
+        "/admin/..%5csecret.txt",
+    ] {
+        let response = fetch(path).await;
+        let status = response.status();
+        let content = text(response).await;
+        assert!(!content.contains("top secret"), "{path}");
+        assert!(!content.contains("root:"), "{path}");
+        assert!(status == 404 || content == page, "{path}: {status}");
+    }
+
+    // Only reads.
+    let post = app
+        .clone()
+        .oneshot(Request::post("/admin/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(post.status(), 405);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn without_an_admin_dir_there_is_no_interface() {
+    let hub = TestHub::start().await;
+    for path in ["/admin", "/admin/", "/admin/index.html", "/admin/accounts"] {
+        assert_eq!(hub.get(path).await.status(), 404, "{path}");
+    }
+    let missing = std::env::temp_dir().join(format!("hub-admin-{}", Uuid::new_v4()));
+    assert!(
+        AdminUi::load(missing).is_err(),
+        "a directory without index.html is refused"
     );
 }

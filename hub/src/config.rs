@@ -150,6 +150,9 @@ pub struct ServeArgs {
         default_value = "/run/realm-agent/agent.sock"
     )]
     pub agent_socket: PathBuf,
+    /// The built web admin (`hub/admin`), served under `/admin/`; without it, there is none.
+    #[arg(long, env = "HUB_ADMIN_DIR")]
+    pub admin_dir: Option<PathBuf>,
 }
 
 /// Reads a one-line secret file, without the trailing whitespace.
