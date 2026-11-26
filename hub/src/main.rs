@@ -64,6 +64,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         trusted_proxies: args.trusted_proxies.into(),
         hasher: Default::default(),
         logins: Default::default(),
+        admin_logins: Default::default(),
         signups: Default::default(),
         certificates: Default::default(),
         realms: Arc::new(realms),

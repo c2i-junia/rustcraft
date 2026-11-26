@@ -211,6 +211,7 @@ impl TestHub {
             ]),
             hasher: Default::default(),
             logins: Default::default(),
+            admin_logins: Default::default(),
             signups: Default::default(),
             certificates: Default::default(),
             realms: Arc::new(realms),

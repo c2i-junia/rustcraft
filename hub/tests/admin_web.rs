@@ -349,6 +349,69 @@ async fn wrong_passwords_are_counted_by_the_login_limiter() {
     );
 }
 
+/// An admin login from the TCP peer `peer`.
+async fn log_in_from(hub: &TestHub, peer: &str, username: &str, password: &str) -> Response<Body> {
+    let mut request = Request::post("/v1/admin/session")
+        .header("x-rustcraft-admin", "1")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({"username": username, "password": password}).to_string(),
+        ))
+        .unwrap();
+    request
+        .extensions_mut()
+        .insert(ConnectInfo(peer.parse::<SocketAddr>().unwrap()));
+    hub.app.clone().oneshot(request).await.unwrap()
+}
+
+#[tokio::test]
+async fn failed_admin_logins_are_limited_per_name_across_addresses() {
+    let hub = TestHub::start().await;
+    new_admin(&hub, "Alex").await;
+    new_admin(&hub, "Sam").await;
+    // One guess from each of 20 addresses: the game's limits, per address, never trip.
+    for i in 0..20 {
+        let peer = format!("198.51.100.{i}:4000");
+        assert_eq!(
+            refusal(log_in_from(&hub, &peer, "Alex", "not the password at all").await).await,
+            (401, "bad_credentials".to_owned()),
+            "{peer}"
+        );
+    }
+    let limited = log_in_from(&hub, "198.51.100.200:4000", "alex", PASSWORD).await;
+    let retry: u64 = limited.headers()[header::RETRY_AFTER]
+        .to_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(retry > 3500 && retry <= 3600, "{retry}");
+    assert_eq!(refusal(limited).await, (429, "rate_limited".to_owned()));
+    // Refused before the hash: no failure is written for it.
+    let failures = audit(&hub)
+        .await
+        .into_iter()
+        .filter(|(_, action, _, _)| action == "login_failed")
+        .count();
+    assert_eq!(failures, 20);
+    // Another admin, and the game's login of the same account, are not held back.
+    assert_eq!(
+        log_in_from(&hub, "198.51.100.201:4000", "Sam", PASSWORD)
+            .await
+            .status(),
+        200
+    );
+    let game = hub
+        .send(
+            "POST",
+            "/v1/sessions",
+            "198.51.100.202:4000",
+            None,
+            Some(json!({"username": "Alex", "password": PASSWORD})),
+        )
+        .await;
+    assert_eq!(game.status(), 200);
+}
+
 #[tokio::test]
 async fn a_suspended_admin_is_told_why() {
     let hub = TestHub::start().await;
@@ -1340,7 +1403,8 @@ async fn the_overview_detail_and_worlds_show_the_hub() {
         .iter()
         .map(|s| s["kind"].as_str().unwrap())
         .collect();
-    assert_eq!(kinds, ["admin_web", "game"], "newest first");
+    assert_eq!(kinds, ["admin_web", "game"], "most recently used first");
+    assert_eq!(detail["sessions_total"], 2);
     for session in sessions {
         let keys: Vec<&String> = session.as_object().unwrap().keys().collect();
         assert_eq!(
@@ -1372,6 +1436,28 @@ async fn the_overview_detail_and_worlds_show_the_hub() {
         2,
         "archived ones included"
     );
+
+    // At most the 100 most recently used sessions, and the count of all.
+    let robin_id: Uuid = robin["id"].as_str().unwrap().parse().unwrap();
+    sqlx::query(
+        "INSERT INTO sessions (id, account_id, token_hash, last_used_at, expires_at) \
+         SELECT gen_random_uuid(), $1, sha256(i::text::bytea), now() - make_interval(mins => i), \
+             now() + interval '1 day' \
+         FROM generate_series(1, 120) AS i",
+    )
+    .bind(robin_id)
+    .execute(db)
+    .await
+    .unwrap();
+    let robin = body(get(&hub, &format!("/v1/admin/accounts/{robin_id}"), &cookie).await).await;
+    let sessions = robin["sessions"].as_array().unwrap();
+    assert_eq!(sessions.len(), 100);
+    assert_eq!(robin["sessions_total"], 121);
+    let used: Vec<i64> = sessions
+        .iter()
+        .map(|session| session["last_used_at"].as_i64().unwrap())
+        .collect();
+    assert!(used.windows(2).all(|pair| pair[0] >= pair[1]));
 }
 
 /// A built interface in a new directory, beside a file that must not be served.

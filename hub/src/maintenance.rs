@@ -34,6 +34,7 @@ async fn hourly(state: &AppState) -> Result<(), sqlx::Error> {
     let signups = purge_signups(&mut conn, OffsetDateTime::now_utc()).await?;
     let sessions = sessions::purge_expired(&mut conn).await?;
     state.logins.prune(Instant::now());
+    state.admin_logins.prune(Instant::now());
     state.certificates.prune(Instant::now());
     state.realms.starts.prune(Instant::now());
     tracing::info!(

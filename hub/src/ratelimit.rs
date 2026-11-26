@@ -374,6 +374,58 @@ impl LoginLimiter {
     }
 }
 
+/// Failed logins to the web admin per username, from every address: 20 an hour, in memory. It
+/// comes on top of [`LoginLimiter`], whose limits are per address, so that guesses spread over
+/// many addresses still stop. Like it, an attempt counts as failed from the start, and a success
+/// takes it back.
+pub struct AdminLoginLimiter {
+    failures: Mutex<SlidingWindow<String>>,
+}
+
+impl Default for AdminLoginLimiter {
+    fn default() -> Self {
+        Self {
+            failures: Mutex::new(SlidingWindow::new(20, Duration::from_secs(60 * 60))),
+        }
+    }
+}
+
+/// An admin login counted as failed until [`AdminLoginLimiter::forgive`] takes it back.
+pub struct AdminLoginAttempt {
+    name: String,
+    at: Instant,
+}
+
+impl AdminLoginLimiter {
+    /// Counts an attempt at `now` as failed, or refuses it once 20 failed in the last hour.
+    pub fn attempt(&self, username: &str, now: Instant) -> Result<AdminLoginAttempt, AppError> {
+        let name = username.to_lowercase();
+        let mut failures = self.failures.lock().unwrap();
+        if let Some(wait) = failures.retry_after(&name, now) {
+            return Err(AppError::new(
+                ErrorCode::RateLimited,
+                "Too many failed logins to this admin account. Try again later.",
+            )
+            .retry_after(wait.as_secs_f64().ceil().max(1.0) as u64));
+        }
+        failures.record(name.clone(), now);
+        Ok(AdminLoginAttempt { name, at: now })
+    }
+
+    /// Takes back a successful attempt.
+    pub fn forgive(&self, attempt: AdminLoginAttempt) {
+        self.failures
+            .lock()
+            .unwrap()
+            .forget(&attempt.name, attempt.at);
+    }
+
+    /// Forgets the names with no recent failure.
+    pub fn prune(&self, now: Instant) {
+        self.failures.lock().unwrap().prune(now);
+    }
+}
+
 /// The sign-ups in progress per address. Each takes a slot before its costly hashes, and there
 /// are no more slots than sign-ups left to the address, so parallel requests cannot all hash
 /// before the limit, checked again under a lock, refuses them.
@@ -565,6 +617,25 @@ mod tests {
         assert!(limiter.attempt("Sam", here, now).is_err());
         assert!(limiter
             .attempt("Sam", here, now + Duration::from_secs(900))
+            .is_ok());
+    }
+
+    #[test]
+    fn failed_admin_logins_are_limited_per_name_from_every_address() {
+        let limiter = AdminLoginLimiter::default();
+        let now = Instant::now();
+        for _ in 0..30 {
+            limiter.forgive(limiter.attempt("Alex", now).unwrap());
+        }
+        for _ in 0..20 {
+            limiter.attempt("Alex", now).unwrap();
+        }
+        let error = limiter.attempt("alex", now).err().unwrap();
+        assert_eq!(error.code, ErrorCode::RateLimited);
+        assert_eq!(error.retry_after, Some(3600));
+        assert!(limiter.attempt("Sam", now).is_ok(), "per name");
+        assert!(limiter
+            .attempt("Alex", now + Duration::from_secs(3600))
             .is_ok());
     }
 

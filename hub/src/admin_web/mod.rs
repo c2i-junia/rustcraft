@@ -8,7 +8,7 @@
 
 pub mod files;
 
-use std::{fmt, sync::Arc};
+use std::{fmt, sync::Arc, time::Instant};
 
 use axum::{
     extract::{
@@ -54,6 +54,8 @@ const DEFAULT_ACCOUNTS: i64 = 50;
 /// The most audit rows a page of `GET /v1/admin/audit` holds, and how many by default.
 const MAX_AUDIT: i64 = 200;
 const DEFAULT_AUDIT: i64 = 50;
+/// The sessions of an account's detail.
+const ACCOUNT_SESSIONS: i64 = 100;
 /// The audit rows of an account's detail.
 const ACCOUNT_AUDIT: i64 = 50;
 /// The longest search of accounts, and the longest action filter, in `char`s.
@@ -270,6 +272,10 @@ async fn log_in(
     if check_username(&request.username).is_err() {
         return Err(bad_credentials());
     }
+    // Before the costly hash, and before the game's limiter, which counts per address.
+    let attempt = state
+        .admin_logins
+        .attempt(&request.username, Instant::now())?;
     let account = credentials_by_name(&state.db, &request.username).await?;
     let account = authenticate(
         &state,
@@ -280,6 +286,7 @@ async fn log_in(
         Secret::Password,
     )
     .await?;
+    state.admin_logins.forgive(attempt);
     let mut tx = state.db.begin().await?;
     let admin: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM account_roles WHERE account_id = $1 AND role = 'admin')",
@@ -721,8 +728,10 @@ struct AccountDetail {
     #[serde(flatten)]
     account: AccountItem,
     deleted_at: Option<i64>,
-    /// The sessions not expired, newest first.
+    /// The sessions not expired, the [`ACCOUNT_SESSIONS`] most recently used at most.
     sessions: Vec<SessionItem>,
+    /// All the sessions not expired.
+    sessions_total: i64,
     /// The certificates neither revoked nor expired.
     active_certificates: i64,
     /// The worlds it owns, archived ones included, oldest first.
@@ -744,6 +753,12 @@ async fn account(
         .await?
         .ok_or_else(|| AppError::new(ErrorCode::NotFound, "There is no such account."))?;
     let deleted_at = row.deleted_at.map(unix);
+    let sessions_total: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM sessions WHERE account_id = $1 AND expires_at > now()",
+    )
+    .bind(id)
+    .fetch_one(db)
+    .await?;
     let session_rows: Vec<(
         Uuid,
         String,
@@ -753,9 +768,11 @@ async fn account(
         OffsetDateTime,
     )> = sqlx::query_as(
         "SELECT id, kind, device_name, created_at, last_used_at, expires_at FROM sessions \
-             WHERE account_id = $1 AND expires_at > now() ORDER BY created_at DESC, id",
+             WHERE account_id = $1 AND expires_at > now() \
+             ORDER BY last_used_at DESC, id LIMIT $2",
     )
     .bind(id)
+    .bind(ACCOUNT_SESSIONS)
     .fetch_all(db)
     .await?;
     let sessions = session_rows
@@ -795,6 +812,7 @@ async fn account(
         account: row.item(),
         deleted_at,
         sessions,
+        sessions_total,
         active_certificates,
         realms: realm_items(&state, realms),
         audit: audit.into_iter().map(AuditRow::item).collect(),

@@ -21,7 +21,7 @@ use ipnet::IpNet;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 
 use password::Hasher;
-use ratelimit::{CertificateLimiter, LoginLimiter, SignupGate};
+use ratelimit::{AdminLoginLimiter, CertificateLimiter, LoginLimiter, SignupGate};
 pub use routes::router;
 
 /// The id of the signing key in certificates; there is one key for now.
@@ -42,6 +42,8 @@ pub struct AppState {
     pub trusted_proxies: Arc<[IpNet]>,
     pub hasher: Hasher,
     pub logins: Arc<LoginLimiter>,
+    /// Failed logins to the web admin per username, on top of `logins`.
+    pub admin_logins: Arc<AdminLoginLimiter>,
     pub signups: Arc<SignupGate>,
     pub certificates: Arc<CertificateLimiter>,
     pub realms: Arc<realms::Hosting>,
