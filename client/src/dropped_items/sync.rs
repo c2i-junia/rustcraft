@@ -8,6 +8,7 @@ use shared::{
 };
 
 use super::{
+    glint::Glints,
     mesh::{copies, copy_offset, orb_class, orb_size, ItemLook, ItemLooks, OrbLook},
     DroppedItemEntities, DroppedItemRoot, DroppedItemSpin, FlyingTo, ItemPickedUp,
 };
@@ -21,7 +22,11 @@ pub(super) fn apply_dropped_items_updates(
     mut updates: MessageReader<DroppedItemsUpdate>,
     mut entities: ResMut<DroppedItemEntities>,
     mut looks: ResMut<ItemLooks>,
-    (mut orb_look, mut orb_materials): (ResMut<OrbLook>, ResMut<Assets<StandardMaterial>>),
+    (mut orb_look, mut orb_materials, mut glints): (
+        ResMut<OrbLook>,
+        ResMut<Assets<StandardMaterial>>,
+        ResMut<Glints>,
+    ),
     mut meshes: ResMut<Assets<Mesh>>,
     materials: Res<MaterialResource>,
     images: Res<Assets<Image>>,
@@ -72,7 +77,11 @@ pub(super) fn apply_dropped_items_updates(
             else {
                 continue;
             };
-            let entity = spawn_item(&mut commands, *id, state, &look, copies, shown_at);
+            let glint = state
+                .stack
+                .is_enchanted()
+                .then_some((&mut *glints, &mut *orb_materials));
+            let entity = spawn_item(&mut commands, *id, state, &look, copies, shown_at, glint);
             entities.0.insert(*id, entity);
         }
 
@@ -164,7 +173,7 @@ fn roots_of(
 }
 
 /// An item shown at `shown_at`, which then moves to where the server says it is, with as
-/// many copies of its look as its stack shows.
+/// many copies of its look as its stack shows, each with its glint if `glint` is given.
 fn spawn_item(
     commands: &mut Commands,
     id: DroppedItemId,
@@ -172,6 +181,7 @@ fn spawn_item(
     look: &ItemLook,
     copies: usize,
     shown_at: Vec3,
+    mut glint: Option<(&mut Glints, &mut Assets<StandardMaterial>)>,
 ) -> Entity {
     let size = look.size();
     let (root, spin) = roots_of(id, state, copies, size, shown_at);
@@ -182,7 +192,7 @@ fn spawn_item(
                 for index in 0..copies {
                     let transform = Transform::from_translation(copy_offset(index) * size)
                         .with_scale(Vec3::splat(size));
-                    match look {
+                    let mut copy = match look {
                         ItemLook::Cube(mesh, material) => spin.spawn((
                             Mesh3d(mesh.clone()),
                             MeshMaterial3d(material.clone()),
@@ -194,6 +204,11 @@ fn spawn_item(
                             transform,
                         )),
                     };
+                    if let Some((glints, materials)) = glint.as_mut() {
+                        if let Some(glint) = glints.of(look, (), materials) {
+                            copy.with_child(glint);
+                        }
+                    }
                 }
             });
         })

@@ -749,7 +749,11 @@ The engraving table (`BlockId::EngravingTable`) opens the inventory panel with a
 `InventoryAction::Enchant` raises an enchantment of the item there (`players/enchanting.rs`): the
 server alone applies it, free in creative, and the next `PlayerUpdate` shows it. The client lists the
 enchantments in `ui/hud/inventory/engraving.rs`; an enchanted item shows a tinted icon, a gem in its
-slot (`SlotGem`) and a line each in its tooltip.
+slot (`SlotGem`) and a line each in its tooltip. In the world, in a hand or on the ground, it glints
+(`dropped_items/glint.rs`): a copy of its mesh over it, added to its colours in a teal that breathes
+and drifts to violet, whose material is shared by every glint of a texture and coloured anew each
+frame. `Inventory::in_hand` gives the item held with whether it is enchanted (`Held`), so that the
+others see the glint too.
 
 ### The depth tiers
 

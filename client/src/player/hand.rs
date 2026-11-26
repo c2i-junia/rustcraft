@@ -3,7 +3,7 @@
 //! while it walks, strike while the left button is held, push forward when a block is placed
 //! or an item used, and go down and up again when the item in the hand changes. The others, and
 //! the player itself in third person, see the item in the right hand of its model, which
-//! follows the arm.
+//! follows the arm. An enchanted item glints in either (`dropped_items::glint`).
 //!
 //! The view model is a child of the player's camera, on a layer that only that camera draws
 //! (`VIEW_MODEL_LAYER`): no portal shows it. It is drawn small and close to the eye, nearer
@@ -20,10 +20,11 @@ use bevy::{
     prelude::*,
 };
 use shared::players::bow::{draw_stage, power};
-use shared::players::{Inventory, Player, ViewMode};
+use shared::players::{Held, Inventory, Player, ViewMode};
 use shared::world::{ItemId, ItemStack};
 
 use crate::camera::{CameraController, FOV_DEGREES};
+use crate::dropped_items::glint::Glints;
 use crate::dropped_items::mesh::{ItemLook, ItemLooks};
 use crate::portal::VIEW_MODEL_LAYER;
 use crate::ui::hud::hotbar::Hotbar;
@@ -64,7 +65,14 @@ impl ViewModelMaterials {
 /// The item a player holds: that of its selected hotbar slot. The local player's follows its
 /// hotbar (`track_the_local_held_item`), the others' the server (`PlayerUpdateEvent::held`).
 #[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct HeldItem(pub Option<ItemId>);
+pub struct HeldItem(pub Option<Held>);
+
+impl HeldItem {
+    /// The item held, if any.
+    pub fn item(self) -> Option<ItemId> {
+        self.0.map(|held| held.item)
+    }
+}
 
 /// The material of a player's skin, which its model and its arm in first person are drawn with.
 #[derive(Component, Debug, Clone)]
@@ -89,6 +97,8 @@ pub struct ItemHolder {
     /// How far the bow in it is drawn, if it is (`bow::draw_stage`), or where the needle of the
     /// compass in it points (`compass::CompassNeedle`).
     pub draw: Option<u8>,
+    /// Whether the item is enchanted, which draws its glint (`glint`).
+    pub enchanted: bool,
 }
 
 impl ItemHolder {
@@ -97,13 +107,15 @@ impl ItemHolder {
             grip,
             wanted: None,
             draw: None,
+            enchanted: false,
         }
     }
 }
 
-/// The mesh of the item drawn by an `ItemHolder`, and how far drawn a bow it shows.
+/// The mesh of the item drawn by an `ItemHolder`, how far drawn a bow it shows, and whether it
+/// glints.
 #[derive(Component, Debug)]
-pub struct HeldItemMesh(pub ItemId, pub Option<u8>);
+pub struct HeldItemMesh(pub ItemId, pub Option<u8>, pub bool);
 
 /// The frame the view model hangs from, the child of the player's camera: it stretches with the
 /// field of view (`frame_scale`), so that the hand stays the same on screen while the player
@@ -130,6 +142,8 @@ const USE_SECONDS: f32 = 0.25;
 pub struct HandMotion {
     /// The item in the view model: the one held, once the hand went down to change it.
     pub shown: Option<ItemId>,
+    /// Whether the item shown is enchanted: that of the one held, once it is shown.
+    pub enchanted: bool,
     /// From 0, the hand raised, to 1, out of sight below the screen.
     pub lowered: f32,
     /// Where the hand is in its push, from 0 to 1, while it pushes.
@@ -408,14 +422,18 @@ pub fn hold_items_in_hands(
     mut holders: Query<&mut ItemHolder>,
 ) {
     for (player, held, player_children) in &players {
-        let draw = draw_stage_of(player, held.0);
+        let wanted = (
+            held.item(),
+            draw_stage_of(player, held.item()),
+            held.0.is_some_and(|held| held.enchanted),
+        );
         for child in player_children {
             for descendant in children.iter_descendants(*child) {
                 if let Ok(mut holder) = holders.get_mut(descendant) {
                     if holder.grip == Grip::ThirdPerson
-                        && (holder.wanted, holder.draw) != (held.0, draw)
+                        && (holder.wanted, holder.draw, holder.enchanted) != wanted
                     {
-                        (holder.wanted, holder.draw) = (held.0, draw);
+                        (holder.wanted, holder.draw, holder.enchanted) = wanted;
                     }
                 }
             }
@@ -535,7 +553,10 @@ pub fn move_the_hand(
         } else {
             Visibility::Hidden
         });
-        motion.advance(held.0, used, time.delta_secs());
+        motion.advance(held.item(), used, time.delta_secs());
+        if let Some(held) = held.0.filter(|held| Some(held.item) == motion.shown) {
+            motion.enchanted = held.enchanted;
+        }
         let offset = hand_offset(
             &motion,
             animation.swing,
@@ -554,8 +575,9 @@ pub fn move_the_hand(
         *transform = view_model_transform(offset);
         let mut holders = holders.iter_many_mut(children);
         while let Some(mut holder) = holders.fetch_next() {
-            if (holder.wanted, holder.draw) != (motion.shown, draw) {
-                (holder.wanted, holder.draw) = (motion.shown, draw);
+            let wanted = (motion.shown, draw, motion.enchanted);
+            if (holder.wanted, holder.draw, holder.enchanted) != wanted {
+                (holder.wanted, holder.draw, holder.enchanted) = wanted;
             }
         }
     }
@@ -626,6 +648,7 @@ pub fn draw_held_items(
     mut meshes: ResMut<Assets<Mesh>>,
     mut standard_materials: ResMut<Assets<StandardMaterial>>,
     mut unlit: ResMut<ViewModelMaterials>,
+    mut glints: ResMut<Glints>,
     materials: Res<MaterialResource>,
     images: Res<Assets<Image>>,
 ) {
@@ -634,8 +657,10 @@ pub fn draw_held_items(
             .into_iter()
             .flatten()
             .find_map(|child| drawn.get(*child).ok())
-            .map(|mesh| (mesh.0, mesh.1));
-        let wanted = holder.wanted.map(|item| (item, holder.draw));
+            .map(|mesh| (mesh.0, mesh.1, mesh.2));
+        let wanted = holder
+            .wanted
+            .map(|item| (item, holder.draw, holder.enchanted));
         if shown == wanted {
             continue;
         }
@@ -646,13 +671,17 @@ pub fn draw_held_items(
         }
         // A look that is not there yet is tried again on the next frame
         let Some((shown, look)) = wanted.and_then(|shown| {
-            let look = looks.get_drawn(shown, &materials, &mut meshes, &images)?;
+            let look = looks.get_drawn((shown.0, shown.1), &materials, &mut meshes, &images)?;
             Some((shown, look))
         }) else {
             continue;
         };
         let layers = layers.cloned().unwrap_or_default();
         let transform = grip_transform(holder.grip, shown.0, &look);
+        let glint = shown
+            .2
+            .then(|| glints.of(&look, layers.clone(), &mut standard_materials))
+            .flatten();
         let mut mesh = match look {
             ItemLook::Cube(mesh, material) => {
                 commands.spawn((Mesh3d(mesh), MeshMaterial3d(material), transform, layers))
@@ -665,7 +694,13 @@ pub fn draw_held_items(
                 commands.spawn((Mesh3d(mesh), MeshMaterial3d(material), transform, layers))
             }
         };
-        mesh.insert((HeldItemMesh(shown.0, shown.1), Name::new("Held item")));
+        mesh.insert((
+            HeldItemMesh(shown.0, shown.1, shown.2),
+            Name::new("Held item"),
+        ));
+        if let Some(glint) = glint {
+            mesh.with_child(glint);
+        }
         if holder.grip == Grip::FirstPerson {
             mesh.insert((NotShadowCaster, NotShadowReceiver));
         }
@@ -830,9 +865,9 @@ mod tests {
     #[test]
     fn the_moves_of_the_hand_add_up() {
         let motion = HandMotion {
-            shown: None,
             lowered: 0.5,
             using: Some(0.5),
+            ..default()
         };
         let offset = hand_offset(&motion, Some(0.5), FRAC_PI_2, 1.0);
         let expected = lowering(0.5).translation

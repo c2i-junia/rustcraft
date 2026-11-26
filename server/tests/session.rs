@@ -1596,7 +1596,7 @@ fn the_others_see_the_item_of_the_selected_hotbar_slot_in_a_players_hand() {
             ServerToClientMessage::PlayerUpdate(u)
                 if u.id == PLAYER_ID && u.last_ack_time == time_ms =>
             {
-                assert_eq!(u.held, held, "slot {slot}");
+                assert_eq!(u.held.map(|held| held.item), held, "slot {slot}");
                 Some(())
             }
             _ => None,
@@ -1678,7 +1678,7 @@ fn a_player_who_joins_later_sees_the_armour_and_the_held_item_of_those_there() {
         clients[seen].send_packets();
         clients[sees].wait_for("the other player as it is", |m| match m {
             ServerToClientMessage::PlayerUpdate(u)
-                if u.id == id && u.last_ack_time == 1 && u.held == held =>
+                if u.id == id && u.last_ack_time == 1 && u.held.map(|held| held.item) == held =>
             {
                 assert_eq!(u.worn, WornArmour([helmet, None, None, None]));
                 Some(())

@@ -24,6 +24,14 @@ use crate::{
     HOTBAR_SLOTS, MAX_INVENTORY_SLOTS,
 };
 
+/// What a player holds in its hand, as the others see it: the item, and whether it is enchanted,
+/// which shows on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Held {
+    pub item: ItemId,
+    pub enchanted: bool,
+}
+
 #[derive(Debug, Resource, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Inventory {
     pub inner: HashMap<u32, ItemStack>,
@@ -71,13 +79,16 @@ impl Inventory {
         self.open_engraver = None;
     }
 
-    /// The item a player holds in its hand with the hotbar slot `slot` selected: the item of
-    /// that slot, none when it is empty or when `slot` is not one of the hotbar's.
-    pub fn in_hand(&self, slot: u32) -> Option<ItemId> {
+    /// What a player holds in its hand with the hotbar slot `slot` selected: the item of that
+    /// slot, none when it is empty or when `slot` is not one of the hotbar's.
+    pub fn in_hand(&self, slot: u32) -> Option<Held> {
         if slot >= HOTBAR_SLOTS {
             return None;
         }
-        self.inner.get(&slot).map(|stack| stack.item_id)
+        self.inner.get(&slot).map(|stack| Held {
+            item: stack.item_id,
+            enchanted: stack.is_enchanted(),
+        })
     }
 
     /// Adds `stack` to the inventory: first on the stacks of the same item, then in empty slots,
@@ -562,8 +573,9 @@ mod tests {
         inventory
             .inner
             .insert(HOTBAR_SLOTS, stack(ItemId::Cobblestone, 1));
-        assert_eq!(inventory.in_hand(0), Some(ItemId::Dirt));
-        assert_eq!(inventory.in_hand(8), Some(ItemId::Stick));
+        let item_in_hand = |slot| inventory.in_hand(slot).map(|held| held.item);
+        assert_eq!(item_in_hand(0), Some(ItemId::Dirt));
+        assert_eq!(item_in_hand(8), Some(ItemId::Stick));
         assert_eq!(inventory.in_hand(1), None, "an empty slot");
         assert_eq!(
             inventory.in_hand(HOTBAR_SLOTS),
@@ -571,6 +583,19 @@ mod tests {
             "a slot of the backpack"
         );
         assert_eq!(inventory.in_hand(u32::MAX), None);
+    }
+
+    #[test]
+    fn the_hand_tells_whether_its_item_is_enchanted() {
+        use crate::world::Enchantment;
+        let mut inventory = Inventory::new();
+        let sword = stack(ItemId::WoodenSword, 1);
+        inventory.inner.insert(0, sword);
+        inventory
+            .inner
+            .insert(1, sword.enchanted(Enchantment::Sharpness).unwrap());
+        assert_eq!(inventory.in_hand(0).map(|held| held.enchanted), Some(false));
+        assert_eq!(inventory.in_hand(1).map(|held| held.enchanted), Some(true));
     }
 
     fn max_stack() -> u32 {

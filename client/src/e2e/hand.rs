@@ -1,16 +1,19 @@
 //! The item in the hand: in first person the player sees its arm and the item of its selected
 //! hotbar slot in the lower right of the screen, which strikes with the left button; in third
-//! person its model holds the item in its right hand.
+//! person its model holds the item in its right hand. An enchanted item glints in either, and on
+//! the ground.
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 use shared::players::Player;
-use shared::world::ItemId;
+use shared::world::{Enchantment, ItemId, ItemStack};
 
 use super::game::{enter_world, slot};
 use super::harness::{Harness, SCREEN, SERVER};
 use super::seed::GameFolder;
 use crate::camera::CameraController;
+use crate::dropped_items::glint::Glint;
+use crate::dropped_items::DroppedItemRoot;
 use crate::player::hand::{
     view_model_transform, Grip, HandMotion, HandOffset, HeldItemMesh, ItemHolder, ViewModel,
     ViewModelArm,
@@ -248,4 +251,99 @@ fn the_player_sees_its_arm_and_the_item_it_holds_and_the_model_holds_it_too() {
         .insert(Transform::from_translation(side).looking_at(at, Vec3::Y));
     h.frames(10);
     h.snapshot("third_person_pickaxe");
+}
+
+/// Where the item lying on the ground is, if one is.
+fn lying(w: &World) -> Option<Vec3> {
+    let mut items = w.try_query::<(&DroppedItemRoot, &Transform)>()?;
+    items.iter(w).next().map(|(_, at)| at.translation)
+}
+
+/// The glints drawn, with their layers.
+fn glints(w: &World) -> Vec<Option<RenderLayers>> {
+    let Some(mut glints) = w.try_query_filtered::<Option<&RenderLayers>, With<Glint>>() else {
+        return Vec::new();
+    };
+    glints
+        .iter(w)
+        .map(Option::<&RenderLayers>::cloned)
+        .collect()
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn an_enchanted_item_glints_in_the_hand_on_the_model_and_on_the_ground() {
+    let sword = ItemStack {
+        item_id: ItemId::IronSword,
+        item_type: ItemId::IronSword.get_default_type(),
+        nb: 1,
+    };
+    let enchanted = sword.enchanted(Enchantment::Sharpness).unwrap();
+    let folder = GameFolder::new()
+        .with_world("Glint")
+        .with_player("Glint", "Tester", |player| {
+            player.inventory.inner.insert(0, enchanted);
+            player.inventory.inner.insert(1, sword);
+            player.inventory.inner.insert(2, enchanted);
+        });
+    let mut h = enter_world(folder, "Glint");
+    h.wait_until("the player on the ground", SERVER, |w| player(w).on_ground);
+    h.set_time("day");
+    h.frames(30);
+
+    // In first person, over the sword of the view model, and in the hand of the model
+    h.wait_until("the glints of the sword", SERVER, |w| {
+        holds(w, Some(ItemId::IronSword)) && glints(w).len() == 2
+    });
+    let view_model = Some(RenderLayers::layer(VIEW_MODEL_LAYER));
+    assert!(glints(h.world()).contains(&view_model));
+    h.frames(10);
+    h.snapshot("enchanted_sword");
+
+    // The same sword, not enchanted, has none
+    h.press(KeyCode::Digit2);
+    h.wait_until("the plain sword", SCREEN, |w| glints(w).is_empty());
+    h.frames(10);
+    h.snapshot("plain_sword");
+
+    // Thrown, on the ground
+    h.press(KeyCode::Digit3);
+    h.wait_until("the other enchanted sword", SCREEN, |w| {
+        glints(w).len() == 2
+    });
+    h.press(KeyCode::KeyQ);
+    h.wait_until("the sword on the ground, glinting", SERVER, |w| {
+        glints(w).contains(&None) && lying(w).is_some()
+    });
+    h.frames(60);
+
+    // In third person, in the hand of the model
+    h.press(KeyCode::Digit1);
+    h.key_down(KeyCode::F5);
+    h.frames(1);
+    h.key_up(KeyCode::F5);
+    h.wait_until("the glint in the hand of the model", SCREEN, |w| {
+        glints(w).contains(&Some(RenderLayers::layer(0)))
+    });
+    // Pictured from the right of the player, the sword on the ground beyond it
+    let at = player(h.world()).position;
+    let lying_at = lying(h.world()).unwrap();
+    let w = h.world_mut();
+    let (camera, transform) = w
+        .query_filtered::<(Entity, &Transform), With<CameraController>>()
+        .single(w)
+        .map(|(camera, transform)| (camera, *transform))
+        .unwrap();
+    let side = at + transform.right() * 2.5 + transform.forward() * 1.0 + Vec3::Y * 0.6;
+    w.entity_mut(camera)
+        .remove::<CameraController>()
+        .insert(Transform::from_translation(side).looking_at(at, Vec3::Y));
+    h.frames(10);
+    h.snapshot("enchanted_third_person");
+    let close = lying_at + Vec3::new(0.8, 0.5, 0.8);
+    let w = h.world_mut();
+    w.entity_mut(camera)
+        .insert(Transform::from_translation(close).looking_at(lying_at, Vec3::Y));
+    h.frames(10);
+    h.snapshot("enchanted_on_the_ground");
 }

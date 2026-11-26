@@ -1,5 +1,6 @@
 //! The items lying in the world, as the server tells of them: a small block, or a picture of
-//! the item, that turns and bobs where it lies, and flies to the player who picks it up.
+//! the item, that turns and bobs where it lies, and flies to the player who picks it up. An
+//! enchanted item glints (`glint`), there and in the hands.
 
 use bevy::prelude::*;
 use shared::{messages::DroppedItemsUpdate, world::DroppedItemId};
@@ -8,6 +9,7 @@ use std::collections::HashMap;
 use crate::state::GameState;
 
 mod animate;
+pub(crate) mod glint;
 pub(crate) mod mesh;
 mod sync;
 
@@ -61,6 +63,7 @@ pub fn dropped_items_plugin(app: &mut App) {
         .init_resource::<DroppedItemEntities>()
         .init_resource::<mesh::ItemLooks>()
         .init_resource::<mesh::OrbLook>()
+        .init_resource::<glint::Glints>()
         .add_systems(
             Update,
             (
@@ -72,6 +75,7 @@ pub fn dropped_items_plugin(app: &mut App) {
                 .chain()
                 .run_if(in_state(GameState::Game)),
         )
+        .add_systems(Update, glint::shimmer.run_if(in_state(GameState::Game)))
         // The entities go with the game state; the ids are those of the session that ended
         .add_systems(
             OnExit(GameState::Game),

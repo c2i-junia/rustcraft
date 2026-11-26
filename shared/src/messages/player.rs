@@ -7,8 +7,8 @@ use crate::players::armour::WornArmour;
 use crate::players::experience::Experience;
 use crate::players::game_mode::{DeathCause, GameMode};
 use crate::players::skin::PlayerSkin;
-use crate::players::{inventory::InventoryAction, Inventory, MovementState, ViewMode};
-use crate::world::{Container, Furnace, ItemId};
+use crate::players::{inventory::InventoryAction, Held, Inventory, MovementState, ViewMode};
+use crate::world::{Container, Furnace};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone, Eq, Hash)]
 pub enum NetworkAction {
@@ -76,8 +76,8 @@ pub struct PlayerUpdateEvent {
     /// Whether the player swings its arm (`Player::is_swinging`): the others see it strike.
     pub swinging: bool,
     /// The item in the player's hand, from its selected hotbar slot (`Inventory::in_hand`): the
-    /// others see it held.
-    pub held: Option<ItemId>,
+    /// others see it held, and its glint when it is enchanted.
+    pub held: Option<Held>,
     /// The armour the player wears (`Inventory::worn`): the others see it on its model.
     pub worn: WornArmour,
 }

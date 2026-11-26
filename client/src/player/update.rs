@@ -360,7 +360,11 @@ mod tests {
                 HeldItem::default(),
             ))
             .id();
-        for held in [Some(shared::world::ItemId::WoodenPickaxe), None] {
+        let pickaxe = shared::players::Held {
+            item: shared::world::ItemId::WoodenPickaxe,
+            enchanted: true,
+        };
+        for held in [Some(pickaxe), None] {
             app.world_mut().write_message(PlayerUpdateEvent {
                 id: PLAYER_ID + 1,
                 movement: MovementState::default(),
