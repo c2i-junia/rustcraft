@@ -27,7 +27,11 @@ const SEED: u32 = 42;
 #[ignore = "pictures for a human: UI_SNAPSHOTS=1 cargo test -p client e2e::lair -- --ignored"]
 fn snapshot_the_lair_the_boss_and_the_credits() {
     let noon = 10 * DAY_DURATION_IN_TICKS + NOON_IN_DAY;
-    let heart = lair::heart(lair::centre(SEED, &TerrainNoises::new(SEED)));
+    let heart = lair::heart(lair::centre(
+        SEED,
+        &TerrainNoises::new(SEED),
+        shared::world::depths::Underground::Deep,
+    ));
     let stand = heart + Vec3::new(0., 0.95, 18.);
     let folder = GameFolder::new()
         .with_file("video.ron", "(render_distance: 6)")
@@ -48,7 +52,7 @@ fn snapshot_the_lair_the_boss_and_the_credits() {
         });
     let meta = format!(
         "(format_version: 5, name: \"Lair\", seed: ({SEED}), time: {noon}, mobs: {{}}, \
-         generation: (preset: Default, villages: true, dungeons: true))"
+         generation: (preset: Default, villages: true, dungeons: true, deep: true))"
     );
     let world = folder.path().join(SAVE_PATH).join("Lair");
     std::fs::write(world.join("world.ron"), meta).unwrap();

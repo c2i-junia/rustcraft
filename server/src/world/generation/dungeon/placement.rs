@@ -10,7 +10,7 @@ use super::super::structure::{rotate, DIRECTIONS};
 use super::super::{village, PositionRandom};
 use super::blueprints::Blueprint;
 use super::{DungeonKind, Site, World};
-use crate::world::caves::LAVA_LEVEL;
+use shared::world::depths::Underground;
 
 /// Side of a region, in blocks: each may hold one dungeon of each kind. A village region holds
 /// whole ones.
@@ -40,12 +40,15 @@ fn chance(kind: DungeonKind) -> f32 {
     }
 }
 
-/// The heights the cells of a dungeon of `kind` lie at.
-pub fn heights(kind: DungeonKind) -> RangeInclusive<i32> {
-    match kind {
-        DungeonKind::Ruin => SEA_LEVEL - 8..=HIGHEST_SURFACE,
-        DungeonKind::Crypt => 20..=50,
-        DungeonKind::Sanctuary => LAVA_LEVEL - 1..=17,
+/// The heights the cells of a dungeon of `kind` lie at, in a world of `underground`: the
+/// crypts in the caves above the depths, the sanctuaries by the lava, in the furnace.
+pub fn heights(kind: DungeonKind, underground: Underground) -> RangeInclusive<i32> {
+    let lava = underground.lava_level();
+    match (kind, underground) {
+        (DungeonKind::Ruin, _) => SEA_LEVEL - 8..=HIGHEST_SURFACE,
+        (DungeonKind::Crypt, Underground::Shallow) => 20..=50,
+        (DungeonKind::Crypt, Underground::Deep) => 4..=50,
+        (DungeonKind::Sanctuary, _) => lava - 1..=lava + 7,
     }
 }
 
@@ -123,7 +126,7 @@ fn on_the_surface(world: &World, at: IVec2, draw: i32) -> Option<Site> {
 /// The place of a dungeon of `kind` dug behind the wall of a cave, in the chunk of the column
 /// `at`: its door opens on a cell of the cave with a floor, and, for a sanctuary, lava is near.
 fn off_a_cave(world: &World, kind: DungeonKind, at: IVec2, draw: i32) -> Option<Site> {
-    let heights = heights(kind);
+    let heights = heights(kind, world.underground);
     let blueprint = Blueprint::of(kind);
     let height = blueprint.layers.len() as i32 + blueprint.lowest;
     // the floors that keep the dungeon between its heights
@@ -137,7 +140,7 @@ fn off_a_cave(world: &World, kind: DungeonKind, at: IVec2, draw: i32) -> Option<
     if kind == DungeonKind::Sanctuary {
         let lava = (0..CHUNK_SIZE)
             .flat_map(|x| (0..CHUNK_SIZE).map(move |z| (x, z)))
-            .filter(|&(x, z)| carved(IVec3::new(x, LAVA_LEVEL - origin.y, z)))
+            .filter(|&(x, z)| carved(IVec3::new(x, world.underground.lava_level() - origin.y, z)))
             .count();
         if lava < 8 {
             return None;

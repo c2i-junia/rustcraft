@@ -92,6 +92,8 @@ impl SoundMaterial {
             | BlockId::HewnStone
             | BlockId::Limestone
             | BlockId::Slate
+            | BlockId::Gloomrock
+            | BlockId::CobbledGloomrock
             | BlockId::BrickWall
             | BlockId::CoalBlock
             | BlockId::CopperOre

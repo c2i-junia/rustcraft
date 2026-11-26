@@ -3,6 +3,7 @@
 //! a chunk replays the attempts of its 26 neighbours too and keeps the cells that fall in it.
 
 use bevy::prelude::*;
+use shared::world::depths::Underground;
 use shared::{world::*, CHUNK_SIZE};
 
 use super::PositionRandom;
@@ -23,8 +24,10 @@ struct Ore {
     vein: (u64, u64),
     /// Share of the attempts that are veins, the others are clusters.
     veins: f32,
-    /// Whether it only takes plain stone, and never the cell of another ore.
+    /// Whether it only takes plain rock, and never the cell of another ore.
     only_stone: bool,
+    /// The share of the attempts kept, by the height they start at.
+    chance: Chance,
 }
 
 /// The commonest first: a rarer ore is placed after, and wins a cell both claim.
@@ -38,6 +41,7 @@ const ORES: [Ore; 8] = [
         vein: (8, 14),
         veins: 0.2,
         only_stone: false,
+        chance: ALWAYS,
     },
     Ore {
         block: BlockId::IronOre,
@@ -48,6 +52,7 @@ const ORES: [Ore; 8] = [
         vein: (6, 12),
         veins: 0.4,
         only_stone: false,
+        chance: ALWAYS,
     },
     Ore {
         block: BlockId::GoldOre,
@@ -58,6 +63,7 @@ const ORES: [Ore; 8] = [
         vein: (6, 10),
         veins: 0.5,
         only_stone: false,
+        chance: ALWAYS,
     },
     // Deep down, in small clusters only
     Ore {
@@ -69,6 +75,7 @@ const ORES: [Ore; 8] = [
         vein: (0, 0),
         veins: 0.0,
         only_stone: false,
+        chance: ALWAYS,
     },
     // Added after the others, whose ranks the worlds depend on: they leave their cells alone
     Ore {
@@ -80,6 +87,7 @@ const ORES: [Ore; 8] = [
         vein: (6, 12),
         veins: 0.3,
         only_stone: true,
+        chance: ALWAYS,
     },
     Ore {
         block: BlockId::TinOre,
@@ -90,6 +98,7 @@ const ORES: [Ore; 8] = [
         vein: (5, 10),
         veins: 0.3,
         only_stone: true,
+        chance: ALWAYS,
     },
     // Pockets of rock rather than ores
     Ore {
@@ -101,6 +110,7 @@ const ORES: [Ore; 8] = [
         vein: (0, 0),
         veins: 0.0,
         only_stone: true,
+        chance: ALWAYS,
     },
     Ore {
         block: BlockId::Limestone,
@@ -111,8 +121,142 @@ const ORES: [Ore; 8] = [
         vein: (0, 0),
         veins: 0.0,
         only_stone: true,
+        chance: ALWAYS,
     },
 ];
+
+/// The ores of a deep world, over its whole height: coal, copper and tin high, iron in the
+/// middle and high, gold deep, diamonds mostly around -50 and rare above. Same ranks as `ORES`.
+const DEEP_ORES: [Ore; 8] = [
+    Ore {
+        block: BlockId::CoalOre,
+        lowest: 0,
+        highest: 128,
+        attempts: 6,
+        cluster: (6, 14),
+        vein: (8, 14),
+        veins: 0.2,
+        only_stone: false,
+        chance: ALWAYS,
+    },
+    Ore {
+        block: BlockId::IronOre,
+        lowest: -24,
+        highest: 72,
+        attempts: 4,
+        cluster: (4, 8),
+        vein: (6, 12),
+        veins: 0.4,
+        only_stone: false,
+        chance: ALWAYS,
+    },
+    Ore {
+        block: BlockId::GoldOre,
+        lowest: -60,
+        highest: -8,
+        attempts: 1,
+        cluster: (3, 6),
+        vein: (6, 10),
+        veins: 0.5,
+        only_stone: false,
+        chance: Chance {
+            below: 0.8,
+            rare_above: -32,
+            rare: 0.4,
+        },
+    },
+    Ore {
+        block: BlockId::DiamondOre,
+        lowest: -58,
+        highest: 16,
+        attempts: 1,
+        cluster: (2, 6),
+        vein: (0, 0),
+        veins: 0.0,
+        only_stone: false,
+        chance: Chance {
+            below: 0.8,
+            rare_above: -42,
+            rare: 0.06,
+        },
+    },
+    Ore {
+        block: BlockId::CopperOre,
+        lowest: -16,
+        highest: 96,
+        attempts: 5,
+        cluster: (5, 10),
+        vein: (6, 12),
+        veins: 0.3,
+        only_stone: true,
+        chance: ALWAYS,
+    },
+    Ore {
+        block: BlockId::TinOre,
+        lowest: -16,
+        highest: 64,
+        attempts: 4,
+        cluster: (4, 8),
+        vein: (5, 10),
+        veins: 0.3,
+        only_stone: true,
+        chance: ALWAYS,
+    },
+    Ore {
+        block: BlockId::Slate,
+        lowest: 5,
+        highest: 30,
+        attempts: 12,
+        cluster: (20, 27),
+        vein: (0, 0),
+        veins: 0.0,
+        only_stone: true,
+        chance: ALWAYS,
+    },
+    Ore {
+        block: BlockId::Limestone,
+        lowest: 40,
+        highest: 100,
+        attempts: 8,
+        cluster: (20, 27),
+        vein: (0, 0),
+        veins: 0.0,
+        only_stone: true,
+        chance: ALWAYS,
+    },
+];
+
+/// The share of the attempts of an ore that are kept: `below` up to `rare_above`, `rare` over
+/// it.
+struct Chance {
+    below: f32,
+    rare_above: i32,
+    rare: f32,
+}
+
+const ALWAYS: Chance = Chance {
+    below: 1.0,
+    rare_above: i32::MAX,
+    rare: 1.0,
+};
+
+impl Chance {
+    fn at(&self, y: i32) -> f32 {
+        if y > self.rare_above {
+            self.rare
+        } else {
+            self.below
+        }
+    }
+}
+
+/// The ores of a world of `underground`.
+fn ores(underground: Underground) -> &'static [Ore; 8] {
+    match underground {
+        Underground::Shallow => &ORES,
+        Underground::Deep => &DEEP_ORES,
+    }
+}
 
 /// The farthest a cell of an attempt lies from where it starts, on any axis: half the
 /// longest vein. A cluster stays within one block.
@@ -127,28 +271,31 @@ const SALT_KIND: u64 = 3;
 const SALT_SIZE: u64 = 4;
 const SALT_YAW: u64 = 5;
 const SALT_PITCH: u64 = 6;
+const SALT_CHANCE: u64 = 7;
 /// The cells of the 3x3x3 cube around a cluster's start draw one byte each, 8 per salt, from
 /// here.
 const SALT_CLUSTER_CELLS: u64 = 0x10;
 
-/// Turns into ore the stone of `chunk` that the attempts of it and of its neighbours reach.
-pub(super) fn place_ores(seed: u32, chunk_pos: IVec3, chunk: &mut Chunk) {
+/// Turns into ore the rock (stone, gloomrock) of `chunk` that the attempts of it and of its
+/// neighbours reach, in a world of `underground`.
+pub(super) fn place_ores(seed: u32, chunk_pos: IVec3, chunk: &mut Chunk, underground: Underground) {
+    let table = ores(underground);
     let origin = chunk_pos * CHUNK_SIZE;
-    let lowest = ORES.iter().map(|ore| ore.lowest).min().unwrap();
-    let highest = ORES.iter().map(|ore| ore.highest).max().unwrap();
+    let lowest = table.iter().map(|ore| ore.lowest).min().unwrap();
+    let highest = table.iter().map(|ore| ore.highest).max().unwrap();
     if origin.y > highest + ORE_REACH || origin.y + CHUNK_SIZE + ORE_REACH <= lowest {
         return;
     }
-    for (rank, ore) in ORES.iter().enumerate() {
-        let lower_ranks = &ORES[..rank];
+    for (rank, ore) in table.iter().enumerate() {
+        let lower_ranks = &table[..rank];
         for neighbour in neighbours(chunk_pos) {
-            for cell in attempts_cells(seed, neighbour, rank, Some(chunk_pos)) {
+            for cell in attempts_cells(seed, table, neighbour, rank, Some(chunk_pos)) {
                 let local = cell - origin;
                 if !Chunk::contains(local) {
                     continue;
                 }
                 let replaced = chunk.get(local).is_some_and(|block| {
-                    block.id == BlockId::Stone
+                    matches!(block.id, BlockId::Stone | BlockId::Gloomrock)
                         || !ore.only_stone && lower_ranks.iter().any(|o| o.block == block.id)
                 });
                 if replaced {
@@ -168,8 +315,14 @@ fn neighbours(chunk_pos: IVec3) -> impl Iterator<Item = IVec3> {
 
 /// The cells of every attempt of the ore `rank` started in the chunk `chunk_pos`; only of
 /// those that may reach the chunk `reaching`, if given.
-fn attempts_cells(seed: u32, chunk_pos: IVec3, rank: usize, reaching: Option<IVec3>) -> Vec<IVec3> {
-    let ore = &ORES[rank];
+fn attempts_cells(
+    seed: u32,
+    table: &[Ore],
+    chunk_pos: IVec3,
+    rank: usize,
+    reaching: Option<IVec3>,
+) -> Vec<IVec3> {
+    let ore = &table[rank];
     let bottom = chunk_pos.y * CHUNK_SIZE;
     if bottom > ore.highest || bottom + CHUNK_SIZE <= ore.lowest {
         return Vec::new();
@@ -186,6 +339,10 @@ fn attempts_cells(seed: u32, chunk_pos: IVec3, rank: usize, reaching: Option<IVe
         let start =
             chunk_pos * CHUNK_SIZE + IVec3::new(coordinate(0), coordinate(4), coordinate(8));
         if !(ore.lowest..=ore.highest).contains(&start.y) {
+            continue;
+        }
+        let chance = ore.chance.at(start.y);
+        if chance < 1.0 && random.unit(salt + SALT_CHANCE) >= chance {
             continue;
         }
         let out_of_reach = reaching.is_some_and(|target| {
@@ -249,23 +406,35 @@ fn vein(random: &ChunkRandom, salt: u64, start: IVec3, length: u64, cells: &mut 
 mod tests {
     use super::*;
     use crate::world::generation::WorldGenerator;
+    use shared::world::{Biomes, WorldGenSettings};
 
-    fn ore_rank(block: BlockId) -> Option<usize> {
-        ORES.iter().position(|ore| ore.block == block)
+    fn ore_rank(table: &[Ore], block: BlockId) -> Option<usize> {
+        table.iter().position(|ore| ore.block == block)
+    }
+
+    fn generator(seed: u32, underground: Underground) -> WorldGenerator {
+        let settings = WorldGenSettings {
+            deep: underground == Underground::Deep,
+            ..WorldGenSettings::default()
+        };
+        WorldGenerator::with(seed, &settings, Biomes::vanilla())
     }
 
     #[test]
     fn no_attempt_reaches_further_than_the_reach() {
-        for seed in 0..20 {
-            for rank in 0..ORES.len() {
-                for chunk_pos in [IVec3::new(0, 1, 0), IVec3::new(-3, 2, 5)] {
-                    let box_min = chunk_pos * CHUNK_SIZE - IVec3::splat(ORE_REACH);
-                    let box_max = (chunk_pos + IVec3::ONE) * CHUNK_SIZE + IVec3::splat(ORE_REACH);
-                    for cell in attempts_cells(seed, chunk_pos, rank, None) {
-                        assert!(
-                            cell.cmpge(box_min).all() && cell.cmplt(box_max).all(),
-                            "{cell}"
-                        );
+        for table in [&ORES, &DEEP_ORES] {
+            for seed in 0..20 {
+                for rank in 0..table.len() {
+                    for chunk_pos in [IVec3::new(0, 1, 0), IVec3::new(-3, -2, 5)] {
+                        let box_min = chunk_pos * CHUNK_SIZE - IVec3::splat(ORE_REACH);
+                        let box_max =
+                            (chunk_pos + IVec3::ONE) * CHUNK_SIZE + IVec3::splat(ORE_REACH);
+                        for cell in attempts_cells(seed, table, chunk_pos, rank, None) {
+                            assert!(
+                                cell.cmpge(box_min).all() && cell.cmplt(box_max).all(),
+                                "{cell}"
+                            );
+                        }
                     }
                 }
             }
@@ -274,47 +443,59 @@ mod tests {
 
     #[test]
     fn an_attempt_crossing_a_border_is_whole_in_every_chunk_it_reaches() {
-        let generator = WorldGenerator::new(42);
-        let source = IVec3::new(2, 1, -1);
-        let mut crossing = 0;
-        for (rank, ore) in ORES.iter().enumerate() {
-            for cell in attempts_cells(42, source, rank, None) {
-                let chunk_pos = cell.div_euclid(IVec3::splat(CHUNK_SIZE));
-                if chunk_pos == source {
-                    continue;
+        for (underground, source) in [
+            (Underground::Shallow, IVec3::new(2, 1, -1)),
+            (Underground::Deep, IVec3::new(2, -3, -1)),
+        ] {
+            let generator = generator(42, underground);
+            let table = ores(underground);
+            let mut crossing = 0;
+            for (rank, ore) in table.iter().enumerate() {
+                for cell in attempts_cells(42, table, source, rank, None) {
+                    let chunk_pos = cell.div_euclid(IVec3::splat(CHUNK_SIZE));
+                    if chunk_pos == source {
+                        continue;
+                    }
+                    crossing += 1;
+                    let chunk = generator.generate_chunk(chunk_pos);
+                    let block = chunk
+                        .get(cell.rem_euclid(IVec3::splat(CHUNK_SIZE)))
+                        .map(|b| b.id);
+                    // the ore, a rarer one, or what was not rock
+                    let ok = match block.and_then(|id| ore_rank(table, id)) {
+                        Some(found) => found >= rank || ore.only_stone,
+                        None => !matches!(block, Some(BlockId::Stone | BlockId::Gloomrock)),
+                    };
+                    assert!(ok, "{:?} at {cell} instead of {:?}", block, ore.block);
                 }
-                crossing += 1;
-                let chunk = generator.generate_chunk(chunk_pos);
-                let block = chunk
-                    .get(cell.rem_euclid(IVec3::splat(CHUNK_SIZE)))
-                    .map(|b| b.id);
-                // the ore, a rarer one, or what was not stone
-                let ok = match block.and_then(ore_rank) {
-                    Some(found) => found >= rank || ore.only_stone,
-                    None => block != Some(BlockId::Stone),
-                };
-                assert!(ok, "{:?} at {cell} instead of {:?}", block, ore.block);
             }
+            assert!(crossing > 0, "{underground:?}");
         }
-        assert!(crossing > 0);
     }
 
-    #[test]
-    fn ores_keep_to_their_heights_and_are_as_common_as_meant() {
-        let generator = WorldGenerator::new(42);
+    /// The share of each ore among the rock and the ores of the chunks from the layer `lowest`
+    /// to `highest`, and the heights of the diamonds, checking that every ore keeps to its
+    /// heights.
+    fn shares(underground: Underground, lowest: i32, highest: i32) -> ([f64; 8], Vec<i32>) {
+        let generator = generator(42, underground);
+        let table = ores(underground);
         let mut counts = [0usize; 8];
-        let mut stone = 0usize;
+        let mut rock = 0usize;
+        let mut diamonds = Vec::new();
         for x in -2..2 {
             for z in -2..2 {
-                for y in 0..9 {
+                for y in lowest..=highest {
                     let chunk_pos = IVec3::new(x, y, z);
                     for (local, block) in generator.generate_chunk(chunk_pos).iter() {
                         let world_y = y * CHUNK_SIZE + local.y;
-                        if block.id == BlockId::Stone {
-                            stone += 1;
+                        if matches!(block.id, BlockId::Stone | BlockId::Gloomrock) {
+                            rock += 1;
                         }
-                        if let Some(rank) = ore_rank(block.id) {
-                            let ore = &ORES[rank];
+                        if block.id == BlockId::DiamondOre {
+                            diamonds.push(world_y);
+                        }
+                        if let Some(rank) = ore_rank(table, block.id) {
+                            let ore = &table[rank];
                             assert!(
                                 (ore.lowest - ORE_REACH..=ore.highest + ORE_REACH)
                                     .contains(&world_y),
@@ -327,8 +508,13 @@ mod tests {
                 }
             }
         }
-        let share = |count: usize| count as f64 / (stone + counts.iter().sum::<usize>()) as f64;
-        let [coal, iron, gold, diamond, copper, tin, ..] = counts.map(share);
+        let total = (rock + counts.iter().sum::<usize>()) as f64;
+        (counts.map(|count| count as f64 / total), diamonds)
+    }
+
+    #[test]
+    fn ores_keep_to_their_heights_and_are_as_common_as_meant() {
+        let ([coal, iron, gold, diamond, copper, tin, ..], _) = shares(Underground::Shallow, 0, 8);
         assert!((0.005..0.03).contains(&coal), "coal {coal}");
         assert!((0.002..0.015).contains(&iron), "iron {iron}");
         assert!((0.0002..0.003).contains(&gold), "gold {gold}");
@@ -336,5 +522,26 @@ mod tests {
         assert!((0.002..0.03).contains(&copper), "copper {copper}");
         assert!((0.001..0.02).contains(&tin), "tin {tin}");
         assert!(coal > iron && iron > gold && gold > diamond);
+    }
+
+    #[test]
+    fn the_ores_of_a_deep_world_spread_over_its_height_the_diamonds_deepest() {
+        let ([coal, iron, gold, diamond, copper, tin, ..], diamonds) =
+            shares(Underground::Deep, -4, 8);
+        assert!((0.003..0.03).contains(&coal), "coal {coal}");
+        assert!((0.002..0.015).contains(&iron), "iron {iron}");
+        assert!((0.0001..0.003).contains(&gold), "gold {gold}");
+        assert!((0.00002..0.001).contains(&diamond), "diamond {diamond}");
+        assert!((0.002..0.03).contains(&copper), "copper {copper}");
+        assert!((0.001..0.02).contains(&tin), "tin {tin}");
+        assert!(coal > iron && iron > gold && gold > diamond);
+        // most of them around -50, a few up to 16
+        let deep = diamonds.iter().filter(|&&y| y < -35).count();
+        assert!(
+            deep * 4 > diamonds.len() * 3,
+            "{deep} of {}",
+            diamonds.len()
+        );
+        assert!(diamonds.iter().all(|&y| y <= 16 + ORE_REACH));
     }
 }

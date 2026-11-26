@@ -105,8 +105,9 @@ pub struct WorldData {
     /// The single-file formats had none.
     #[serde(default)]
     pub weather: Option<SavedWeather>,
-    /// The single-file formats had none: their worlds are of the default type.
-    #[serde(default)]
+    /// The single-file formats had none: their worlds are of the default type, shallow as they
+    /// were generated.
+    #[serde(default = "WorldGenSettings::single_file")]
     pub generation: WorldGenSettings,
     /// The single-file formats had none: their worlds are normal.
     #[serde(default)]

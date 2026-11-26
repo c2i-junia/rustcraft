@@ -4,8 +4,9 @@ use std::sync::{Arc, Mutex};
 use bevy::prelude::*;
 use shared::{players::PLAYER_HEIGHT, world::*, CHUNK_SIZE};
 
-use super::caves::{CaveMask, Caves, Noise3, CAVE_FLOOR, LAVA_LEVEL};
+use super::caves::{CaveMask, Caves, Noise3};
 use jungle::{GIANT_MARGIN, GIANT_SINK, GIANT_STEP};
+use shared::world::depths::{Underground, ROUGH_BEDROCK};
 
 mod animals;
 pub mod dungeon;
@@ -54,6 +55,12 @@ const HEATHER_LINE: i32 = 80;
 const HEATHER_CHANCE: f32 = 0.06;
 const MUSHROOM_CHANCE: f32 = 0.006;
 const BERRY_CHANCE: f32 = 0.004;
+/// The rough bedrock and the edge of the gloomrock draw from these, by cell.
+const SALT_BEDROCK: u64 = 0x3600;
+const SALT_GLOOMROCK: u64 = 0x3601;
+/// The gloomrock gives way to stone over this many layers, up to height 0.
+const GLOOMROCK_EDGE: i32 = 3;
+
 /// Each of the two branches of a big tree uses 4 consecutive salts from here.
 const SALT_BRANCH: u64 = 0x100;
 /// One salt per leaf of the 5x5x3 crown, from here.
@@ -341,15 +348,57 @@ fn bed_blocks(ground: &Ground) -> (BlockId, BlockId) {
     }
 }
 
-/// The block at height `y` of a terrain column, or `None` above the surface and the sea.
-fn terrain_block(y: i32, column: &Column) -> Option<BlockId> {
+/// The rock of the world of `seed` at `pos`, deep under any surface: the bedrock at the bottom,
+/// rough over `ROUGH_BEDROCK` layers in a deep world, whose rock under height 0 is gloomrock,
+/// mingled with stone over `GLOOMROCK_EDGE` layers; stone elsewhere. Under the bottom, nothing
+/// but bedrock in a deep world, and stone in a shallow one, as it always was.
+fn rock(seed: u32, underground: Underground, pos: IVec3) -> BlockId {
+    let random = || PositionRandom {
+        seed,
+        coords: pos.to_array(),
+    };
+    match underground {
+        _ if pos.y > 0 => BlockId::Stone,
+        Underground::Shallow if pos.y == 0 => BlockId::Bedrock,
+        Underground::Shallow => BlockId::Stone,
+        Underground::Deep => {
+            let above = pos.y - underground.bottom();
+            if above < 0
+                || above <= ROUGH_BEDROCK
+                    && random().below(SALT_BEDROCK, ROUGH_BEDROCK as u64 + 1) >= above
+            {
+                BlockId::Bedrock
+            } else if pos.y < -GLOOMROCK_EDGE + 1
+                || pos.y < random().below(SALT_GLOOMROCK, GLOOMROCK_EDGE as u64 + 1) - 2
+            {
+                BlockId::Gloomrock
+            } else {
+                BlockId::Stone
+            }
+        }
+    }
+}
+
+/// The rock every cell from `lowest` to `highest` holds, if they all hold the same (`rock`).
+fn uniform_rock(underground: Underground, lowest: i32, highest: i32) -> Option<BlockId> {
+    let bottom = underground.bottom();
+    match underground {
+        _ if lowest > 0 => Some(BlockId::Stone),
+        Underground::Shallow => (highest < 0).then_some(BlockId::Stone),
+        Underground::Deep if highest < bottom => Some(BlockId::Bedrock),
+        Underground::Deep => (lowest > bottom + ROUGH_BEDROCK && highest < -GLOOMROCK_EDGE + 1)
+            .then_some(BlockId::Gloomrock),
+    }
+}
+
+/// The block at height `y` of a terrain column, or `None` above the surface and the sea, in
+/// the world of `seed` and `underground`.
+fn terrain_block(y: i32, column: &Column, seed: u32, underground: Underground) -> Option<BlockId> {
     let height = column.height;
     if y > height && y > SEA_LEVEL {
         None
-    } else if y == 0 {
-        Some(BlockId::Bedrock)
     } else if y < height - 4 {
-        Some(BlockId::Stone)
+        Some(rock(seed, underground, IVec3::new(column.x, y, column.z)))
     } else if y < height {
         Some(column.sub_surface)
     } else if y == height {
@@ -389,10 +438,10 @@ fn precedence(block: BlockId) -> u8 {
     }
 }
 
-/// What a cell that a cave carves at height `y` holds: a lava source up to `LAVA_LEVEL`, air
-/// above.
-fn carved_block(y: i32) -> Option<BlockData> {
-    (y <= LAVA_LEVEL).then(|| BlockData::new(BlockId::Lava, BlockDirection::Front))
+/// What a cell that a cave carves at height `y` holds: a lava source up to the lava level of
+/// `underground`, air above.
+fn carved_block(y: i32, underground: Underground) -> Option<BlockData> {
+    (y <= underground.lava_level()).then(|| BlockData::new(BlockId::Lava, BlockDirection::Front))
 }
 
 /// Writes `block`, turned to `direction`, at a world position if it falls inside the chunk and
@@ -830,6 +879,8 @@ pub struct WorldGenerator {
     dungeon_plans: Mutex<HashMap<(DungeonKind, IVec2), Option<Arc<DungeonPlan>>>>,
     /// The lair of the Ember Mother, in a world that has dungeons.
     lair: Option<Lair>,
+    /// How deep the world goes (`WorldGenSettings::deep`).
+    underground: Underground,
 }
 
 impl WorldGenerator {
@@ -841,11 +892,15 @@ impl WorldGenerator {
     /// The generator of the world of `seed` and `settings`, whose biomes are `biomes`.
     pub fn with(seed: u32, settings: &WorldGenSettings, biomes: Arc<Biomes>) -> Self {
         let terrain = TerrainNoises::with(seed, settings, biomes);
+        let underground = settings.underground();
         Self {
             seed,
-            lair: settings.dungeons.then(|| Lair::new(seed, &terrain)),
+            lair: settings
+                .dungeons
+                .then(|| Lair::new(seed, &terrain, underground)),
             terrain,
-            caves: Caves::new(seed),
+            caves: Caves::new(seed, underground),
+            underground,
             bed_patches: Noise3::new(seed, SALT_BED_PATCHES, BED_PATCH_WAVELENGTH, 1.0),
             columns: Mutex::default(),
             villages: settings.villages,
@@ -853,6 +908,11 @@ impl WorldGenerator {
             dungeons: settings.dungeons,
             dungeon_plans: Mutex::default(),
         }
+    }
+
+    /// How deep the world goes.
+    pub fn underground(&self) -> Underground {
+        self.underground
     }
 
     /// The lair of the Ember Mother, if the world has one.
@@ -929,6 +989,7 @@ impl WorldGenerator {
             caves: &self.caves,
             villages: self.villages,
             lair: self.lair.as_ref().map(|lair| lair.centre.xz()),
+            underground: self.underground,
         }
     }
 
@@ -943,7 +1004,7 @@ impl WorldGenerator {
         let region = dungeon::region_of(origin.x, origin.z);
         kinds
             .iter()
-            .filter(move |kind| kind.heights_meet(origin.y))
+            .filter(move |kind| kind.heights_meet(origin.y, self.underground))
             .filter_map(move |&kind| self.dungeon(kind, region))
             .filter(move |plan| plan.touches(origin, origin + IVec3::splat(CHUNK_SIZE - 1)))
     }
@@ -990,6 +1051,11 @@ impl WorldGenerator {
         // Most chunks lie above everything or deep underground: they need no column noise
         if chunk_origin.y > (HIGHEST_SURFACE + STRUCTURE_HEIGHT).max(SEA_LEVEL) {
             return Chunk::new();
+        }
+        // Under the bottom of a deep world, the bedrock alone
+        let top = chunk_origin.y + CHUNK_SIZE - 1;
+        if let Some(BlockId::Bedrock) = uniform_rock(self.underground, chunk_origin.y, top) {
+            return Chunk::filled(BlockData::new(BlockId::Bedrock, BlockDirection::Front));
         }
         // Below the sub-surface blocks of the lowest surface, which is also as low as the
         // caves are kept from the water, the ground is stone that only caves and ores change
@@ -1167,34 +1233,44 @@ impl WorldGenerator {
         }
     }
 
-    /// A chunk below the lowest surface less the depth of the sub-surface blocks: stone, the
-    /// bedrock at height 0, the caves and the ores.
+    /// A chunk below the lowest surface less the depth of the sub-surface blocks: the rock
+    /// (`rock`), the caves and the ores.
     fn underground_chunk(&self, chunk_pos: IVec3) -> Chunk {
         let chunk_origin = chunk_pos * CHUNK_SIZE;
         let caves = self.caves.carve(chunk_origin);
+        let uniform = uniform_rock(
+            self.underground,
+            chunk_origin.y,
+            chunk_origin.y + CHUNK_SIZE - 1,
+        );
         // held as a single cell while nothing else is in it
-        let mut chunk = Chunk::filled(BlockData::new(BlockId::Stone, BlockDirection::Front));
-        for x in 0..CHUNK_SIZE {
-            for y in 0..CHUNK_SIZE {
-                for z in 0..CHUNK_SIZE {
+        let fill = uniform.unwrap_or(BlockId::Stone);
+        let mut chunk = Chunk::filled(BlockData::new(fill, BlockDirection::Front));
+        for y in 0..CHUNK_SIZE {
+            let world_y = chunk_origin.y + y;
+            // a layer of a single rock keeps the fill
+            let layer = uniform.or_else(|| uniform_rock(self.underground, world_y, world_y));
+            for z in 0..CHUNK_SIZE {
+                for x in 0..CHUNK_SIZE {
                     let local = IVec3::new(x, y, z);
                     if caves.contains(local) {
-                        match carved_block(chunk_origin.y + y) {
+                        match carved_block(world_y, self.underground) {
                             Some(block) => chunk.set(local, block),
                             None => {
                                 chunk.remove(local);
                             }
                         }
-                    } else if chunk_origin.y + y == 0 {
-                        chunk.set(
-                            local,
-                            BlockData::new(BlockId::Bedrock, BlockDirection::Front),
-                        );
+                        continue;
+                    }
+                    let id = layer
+                        .unwrap_or_else(|| rock(self.seed, self.underground, chunk_origin + local));
+                    if id != fill {
+                        chunk.set(local, BlockData::new(id, BlockDirection::Front));
                     }
                 }
             }
         }
-        ores::place_ores(self.seed, chunk_pos, &mut chunk);
+        ores::place_ores(self.seed, chunk_pos, &mut chunk, self.underground);
         for plan in self.dungeons_in(&DungeonKind::UNDERGROUND, chunk_pos) {
             plan.place_blocks(&mut chunk, chunk_pos);
         }
@@ -1219,8 +1295,8 @@ impl WorldGenerator {
 
         // only a chunk that holds ground above the floor of the caves may be carved
         let caves: Option<CaveMask> = (chunk_origin.y <= columns.top
-            && chunk_origin.y + CHUNK_SIZE > CAVE_FLOOR)
-            .then(|| self.caves.carve(chunk_origin));
+            && chunk_origin.y + CHUNK_SIZE > self.underground.cave_floor())
+        .then(|| self.caves.carve(chunk_origin));
 
         let chunk_range = 0..CHUNK_SIZE;
         let in_margin = |d: i32| (-STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN).contains(&d);
@@ -1259,12 +1335,12 @@ impl WorldGenerator {
                         let carved = y <= column.cave_ceiling
                             && caves.as_ref().is_some_and(|caves| caves.contains(local));
                         if carved {
-                            if let Some(block) = carved_block(y) {
+                            if let Some(block) = carved_block(y, self.underground) {
                                 chunk.set(local, block);
                             }
                             continue;
                         }
-                        if let Some(block) = terrain_block(y, column) {
+                        if let Some(block) = terrain_block(y, column, seed, self.underground) {
                             place(
                                 &mut chunk,
                                 chunk_origin,
@@ -1293,7 +1369,7 @@ impl WorldGenerator {
         for plan in &columns.villages {
             plan.place_blocks(&mut chunk, chunk_pos);
         }
-        ores::place_ores(seed, chunk_pos, &mut chunk);
+        ores::place_ores(seed, chunk_pos, &mut chunk, self.underground);
         for plan in self
             .dungeons_in(&DungeonKind::UNDERGROUND, chunk_pos)
             .chain(columns.ruin.clone())
@@ -1927,7 +2003,12 @@ mod tests {
     #[test]
     fn no_player_spawns_in_lava_as_every_surface_lies_above_it() {
         // the spawn stands on a surface, and animals too (`animals::may_stand_on`)
-        const { assert!(LOWEST_SURFACE > LAVA_LEVEL + 1) };
+        const {
+            assert!(
+                LOWEST_SURFACE > depths::SHALLOW_LAVA_LEVEL + 1
+                    && LOWEST_SURFACE > depths::LAVA_LEVEL + 1
+            )
+        };
         for seed in [1, 42, 1234] {
             let generator = WorldGenerator::new(seed);
             let spawn = generator.spawn_position().floor().as_ivec3();
@@ -1944,17 +2025,27 @@ mod tests {
 
     #[test]
     fn caves_are_flooded_with_lava_sources_up_to_the_lava_level() {
+        // a shallow world at its bottom, a deep one at its own
+        for (deep, layers) in [(false, 0..2), (true, -4..-2)] {
+            caves_are_flooded_in(deep, layers);
+        }
+    }
+
+    fn caves_are_flooded_in(deep: bool, layers: Range<i32>) {
         // Dungeons and the lair build into the caves
         let settings = WorldGenSettings {
             dungeons: false,
+            deep,
             ..Default::default()
         };
         let generator = WorldGenerator::with(42, &settings, Biomes::vanilla());
+        let underground = generator.underground();
+        let lava_level = underground.lava_level();
         let (mut lava, mut air) = (0, 0);
         for x in (-768..-256).step_by(16) {
             for z in (256..768).step_by(16) {
                 let column = generator.column(x, z);
-                for cy in 0..2 {
+                for cy in layers.clone() {
                     let chunk_pos =
                         IVec3::new(x, cy * CHUNK_SIZE, z).div_euclid(IVec3::splat(CHUNK_SIZE));
                     let chunk = generator.generate_chunk(chunk_pos);
@@ -1964,15 +2055,19 @@ mod tests {
                         let y = cy * CHUNK_SIZE + ly;
                         let local = IVec3::new(lx, ly, lz);
                         let block = chunk.get(local);
-                        if y <= LAVA_LEVEL {
+                        if y <= lava_level {
                             assert!(block.is_some(), "air at ({x}, {y}, {z})");
                         }
                         let carved = y <= column.cave_ceiling && caves.contains(local);
                         if !carved {
                             continue;
                         }
-                        if y <= LAVA_LEVEL {
-                            assert_eq!(block.copied(), carved_block(y), "({x}, {y}, {z})");
+                        if y <= lava_level {
+                            assert_eq!(
+                                block.copied(),
+                                carved_block(y, underground),
+                                "({x}, {y}, {z})"
+                            );
                             assert_eq!(block.unwrap().level, 0, "a source");
                             lava += 1;
                         } else {
@@ -2065,7 +2160,7 @@ mod tests {
         for x in (-768..-256).step_by(32) {
             for z in (256..768).step_by(32) {
                 let column = generator.column(x, z);
-                for cy in 0..=column.height / CHUNK_SIZE {
+                for cy in -5..=column.height / CHUNK_SIZE {
                     let chunk_pos =
                         IVec3::new(x, cy * CHUNK_SIZE, z).div_euclid(IVec3::splat(CHUNK_SIZE));
                     let chunk = generator.generate_chunk(chunk_pos);
@@ -2075,7 +2170,8 @@ mod tests {
                         if y > column.height || chunk.get(IVec3::new(lx, ly, lz)).is_some() {
                             continue;
                         }
-                        assert!(y >= CAVE_FLOOR, "a cave at ({x}, {y}, {z})");
+                        let floor = generator.underground().cave_floor();
+                        assert!(y >= floor, "a cave at ({x}, {y}, {z})");
                         underground += 1;
                         if y == column.height {
                             openings += 1;
@@ -2226,9 +2322,9 @@ mod tests {
                         if y <= column.height || y <= SEA_LEVEL {
                             let carved = y <= column.cave_ceiling && caves.contains(local);
                             let expected = if carved {
-                                carved_block(y).map(|block| block.id)
+                                carved_block(y, generator.underground()).map(|block| block.id)
                             } else {
-                                terrain_block(y, &column)
+                                terrain_block(y, &column, 42, generator.underground())
                             };
                             // ores are scattered through the stone afterwards
                             let actual = chunk.get(local).map(|b| match b.id {
@@ -2494,7 +2590,8 @@ mod tests {
                 for pos in cells {
                     let block = found[&pos];
                     if pos.y <= column.height {
-                        assert_eq!(block, terrain_block(pos.y, &column), "{pos}: the ground");
+                        let ground = terrain_block(pos.y, &column, 42, generator.underground());
+                        assert_eq!(block, ground, "{pos}: the ground");
                     } else {
                         assert_eq!(block, Some(BlockId::JungleLog), "{pos}: the trunk");
                         if pos.y <= giant.height {

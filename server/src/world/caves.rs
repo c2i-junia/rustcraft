@@ -5,15 +5,13 @@
 //! never straight up, and it climbs to the surface where its level meets rising ground. A
 //! third noise widens some tunnels into galleries and pinches others shut. The noises are
 //! sampled on a coarse grid aligned on the world and interpolated in between, so a cell is
-//! carved or not whichever chunk asks.
+//! carved or not whichever chunk asks. Under height 0 of a deep world the chambers open wider
+//! the deeper they are, into caverns.
 
 use bevy::prelude::*;
 use noise::{NoiseFn, SuperSimplex};
-pub use shared::world::depths::LAVA_LEVEL;
+use shared::world::depths::Underground;
 use shared::{world::splitmix64, CHUNK_SIZE};
-
-/// Nothing is carved below this height, so that the bottom of the world stays whole.
-pub const CAVE_FLOOR: i32 = 6;
 
 /// The floors: `sin(2π (y + LEVEL_SHIFT × noise) / LEVEL_SPACING)` is zero on them, the noise
 /// having the wavelengths below. `LEVEL_SHIFT` sets how steep a floor gets; the noise changes
@@ -44,6 +42,11 @@ const CHAMBER_WAVELENGTH_Y: f64 = 32.0;
 const CHAMBER_FROM: f64 = 0.6;
 const CHAMBERS_BELOW: i32 = 48;
 const CHAMBER_FADE: i32 = 16;
+/// Under height 0 of a deep world the threshold falls further, by `CAVERN_DROP` over
+/// `CAVERN_FADE` blocks: the chambers there grow into caverns.
+const CAVERNS_BELOW: i32 = 0;
+const CAVERN_DROP: f64 = 0.22;
+const CAVERN_FADE: i32 = 40;
 
 /// The noises are sampled every this many blocks, on each axis, and interpolated in between.
 const STEP: i32 = 4;
@@ -88,6 +91,7 @@ impl Noise3 {
 
 /// The noises of the caves of a world, built once from its seed.
 pub struct Caves {
+    underground: Underground,
     level_shift: Noise3,
     walls: Noise3,
     tunnel_size: Noise3,
@@ -114,8 +118,9 @@ impl CaveMask {
 }
 
 impl Caves {
-    pub fn new(seed: u32) -> Self {
+    pub fn new(seed: u32, underground: Underground) -> Self {
         Self {
+            underground,
             level_shift: Noise3::new(
                 seed,
                 SALT_TUNNEL_A,
@@ -142,9 +147,11 @@ impl Caves {
     /// whatever is there: the caller keeps what must stay whole.
     pub fn carve(&self, chunk_origin: IVec3) -> CaveMask {
         let mut mask = CaveMask([0; (CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE / 64) as usize]);
-        if chunk_origin.y + CHUNK_SIZE <= CAVE_FLOOR {
+        let cave_floor = self.underground.cave_floor();
+        if chunk_origin.y + CHUNK_SIZE <= cave_floor {
             return mask;
         }
+        let caverns = self.underground == Underground::Deep;
         let deep = chunk_origin.y < CHAMBERS_BELOW;
         let sample_with = |f: &dyn Fn(IVec3) -> f64| {
             let mut samples = [[[0.0; SAMPLES]; SAMPLES]; SAMPLES];
@@ -170,13 +177,19 @@ impl Caves {
 
         for y in 0..CHUNK_SIZE {
             let world_y = chunk_origin.y + y;
-            if world_y < CAVE_FLOOR {
+            if world_y < cave_floor {
                 continue;
             }
             let chamber_from = CHAMBER_FROM
                 + (1.0 - CHAMBER_FROM)
                     * ((world_y - (CHAMBERS_BELOW - CHAMBER_FADE)).max(0) as f64
                         / CHAMBER_FADE as f64);
+            let chamber_from = if caverns {
+                let depth = (CAVERNS_BELOW - world_y).clamp(0, CAVERN_FADE);
+                chamber_from - CAVERN_DROP * depth as f64 / CAVERN_FADE as f64
+            } else {
+                chamber_from
+            };
             let floors = floors.layer(y);
             let walls = walls.layer(y);
             let tunnel_size = tunnel_size.layer(y);
@@ -321,32 +334,39 @@ mod tests {
 
     #[test]
     fn caves_are_carved_underground_but_never_at_the_bottom_of_the_world() {
-        let caves = Caves::new(42);
-        let mut total = 0;
-        for x in -3..3 {
-            for z in -3..3 {
-                for y in 0..4 {
-                    let cells = carved(&caves, IVec3::new(x, y, z));
-                    for local in &cells {
-                        assert!(y * CHUNK_SIZE + local.y >= CAVE_FLOOR);
+        // the share of the cells carved in the chunks from `lowest` to `highest`, along y
+        let share = |underground: Underground, lowest: i32, highest: i32| {
+            let caves = Caves::new(42, underground);
+            let mut total = 0;
+            for x in -3..3 {
+                for z in -3..3 {
+                    for y in lowest..=highest {
+                        let cells = carved(&caves, IVec3::new(x, y, z));
+                        for local in &cells {
+                            assert!(y * CHUNK_SIZE + local.y >= underground.cave_floor());
+                        }
+                        total += cells.len();
                     }
-                    total += cells.len();
                 }
             }
-        }
+            total as f64 / (6 * 6 * (highest - lowest + 1) * CHUNK_SIZE.pow(3)) as f64
+        };
         // between one cell in a hundred and one in ten
-        let cells = 6 * 6 * 4 * CHUNK_SIZE.pow(3) as usize;
-        assert!(
-            (cells / 100..cells / 10).contains(&total),
-            "{total} of {cells}"
-        );
+        for underground in [Underground::Shallow, Underground::Deep] {
+            let above = share(underground, 0, 3);
+            assert!((0.01..0.1).contains(&above), "{underground:?} {above}");
+        }
+        // the caverns of the deep: wider, but rock still holds most of it
+        let deep = share(Underground::Deep, -4, -1);
+        assert!((0.1..0.4).contains(&deep), "{deep}");
+        assert!(share(Underground::Shallow, -4, -1) == 0.0);
     }
 
     #[test]
     fn the_caves_depend_only_on_the_seed() {
         // a single chunk may hold no cave for either seed: compare a row of them
         let row = |seed| -> Vec<Vec<IVec3>> {
-            let caves = Caves::new(seed);
+            let caves = Caves::new(seed, Underground::Deep);
             (-4..4)
                 .map(|x| carved(&caves, IVec3::new(x, 1, 3)))
                 .collect()

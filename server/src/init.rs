@@ -268,6 +268,7 @@ fn load_world(
     // A world converted from a single file still holds its chunks, and had no chests or
     // furnaces
     let mut chunks = ChunkMap::default();
+    chunks.set_underground(world_data.generation.underground());
     for (chunk_pos, chunk) in world_data.map {
         insert_with_contents(&mut chunks, chunk_pos, chunk, Default::default());
     }

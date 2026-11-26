@@ -142,6 +142,11 @@ pub enum BlockId {
     EmberHeart,
     /// Enchants, for levels of experience: see `players::enchanting`.
     EngravingTable,
+    /// The rock under height 0 of the worlds with deep undergrounds: darker and harder than
+    /// stone.
+    Gloomrock,
+    /// What gloomrock breaks into, as stone into cobblestone.
+    CobbledGloomrock,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -355,7 +360,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 109] = [
+    pub const ALL: [BlockId; 111] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -465,6 +470,8 @@ impl BlockId {
         BlockId::RipePotatoes,
         BlockId::EmberHeart,
         BlockId::EngravingTable,
+        BlockId::Gloomrock,
+        BlockId::CobbledGloomrock,
     ];
 
     pub fn is_stairs(&self) -> bool {
@@ -652,6 +659,8 @@ impl BlockId {
             Self::Debug => 7,
             Self::Grass => 6,
             Self::Stone => 10,
+            Self::Gloomrock => 15,
+            Self::CobbledGloomrock => 3,
             Self::OakLog => 10,
             Self::OakPlanks => 10,
             Self::OakLeaves => 2,
@@ -765,6 +774,8 @@ impl BlockId {
                 *self,
                 Self::Stone
                     | Self::Cobblestone
+                    | Self::Gloomrock
+                    | Self::CobbledGloomrock
                     | Self::Furnace
                     | Self::LitFurnace
                     | Self::Ice
@@ -857,6 +868,8 @@ impl BlockId {
         let level = match *self {
             Self::Stone
             | Self::Cobblestone
+            | Self::Gloomrock
+            | Self::CobbledGloomrock
             | Self::Furnace
             | Self::LitFurnace
             | Self::CoalOre
@@ -920,6 +933,8 @@ impl BlockId {
         match *self {
             BlockId::Dirt | BlockId::Grass => vec![(1, ItemId::Dirt, 1)],
             BlockId::Stone => vec![(1, ItemId::Cobblestone, 1)],
+            BlockId::Gloomrock => vec![(1, ItemId::CobbledGloomrock, 1)],
+            BlockId::CobbledGloomrock => vec![(1, ItemId::CobbledGloomrock, 1)],
             BlockId::Sand => vec![(1, ItemId::Sand, 1)],
             BlockId::Cactus => vec![(1, ItemId::Cactus, 1)],
             BlockId::OakLog => vec![(1, ItemId::OakLog, 1)],
@@ -1157,7 +1172,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 109] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 111] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 3] = [BlockId::Bedrock, BlockId::Water, BlockId::Lava];
@@ -1273,7 +1288,9 @@ mod tests {
             | BlockId::TallPotatoes
             | BlockId::RipePotatoes
             | BlockId::EmberHeart
-            | BlockId::EngravingTable => {}
+            | BlockId::EngravingTable
+            | BlockId::Gloomrock
+            | BlockId::CobbledGloomrock => {}
         }
     }
 
@@ -1430,6 +1447,8 @@ mod tests {
                 BlockId::RipePotatoes => 106,
                 BlockId::EmberHeart => 107,
                 BlockId::EngravingTable => 108,
+                BlockId::Gloomrock => 109,
+                BlockId::CobbledGloomrock => 110,
             };
             assert_eq!(encoded(&id), [expected], "{id:?}: {ENCODING_WARNING}");
         }
@@ -1917,6 +1936,8 @@ mod tests {
             let level = match id {
                 BlockId::Stone
                 | BlockId::Cobblestone
+                | BlockId::Gloomrock
+                | BlockId::CobbledGloomrock
                 | BlockId::Furnace
                 | BlockId::LitFurnace
                 | BlockId::CoalOre

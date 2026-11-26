@@ -194,6 +194,8 @@ fn spawn_in_water(
     }
     let place = SpawnPlace {
         y: top.y,
+        // the top of the water is under the sky: in no tier
+        underground: Default::default(),
         night,
         covered: false,
         floor: BlockId::Water,
@@ -282,6 +284,7 @@ fn spawn_at(
     }
     let place = SpawnPlace {
         y: feet.y,
+        underground: chunks.underground(),
         night,
         covered: !open_sky,
         floor,
@@ -317,10 +320,11 @@ mod tests {
     }
 
     /// A flat floor of `floor` with its top at y = 1 over x, z in -80..80, and a stone ceiling
-    /// at y = 4 when `covered`.
+    /// at y = 4 when `covered`, in a shallow world: y = 1 is in its furnace tier.
     fn flat(floor: BlockId, covered: bool) -> ChunkMap {
         let mut chunks =
             ChunkMap::with_loaded_region(IVec3::new(-80, -16, -80), IVec3::new(79, 15, 79));
+        chunks.set_underground(shared::world::depths::Underground::Shallow);
         chunks.fill_box(IVec3::new(-80, 0, -80), IVec3::new(79, 0, 79), floor);
         if covered {
             chunks.fill_box(

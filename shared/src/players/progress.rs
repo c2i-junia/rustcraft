@@ -3,7 +3,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::Player;
-use crate::world::{depths::DepthTier, hostiles::is_night, BlockId, ItemId, MobKind};
+use crate::world::depths::{DepthTier, WORLD_BOTTOM};
+use crate::world::{hostiles::is_night, BlockId, ItemId, MobKind};
 use crate::{DAY_DURATION_IN_TICKS, TICKS_PER_SECOND};
 
 /// A night counts for a player there this long after it fell, at most.
@@ -132,7 +133,7 @@ impl Achievement {
             Self::Animal => ItemId::Wool,
             Self::Dungeon => ItemId::HewnStone,
             Self::Caves => ItemId::Cobblestone,
-            Self::Depths => ItemId::Slate,
+            Self::Depths => ItemId::Gloomrock,
             Self::FurnaceTier => ItemId::LavaBucket,
             Self::Enchantment => ItemId::DiamondSword,
             Self::Compass => ItemId::DepthsCompass,
@@ -297,7 +298,7 @@ impl Player {
         stats.play_ticks += 1;
         let feet = (self.position.y - self.height / 2.0 + 0.01).floor() as i32;
         // The void under the world is no depth
-        if feet >= 0 && self.game_mode.takes_damage() && self.health > 0 {
+        if feet >= WORLD_BOTTOM && self.game_mode.takes_damage() && self.health > 0 {
             stats.lowest = Some(stats.lowest.map_or(feet, |lowest| lowest.min(feet)));
         }
     }
@@ -389,7 +390,7 @@ mod tests {
         player.count_tick();
         player.position.y = 70.9;
         player.count_tick();
-        player.position.y = -5.0;
+        player.position.y = WORLD_BOTTOM as f32 - 5.0;
         player.count_tick();
         player.mined(3);
         player.beat(MobKind::Cow);

@@ -14,6 +14,7 @@
 use std::collections::HashSet;
 
 use bevy::prelude::*;
+use shared::world::depths::Underground;
 use shared::world::{BlockData, BlockDirection, BlockId, Chunk, Container, MobKind, TerrainNoises};
 
 use super::structure::{fill_container, rotate, rotate_direction, StructureBlocks};
@@ -55,9 +56,10 @@ impl DungeonKind {
         Self::ALL.into_iter().find(|kind| kind.name() == name)
     }
 
-    /// Whether a chunk whose lowest layer is at `y` may hold a block of such a dungeon.
-    pub fn heights_meet(self, y: i32) -> bool {
-        let heights = placement::heights(self);
+    /// Whether a chunk whose lowest layer is at `y` may hold a block of such a dungeon, in a
+    /// world of `underground`.
+    pub fn heights_meet(self, y: i32, underground: Underground) -> bool {
+        let heights = placement::heights(self, underground);
         y <= *heights.end() && y + shared::CHUNK_SIZE > *heights.start()
     }
 }
@@ -71,6 +73,8 @@ pub struct World<'a> {
     pub villages: bool,
     /// The column of the centre of the lair, if the world has one.
     pub lair: Option<IVec2>,
+    /// How deep the world goes.
+    pub underground: Underground,
 }
 
 /// Where a dungeon stands, before it is laid out.
@@ -306,7 +310,7 @@ mod tests {
     fn each_kind_lies_at_its_depth_and_a_world_saved_before_has_none() {
         let generator = WorldGenerator::new(7);
         for kind in DungeonKind::ALL {
-            let heights = placement::heights(kind);
+            let heights = placement::heights(kind, generator.underground());
             for plan in plans(&generator, kind) {
                 assert!(heights.contains(&plan.min.y), "{kind:?} {}", plan.min);
                 assert!(heights.contains(&plan.max.y), "{kind:?} {}", plan.max);

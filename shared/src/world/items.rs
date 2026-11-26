@@ -225,11 +225,13 @@ pub enum ItemId {
     /// The trophy of the Ember Mother.
     EmberHeart,
     EngravingTable,
+    Gloomrock,
+    CobbledGloomrock,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 194] = [
+    pub const ALL: [ItemId; 196] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -424,6 +426,8 @@ impl ItemId {
         Self::DepthsCompass,
         Self::EmberHeart,
         Self::EngravingTable,
+        Self::Gloomrock,
+        Self::CobbledGloomrock,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -610,6 +614,8 @@ impl ItemId {
             | Self::Grass
             | Self::Stone
             | Self::Cobblestone
+            | Self::Gloomrock
+            | Self::CobbledGloomrock
             | Self::Gravel
             | Self::Sand
             | Self::Glass
@@ -889,6 +895,8 @@ impl ItemId {
             Self::Obsidian => ItemType::Block(BlockId::Obsidian),
             Self::EmberHeart => ItemType::Block(BlockId::EmberHeart),
             Self::EngravingTable => ItemType::Block(BlockId::EngravingTable),
+            Self::Gloomrock => ItemType::Block(BlockId::Gloomrock),
+            Self::CobbledGloomrock => ItemType::Block(BlockId::CobbledGloomrock),
             Self::Rye => ItemType::Block(BlockId::RyeSprout),
             Self::Carrot => ItemType::Block(BlockId::CarrotSprout),
             Self::Potato => ItemType::Block(BlockId::PotatoSprout),
@@ -1347,6 +1355,8 @@ mod tests {
             (ItemId::DepthsCompass, 191),
             (ItemId::EmberHeart, 192),
             (ItemId::EngravingTable, 193),
+            (ItemId::Gloomrock, 194),
+            (ItemId::CobbledGloomrock, 195),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -1544,7 +1554,9 @@ mod tests {
                 | ItemId::Arrow
                 | ItemId::DepthsCompass
                 | ItemId::EmberHeart
-                | ItemId::EngravingTable => {}
+                | ItemId::EngravingTable
+                | ItemId::Gloomrock
+                | ItemId::CobbledGloomrock => {}
             }
         }
         for (id, expected) in table {

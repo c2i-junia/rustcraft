@@ -107,7 +107,7 @@ impl From<LegacyWorldData> for WorldData {
             time: legacy.time,
             dropped_items: Vec::new(),
             weather: None,
-            generation: Default::default(),
+            generation: shared::world::WorldGenSettings::single_file(),
             difficulty: Default::default(),
             game_mode: Default::default(),
             boss_defeated: false,

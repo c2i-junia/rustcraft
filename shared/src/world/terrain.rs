@@ -157,6 +157,10 @@ pub struct WorldGenSettings {
     /// Whether dungeons are built in the world, likewise.
     #[serde(default)]
     pub dungeons: bool,
+    /// Whether the underground goes down to -64 (`depths::Underground`), likewise: a world
+    /// saved before keeps its bedrock at 0, so that what it generates meets what it holds.
+    #[serde(default)]
+    pub deep: bool,
 }
 
 impl Default for WorldGenSettings {
@@ -166,19 +170,34 @@ impl Default for WorldGenSettings {
             preset: WorldPreset::default(),
             villages: true,
             dungeons: true,
+            deep: true,
         }
     }
 }
 
 impl WorldGenSettings {
     /// The settings of a world saved before its generation settings were: the default type,
-    /// without villages nor dungeons.
+    /// without villages nor dungeons, shallow.
     pub fn legacy() -> Self {
         Self {
             villages: false,
             dungeons: false,
+            deep: false,
             ..Self::default()
         }
+    }
+
+    /// The settings of a world of the single-file formats: the default type, shallow.
+    pub fn single_file() -> Self {
+        Self {
+            deep: false,
+            ..Self::default()
+        }
+    }
+
+    /// How deep the underground of the world goes.
+    pub fn underground(&self) -> crate::world::depths::Underground {
+        crate::world::depths::Underground::of(self.deep)
     }
 }
 

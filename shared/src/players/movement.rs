@@ -29,8 +29,8 @@ pub fn is_terrain_loaded(position: Vec3, world_map: &ChunkMap) -> bool {
 }
 
 /// Below this height a player has fallen out of the world: the server takes it back to the
-/// spawn, or kills it in survival.
-pub const FALL_LIMIT: f32 = -50.0;
+/// spawn, or kills it in survival: 50 blocks under the bottom of the deepest world.
+pub const FALL_LIMIT: f32 = crate::world::depths::WORLD_BOTTOM as f32 - 50.0;
 
 /// Room left between a player and the block it lands on or bumps into: a box that touches a
 /// cell to the last bit could be read as inside it.

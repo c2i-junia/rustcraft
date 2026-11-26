@@ -41,6 +41,7 @@ pub fn smelting_result(item: ItemId) -> Option<ItemId> {
     match item {
         ItemId::Sand => Some(ItemId::Glass),
         ItemId::Cobblestone => Some(ItemId::Stone),
+        ItemId::CobbledGloomrock => Some(ItemId::Gloomrock),
         ItemId::IronOre => Some(ItemId::IronIngot),
         ItemId::GoldOre => Some(ItemId::GoldIngot),
         ItemId::DiamondOre => Some(ItemId::Diamond),

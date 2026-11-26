@@ -6,7 +6,8 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::players::Player;
-pub use crate::world::depths::{CAVE_HEIGHT, CINDER_HEIGHT};
+pub use crate::world::depths::CAVE_HEIGHT;
+use crate::world::depths::{DepthTier, Underground};
 use crate::world::{BlockHitbox, BlockId, BlockTransparency, ChunkMap, MobKind};
 use crate::DAY_DURATION_IN_TICKS;
 
@@ -283,6 +284,8 @@ pub fn is_dark(night: bool, sees_sky: bool, light_near: bool) -> bool {
 pub struct SpawnPlace {
     /// The height of the cell of its feet.
     pub y: i32,
+    /// How deep the world goes, which sets its depth tiers.
+    pub underground: Underground,
     pub night: bool,
     /// Whether a block stands above it (`!ticks::sees_sky`).
     pub covered: bool,
@@ -325,7 +328,10 @@ pub fn spawn_kind(place: &SpawnPlace, rng: &mut impl Rng) -> Option<MobKind> {
         })
     } else if place.y > MOUNTAIN_HEIGHT {
         Some(MobKind::Roller)
-    } else if place.covered && place.y < CINDER_HEIGHT && rng.gen_ratio(1, 3) {
+    } else if place.covered
+        && place.underground.tier_at(place.y) >= Some(DepthTier::Depths)
+        && rng.gen_ratio(1, 3)
+    {
         Some(MobKind::Cinderling)
     } else if place.covered && place.y < CAVE_HEIGHT {
         Some(if rng.gen_ratio(3, 4) {
@@ -541,6 +547,7 @@ mod tests {
     fn place(y: i32, night: bool, covered: bool, floor: BlockId, wooded: bool) -> SpawnPlace {
         SpawnPlace {
             y,
+            underground: Underground::Deep,
             night,
             covered,
             floor,
@@ -622,15 +629,24 @@ mod tests {
             kinds(place(70, true, false, BlockId::Grass, false)),
             [Some(Stumpling)]
         );
-        // Deep caves: Cinderlings too
+        // Deep caves: Cinderlings too, below 0 in a deep world, below 20 in a shallow one
         assert_eq!(
-            kinds(place(10, false, true, BlockId::Stone, false)),
+            kinds(place(-1, false, true, BlockId::Gloomrock, false)),
             [Some(Cinderling), Some(Gnawer), Some(Roller)]
         );
         assert_eq!(
-            kinds(place(CINDER_HEIGHT, false, true, BlockId::Stone, false)),
+            kinds(place(0, false, true, BlockId::Stone, false)),
             [Some(Gnawer), Some(Roller)]
         );
+        let shallow = |y| SpawnPlace {
+            underground: Underground::Shallow,
+            ..place(y, false, true, BlockId::Stone, false)
+        };
+        assert_eq!(
+            kinds(shallow(19)),
+            [Some(Cinderling), Some(Gnawer), Some(Roller)]
+        );
+        assert_eq!(kinds(shallow(20)), [Some(Gnawer), Some(Roller)]);
         // Under the trees at day, open stone at night, a cave too high: none
         assert_eq!(kinds(place(70, false, true, BlockId::Grass, true)), [None]);
         assert_eq!(kinds(place(70, true, false, BlockId::Stone, false)), [None]);

@@ -4,7 +4,8 @@
 //! the caves, the ores and the dungeons. The caves it meets open on it above its ground.
 
 use bevy::prelude::*;
-use shared::world::lair::{self, FLOOR, HEIGHT, ISLAND, LAKE, RADIUS, REACH, TOP, WAVER};
+use shared::world::depths::Underground;
+use shared::world::lair::{self, HEIGHT, ISLAND, LAKE, RADIUS, REACH, ROOF, WAVER};
 use shared::world::{BlockData, BlockDirection, BlockId, BlockTransparency, Chunk, TerrainNoises};
 use shared::CHUNK_SIZE;
 
@@ -13,8 +14,8 @@ use crate::world::caves::Noise3;
 
 const SALT_WALLS: u64 = 0x3510;
 const SALT_GROUND: u64 = 0x3511;
-/// The bed of the lake, and the lowest cells the lair fills.
-const BED: i32 = FLOOR - 5;
+/// The bed of the lake, and the lowest cells the lair fills, under its ground.
+const BED: i32 = 5;
 /// Braziers stand in a ring this far from the centre, this many of them.
 const BRAZIERS: i32 = 8;
 const BRAZIER_RING: f32 = 25.0;
@@ -24,15 +25,37 @@ pub struct Lair {
     /// The middle block of its ground.
     pub centre: IVec3,
     walls: Noise3,
+    /// The rock around it: gloomrock in a deep world.
+    rock: BlockId,
 }
 
 impl Lair {
-    pub fn new(seed: u32, terrain: &TerrainNoises) -> Self {
+    pub fn new(seed: u32, terrain: &TerrainNoises, underground: Underground) -> Self {
         Self {
             seed,
-            centre: lair::centre(seed, terrain),
+            centre: lair::centre(seed, terrain, underground),
             walls: Noise3::new(seed, SALT_WALLS, 14.0, 10.0),
+            rock: if underground.has_gloomrock() {
+                BlockId::Gloomrock
+            } else {
+                BlockId::Stone
+            },
         }
+    }
+
+    /// The height of its ground and of the surface of its lake.
+    fn floor(&self) -> i32 {
+        self.centre.y
+    }
+
+    /// Its highest cell.
+    fn top(&self) -> i32 {
+        self.floor() + ROOF
+    }
+
+    /// The lowest cells it fills.
+    fn bed(&self) -> i32 {
+        self.floor() - BED
     }
 
     /// Writes the cells of the lair that fall in the chunk at `chunk_pos`.
@@ -41,12 +64,13 @@ impl Lair {
         let last = origin + CHUNK_SIZE - 1;
         let (low, high) = (self.centre - REACH, self.centre + REACH);
         let apart = origin.x > high.x || origin.z > high.z || last.x < low.x || last.z < low.z;
-        if apart || origin.y > TOP || last.y < BED {
+        let (top, bed) = (self.top(), self.bed());
+        if apart || origin.y > top || last.y < bed {
             return;
         }
         for x in 0..CHUNK_SIZE {
             for z in 0..CHUNK_SIZE {
-                for y in (BED - origin.y).max(0)..=(TOP - origin.y).min(CHUNK_SIZE - 1) {
+                for y in (bed - origin.y).max(0)..=(top - origin.y).min(CHUNK_SIZE - 1) {
                     let local = IVec3::new(x, y, z);
                     self.place_cell(chunk, local, origin + local);
                 }
@@ -61,7 +85,7 @@ impl Lair {
             return;
         }
         let rock = |id| BlockData::new(id, BlockDirection::Front);
-        if pos.y <= FLOOR {
+        if pos.y <= self.floor() {
             chunk.set(local, rock(self.ground(pos, across)));
             return;
         }
@@ -81,7 +105,7 @@ impl Lair {
                 .get(local)
                 .is_some_and(|block| block.id.get_visibility() == BlockTransparency::Liquid);
             if liquid {
-                chunk.set(local, rock(BlockId::Stone));
+                chunk.set(local, rock(self.rock));
             }
         }
     }
@@ -91,8 +115,8 @@ impl Lair {
         let from = pos - self.centre;
         // a causeway leads to the island from two sides
         let dry = across <= ISLAND as f32 + 0.5 || from.z.abs() <= 1;
-        let shore = LAKE as f32 + 1.5 * self.walls.get(pos.with_y(FLOOR)) as f32;
-        if pos.y > BED && !dry && across <= shore {
+        let shore = LAKE as f32 + 1.5 * self.walls.get(pos.with_y(self.floor())) as f32;
+        if pos.y > self.bed() && !dry && across <= shore {
             return BlockId::Lava;
         }
         let random = PositionRandom {
@@ -108,7 +132,7 @@ impl Lair {
         } else {
             match roll {
                 0..=4 => BlockId::Slate,
-                5..=7 => BlockId::Stone,
+                5..=7 => self.rock,
                 8 => BlockId::Cobblestone,
                 _ => BlockId::Gravel,
             }
@@ -146,13 +170,16 @@ mod tests {
         for seed in [1, 42, 77] {
             let generator = WorldGenerator::new(seed);
             let centre = generator.lair().unwrap().centre;
+            // at the bottom of a new world, on the lava of its lakes
+            assert_eq!(centre.y, shared::world::depths::LAVA_LEVEL);
+            let top = centre.y + ROOF;
             let away = centre.xz().as_vec2().length();
             assert!((250.0..1100.0).contains(&away), "{away}");
             let side = IVec3::splat(CHUNK_SIZE);
             let reach = IVec3::new(REACH + 1, 0, REACH + 1);
             let (low, high) = (
-                (centre - reach).with_y(0).div_euclid(side),
-                (centre + reach).with_y(TOP + 1).div_euclid(side),
+                (centre - reach).with_y(centre.y - BED - 1).div_euclid(side),
+                (centre + reach).with_y(top + 1).div_euclid(side),
             );
             let mut positions = Vec::new();
             for x in low.x..=high.x {
@@ -189,7 +216,7 @@ mod tests {
             // rock all around, and no liquid to flow in
             for x in -REACH..=REACH {
                 for z in -REACH..=REACH {
-                    for y in FLOOR + 1..=TOP {
+                    for y in centre.y + 1..=top {
                         let id = at(IVec3::new(centre.x + x, y, centre.z + z));
                         let inside = (x * x + z * z) as f32 <= (REACH * REACH) as f32;
                         let flows = matches!(id, Some(BlockId::Lava | BlockId::Water));
@@ -202,5 +229,19 @@ mod tests {
         let settings = WorldGenSettings::legacy();
         let before = WorldGenerator::with(7, &settings, shared::world::Biomes::vanilla());
         assert!(before.lair().is_none());
+        // where it was in a world saved with dungeons before the depths: the same place, higher
+        let shallow = WorldGenSettings {
+            deep: false,
+            ..WorldGenSettings::default()
+        };
+        for seed in [1, 42] {
+            let deep = WorldGenerator::new(seed).lair().unwrap().centre;
+            let before = WorldGenerator::with(seed, &shallow, shared::world::Biomes::vanilla());
+            let centre = before.lair().unwrap().centre;
+            assert_eq!(
+                centre,
+                deep.with_y(shared::world::depths::SHALLOW_LAVA_LEVEL)
+            );
+        }
     }
 }

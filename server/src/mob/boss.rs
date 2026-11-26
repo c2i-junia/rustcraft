@@ -20,7 +20,7 @@ use shared::messages::{BossBar, PlayerId, ServerToClientMessage};
 use shared::players::{game_mode::DamageSource, movement::is_terrain_loaded, Player};
 use shared::world::depths::DepthTier;
 use shared::world::hostiles::{distance_to_box, is_prey};
-use shared::world::lair::{heart, holds, FLOOR, LAKE, REACH};
+use shared::world::lair::{heart, holds, LAKE, REACH};
 use shared::world::{
     global_block_to_chunk_pos, BlockData, BlockDirection, BlockHitbox, BlockId, ChunkMap,
     MobAction, MobId, MobKind, MobTarget, ServerMob,
@@ -365,7 +365,7 @@ fn fight(map: &mut ServerWorldMap, centre: IVec3, id: MobId, delta: f32, rng: &m
         } else {
             siege(map, centre, &mut mother, &prey, delta, rng);
         }
-        melt(&mut map.chunks, &mother);
+        melt(&mut map.chunks, &mother, centre.y);
     }
     if before != (mother.position, mother.rotation, mother.action) {
         map.changed_mobs.insert(id);
@@ -487,13 +487,14 @@ fn within(centre: IVec3, spot: Vec3, inner: f32) -> Vec3 {
     heart(centre) + from.normalize_or(Vec3::X) * length
 }
 
-/// She burns away what stands in her way, but what holds something: nobody hides behind blocks.
-fn melt(chunks: &mut ChunkMap, mother: &ServerMob) {
+/// She burns away what stands in her way above the ground of her lair at `floor`, but what
+/// holds something: nobody hides behind blocks.
+fn melt(chunks: &mut ChunkMap, mother: &ServerMob, floor: i32) {
     let half = Vec3::new(mother.width, mother.height, mother.depth) / 2.0;
     let low = (mother.position - half).floor().as_ivec3();
     let high = (mother.position + half).floor().as_ivec3();
     for x in low.x..=high.x {
-        for y in low.y.max(FLOOR + 1)..=high.y {
+        for y in low.y.max(floor + 1)..=high.y {
             for z in low.z..=high.z {
                 let cell = IVec3::new(x, y, z);
                 let melts = chunks.get_block(cell).is_some_and(|block| {
@@ -588,6 +589,8 @@ mod tests {
     use shared::world::hostiles::Difficulty;
     use shared::world::ItemId;
 
+    /// The ground of the lair of the tests, as in a shallow world.
+    const FLOOR: i32 = shared::world::depths::SHALLOW_LAVA_LEVEL;
     const CENTRE: IVec3 = IVec3::new(0, FLOOR, 0);
 
     /// A lair of stone with a pool of lava, and a player in it.

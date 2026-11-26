@@ -24,6 +24,8 @@ pub const fn grid_slot(row: u32, col: u32) -> u32 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ItemTag {
     Planks,
+    /// The broken rocks: cobblestone, and the gloomrock of the depths.
+    Cobble,
 }
 
 impl ItemTag {
@@ -38,6 +40,7 @@ impl ItemTag {
                 ItemId::WillowPlanks,
                 ItemId::AcaciaPlanks,
             ],
+            Self::Cobble => &[ItemId::Cobblestone, ItemId::CobbledGloomrock],
         }
     }
 
@@ -45,6 +48,7 @@ impl ItemTag {
     pub fn name(self) -> &'static str {
         match self {
             Self::Planks => "Planks",
+            Self::Cobble => "Cobble",
         }
     }
 }
@@ -91,7 +95,7 @@ const OAK_LOG: Option<Ingredient> = item(ItemId::OakLog);
 const SPRUCE_LOG: Option<Ingredient> = item(ItemId::SpruceLog);
 const JUNGLE_LOG: Option<Ingredient> = item(ItemId::JungleLog);
 const PLANKS: Option<Ingredient> = Some(Ingredient::Tag(ItemTag::Planks));
-const COBBLE: Option<Ingredient> = item(ItemId::Cobblestone);
+const COBBLE: Option<Ingredient> = Some(Ingredient::Tag(ItemTag::Cobble));
 const STICK: Option<Ingredient> = item(ItemId::Stick);
 const COAL: Option<Ingredient> = item(ItemId::Coal);
 const CHARCOAL: Option<Ingredient> = item(ItemId::Charcoal);
@@ -1003,7 +1007,7 @@ mod tests {
         );
         assert_eq!(
             recipe_of(ItemId::Furnace).ingredients(),
-            [(Ingredient::Item(ItemId::Cobblestone), 8)]
+            [(Ingredient::Tag(ItemTag::Cobble), 8)]
         );
     }
 

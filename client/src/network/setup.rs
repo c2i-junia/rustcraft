@@ -514,6 +514,7 @@ pub fn establish_authenticated_connection_to_server(
     mut commands: Commands,
     mut ev_spawn: MessageWriter<PlayerSpawnEvent>,
     mut client_time: ResMut<ClientTime>,
+    mut world_map: ResMut<ClientWorldMap>,
     mut refusal_logged: Local<bool>,
 ) {
     if target.session_token.is_some() {
@@ -566,10 +567,12 @@ pub fn establish_authenticated_connection_to_server(
                 commands.insert_resource(ServerRenderDistanceLimit(message.max_render_distance));
                 let (noises, warning) =
                     world_noises(message.seed, &message.generation, message.biomes);
+                let underground = message.generation.underground();
+                world_map.blocks.set_underground(underground);
                 let lair = message
                     .generation
                     .dungeons
-                    .then(|| lair::heart(lair::centre(message.seed, &noises)));
+                    .then(|| lair::heart(lair::centre(message.seed, &noises, underground)));
                 commands.insert_resource(LairPlace(lair));
                 commands.insert_resource(WorldBiomes(Arc::new(noises)));
                 if let Some(warning) = warning {

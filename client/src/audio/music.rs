@@ -66,8 +66,9 @@ enum MoodKind {
 pub struct MusicMoodOverride(pub Option<MusicMood>);
 
 /// Below this height the ears are underground, in blocks: deeper than the valleys and the lakes,
-/// the sea being at 62.
-pub const UNDERGROUND_BELOW: f32 = 50.0;
+/// the sea being at 62. The top of the caves (`depths::CAVE_HEIGHT`), in a deep world as in a
+/// shallow one: the depths go down from there.
+pub const UNDERGROUND_BELOW: f32 = shared::world::depths::CAVE_HEIGHT as f32;
 
 /// The mood of the moment: the title in the menus; in the game the one imposed, or the
 /// underground below `UNDERGROUND_BELOW`, else the night or the day at `tick`.

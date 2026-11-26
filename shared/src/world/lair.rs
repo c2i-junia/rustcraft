@@ -3,11 +3,9 @@
 
 use bevy::math::{IVec2, IVec3, Vec3};
 
-use crate::world::depths::LAVA_LEVEL;
+use crate::world::depths::{Underground, SHALLOW_LAVA_LEVEL};
 use crate::world::{splitmix64, TerrainNoises};
 
-/// The ground of the lair is made of the blocks of this height, the surface of its lake too.
-pub const FLOOR: i32 = LAVA_LEVEL;
 /// How wide the lair is at its ground, and how high above it, before its walls waver.
 pub const RADIUS: i32 = 30;
 pub const HEIGHT: i32 = 16;
@@ -15,8 +13,9 @@ pub const HEIGHT: i32 = 16;
 pub const WAVER: f64 = 0.25;
 /// Nothing of the lair is farther from its centre, across.
 pub const REACH: i32 = 36;
-/// The highest cell of the lair.
-pub const TOP: i32 = FLOOR + HEIGHT + 2;
+/// The highest cell of the lair, above its ground. The ground lies at the lava level of its
+/// world (`Underground::lava_level`), the surface of its lake too, so the centre's height.
+pub const ROOF: i32 = HEIGHT + 2;
 /// The radius of the lake of lava, and of the island in its middle, where the mother sleeps.
 pub const LAKE: i32 = 12;
 pub const ISLAND: i32 = 4;
@@ -27,14 +26,16 @@ const REGION: i32 = 256;
 const RING: i32 = 2;
 /// The centre is at least this far inside its region.
 const INSET: i32 = 64;
-/// How many places are tried, and the lowest surface wanted above the lair.
+/// How many places are tried, and the lowest surface wanted above the lair: 10 blocks over the
+/// roof of a lair in a shallow world. A deep world draws the same place, its lair lower.
 const ATTEMPTS: u64 = 400;
-const COVER: i32 = TOP + 10;
+const COVER: i32 = SHALLOW_LAVA_LEVEL + ROOF + 10;
 const SALT: u64 = 0x3500;
 
 /// The centre of the ground of the lair of the world of `seed`: the first place drawn around
-/// the origin that lies deep enough under the land, whose noises are `terrain`.
-pub fn centre(seed: u32, terrain: &TerrainNoises) -> IVec3 {
+/// the origin that lies deep enough under the land, whose noises are `terrain`, at the lava
+/// level of its `underground`.
+pub fn centre(seed: u32, terrain: &TerrainNoises, underground: Underground) -> IVec3 {
     let draw = |attempt: u64, what: u64, count: i32| {
         let hash = splitmix64(splitmix64(splitmix64(seed as u64) ^ SALT) ^ (attempt * 8 + what));
         ((hash >> 32) % count as u64) as i32
@@ -72,7 +73,7 @@ pub fn centre(seed: u32, terrain: &TerrainNoises) -> IVec3 {
             break;
         }
     }
-    IVec3::new(best.1.x, FLOOR, best.1.y)
+    IVec3::new(best.1.x, underground.lava_level(), best.1.y)
 }
 
 /// The middle of the column of the block `centre`, at the height of its top.
@@ -83,5 +84,5 @@ pub fn heart(centre: IVec3) -> Vec3 {
 /// Whether `position` is in the lair around `centre`, its walls included.
 pub fn holds(centre: IVec3, position: Vec3) -> bool {
     let from = position - heart(centre);
-    from.x.hypot(from.z) <= REACH as f32 && (-6.0..=(TOP - FLOOR) as f32).contains(&from.y)
+    from.x.hypot(from.z) <= REACH as f32 && (-6.0..=ROOF as f32).contains(&from.y)
 }

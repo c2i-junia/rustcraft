@@ -3,6 +3,7 @@ use bevy_platform::collections::{HashMap, HashSet};
 use bevy::math::{bounding::Aabb3d, IVec3, Vec3, Vec3A};
 
 use crate::world::blocks::FENCE;
+use crate::world::depths::Underground;
 use crate::world::{
     global_block_to_chunk_pos, to_local_pos, BlockData, BlockHitbox, BlockId, BlockTransparency,
     Chunk, Container, Furnace, Portals,
@@ -26,6 +27,8 @@ pub struct ChunkMap {
     containers: Held<Container>,
     furnaces: Held<Furnace>,
     portals: Portals,
+    /// How deep the world goes, which sets its depth tiers (`depths::DepthTier::of`).
+    underground: Underground,
 }
 
 /// What blocks of one kind hold, by position, like the contents of the chests, and the
@@ -80,6 +83,15 @@ impl<T> Held<T> {
 }
 
 impl ChunkMap {
+    /// How deep the world goes: deep unless told otherwise.
+    pub fn underground(&self) -> Underground {
+        self.underground
+    }
+
+    pub fn set_underground(&mut self, underground: Underground) {
+        self.underground = underground;
+    }
+
     /// Whether the chunk at `chunk_pos` is present in this map.
     pub fn is_chunk_loaded(&self, chunk_pos: IVec3) -> bool {
         self.chunks.contains_key(&chunk_pos)

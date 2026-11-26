@@ -2958,7 +2958,7 @@ fn a_world_is_played_from_its_first_tool_to_the_credits_and_reloaded() {
     std::fs::create_dir_all(&dir).unwrap();
     let meta = format!(
         "(format_version: 5, name: \"{WORLD_NAME}\", seed: ({FLAT_SPAWN_SEED}), time: 15000, \
-         mobs: {{}}, generation: (preset: Default, villages: true, dungeons: true))"
+         mobs: {{}}, generation: (preset: Default, villages: true, dungeons: true, deep: true))"
     );
     std::fs::write(dir.join("world.ron"), meta).unwrap();
     let server = TestServer::start_in(tmp, WORLD_NAME);
@@ -3126,6 +3126,7 @@ fn a_world_is_played_from_its_first_tool_to_the_credits_and_reloaded() {
     let heart = lair::heart(lair::centre(
         FLAT_SPAWN_SEED,
         &TerrainNoises::new(FLAT_SPAWN_SEED),
+        shared::world::WorldGenSettings::default().underground(),
     ));
     let stand = heart + Vec3::new(0.0, 0.95, 18.0);
     let (server, mut client) = restart_with(server, &mut client, |player| {

@@ -21,8 +21,9 @@ pub const PICKUP_DELAY_TICKS: u32 = 10;
 pub const THROWN_PICKUP_DELAY_TICKS: u32 = 40;
 /// Ticks after which an item nobody picked up vanishes: 5 minutes.
 pub const LIFETIME_TICKS: u32 = 6000;
-/// Below this height an item has fallen out of the world, and vanishes.
-pub const VOID_Y: f32 = -64.0;
+/// Below this height an item has fallen out of the world, and vanishes: 64 blocks under the
+/// bottom of the deepest world.
+pub const VOID_Y: f32 = crate::world::depths::WORLD_BOTTOM as f32 - 64.0;
 /// Two items of the same kind closer than this merge into one stack.
 pub const MERGE_RADIUS: f32 = 0.5;
 /// Share of its velocity an item keeps per tick in the air, then on the ground.
