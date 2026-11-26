@@ -2953,13 +2953,15 @@ mod tests {
                 column.x.abs().max(column.z.abs()) <= SPAWN_SEARCH_RADIUS,
                 "seed {seed}: {spawn}"
             );
+            // One generator for all the chunks: a new one would lay out the villages again
+            let generator = WorldGenerator::new(seed);
             let mut world = ChunkMap::default();
             let spawn_chunk = column.div_euclid(IVec3::splat(CHUNK_SIZE));
             for y in 0..12 {
                 for x in -1..=1 {
                     for z in -1..=1 {
                         let pos = spawn_chunk + IVec3::new(x, y, z);
-                        world.insert_chunk(pos, generate_chunk(pos, seed));
+                        world.insert_chunk(pos, generator.generate_chunk(pos));
                     }
                 }
             }
