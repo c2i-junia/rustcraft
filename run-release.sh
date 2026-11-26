@@ -9,5 +9,4 @@ cargo run --release \
 --bin client \
 -- \
 --game-folder-path $PWD/appdata/client-1 \
---assets-folder-path $PWD/data \
---player-name PlayerOne
+--assets-folder-path $PWD/data
