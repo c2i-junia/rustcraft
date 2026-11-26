@@ -57,10 +57,10 @@ generate-release-folder-server:
     # copy paste binaries 
     cp target/release/server release/bin/rustcraft-server
 
-check:
-    cargo fmt --all -- --check
-    cargo clippy --workspace --all-targets -- -D warnings
-    just test
+# Fmt, clippy and the whole suite; returns at once when the tree already passed.
+# `just check --force` runs it anyway.
+check *args:
+    scripts/check.sh {{args}}
 
 # Every test. The client's, end-to-end for the most part, take the longest: the other crates' run
 # beside them rather than after. Each client draws with lavapipe, whose threads default to one
@@ -76,4 +76,4 @@ test:
     exit $(( client || others ))
 
 test-fast:
-    cargo test --workspace -- --skip e2e::
+    scripts/check.sh test-fast

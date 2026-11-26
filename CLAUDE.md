@@ -30,6 +30,11 @@ pack (XSSheep's, kept up by Nova_Wostra): https://github.com/NovaWostra/Pixel-Pe
 - While iterating, run the targeted tests of what you change (`cargo test -p <crate> <filter>`).
   Run `just test-fast` before a commit, and `just check` once per lot, after the last edit.
   Do not rerun a check without a code change in between.
+- `just check` remembers: when the working tree (untracked files included) is the one that last
+  passed, it prints `check: already passed for tree <hash>` and returns at once. A failing run
+  stores nothing, and `just check --force` skips the memo. The test suite of `just check` and
+  `just test-fast` runs under a lock shared by all worktrees, so a second run waits for the
+  first instead of competing with it.
 - Run long commands in the background and wait for their completion notification. Never write
   `sleep`, `until` or `pgrep -f` loops to wait: a `pgrep -f` loop matches itself.
 - Do not run `cargo clippy` right after `cargo build` expecting reuse: clippy rebuilds (about
