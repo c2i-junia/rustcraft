@@ -50,6 +50,8 @@ pub const RECOVERY_CODE_TITLE: &str = "Your recovery code";
 /// The title of the dialog that recovers an account.
 pub const RECOVER_TITLE: &str = "Recover account";
 
+/// The toast of a session the hub no longer knows.
+pub const SESSION_ENDED: &str = "Your session ended. Log in again.";
 const LOG_IN: &str = "Log in";
 const CREATE_ACCOUNT: &str = "Create account";
 const WROTE_IT_DOWN: &str = "I wrote it down";
@@ -1003,14 +1005,7 @@ fn show_bullets(
 
 /// Logs out an account whose session the hub no longer knows (it was revoked, or expired): there
 /// is nothing to do with it but log in again.
-fn end_unauthorized_session(
-    mut check: ResMut<SessionCheck>,
-    mut account: ResMut<Account>,
-    paths: Res<GameFolderPaths>,
-    assets: Res<AssetServer>,
-    dialogs: Query<Entity, With<SignedIn>>,
-    mut commands: Commands,
-) {
+fn end_unauthorized_session(mut check: ResMut<SessionCheck>, mut commands: Commands) {
     let Some((id, request)) = &check.0 else {
         return;
     };
@@ -1019,29 +1014,45 @@ fn end_unauthorized_session(
     };
     let id = *id;
     check.0 = None;
-    let Err(error) = answer else {
-        return;
-    };
-    let current = matches!(&*account, Account::LoggedIn(file) if file.account == id);
-    if !error.is_unauthorized() || !current {
-        if !error.is_unauthorized() {
-            warn!("Cannot check the session of the account: {error}");
+    match answer {
+        Err(error) if error.is_unauthorized() => end_revoked_session(&mut commands, id),
+        Err(error) => warn!("Cannot check the session of the account: {error}"),
+        Ok(_) => {}
+    }
+}
+
+/// Logs out the account `id`, whose session the hub refused as no longer valid: forgets
+/// `account.ron`, closes the dialogs of the logged in account and says why. Nothing when
+/// another account is logged in by then, or none.
+pub(crate) fn end_revoked_session(commands: &mut Commands, id: Uuid) {
+    commands.queue(move |world: &mut World| {
+        let current = matches!(
+            world.get_resource::<Account>(),
+            Some(Account::LoggedIn(file)) if file.account == id
+        );
+        if !current {
+            return;
         }
-        return;
-    }
-    if let Err(e) = AccountFile::forget(&paths.game_folder_path.join(ACCOUNT_PATH)) {
-        error!("Cannot delete {ACCOUNT_PATH}: {e}");
-    }
-    *account = Account::LoggedOut;
-    for dialog in &dialogs {
-        close_dialog(&mut commands, dialog, true);
-    }
-    show_toast(
-        &mut commands,
-        "Your session ended. Log in again.",
-        ToastKind::Error,
-        assets.load(FONT_PATH),
-    );
+        let path = world
+            .resource::<GameFolderPaths>()
+            .game_folder_path
+            .join(ACCOUNT_PATH);
+        if let Err(e) = AccountFile::forget(&path) {
+            error!("Cannot delete {ACCOUNT_PATH}: {e}");
+        }
+        *world.resource_mut::<Account>() = Account::LoggedOut;
+        let dialogs: Vec<Entity> = world
+            .query_filtered::<Entity, With<SignedIn>>()
+            .iter(world)
+            .collect();
+        let font = world.resource::<AssetServer>().load(FONT_PATH);
+        let mut commands = world.commands();
+        for dialog in dialogs {
+            close_dialog(&mut commands, dialog, true);
+        }
+        show_toast(&mut commands, SESSION_ENDED, ToastKind::Error, font);
+        world.flush();
+    });
 }
 
 #[cfg(test)]

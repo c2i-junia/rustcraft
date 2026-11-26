@@ -122,6 +122,9 @@ pub enum ConnectError {
     /// A hosted world did not start, for this reason: the hub refused or could not be reached,
     /// or the world did not answer in time.
     HostedWorldFailed(String),
+    /// The hub no longer knows the session of the account a hosted world was joined with: the
+    /// account is logged out.
+    HubSessionEnded,
 }
 
 /// The reason the server gave for dismissing the player, received before the authentication

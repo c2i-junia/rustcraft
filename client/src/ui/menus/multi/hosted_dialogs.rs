@@ -18,8 +18,8 @@ use uuid::Uuid;
 use super::super::solo::dialogs::{spawn_world_choice, DIFFICULTIES, GAME_MODES, WORLD_TYPES};
 use super::super::text;
 use super::super::worlds::{parse_seed, EMPTY_WORLD_NAME};
-use super::hosted::{hub_message, Answer, HubCalls};
-use crate::account::hub::{HubClient, HubError};
+use super::hosted::{Answer, HubCalls};
+use crate::account::hub::{hub_message, HubClient, HubError};
 use crate::account::Account;
 use crate::ui::assets::FONT_PATH;
 use crate::ui::menus::account::add_to_panel;
@@ -74,6 +74,11 @@ const MEMBERS_HINTS: [Hint; 3] = [
     },
 ];
 
+/// A dialog of the tab, on its root: it closes when the account changes, as it shows a world of
+/// the account of before.
+#[derive(Component)]
+pub struct HostedDialog;
+
 /// The form of a new world, on the root of its dialog.
 #[derive(Component)]
 struct CreateForm {
@@ -119,6 +124,8 @@ pub struct MembersDialog {
     realm: Uuid,
     rows: Entity,
     input: Option<Entity>,
+    /// Whether the hub is changing a member: Add and the buttons of the rows wait for it.
+    busy: bool,
 }
 
 /// A button of a row of the Members dialog: what it changes of the member `username`.
@@ -235,6 +242,7 @@ pub fn open_create_dialog(commands: &mut Commands, assets: &AssetServer, focus: 
     commands
         .entity(root)
         .insert((
+            HostedDialog,
             CreateForm {
                 name: name.input,
                 seed: seed.input,
@@ -312,8 +320,8 @@ fn create_on_submit(
     });
 }
 
-/// Closes the form `form` of a world the hub created, or makes it usable again and says why the
-/// hub did not.
+/// Closes the form `form` of a world the hub created, or makes it usable again and says under
+/// the name why the hub did not.
 pub(super) fn created(
     commands: &mut Commands,
     form: Entity,
@@ -339,20 +347,18 @@ pub(super) fn created(
         }
         Err(error) => {
             warn!("The hub did not create the world: {error}");
+            let message = hub_message(error, hub);
             commands.queue(move |world: &mut World| {
                 let Some(mut open) = world.get_mut::<CreateForm>(form) else {
                     return;
                 };
                 open.busy = false;
+                let name = open.name;
                 apply_form_check(&mut world.commands(), form, vec![None, None], true);
                 world.flush();
+                // under the name: the hub refuses a name, or one world more than the quota
+                world.entity_mut(name).insert(FieldError(Some(message)));
             });
-            show_toast(
-                commands,
-                &hub_message(error, hub),
-                ToastKind::Error,
-                font.clone(),
-            );
         }
     }
 }
@@ -425,21 +431,25 @@ pub fn open_members_dialog(
         (root, None)
     };
     set_dialog_width(commands, root, 560.0);
-    commands.entity(root).insert(MembersDialog {
-        realm: realm.id,
-        rows,
-        input,
-    });
-    fill_rows(commands, rows, realm, editable, &font);
+    commands.entity(root).insert((
+        HostedDialog,
+        MembersDialog {
+            realm: realm.id,
+            rows,
+            input,
+            busy: false,
+        },
+    ));
+    fill_rows(commands, rows, realm, (editable, false), &font);
 }
 
 /// Shows the owner and the members of `realm` in `rows`, in place of what it showed; with the
-/// buttons that change them when `editable`.
+/// buttons that change them when `editable`, disabled while `busy`.
 fn fill_rows(
     commands: &mut Commands,
     rows: Entity,
     realm: &Realm,
-    editable: bool,
+    (editable, busy): (bool, bool),
     font: &Handle<Font>,
 ) {
     commands.entity(rows).despawn_related::<Children>();
@@ -483,7 +493,7 @@ fn fill_rows(
             (change_label, MemberChange::Role(other)),
             ("Remove", MemberChange::Remove),
         ] {
-            commands.spawn((
+            let mut action = commands.spawn((
                 button(label, ButtonVariant::Default, font.clone()),
                 MemberAction {
                     realm: realm.id,
@@ -492,6 +502,9 @@ fn fill_rows(
                 },
                 ChildOf(line),
             ));
+            if busy {
+                action.insert(InteractionDisabled);
+            }
         }
     }
 }
@@ -507,19 +520,19 @@ pub(super) fn refill_members(
     let (realms, font) = (realms.to_vec(), font.clone());
     commands.queue(move |world: &mut World| {
         let mut dialogs = world.query::<&MembersDialog>();
-        let open: Vec<(Uuid, Entity)> = dialogs
+        let open: Vec<(Uuid, Entity, bool)> = dialogs
             .iter(world)
-            .map(|dialog| (dialog.realm, dialog.rows))
+            .map(|dialog| (dialog.realm, dialog.rows, dialog.busy))
             .collect();
         let focused = world.resource::<InputFocus>().get();
         let on_a_row = focused.is_some_and(|entity| world.get::<MemberAction>(entity).is_some());
         let mut commands = world.commands();
-        for (id, rows) in open {
+        for (id, rows, busy) in open {
             let Some(realm) = realms.iter().find(|realm| realm.id == id) else {
                 continue;
             };
             let editable = realm.owner.id == account;
-            fill_rows(&mut commands, rows, realm, editable, &font);
+            fill_rows(&mut commands, rows, realm, (editable, busy), &font);
         }
         world.flush();
         if on_a_row {
@@ -536,12 +549,52 @@ pub(super) fn refill_members(
     });
 }
 
-fn check_member_form(changed: On<FormChanged>, mut commands: Commands) {
+fn check_member_form(
+    changed: On<FormChanged>,
+    dialogs: Query<&MembersDialog>,
+    mut commands: Commands,
+) {
     let typed = changed
         .values
         .first()
         .is_some_and(|name| !name.trim().is_empty());
-    apply_form_check(&mut commands, changed.entity, vec![None], typed);
+    let busy = dialogs.get(changed.entity).is_ok_and(|dialog| dialog.busy);
+    apply_form_check(&mut commands, changed.entity, vec![None], typed && !busy);
+}
+
+/// Makes the Members dialog `dialog` wait for the hub (`busy`), or usable again: Add, when a
+/// name is typed, and the buttons of its rows.
+fn set_members_busy(world: &mut World, dialog: Entity, busy: bool) {
+    let Some(mut open) = world.get_mut::<MembersDialog>(dialog) else {
+        return;
+    };
+    open.busy = busy;
+    let (realm, input) = (open.realm, open.input);
+    let actions: Vec<Entity> = world
+        .query::<(Entity, &MemberAction)>()
+        .iter(world)
+        .filter(|(_, action)| action.realm == realm)
+        .map(|(entity, _)| entity)
+        .collect();
+    for action in actions {
+        if busy {
+            world.entity_mut(action).insert(InteractionDisabled);
+        } else {
+            world.entity_mut(action).remove::<InteractionDisabled>();
+        }
+    }
+    if let Some(input) = input {
+        let typed = world
+            .get::<EditableText>(input)
+            .is_some_and(|text| !text.value().to_string().trim().is_empty());
+        apply_form_check(&mut world.commands(), dialog, vec![None], typed && !busy);
+        world.flush();
+    }
+}
+
+/// Makes the Members dialog `dialog` usable again, once the hub answered its change.
+pub(super) fn members_idle(commands: &mut Commands, dialog: Entity) {
+    commands.queue(move |world: &mut World| set_members_busy(world, dialog, false));
 }
 
 /// Adds the player typed in the field as a member.
@@ -551,11 +604,13 @@ fn add_member_on_submit(
     texts: Query<&EditableText>,
     account: Res<Account>,
     mut calls: Query<&mut HubCalls>,
+    mut commands: Commands,
 ) {
-    let Ok(dialog) = dialogs.get(submit.entity) else {
+    let root = submit.entity;
+    let Ok(dialog) = dialogs.get(root) else {
         return;
     };
-    let Some(input) = dialog.input else {
+    let (Some(input), false) = (dialog.input, dialog.busy) else {
         return;
     };
     let username = value_of(&texts, input).trim().to_string();
@@ -563,12 +618,14 @@ fn add_member_on_submit(
         return;
     }
     let realm = dialog.realm;
+    commands.queue(move |world: &mut World| set_members_busy(world, root, true));
     call_hub(&account, &mut calls, move |client, session| {
         Answer::Changed {
             result: client.set_member(session, realm, &username, MemberRole::Member),
             done: format!("Added {username}."),
             focus: Some(realm),
             field: Some(input),
+            dialog: Some(root),
         }
     });
 }
@@ -577,8 +634,10 @@ fn add_member_on_submit(
 fn change_member(
     activate: On<Activate>,
     actions: Query<&MemberAction, Without<InteractionDisabled>>,
+    dialogs: Query<(Entity, &MembersDialog)>,
     account: Res<Account>,
     mut calls: Query<&mut HubCalls>,
+    mut commands: Commands,
 ) {
     let Ok(action) = actions.get(activate.entity) else {
         return;
@@ -588,6 +647,13 @@ fn change_member(
         username,
         change,
     } = action.clone();
+    let Some((root, _)) = dialogs
+        .iter()
+        .find(|(_, dialog)| dialog.realm == realm && !dialog.busy)
+    else {
+        return;
+    };
+    commands.queue(move |world: &mut World| set_members_busy(world, root, true));
     call_hub(&account, &mut calls, move |client, session| {
         let (result, done) = match change {
             MemberChange::Role(role) => (
@@ -607,6 +673,7 @@ fn change_member(
             done,
             focus: Some(realm),
             field: None,
+            dialog: Some(root),
         }
     });
 }
@@ -653,6 +720,7 @@ pub fn open_stop_dialog(
     };
     let root = spawn_dialog(commands, &dialog, assets.load(FONT_PATH), focus);
     set_dialog_width(commands, root, 480.0);
+    commands.entity(root).insert(HostedDialog);
     let id = realm.id;
     commands.entity(root).observe(
         move |closed: On<DialogClosed>, account: Res<Account>, mut calls: Query<&mut HubCalls>| {
@@ -665,6 +733,7 @@ pub fn open_stop_dialog(
                     done: String::new(),
                     focus: Some(id),
                     field: None,
+                    dialog: None,
                 }
             });
         },
@@ -693,6 +762,7 @@ pub fn open_delete_dialog(
     };
     let root = spawn_dialog(commands, &dialog, assets.load(FONT_PATH), focus);
     set_dialog_width(commands, root, 480.0);
+    commands.entity(root).insert(HostedDialog);
     let (id, name) = (realm.id, realm.name.clone());
     commands.entity(root).observe(
         move |closed: On<DialogClosed>, account: Res<Account>, mut calls: Query<&mut HubCalls>| {
@@ -706,6 +776,7 @@ pub fn open_delete_dialog(
                     done: format!("Deleted \"{name}\"."),
                     focus: next,
                     field: None,
+                    dialog: None,
                 }
             });
         },

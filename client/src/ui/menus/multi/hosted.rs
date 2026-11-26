@@ -31,11 +31,11 @@ use super::super::{
 };
 use super::hosted_dialogs::{
     self, open_create_dialog, open_delete_dialog, open_members_dialog, open_stop_dialog,
-    refill_members,
+    refill_members, HostedDialog,
 };
 use super::SERVERS_TITLE;
 use crate::account::file::AccountFile;
-use crate::account::hub::{HubClient, HubError};
+use crate::account::hub::{hub_message, HubClient, HubError};
 use crate::account::Account;
 use crate::network::address::AddressResolver;
 use crate::network::hosted::{join_hosted_world, typed_address, HostedJoin};
@@ -44,13 +44,14 @@ use crate::network::status::{InFlight, StatusProbe};
 use crate::network::TargetServer;
 use crate::state::GameState;
 use crate::ui::assets::FONT_PATH;
-use crate::ui::menus::account::{NextDialog, Screen};
+use crate::ui::menus::account::{end_revoked_session, NextDialog, Screen};
 use crate::ui::menus::modal_open;
 use crate::ui::theme::{
     ACCENT, BEVEL_WIDTH, DANGER, FONT_L, FONT_M, FONT_S, MUTED, OK, PANEL, SPACE_L, SPACE_M,
     SPACE_S, SPACE_XL, SPACE_XS, TEXT,
 };
 use crate::ui::widgets::button::{button, ButtonVariant};
+use crate::ui::widgets::dialog::close_dialog;
 use crate::ui::widgets::focus::ArrowNav;
 use crate::ui::widgets::hints::{Hint, HINT_BAR_HEIGHT};
 use crate::ui::widgets::list::{spawn_list_card, spawn_scroll_list, CardSelected, WheelStep};
@@ -97,9 +98,9 @@ struct HostedParts {
 }
 
 /// The calls to the hub waiting for their answer, on the screen's root: leaving the screen drops
-/// them, and their answers.
+/// them, and their answers. Each is sent at an instant, and lists the worlds or not.
 #[derive(Component, Default)]
-pub struct HubCalls(Vec<(Instant, InFlight<Answer>)>);
+pub struct HubCalls(Vec<(Instant, bool, InFlight<Answer>)>);
 
 /// What a call to the hub answered.
 pub enum Answer {
@@ -115,22 +116,41 @@ pub enum Answer {
     },
     /// A change to a world or to its members. Done, `done` is said in a toast (unless empty)
     /// and the worlds are listed again, `focus` selected; failed, the hub's message shows under
-    /// the field `field`, else in a toast.
+    /// the field `field`, else in a toast. The Members dialog `dialog` it came from is usable
+    /// again.
     Changed {
         result: Result<(), HubError>,
         done: String,
         focus: Option<Uuid>,
         field: Option<Entity>,
+        dialog: Option<Entity>,
     },
     /// The call could not start: there was no thread for it.
     Lost,
+}
+
+impl Answer {
+    /// Whether the hub refused the session of the account.
+    fn unauthorized(&self) -> bool {
+        match self {
+            Answer::Listed { result, .. } => result.as_ref().is_err_and(HubError::is_unauthorized),
+            Answer::Created { result, .. } => result.as_ref().is_err_and(HubError::is_unauthorized),
+            Answer::Changed { result, .. } => result.as_ref().is_err_and(HubError::is_unauthorized),
+            Answer::Lost => false,
+        }
+    }
 }
 
 impl HubCalls {
     /// Runs `call` on a thread; its answer is taken by `take_answers`.
     pub fn spawn(&mut self, call: impl FnOnce() -> Answer + Send + 'static) {
         self.0
-            .push((Instant::now(), InFlight::spawn(Answer::Lost, call)));
+            .push((Instant::now(), false, InFlight::spawn(Answer::Lost, call)));
+    }
+
+    /// Whether the worlds are being listed.
+    fn listing(&self) -> bool {
+        self.0.iter().any(|&(_, listing, _)| listing)
     }
 }
 
@@ -200,6 +220,11 @@ pub fn state_look(state: RealmState) -> (&'static str, Color) {
         RealmState::Failed => ("Failed", DANGER),
         RealmState::Archived => ("Archived", MUTED),
     }
+}
+
+/// Whether a world in `state` may be joined: not while it stops.
+pub fn joinable(state: RealmState) -> bool {
+    state != RealmState::Stopping
 }
 
 /// The line under the name of a world: whose it is, and what the player is to it.
@@ -416,14 +441,28 @@ fn account_id(account: &Account) -> Option<Uuid> {
 }
 
 /// Asks the hub who the account is and which worlds it has, then selects the card of `focus`.
+/// A listing still waiting for its answer is forgotten: it may be older than a change just made.
 pub fn list_worlds(calls: &mut HubCalls, file: &AccountFile, focus: Option<Uuid>) {
     let (client, session) = (HubClient::new(&file.hub), file.session.clone());
-    calls.spawn(move || Answer::Listed {
+    calls.0.retain(|&(_, listing, _)| !listing);
+    let call = move || Answer::Listed {
         result: client
             .me(&session)
             .and_then(|me| Ok((me, client.realms(&session)?))),
         focus,
-    });
+    };
+    calls
+        .0
+        .push((Instant::now(), true, InFlight::spawn(Answer::Lost, call)));
+}
+
+/// Lists the worlds again on Refresh or F5, unless they are being listed.
+fn refresh(account: &Account, calls: &mut Query<&mut HubCalls>, selected: Option<Uuid>) {
+    if let (Account::LoggedIn(file), Ok(mut calls)) = (account, calls.single_mut()) {
+        if !calls.listing() {
+            list_worlds(&mut calls, file, selected);
+        }
+    }
 }
 
 /// The empty state of the body: `title`, and `line` under it in `color`.
@@ -483,10 +522,12 @@ fn show_logged_out_or_loading(
     }
 }
 
-/// Lists the worlds again when the player logs in, out or into another account.
+/// Lists the worlds again when the player logs in, out or into another account. The dialogs
+/// open on the worlds of before close, a call they wait for with it.
 fn follow_the_account(
     account: Res<Account>,
     mut boards: Query<(&mut HostedBoard, &mut HubCalls, &HostedParts)>,
+    dialogs: Query<Entity, With<HostedDialog>>,
     assets: Res<AssetServer>,
     mut commands: Commands,
 ) {
@@ -503,6 +544,9 @@ fn follow_the_account(
         ..default()
     };
     calls.0.clear();
+    for dialog in &dialogs {
+        close_dialog(&mut commands, dialog, false);
+    }
     if let Account::LoggedIn(file) = &*account {
         list_worlds(&mut calls, file, None);
     }
@@ -520,11 +564,12 @@ fn refresh_on_f5(
     mut calls: Query<&mut HubCalls>,
     selected: Query<&HostedCard, With<Selected>>,
 ) {
-    if !keys.just_pressed(KeyCode::F5) {
-        return;
-    }
-    if let (Account::LoggedIn(file), Ok(mut calls)) = (&*account, calls.single_mut()) {
-        list_worlds(&mut calls, file, selected.single().ok().map(|card| card.0));
+    if keys.just_pressed(KeyCode::F5) {
+        refresh(
+            &account,
+            &mut calls,
+            selected.single().ok().map(|card| card.0),
+        );
     }
 }
 
@@ -540,7 +585,8 @@ type Screens<'w, 's> = Query<
 >;
 
 /// Takes the answers of the hub: shows the worlds listed, closes the form of a world created,
-/// and lists them again after a change, or says why a call failed.
+/// and lists them again after a change, or says why a call failed. A session the hub refused
+/// logs the account out, and `follow_the_account` shows the tab logged out.
 #[allow(clippy::too_many_arguments)]
 fn take_answers(
     mut screens: Screens,
@@ -555,7 +601,7 @@ fn take_answers(
         return;
     };
     let mut answers = Vec::new();
-    calls.0.retain(|(sent, call)| match call.take() {
+    calls.0.retain(|(sent, _, call)| match call.take() {
         Some(answer) => {
             answers.push(answer);
             false
@@ -573,6 +619,11 @@ fn take_answers(
     let Account::LoggedIn(file) = &*account else {
         return;
     };
+    if answers.iter().any(Answer::unauthorized) {
+        warn!("The hub no longer knows the session of the account, logging it out");
+        end_revoked_session(&mut commands, file.account);
+        return;
+    }
     let hub = file.hub.clone();
     let say = |commands: &mut Commands, error: &HubError| {
         warn!("The hub refused or did not answer: {error}");
@@ -630,8 +681,12 @@ fn take_answers(
                 done,
                 focus,
                 field,
+                dialog,
             } => match result {
                 Ok(()) => {
+                    if let Some(dialog) = dialog {
+                        hosted_dialogs::members_idle(&mut commands, dialog);
+                    }
                     if !done.is_empty() {
                         show_toast(&mut commands, &done, ToastKind::Info, font.clone());
                     }
@@ -640,27 +695,20 @@ fn take_answers(
                     }
                     list_worlds(&mut calls, file, focus.or(reselect));
                 }
-                Err(error) => match field {
-                    Some(field) => {
-                        hosted_dialogs::field_error(&mut commands, field, &error, &hub);
+                Err(error) => {
+                    if let Some(dialog) = dialog {
+                        hosted_dialogs::members_idle(&mut commands, dialog);
                     }
-                    None => say(&mut commands, &error),
-                },
+                    match field {
+                        Some(field) => {
+                            hosted_dialogs::field_error(&mut commands, field, &error, &hub);
+                        }
+                        None => say(&mut commands, &error),
+                    }
+                }
             },
             Answer::Lost => warn!("No thread could call the hub"),
         }
-    }
-}
-
-/// What the player is told of a call the hub refused or did not answer.
-pub fn hub_message(error: &HubError, hub: &str) -> String {
-    match error {
-        HubError::Api { message, .. } => message.clone(),
-        HubError::Unreachable(_) => {
-            let host = hub.split_once("://").map_or(hub, |(_, rest)| rest);
-            format!("Cannot reach the hub at {}.", host.trim_end_matches('/'))
-        }
-        HubError::Malformed(_) => error.to_string(),
     }
 }
 
@@ -684,9 +732,11 @@ fn show_board(
              account: Res<Account>,
              mut calls: Query<&mut HubCalls>,
              selected: Query<&HostedCard, With<Selected>>| {
-                if let (Account::LoggedIn(file), Ok(mut calls)) = (&*account, calls.single_mut()) {
-                    list_worlds(&mut calls, file, selected.single().ok().map(|card| card.0));
-                }
+                refresh(
+                    &account,
+                    &mut calls,
+                    selected.single().ok().map(|card| card.0),
+                );
             },
         ),
     ));
@@ -893,11 +943,14 @@ fn show_pane(
         ))
         .id();
     let id = realm.id;
-    commands.spawn((
+    let mut join = commands.spawn((
         button("Join", ButtonVariant::Primary, font.clone()),
         PaneAction(id, PaneKind::Join),
         ChildOf(buttons),
     ));
+    if !joinable(realm.state) {
+        join.insert(InteractionDisabled);
+    }
     if standing != Standing::Member {
         commands.spawn((
             button("Members", ButtonVariant::Default, font.clone()),
@@ -976,15 +1029,17 @@ struct Joining<'w> {
 }
 
 impl Joining<'_> {
-    /// Joins `realm`: the hub starts it first unless it runs.
+    /// Joins `realm`, which the hub starts first if it is stopped; not while it stops.
     fn join(&mut self, realm: &Realm, commands: &mut Commands) {
         let Account::LoggedIn(file) = &*self.account else {
             return;
         };
+        if !joinable(realm.state) {
+            return;
+        }
         let join = HostedJoin {
             realm: realm.id,
             name: realm.name.clone(),
-            address: realm.address.clone(),
         };
         join_hosted_world(
             &join,
@@ -1150,6 +1205,14 @@ mod tests {
         assert_eq!(neighbour_of(&realms, id(1)), Some(id(2)));
         assert_eq!(neighbour_of(&realms, id(3)), Some(id(2)));
         assert_eq!(neighbour_of(&realms[..1], id(1)), None);
+    }
+
+    #[test]
+    fn a_stopping_world_cannot_be_joined() {
+        assert!(!joinable(RealmState::Stopping));
+        for state in [RealmState::Stopped, RealmState::Running, RealmState::Failed] {
+            assert!(joinable(state), "{state:?}");
+        }
     }
 
     #[test]

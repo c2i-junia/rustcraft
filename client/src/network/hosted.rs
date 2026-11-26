@@ -1,8 +1,11 @@
-//! Joining a hosted world: the hub starts it when it is stopped, then its status port is asked
-//! every `POLL_EVERY` until it answers, for `START_TIMEOUT` at most, all on a thread while the
-//! connecting card shows "Starting the world...". The session then connects as to any server.
+//! Joining a hosted world: the hub is asked to start it (a world that runs already only says
+//! where), then its status port is asked every `POLL_EVERY` until it answers, for
+//! `START_TIMEOUT` at most, all on a thread while the connecting card shows "Starting the
+//! world...". The session then connects as to any server.
 
 use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -15,8 +18,9 @@ use super::session::{end_session, ConnectError, SessionOrigin};
 use super::status::{InFlight, ServerStatus, StatusProbe};
 use super::{TargetServer, TargetServerState};
 use crate::account::file::AccountFile;
-use crate::account::hub::{HubClient, HubError};
+use crate::account::hub::{hub_message, HubClient};
 use crate::state::GameState;
+use crate::ui::menus::account::end_revoked_session;
 use crate::ui::menus::MenuState;
 
 /// How long a hosted world has to answer on its status port once the hub started it.
@@ -24,40 +28,38 @@ pub const START_TIMEOUT: Duration = Duration::from_secs(60);
 /// How often the status port of a starting world is asked.
 pub const POLL_EVERY: Duration = Duration::from_millis(500);
 
-/// A hosted world to join: which one, and where it runs when the list said so.
+/// A hosted world to join.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HostedJoin {
     pub realm: Uuid,
     pub name: String,
-    /// The address of a world that is starting or running: no start is asked then.
-    pub address: Option<RealmAddress>,
 }
 
 /// The start of the hosted world of the session, in `PreGameLoading` until its server answers:
-/// its address as typed (`host:port`) and resolved, or why it did not start.
+/// its address as typed (`host:port`) and resolved, or why it did not start. Dropped (the
+/// session was cancelled), it tells its thread to stop asking.
 #[derive(Resource)]
-pub struct HostedStart(InFlight<Result<(String, SocketAddr), ConnectError>>);
+pub struct HostedStart {
+    result: InFlight<Result<(String, SocketAddr), ConnectError>>,
+    /// The account the world is joined with: logged out if the hub no longer knows its session.
+    account: Uuid,
+    cancel: Arc<AtomicBool>,
+}
+
+impl Drop for HostedStart {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::SeqCst);
+    }
+}
 
 /// The address of a world as a server list would have it typed: `host:port`.
 pub fn typed_address(address: &RealmAddress) -> String {
     format!("{}:{}", address.host, address.port)
 }
 
-/// What the player is told of a hub that refused or did not answer, on the error card.
-fn hub_failure(error: &HubError, hub: &str) -> ConnectError {
-    let message = match error {
-        HubError::Api { message, .. } => message.clone(),
-        HubError::Unreachable(_) => {
-            let host = hub.split_once("://").map_or(hub, |(_, rest)| rest);
-            format!("Cannot reach the hub at {}.", host.trim_end_matches('/'))
-        }
-        HubError::Malformed(_) => error.to_string(),
-    };
-    ConnectError::HostedWorldFailed(message)
-}
-
-/// Asks the hub to start the world unless its address is known, then asks its status port every
-/// `POLL_EVERY` until it answers, for `timeout` at most. Blocks: call it from a thread.
+/// Asks the hub to start the world, then asks its status port every `POLL_EVERY` until it
+/// answers, for `timeout` at most from the hub's answer. Gives up once `cancel` is set. Blocks:
+/// call it from a thread.
 pub fn start_and_wait(
     client: &HubClient,
     hub: &str,
@@ -65,25 +67,29 @@ pub fn start_and_wait(
     join: &HostedJoin,
     (probe, resolver): (StatusProbe, AddressResolver),
     timeout: Duration,
+    cancel: &AtomicBool,
 ) -> Result<(String, SocketAddr), ConnectError> {
-    let address = match &join.address {
-        Some(address) => address.clone(),
-        None => {
-            let started = client
-                .start_realm(session, join.realm)
-                .map_err(|error| hub_failure(&error, hub))?;
-            RealmAddress {
-                host: started.host,
-                port: started.port,
-            }
+    let started = client.start_realm(session, join.realm).map_err(|error| {
+        if error.is_unauthorized() {
+            ConnectError::HubSessionEnded
+        } else {
+            ConnectError::HostedWorldFailed(hub_message(&error, hub))
         }
+    })?;
+    let address = RealmAddress {
+        host: started.host,
+        port: started.port,
     };
     let typed = typed_address(&address);
     let not_found = || ConnectError::HostedWorldFailed(format!("Cannot find {}.", address.host));
     let parsed = parse_server_address(&typed).map_err(|_| not_found())?;
     let resolved = (resolver.0)(&parsed).map_err(|_| not_found())?;
     let deadline = Instant::now() + timeout;
+    let cancelled = || ConnectError::NoConnection("the session was cancelled".into());
     loop {
+        if cancel.load(Ordering::SeqCst) {
+            return Err(cancelled());
+        }
         let asked = Instant::now();
         match (probe.0)(&typed) {
             ServerStatus::Online { .. } => return Ok((typed, resolved)),
@@ -94,6 +100,9 @@ pub fn start_and_wait(
             return Err(ConnectError::HostedWorldFailed(
                 "The world did not start in time. Try again in a moment.".to_string(),
             ));
+        }
+        if cancel.load(Ordering::SeqCst) {
+            return Err(cancelled());
         }
         thread::sleep(POLL_EVERY.saturating_sub(asked.elapsed()));
     }
@@ -114,21 +123,37 @@ pub fn join_hosted_world(
         return;
     }
     info!("Joining the hosted world {:?}", join.name);
-    let (client, hub, session, request) = (
+    let cancel = Arc::new(AtomicBool::new(false));
+    let (client, hub, session, request, stop) = (
         HubClient::new(&file.hub),
         file.hub.clone(),
         file.session.clone(),
         join.clone(),
+        Arc::clone(&cancel),
     );
-    commands.insert_resource(HostedStart(InFlight::spawn(
-        Err(ConnectError::NoConnection(
-            "no thread to start the world on".into(),
-        )),
-        move || start_and_wait(&client, &hub, &session, &request, seams, START_TIMEOUT),
-    )));
+    commands.insert_resource(HostedStart {
+        result: InFlight::spawn(
+            Err(ConnectError::NoConnection(
+                "no thread to start the world on".into(),
+            )),
+            move || {
+                start_and_wait(
+                    &client,
+                    &hub,
+                    &session,
+                    &request,
+                    seams,
+                    START_TIMEOUT,
+                    &stop,
+                )
+            },
+        ),
+        account: file.account,
+        cancel,
+    });
     commands.insert_resource(SessionOrigin::Server {
         name: join.name.clone(),
-        ip: join.address.as_ref().map(typed_address).unwrap_or_default(),
+        ip: String::new(),
         address: SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)),
         realm: Some(join.realm),
     });
@@ -153,7 +178,7 @@ pub fn wait_for_hosted_world(
     if !matches!(*game, NextState::Unchanged) {
         return;
     }
-    let Some(result) = start.0.take() else {
+    let Some(result) = start.result.take() else {
         return;
     };
     commands.remove_resource::<HostedStart>();
@@ -169,6 +194,9 @@ pub fn wait_for_hosted_world(
         }
         Err(error) => {
             warn!("The hosted world did not start: {error:?}");
+            if error == ConnectError::HubSessionEnded {
+                end_revoked_session(&mut commands, start.account);
+            }
             end_session(&mut commands, &mut game, &origin, Some(error));
         }
     }
@@ -178,7 +206,11 @@ pub fn wait_for_hosted_world(
 impl HostedStart {
     /// A start whose result is already there.
     pub(crate) fn ready(result: Result<(String, SocketAddr), ConnectError>) -> Self {
-        Self(InFlight::ready(result))
+        Self {
+            result: InFlight::ready(result),
+            account: Uuid::from_u128(1),
+            cancel: Arc::default(),
+        }
     }
 }
 
@@ -190,12 +222,15 @@ mod tests {
     use crate::account::test_hub::{Canned, TestHub};
     use crate::network::address::ServerAddress;
 
-    fn join(address: Option<RealmAddress>) -> HostedJoin {
+    fn join() -> HostedJoin {
         HostedJoin {
             realm: Uuid::from_u128(10),
             name: "Home".into(),
-            address,
         }
+    }
+
+    fn running() -> Canned {
+        Canned::ok(r#"{"state":"running","host":"play.example","port":25000}"#)
     }
 
     fn local(address: &ServerAddress) -> std::io::Result<SocketAddr> {
@@ -234,9 +269,10 @@ mod tests {
             &client,
             &hub.url,
             "tok",
-            &join(None),
+            &join(),
             (StatusProbe(online_third), AddressResolver(local)),
             Duration::from_secs(10),
+            &AtomicBool::new(false),
         );
 
         assert_eq!(
@@ -262,68 +298,76 @@ mod tests {
     }
 
     #[test]
-    fn a_running_world_is_not_started_again() {
-        let hub = TestHub::start(Vec::new());
-        let address = RealmAddress {
-            host: "play.example".into(),
-            port: 25000,
-        };
-        let result = start_and_wait(
-            &HubClient::new(&hub.url),
-            &hub.url,
-            "tok",
-            &join(Some(address)),
-            (
-                StatusProbe(|_| ServerStatus::Incompatible),
-                AddressResolver(local),
-            ),
-            Duration::from_secs(10),
-        );
-        assert_eq!(result, Err(ConnectError::Incompatible));
-        assert!(hub.requests().is_empty());
-    }
-
-    #[test]
     fn a_refusal_of_the_hub_or_a_silent_world_is_said() {
-        let hub = TestHub::start(vec![Canned::error(
-            429,
-            "rate_limited",
-            "This world was started too often. Try again later.",
-        )]);
+        let hub = TestHub::start(vec![
+            Canned::error(
+                429,
+                "rate_limited",
+                "This world was started too often. Try again later.",
+            ),
+            Canned::error(401, "unauthorized", "Log in again."),
+            running(),
+        ]);
         let seams = (StatusProbe(offline), AddressResolver(local));
-        let refused = start_and_wait(
-            &HubClient::new(&hub.url),
-            &hub.url,
-            "tok",
-            &join(None),
-            seams,
-            Duration::from_secs(10),
-        );
+        let ask = |timeout| {
+            start_and_wait(
+                &HubClient::new(&hub.url),
+                &hub.url,
+                "tok",
+                &join(),
+                seams,
+                timeout,
+                &AtomicBool::new(false),
+            )
+        };
         assert_eq!(
-            refused,
+            ask(Duration::from_secs(10)),
             Err(ConnectError::HostedWorldFailed(
                 "This world was started too often. Try again later.".into()
             ))
         );
-
-        let address = RealmAddress {
-            host: "play.example".into(),
-            port: 25000,
-        };
-        let silent = start_and_wait(
-            &HubClient::new(&hub.url),
-            &hub.url,
-            "tok",
-            &join(Some(address)),
-            seams,
-            Duration::from_millis(600),
-        );
         assert_eq!(
-            silent,
+            ask(Duration::from_secs(10)),
+            Err(ConnectError::HubSessionEnded)
+        );
+        // a running world is asked to start too: the hub only says where it runs
+        assert_eq!(
+            ask(Duration::from_millis(600)),
             Err(ConnectError::HostedWorldFailed(
                 "The world did not start in time. Try again in a moment.".into()
             ))
         );
+        assert_eq!(hub.requests().len(), 3);
+    }
+
+    /// How many times `counted` was asked.
+    static COUNTED: AtomicUsize = AtomicUsize::new(0);
+
+    fn counted(_: &str) -> ServerStatus {
+        COUNTED.fetch_add(1, Ordering::SeqCst);
+        ServerStatus::Offline
+    }
+
+    #[test]
+    fn a_cancelled_start_stops_asking_the_world() {
+        let hub = TestHub::start(vec![running()]);
+        let start = HostedStart::ready(Err(ConnectError::NoAnswer));
+        let cancel = Arc::clone(&start.cancel);
+        // the session is cancelled: the start is dropped with it
+        drop(start);
+        let began = Instant::now();
+        let result = start_and_wait(
+            &HubClient::new(&hub.url),
+            &hub.url,
+            "tok",
+            &join(),
+            (StatusProbe(counted), AddressResolver(local)),
+            Duration::from_secs(10),
+            &cancel,
+        );
+        assert!(matches!(result, Err(ConnectError::NoConnection(_))));
+        assert_eq!(COUNTED.load(Ordering::SeqCst), 0);
+        assert!(began.elapsed() < POLL_EVERY, "{:?}", began.elapsed());
     }
 
     #[test]
@@ -337,9 +381,10 @@ mod tests {
             &HubClient::new(&hub),
             &hub,
             "tok",
-            &join(None),
+            &join(),
             (StatusProbe(offline), AddressResolver(local)),
             Duration::from_secs(1),
+            &AtomicBool::new(false),
         );
         assert_eq!(
             result,

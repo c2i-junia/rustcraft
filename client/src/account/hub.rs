@@ -15,6 +15,9 @@ use uuid::Uuid;
 
 /// How long a call to the hub may take in all.
 const TIMEOUT: Duration = Duration::from_secs(10);
+/// How long the start of a world may take: the hub waits up to 3 minutes for its agent to start
+/// the container, so a slow start is not taken for a hub that cannot be reached.
+pub const START_CALL_TIMEOUT: Duration = Duration::from_secs(200);
 
 /// Why a call to the hub failed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -53,6 +56,18 @@ impl fmt::Display for HubError {
 }
 
 impl std::error::Error for HubError {}
+
+/// What the player is told of a call the hub at `hub` refused or did not answer.
+pub fn hub_message(error: &HubError, hub: &str) -> String {
+    match error {
+        HubError::Api { message, .. } => message.clone(),
+        HubError::Unreachable(_) => {
+            let host = hub.split_once("://").map_or(hub, |(_, rest)| rest);
+            format!("Cannot reach the hub at {}.", host.trim_end_matches('/'))
+        }
+        HubError::Malformed(_) => error.to_string(),
+    }
+}
 
 /// A hub, by its base URL.
 #[derive(Clone)]
@@ -182,10 +197,14 @@ impl HubClient {
     }
 
     /// `POST /v1/realms/{id}/start`: starts the world if it is stopped, and says where it runs.
+    /// Waits for the hub up to `START_CALL_TIMEOUT`.
     pub fn start_realm(&self, session: &str, id: Uuid) -> Result<StartRealmResponse, HubError> {
         self.read(
             self.agent
                 .post(self.url(&format!("/v1/realms/{id}/start")))
+                .config()
+                .timeout_global(Some(START_CALL_TIMEOUT))
+                .build()
                 .header("Authorization", bearer(session))
                 .send_empty(),
         )

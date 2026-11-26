@@ -16,11 +16,13 @@ use super::account::{client, logged_in_folder, logged_out_folder};
 use super::harness::{Harness, SCREEN};
 use super::locator::Locator as L;
 use crate::account::test_hub::{Canned, Recorded, Route, TestHub};
+use crate::account::Account;
 use crate::network::session::SessionOrigin;
 use crate::network::status::{ServerStatus, StatusProbe};
 use crate::network::TargetServer;
 use crate::state::GameState;
-use crate::ui::menus::account::ACCOUNT_TITLE;
+use crate::ui::menus::account::{ACCOUNT_TITLE, SESSION_ENDED};
+use crate::ui::menus::connect_error::TRY_AGAIN;
 use crate::ui::menus::connecting::STARTING_HOSTED_WORLD;
 use crate::ui::menus::multi::hosted::{HostedPane, CREATE_WORLD, HOSTED_TITLE, LOGGED_OUT};
 use crate::ui::menus::multi::hosted_dialogs::{MemberAction, CREATE_TITLE};
@@ -449,4 +451,71 @@ fn the_owner_adds_and_removes_members_stops_and_deletes_the_world() {
     h.click(&L::role(Role::Button, "Delete").within(delete));
     wait_for_request(&mut h, &hub, "DELETE", &realm_path(&home(), ""));
     h.wait_for(&L::text("Deleted \"Home\"."), SCREEN);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_refused_world_is_said_under_its_name_and_a_refused_session_logs_out() {
+    let created = (
+        "POST",
+        "/v1/realms".to_string(),
+        vec![
+            Canned::error(
+                403,
+                "quota_reached",
+                "You already have as many worlds as you may.",
+            ),
+            Canned::error(401, "unauthorized", "Log in again."),
+        ],
+    );
+    let hub = hub_with(vec![list(&[castle()])], vec![created]);
+    let mut h = hosted_tab(&hub, StatusProbe::default());
+    h.wait_for(&card("Castle"), SCREEN);
+    h.click(&L::role(Role::Button, CREATE_WORLD));
+    h.wait_for(&dialog(CREATE_TITLE), SCREEN);
+    h.frames(2);
+    h.type_text("Island");
+    h.frames(3);
+    h.press(bevy::input::keyboard::KeyCode::Enter);
+    wait_for_request(&mut h, &hub, "POST", "/v1/realms");
+    // under the name, not in a toast: the form stays open to change it
+    h.wait_for(
+        &L::text("You already have as many worlds as you may.").within(dialog(CREATE_TITLE)),
+        SCREEN,
+    );
+
+    h.click(&L::role(Role::Button, "Create").within(dialog(CREATE_TITLE)));
+    h.wait_for(&L::text(SESSION_ENDED), SCREEN);
+    h.wait_for(&L::text(LOGGED_OUT), SCREEN);
+    assert!(matches!(
+        h.world().resource::<Account>(),
+        Account::LoggedOut
+    ));
+    h.frames(3);
+    assert!(!h.is_visible(&dialog(CREATE_TITLE)));
+    assert_eq!(requests_to(&hub, "POST", "/v1/realms").len(), 2);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_session_the_hub_refuses_at_the_start_of_a_world_offers_no_try_again() {
+    let start = (
+        "POST",
+        realm_path(&castle(), "/start"),
+        vec![Canned::error(401, "unauthorized", "Log in again.")],
+    );
+    let hub = hub_with(vec![list(&[home(), castle()])], vec![start]);
+    let mut h = hosted_tab(&hub, StatusProbe::default());
+    h.wait_for(&card("Castle"), SCREEN);
+    h.click(&card("Castle"));
+    h.click(&pane_button("Join"));
+
+    h.wait_for(&L::text("Cannot start \"Castle\""), SCREEN);
+    assert!(h.find(&L::role(Role::Button, TRY_AGAIN)).is_empty());
+    assert!(matches!(
+        h.world().resource::<Account>(),
+        Account::LoggedOut
+    ));
+    h.click(&L::role(Role::Button, "Back to Hosted worlds"));
+    h.wait_for(&L::text(LOGGED_OUT), SCREEN);
 }

@@ -180,6 +180,7 @@
     "connect.full": "« {name} » est plein",
     "connect.full.body": "Le serveur n’a plus de place pour un autre joueur. Réessayez plus tard.",
     "connect.hosted_failed": "Impossible de démarrer « {name} »",
+    "connect.hub_session_ended": "Votre session a pris fin. Reconnectez-vous pour rejoindre vos mondes hébergés.",
     "connect.incompatible": "« {name} » a une autre version",
     "connect.incompatible.body": "Ce serveur fait tourner une autre version de Rustcraft. Rejoignez-le avec la même version que lui.",
     "connect.invalid_biomes": "Les biomes de ce serveur sont invalides ({error}) : les couleurs du monde peuvent être fausses",

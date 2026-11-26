@@ -54,14 +54,15 @@ pub const ERROR_HINTS: [Hint; 3] = [
 
 /// Whether trying again may succeed: not with a name no server accepts, nor on a server of
 /// another version, nor with a world its server stopped on (an unreadable, corrupt or newer
-/// world file), which stops it the same way again. A card that cannot succeed offers only the
-/// way back.
+/// world file), which stops it the same way again, nor with an account the hub logged out. A
+/// card that cannot succeed offers only the way back.
 pub fn can_try_again(error: &ConnectError) -> bool {
     !matches!(
         error,
         ConnectError::InvalidName { .. }
             | ConnectError::Incompatible
             | ConnectError::WorldFailed(_)
+            | ConnectError::HubSessionEnded
     )
 }
 
@@ -159,6 +160,10 @@ pub fn error_text(error: &ConnectError, origin: &SessionOrigin) -> (String, Stri
         ConnectError::HostedWorldFailed(reason) => (
             trf("connect.hosted_failed", &[("name", &name)]),
             reason.clone(),
+        ),
+        ConnectError::HubSessionEnded => (
+            trf("connect.hosted_failed", &[("name", &name)]),
+            tr("connect.hub_session_ended").to_string(),
         ),
         ConnectError::ConnectionLost => (
             trf("connect.lost", &[("name", &name)]),
@@ -273,7 +278,6 @@ fn act_on_error_card(
             let join = HostedJoin {
                 realm,
                 name: name.clone(),
-                address: None,
             };
             join_hosted_world(
                 &join,
@@ -539,5 +543,13 @@ mod tests {
             String::new()
         )));
         assert_eq!(back_label(&hosted), "Back to Hosted worlds");
+        // the account is logged out: there is nothing to try again with
+        says(
+            ConnectError::HubSessionEnded,
+            &hosted,
+            "Cannot start \"Castle\"",
+            "Your session ended. Log in again to join your hosted worlds.",
+        );
+        assert!(!can_try_again(&ConnectError::HubSessionEnded));
     }
 }

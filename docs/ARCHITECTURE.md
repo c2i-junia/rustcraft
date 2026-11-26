@@ -1321,23 +1321,30 @@ The Multiplayer screen has two tabs, Servers and Hosted worlds, each a `MenuStat
 (`ui/menus/multi/hosted.rs`) asks the hub `GET /v1/me` then `GET /v1/realms` on a thread
 (`HubCalls`, on the screen's root, which drops its calls and their answers with it) when it
 opens, on Refresh (F5), when the account changes and after each change it made, and builds its
-cards and its detail pane again from each answer; logged out, it offers the Account dialog
-(`NextDialog`). The buttons follow what the player is to the world (`standing`): Join for
-everyone, Members for the owner and the operators (read-only for them), Stop and Delete for the
-owner, after a confirmation; Create a world shows when the account has the `host` role and room
-in its `realm_quota`. Its dialogs are in `hosted_dialogs.rs`: the form of a new world sends the
+cards and its detail pane again from each answer; one listing at a time, the newest: a new one
+forgets the one still waiting, and Refresh waits for it. Logged out, it offers the Account
+dialog (`NextDialog`); a session the hub refuses (401) logs the account out through
+`end_revoked_session`, as at start, and the dialogs of the tab (`HostedDialog`) close when the
+account changes. The buttons follow what the player is to the world (`standing`): Join for
+everyone but while the world stops, Members for the owner and the operators (read-only for
+them), Stop and Delete for the owner, after a confirmation; Create a world shows when the
+account has the `host` role and room in its `realm_quota`. The form and the Members dialog wait
+for their call (`busy`), and say under their field why the hub refused. Its dialogs are in `hosted_dialogs.rs`: the form of a new world sends the
 names of `GameMode`, `Difficulty` and `WorldPreset` (kebab-case, no single biome) as the
 server's flags take them, which a test checks against the hub's allowlist
 (`hub/agent-protocol/src/allowlist.rs`). Joining a hosted world (`network/hosted.rs`) opens a
 session whose `SessionOrigin::Server` has its `realm`, and an empty `ip` and an unspecified
-`address` until they are known: `HostedStart` asks the hub to start the world unless its address
-is known (`POST /v1/realms/{id}/start`), then asks its status port (`StatusProbe`) every 500 ms
-for 60 s at most, on a thread, while the connecting card shows Starting the world...
+`address` until they are known: `HostedStart` asks the hub to start the world (`POST
+/v1/realms/{id}/start`, which only says where a running world is; up to 200 s, above the 3
+minutes the hub gives its agent), then asks its status port (`StatusProbe`) every 500 ms for 60 s
+at most from the hub's answer, on a thread that stops asking once a cancel dropped
+`HostedStart`, while the connecting card shows Starting the world...
 (`ConnectStep::StartingHostedWorld`, the first row as for the closing of the last world). The
 launch of a local server and the connection stand down meanwhile; `wait_for_hosted_world` then
 hands the address over to `init_server_connection`, or ends the session with
 `ConnectError::HostedWorldFailed` and the hub's message on the error card, whose Try again starts
-the world again and whose way back is the Hosted worlds tab (`list_of`). `TestHub::routes`
+the world again and whose way back is the Hosted worlds tab (`list_of`); a refused session ends
+it with `ConnectError::HubSessionEnded`, which logs the account out and has no Try again. `TestHub::routes`
 answers by method and path, for the end-to-end tests of the tab (`e2e/hosted.rs`).
 
 The pause menu (`ui/menus/pause.rs`) is a modal, spawned when Escape opens it in the game and
