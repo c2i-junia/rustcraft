@@ -16,8 +16,12 @@ use super::multi::join_server;
 use super::servers::ServerItem;
 use super::solo::SelectedWorld;
 use super::worlds::start_world;
-use super::MenuState;
+use super::{list_of, MenuState};
+use crate::account::Account;
+use crate::network::address::AddressResolver;
+use crate::network::hosted::{join_hosted_world, HostedJoin};
 use crate::network::session::{ConnectError, SessionEnd, SessionOrigin};
+use crate::network::status::StatusProbe;
 use crate::network::TargetServer;
 use crate::state::GameState;
 use crate::ui::assets::FONT_PATH;
@@ -75,6 +79,8 @@ fn card_hints(retry: bool) -> &'static [Hint] {
 pub fn back_label(origin: &SessionOrigin) -> &'static str {
     if origin.is_world() {
         tr("connect.back_worlds")
+    } else if origin.realm().is_some() {
+        tr("connect.back_hosted")
     } else {
         tr("connect.back_servers")
     }
@@ -150,6 +156,10 @@ pub fn error_text(error: &ConnectError, origin: &SessionOrigin) -> (String, Stri
                 crate::i18n::translate_server_answer(reason).unwrap_or_else(|| reason.clone());
             (trf("connect.dismissed", &[("name", &name)]), reason)
         }
+        ConnectError::HostedWorldFailed(reason) => (
+            trf("connect.hosted_failed", &[("name", &name)]),
+            reason.clone(),
+        ),
         ConnectError::ConnectionLost => (
             trf("connect.lost", &[("name", &name)]),
             if world {
@@ -221,11 +231,14 @@ fn connect_error_setup(
 
 /// Try again opens the session again, as it was started; Back and Escape go to the list it came
 /// from, which focuses its card.
+#[allow(clippy::too_many_arguments)]
 fn act_on_error_card(
     closed: On<DialogClosed>,
     end: Option<Res<SessionEnd>>,
     mut selected: ResMut<SelectedWorld>,
     mut target: ResMut<TargetServer>,
+    account: Option<Res<Account>>,
+    seams: (Res<StatusProbe>, Res<AddressResolver>),
     mut game: ResMut<NextState<GameState>>,
     mut menu: ResMut<NextState<MenuState>>,
     mut commands: Commands,
@@ -233,12 +246,14 @@ fn act_on_error_card(
     let Some(end) = end else {
         return;
     };
-    if closed.action != Some(TRY_AGAIN_ACTION) {
-        menu.set(if end.origin.is_world() {
-            MenuState::Solo
-        } else {
-            MenuState::Multi
-        });
+    let hosted = end.origin.realm();
+    // a hosted world is joined with the account, which may have logged out since
+    let account = account.as_deref().and_then(|account| match account {
+        Account::LoggedIn(file) => Some(file),
+        Account::LoggedOut => None,
+    });
+    if closed.action != Some(TRY_AGAIN_ACTION) || (hosted.is_some() && account.is_none()) {
+        menu.set(list_of(&end.origin));
         return;
     }
     // the game already leaves the menus this frame: the session is not opened again, and its
@@ -251,7 +266,27 @@ fn act_on_error_card(
         SessionOrigin::World { name } => {
             start_world(name, &mut selected, &mut commands, &mut game, &mut menu);
         }
-        SessionOrigin::Server { name, ip, address } => {
+        SessionOrigin::Server { name, .. } if hosted.is_some() => {
+            let (Some(realm), Some(file)) = (hosted, account) else {
+                return;
+            };
+            let join = HostedJoin {
+                realm,
+                name: name.clone(),
+                address: None,
+            };
+            join_hosted_world(
+                &join,
+                file,
+                (*seams.0, *seams.1),
+                &mut target,
+                &mut commands,
+                (&mut game, &mut menu),
+            );
+        }
+        SessionOrigin::Server {
+            name, ip, address, ..
+        } => {
             let server = ServerItem {
                 name: name.clone(),
                 ip: ip.clone(),
@@ -277,6 +312,7 @@ mod tests {
             name: "Nowhere".into(),
             ip: "127.0.0.1:9".into(),
             address: "127.0.0.1:9".parse().unwrap(),
+            realm: None,
         }
     }
 
@@ -337,6 +373,8 @@ mod tests {
         app.init_resource::<NextState<GameState>>()
             .init_resource::<NextState<MenuState>>()
             .init_resource::<SelectedWorld>()
+            .init_resource::<StatusProbe>()
+            .init_resource::<AddressResolver>()
             .insert_resource(TargetServer {
                 address: None,
                 username: None,
@@ -481,5 +519,25 @@ mod tests {
 
         assert_eq!(back_label(&world), "Back to Worlds");
         assert_eq!(back_label(&server), "Back to Servers");
+    }
+
+    #[test]
+    fn a_hosted_world_that_did_not_start_says_why_and_leads_back_to_its_tab() {
+        let hosted = SessionOrigin::Server {
+            name: "Castle".into(),
+            ip: String::new(),
+            address: "0.0.0.0:0".parse().unwrap(),
+            realm: Some(uuid::Uuid::from_u128(1)),
+        };
+        says(
+            ConnectError::HostedWorldFailed("The hub runs as many worlds as it can.".into()),
+            &hosted,
+            "Cannot start \"Castle\"",
+            "The hub runs as many worlds as it can.",
+        );
+        assert!(can_try_again(&ConnectError::HostedWorldFailed(
+            String::new()
+        )));
+        assert_eq!(back_label(&hosted), "Back to Hosted worlds");
     }
 }

@@ -36,7 +36,7 @@ fn certificate_json() -> String {
 }
 
 /// A client with a saved name, so that it asks for none, on the hub at `hub`.
-fn client(folder: GameFolder, hub: &str) -> Harness {
+pub(super) fn client(folder: GameFolder, hub: &str) -> Harness {
     let options = Options {
         player_name: None,
         hub: Some(hub.to_string()),
@@ -47,12 +47,12 @@ fn client(folder: GameFolder, hub: &str) -> Harness {
     h
 }
 
-fn logged_out_folder() -> GameFolder {
+pub(super) fn logged_out_folder() -> GameFolder {
     GameFolder::new().with_file(PLAYER_NAME_PATH, "(name: \"Alex\")")
 }
 
 /// A folder of a player logged in as Steve to `hub`, with a certificate that needs no renewal.
-fn logged_in_folder(hub: &str) -> GameFolder {
+pub(super) fn logged_in_folder(hub: &str) -> GameFolder {
     let folder = GameFolder::new().with_file(PLAYER_NAME_PATH, "(name: \"Alex\")");
     let summary = AccountSummary {
         id: Uuid::from_u128(1),

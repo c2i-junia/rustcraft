@@ -189,6 +189,13 @@ The Multiplayer screen lists your servers with their status: players, latency, o
 cannot be joined. An address is a host name or an IPv4 address, with or without a port
 (`play.example.com`, `10.0.0.2:8000`); the port is 8000 when it is left out.
 
+Its Hosted worlds tab lists the worlds the hub hosts for your account (log in from the Account
+dialog first): those you own and those you are a member of, with their state and your role.
+Join starts a stopped world and waits for it, up to a minute, before joining it. The owner adds
+players by their username, makes them operators or members again, removes them, and stops or
+deletes the world; an operator sees the members. An account with the host role creates worlds,
+as many as its quota, with a name, a seed, a world type, a game mode and a difficulty.
+
 A dedicated server (`rustcraft-server --port 8000`) listens for the game on UDP port `port`
 (8000 by default), and answers the status requests of the server list on UDP port `port + 1`.
 Open both in a firewall or a router: a server whose status port cannot be reached, or an older

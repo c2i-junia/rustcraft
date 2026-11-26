@@ -9,6 +9,7 @@ pub mod buffered_client;
 mod chat;
 mod cleanup;
 pub mod extensions;
+pub mod hosted;
 mod inputs;
 pub mod leave;
 pub mod save;

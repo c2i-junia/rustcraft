@@ -5,11 +5,13 @@ use std::fmt;
 use std::time::Duration;
 
 use rustcraft_protocol::api::{
-    CertificateRequest, CertificateResponse, ErrorBody, ErrorCode, LoginRequest, Me,
-    RecoveryRequest, SessionResponse, SessionWithRecovery, SignUpRequest,
+    CertificateRequest, CertificateResponse, CreateRealmRequest, ErrorBody, ErrorCode,
+    LoginRequest, Me, MemberRole, Realm, RealmList, RecoveryRequest, SessionResponse,
+    SessionWithRecovery, SetMemberRequest, SignUpRequest, StartRealmResponse,
 };
 use rustcraft_protocol::identity::key_to_hex;
 use serde::de::DeserializeOwned;
+use uuid::Uuid;
 
 /// How long a call to the hub may take in all.
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -155,6 +157,86 @@ impl HubClient {
         )
     }
 
+    /// `GET /v1/realms`: the hosted worlds the account owns or is a member of.
+    pub fn realms(&self, session: &str) -> Result<RealmList, HubError> {
+        self.read(
+            self.agent
+                .get(self.url("/v1/realms"))
+                .header("Authorization", bearer(session))
+                .call(),
+        )
+    }
+
+    /// `POST /v1/realms`: a new hosted world, stopped.
+    pub fn create_realm(
+        &self,
+        session: &str,
+        request: &CreateRealmRequest,
+    ) -> Result<Realm, HubError> {
+        self.read(
+            self.agent
+                .post(self.url("/v1/realms"))
+                .header("Authorization", bearer(session))
+                .send_json(request),
+        )
+    }
+
+    /// `POST /v1/realms/{id}/start`: starts the world if it is stopped, and says where it runs.
+    pub fn start_realm(&self, session: &str, id: Uuid) -> Result<StartRealmResponse, HubError> {
+        self.read(
+            self.agent
+                .post(self.url(&format!("/v1/realms/{id}/start")))
+                .header("Authorization", bearer(session))
+                .send_empty(),
+        )
+    }
+
+    /// `POST /v1/realms/{id}/stop`: the hub stops the world in the background.
+    pub fn stop_realm(&self, session: &str, id: Uuid) -> Result<(), HubError> {
+        let response = self
+            .agent
+            .post(self.url(&format!("/v1/realms/{id}/stop")))
+            .header("Authorization", bearer(session))
+            .send_empty();
+        self.check(response).map(|_| ())
+    }
+
+    /// `DELETE /v1/realms/{id}`: archives the world.
+    pub fn delete_realm(&self, session: &str, id: Uuid) -> Result<(), HubError> {
+        let response = self
+            .agent
+            .delete(self.url(&format!("/v1/realms/{id}")))
+            .header("Authorization", bearer(session))
+            .call();
+        self.check(response).map(|_| ())
+    }
+
+    /// `PUT /v1/realms/{id}/members/{username}`: adds a member, or changes their role.
+    pub fn set_member(
+        &self,
+        session: &str,
+        id: Uuid,
+        username: &str,
+        role: MemberRole,
+    ) -> Result<(), HubError> {
+        let response = self
+            .agent
+            .put(self.url(&member_path(id, username)))
+            .header("Authorization", bearer(session))
+            .send_json(SetMemberRequest { role });
+        self.check(response).map(|_| ())
+    }
+
+    /// `DELETE /v1/realms/{id}/members/{username}`
+    pub fn remove_member(&self, session: &str, id: Uuid, username: &str) -> Result<(), HubError> {
+        let response = self
+            .agent
+            .delete(self.url(&member_path(id, username)))
+            .header("Authorization", bearer(session))
+            .call();
+        self.check(response).map(|_| ())
+    }
+
     fn url(&self, path: &str) -> String {
         format!("{}{path}", self.base)
     }
@@ -196,6 +278,20 @@ impl HubClient {
 
 fn bearer(session: &str) -> String {
     format!("Bearer {session}")
+}
+
+/// The path of the member `username` of the world `id`, the name percent-encoded: it is typed by
+/// the player.
+fn member_path(id: Uuid, username: &str) -> String {
+    let mut encoded = String::new();
+    for byte in username.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+            encoded.push(char::from(byte));
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    format!("/v1/realms/{id}/members/{encoded}")
 }
 
 #[cfg(test)]
@@ -346,6 +442,139 @@ mod tests {
         assert_eq!(
             body,
             json!({"username": "Alex", "recovery_code": "RCV-1", "new_password": "new password"})
+        );
+    }
+
+    const REALM: &str = r#"{"id":"00000000-0000-0000-0000-00000000000a","name":"Home","owner":{"id":"00000000-0000-0000-0000-000000000001","username":"Alex"},"state":"running","address":{"host":"play.example","port":25000},"members":[{"id":"00000000-0000-0000-0000-000000000002","username":"Steve","role":"operator"}]}"#;
+
+    #[test]
+    fn the_realms_are_listed_and_created_with_the_session() {
+        let hub = TestHub::start(vec![
+            Canned::ok(&format!("[{REALM}]")),
+            Canned {
+                status: 201,
+                body: REALM.into(),
+            },
+        ]);
+        let client = HubClient::new(&hub.url);
+
+        let realms = client.realms("tok").unwrap();
+        let request = CreateRealmRequest {
+            name: "Home".into(),
+            settings: rustcraft_protocol::api::RealmSettings {
+                seed: Some(7),
+                game_mode: Some("creative".into()),
+                ..Default::default()
+            },
+        };
+        let created = client.create_realm("tok", &request).unwrap();
+
+        assert_eq!(realms.len(), 1);
+        assert_eq!(realms[0].members[0].role, MemberRole::Operator);
+        assert_eq!(realms[0].address.as_ref().unwrap().port, 25000);
+        assert_eq!(created.name, "Home");
+        let requests = hub.requests();
+        assert_eq!(
+            (requests[0].method.as_str(), requests[0].path.as_str()),
+            ("GET", "/v1/realms")
+        );
+        assert_eq!(
+            (requests[1].method.as_str(), requests[1].path.as_str()),
+            ("POST", "/v1/realms")
+        );
+        for request in &requests {
+            assert_eq!(request.header("authorization"), Some("Bearer tok"));
+        }
+        let body: Value = serde_json::from_str(&requests[1].body).unwrap();
+        assert_eq!(
+            body,
+            json!({"name": "Home", "settings": {"seed": 7, "game_mode": "creative"}})
+        );
+    }
+
+    #[test]
+    fn a_realm_is_started_stopped_and_deleted_by_its_id() {
+        let id = Uuid::from_u128(10);
+        let hub = TestHub::start(vec![
+            Canned::ok(r#"{"state":"starting","host":"play.example","port":25002}"#),
+            Canned {
+                status: 202,
+                body: String::new(),
+            },
+            Canned {
+                status: 204,
+                body: String::new(),
+            },
+        ]);
+        let client = HubClient::new(&hub.url);
+
+        let started = client.start_realm("tok", id).unwrap();
+        client.stop_realm("tok", id).unwrap();
+        client.delete_realm("tok", id).unwrap();
+
+        assert_eq!(
+            (started.host.as_str(), started.port),
+            ("play.example", 25002)
+        );
+        let calls: Vec<(String, String)> = hub
+            .requests()
+            .into_iter()
+            .map(|request| (request.method, request.path))
+            .collect();
+        let path = format!("/v1/realms/{id}");
+        assert_eq!(
+            calls,
+            [
+                ("POST".to_string(), format!("{path}/start")),
+                ("POST".to_string(), format!("{path}/stop")),
+                ("DELETE".to_string(), path),
+            ]
+        );
+    }
+
+    #[test]
+    fn no_free_slot_is_an_api_error_with_its_message() {
+        let hub = TestHub::start(vec![Canned::error(
+            503,
+            "no_free_slot",
+            "The hub runs as many worlds as it can. Try again later.",
+        )]);
+        let error = HubClient::new(&hub.url)
+            .start_realm("tok", Uuid::from_u128(10))
+            .unwrap_err();
+        assert_eq!(
+            error,
+            HubError::Api {
+                code: ErrorCode::NoFreeSlot,
+                message: "The hub runs as many worlds as it can. Try again later.".into()
+            }
+        );
+    }
+
+    #[test]
+    fn members_are_set_and_removed_by_their_name_encoded() {
+        let id = Uuid::from_u128(10);
+        let no_content = || Canned {
+            status: 204,
+            body: String::new(),
+        };
+        let hub = TestHub::start(vec![no_content(), no_content()]);
+        let client = HubClient::new(&hub.url);
+
+        client
+            .set_member("tok", id, "Steve", MemberRole::Operator)
+            .unwrap();
+        client.remove_member("tok", id, "a b/c").unwrap();
+
+        let requests = hub.requests();
+        assert_eq!(requests[0].method, "PUT");
+        assert_eq!(requests[0].path, format!("/v1/realms/{id}/members/Steve"));
+        let body: Value = serde_json::from_str(&requests[0].body).unwrap();
+        assert_eq!(body, json!({"role": "operator"}));
+        assert_eq!(requests[1].method, "DELETE");
+        assert_eq!(
+            requests[1].path,
+            format!("/v1/realms/{id}/members/a%20b%2Fc")
         );
     }
 

@@ -16,6 +16,7 @@ use shared::{get_shared_renet_config, GameServerConfig, SaveCounter, STC_AUTH_CH
 use crate::account::Account;
 use crate::menus::solo::SelectedWorld;
 use crate::mob::ClientMobs;
+use crate::network::hosted::HostedStart;
 use crate::network::session::{end_session, ConnectError, Dismissal, SessionOrigin};
 use crate::network::world::{update_world_from_network, DecodingChunkMessages};
 use crate::network::CachedChatConversation;
@@ -252,9 +253,11 @@ pub fn launch_local_server_system(
     origin: Option<Res<SessionOrigin>>,
     exit_sent: Option<Res<ExitSent>>,
     closing: Option<Res<LastWorldClosing>>,
+    hosted: Option<Res<HostedStart>>,
     mut game_state: ResMut<NextState<GameState>>,
 ) {
-    if target.address.is_some() {
+    // a hosted world has no address until the hub started it, and no local server
+    if target.address.is_some() || hosted.is_some() {
         debug!("Skipping launch local server");
         return;
     }
@@ -461,17 +464,18 @@ pub fn open_connection(
 }
 
 /// Connects to the server of the session, or ends it with `NoConnection`. Stands down when the
-/// session already ended this frame, the launch of its world failed, and while its world waits
-/// for the last one to close (`LastWorldClosing`): it connects once that world is launched.
+/// session already ended this frame, the launch of its world failed, while its world waits for
+/// the last one to close (`LastWorldClosing`) and while its hosted world starts (`HostedStart`):
+/// it connects once that world is launched, or answers.
 pub fn init_server_connection(
     mut commands: Commands,
     target: Res<TargetServer>,
     current_player_id: Res<CurrentPlayerProfile>,
     origin: Option<Res<SessionOrigin>>,
-    closing: Option<Res<LastWorldClosing>>,
+    (closing, hosted): (Option<Res<LastWorldClosing>>, Option<Res<HostedStart>>),
     mut game_state: ResMut<NextState<GameState>>,
 ) {
-    if !matches!(*game_state, NextState::Unchanged) || closing.is_some() {
+    if !matches!(*game_state, NextState::Unchanged) || closing.is_some() || hosted.is_some() {
         return;
     }
     let connection = match target.address {

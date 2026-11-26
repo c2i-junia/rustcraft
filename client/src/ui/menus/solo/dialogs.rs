@@ -5,6 +5,7 @@ use crate::i18n::{tr, trf};
 use std::io;
 
 use bevy::{
+    ecs::component::Mutable,
     input_focus::InputFocus,
     prelude::*,
     text::{EditableText, EditableTextFilter},
@@ -87,20 +88,20 @@ pub struct WorldSeedInput;
 
 /// The world types the New world dialog offers, by their caption. A world of a single biome is
 /// made by editing its `world.ron`, as a tool to look at one biome.
-const WORLD_TYPES: [(&str, WorldPreset); 3] = [
+pub(crate) const WORLD_TYPES: [(&str, WorldPreset); 3] = [
     ("worlds.type.default", WorldPreset::Default),
     ("worlds.type.large_biomes", WorldPreset::LargeBiomes),
     ("worlds.type.archipelago", WorldPreset::Archipelago),
 ];
 
 /// The game modes the New world dialog offers, by their caption.
-const GAME_MODES: [(&str, GameMode); 2] = [
+pub(crate) const GAME_MODES: [(&str, GameMode); 2] = [
     ("worlds.mode.survival", GameMode::Survival),
     ("worlds.mode.creative", GameMode::Creative),
 ];
 
 /// The difficulties the New world dialog offers, by their caption.
-const DIFFICULTIES: [(&str, Difficulty); 4] = [
+pub(crate) const DIFFICULTIES: [(&str, Difficulty); 4] = [
     ("worlds.difficulty.peaceful", Difficulty::Peaceful),
     ("worlds.difficulty.easy", Difficulty::Easy),
     ("worlds.difficulty.normal", Difficulty::Normal),
@@ -116,13 +117,13 @@ struct NewWorldChoices(NewWorldOptions);
 const CHOICE_LABEL_WIDTH: f32 = 96.0;
 
 /// Spawns under `form` the segmented control `label`, the option `selected` checked. `choose`
-/// sets the chosen option in the `NewWorldChoices` of the dialog `root`.
-fn spawn_world_choice(
+/// sets the chosen option in the component `C` of the dialog `root`, where it keeps them.
+pub(crate) fn spawn_world_choice<C: Component<Mutability = Mutable>>(
     commands: &mut Commands,
     (root, form): (Entity, Entity),
     (label, options, selected): (&str, &[&str], usize),
     font: &Handle<Font>,
-    choose: impl Fn(&mut NewWorldOptions, usize) + Send + Sync + 'static,
+    choose: impl Fn(&mut C, usize) + Send + Sync + 'static,
 ) {
     let row = commands
         .spawn((
@@ -156,9 +157,9 @@ fn spawn_world_choice(
     };
     let group = spawn_segmented(commands, &segmented, font.clone());
     commands.entity(group).insert(ChildOf(row)).observe(
-        move |change: On<SegmentChange>, mut choices: Query<&mut NewWorldChoices>| {
+        move |change: On<SegmentChange>, mut choices: Query<&mut C>| {
             if let Ok(mut choices) = choices.get_mut(root) {
-                choose(&mut choices.0, change.index);
+                choose(&mut choices, change.index);
             }
         },
     );
@@ -276,7 +277,7 @@ pub fn open_new_world_dialog(
                 0,
             ),
             &font,
-            |options, index| options.game_mode = GAME_MODES[index].1,
+            |choices: &mut NewWorldChoices, index| choices.0.game_mode = GAME_MODES[index].1,
         );
         let normal = DIFFICULTIES
             .iter()
@@ -291,7 +292,7 @@ pub fn open_new_world_dialog(
                 normal,
             ),
             &font,
-            |options, index| options.difficulty = DIFFICULTIES[index].1,
+            |choices: &mut NewWorldChoices, index| choices.0.difficulty = DIFFICULTIES[index].1,
         );
         spawn_world_choice(
             commands,
@@ -302,7 +303,9 @@ pub fn open_new_world_dialog(
                 0,
             ),
             &font,
-            |options, index| options.generation.preset = WORLD_TYPES[index].1.clone(),
+            |choices: &mut NewWorldChoices, index| {
+                choices.0.generation.preset = WORLD_TYPES[index].1.clone();
+            },
         );
     }
     commands
@@ -623,8 +626,14 @@ mod tests {
     #[test]
     fn a_failed_delete_says_why_in_a_few_words() {
         let cases = [
-            (io::ErrorKind::PermissionDenied, crate::i18n::tr(DELETE_PERMISSION)),
-            (io::ErrorKind::ReadOnlyFilesystem, crate::i18n::tr(DELETE_PERMISSION)),
+            (
+                io::ErrorKind::PermissionDenied,
+                crate::i18n::tr(DELETE_PERMISSION),
+            ),
+            (
+                io::ErrorKind::ReadOnlyFilesystem,
+                crate::i18n::tr(DELETE_PERMISSION),
+            ),
             (io::ErrorKind::ResourceBusy, "The world is in use"),
             (io::ErrorKind::Other, "Could not delete the world"),
         ];

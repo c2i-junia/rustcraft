@@ -8,6 +8,7 @@ use crate::camera::camera_plugin;
 use crate::dropped_items::dropped_items_plugin;
 use crate::input::input_plugin;
 use crate::mob::mob_plugin;
+use crate::network::hosted::{wait_for_hosted_world, HostedStart};
 use crate::network::session::{
     player_name_accepted, refuse_an_invalid_name, track_connection, ConnectStep, ConnectWatch,
 };
@@ -75,10 +76,20 @@ pub fn game_plugin(app: &mut App) {
             .run_if(in_state(GameState::PreGameLoading))
             .run_if(resource_exists::<LastWorldClosing>),
     )
+    // a hosted world is connected to once the hub started it and it answers
+    .add_systems(
+        Update,
+        (wait_for_hosted_world, init_server_connection)
+            .chain()
+            .before(track_connection)
+            .run_if(in_state(GameState::PreGameLoading))
+            .run_if(resource_exists::<HostedStart>),
+    )
     .add_systems(
         OnExit(GameState::PreGameLoading),
         |mut commands: Commands| {
             commands.remove_resource::<LastWorldClosing>();
+            commands.remove_resource::<HostedStart>();
         },
     )
     .add_systems(

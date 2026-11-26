@@ -349,6 +349,7 @@ mod tests {
             name: "Friends".into(),
             ip: "play.example.org:8000".into(),
             address: "127.0.0.1:8000".parse().unwrap(),
+            realm: None,
         };
         assert_eq!(BookmarkKey::of(&solo), world("Survie"));
         assert_eq!(

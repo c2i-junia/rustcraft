@@ -1,12 +1,14 @@
 //! The Multiplayer screen: the saved servers as cards with their status, and a detail pane for
 //! the selected one with Join, Edit and Remove. Refresh (F5) and Add server (Ctrl+N) sit in the
-//! title bar.
+//! title bar, after the tabs Servers and Hosted worlds (`hosted`).
 //!
 //! The cards are always built again from `servers.ron` once a server was added, edited or
 //! removed; their statuses live on the screen's root (`status::StatusBoard`), asked on threads,
 //! and never wait for the network on the frame. Joining resolves the address on a thread too.
 
 pub mod dialogs;
+pub mod hosted;
+pub mod hosted_dialogs;
 pub mod status;
 
 use crate::i18n::{tr, trf};
@@ -42,8 +44,8 @@ use crate::state::GameState;
 use crate::ui::assets::FONT_PATH;
 use crate::ui::menus::modal_open;
 use crate::ui::theme::{
-    BEVEL_WIDTH, DANGER, FONT_L, FONT_M, FONT_S, FONT_XL, MUTED, PANEL, SPACE_L, SPACE_M, SPACE_S,
-    SPACE_XL, SPACE_XS, TEXT,
+    BEVEL_WIDTH, DANGER, FONT_L, FONT_M, FONT_S, MUTED, PANEL, SPACE_L, SPACE_M, SPACE_S, SPACE_XL,
+    SPACE_XS, TEXT,
 };
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::focus::ArrowNav;
@@ -60,7 +62,7 @@ use status::{
     StatusBoard,
 };
 
-/// The title of the screen.
+/// The title of the tab of the servers.
 pub const SERVERS_TITLE: &str = "servers.title";
 
 /// A server card, and the server it shows.
@@ -208,6 +210,7 @@ const UNREADABLE: &str = "servers.unreadable";
 /// The Multiplayer screen and its dialogs.
 pub fn multi_plugin(app: &mut App) {
     dialogs::plugin(app);
+    hosted::plugin(app);
     status::plugin(app);
     app.init_resource::<StatusProbe>()
         .init_resource::<AddressResolver>()
@@ -258,30 +261,36 @@ fn multi_setup(end: Option<Res<SessionEnd>>, mut commands: Commands, assets: Res
             ChildOf(root),
         ))
         .id();
-    commands.spawn((
-        Node {
-            align_items: AlignItems::Center,
-            column_gap: px(SPACE_S),
-            ..default()
-        },
-        ChildOf(content),
-        children![
-            text(tr(SERVERS_TITLE), FONT_XL, TEXT, &font),
+    let tabs = hosted::multiplayer_tabs(&mut commands, 0, font.clone());
+    let title = commands
+        .spawn((
             Node {
-                flex_grow: 1.0,
+                align_items: AlignItems::Center,
+                column_gap: px(SPACE_S),
                 ..default()
             },
-            (
-                button(tr("servers.refresh"), ButtonVariant::Default, font.clone()),
-                RefreshButton,
-                observe(refresh),
-            ),
-            (
-                button(tr("servers.add"), ButtonVariant::Default, font.clone()),
-                AddServerButton,
-                observe(open_add_server),
-            ),
-        ],
+            ChildOf(content),
+        ))
+        .add_child(tabs)
+        .id();
+    commands.spawn((
+        Node {
+            flex_grow: 1.0,
+            ..default()
+        },
+        ChildOf(title),
+    ));
+    commands.spawn((
+        button(tr("servers.refresh"), ButtonVariant::Default, font.clone()),
+        RefreshButton,
+        observe(refresh),
+        ChildOf(title),
+    ));
+    commands.spawn((
+        button(tr("servers.add"), ButtonVariant::Default, font.clone()),
+        AddServerButton,
+        observe(open_add_server),
+        ChildOf(title),
     ));
     let body = commands
         .spawn((
@@ -747,7 +756,8 @@ fn start_join(
     let Ok(address) = parse_server_address(&server.ip) else {
         return;
     };
-    let looking_up = (!address.is_ip()).then(|| (trf("servers.looking_up", &[("host", &address.host)]), MUTED));
+    let looking_up =
+        (!address.is_ip()).then(|| (trf("servers.looking_up", &[("host", &address.host)]), MUTED));
     show_server_error(errors, looking_up);
     let host = address.host.clone();
     commands.entity(root).insert(PendingJoin {
@@ -834,6 +844,7 @@ pub fn join_server(
         name: server.name.clone(),
         ip: server.ip.clone(),
         address,
+        realm: None,
     });
     target.address = Some(address);
     target.state = TargetServerState::Initial;

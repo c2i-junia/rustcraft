@@ -13,6 +13,7 @@ use shared::SPAWN_CHUNK_RADIUS;
 use shared::STC_AUTH_CHANNEL;
 
 use super::extensions::SendGameMessageExtension;
+use super::hosted::HostedStart;
 use super::leave::Leaving;
 use super::status::{InFlight, ServerStatus, StatusProbe};
 use super::{
@@ -22,6 +23,7 @@ use super::{
 use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
 use crate::world::ClientWorldMap;
+use uuid::Uuid;
 
 /// Where the session being opened or played was started from.
 #[derive(Resource, Clone, Debug, PartialEq, Eq)]
@@ -29,11 +31,14 @@ pub enum SessionOrigin {
     World {
         name: String,
     },
-    /// `ip` as typed in the server list; `address` what the join resolved it to.
+    /// `ip` as typed in the server list; `address` what the join resolved it to. A hosted
+    /// world (`realm`) is a server whose `ip` and `address` are known once the hub started it:
+    /// until then `ip` is empty and `address` unspecified.
     Server {
         name: String,
         ip: String,
         address: SocketAddr,
+        realm: Option<Uuid>,
     },
 }
 
@@ -48,6 +53,14 @@ impl SessionOrigin {
     /// Whether the session opens a world of this computer rather than joins a server.
     pub fn is_world(&self) -> bool {
         matches!(self, SessionOrigin::World { .. })
+    }
+
+    /// The hosted world the session joins, if it is one.
+    pub fn realm(&self) -> Option<Uuid> {
+        match self {
+            SessionOrigin::Server { realm, .. } => *realm,
+            SessionOrigin::World { .. } => None,
+        }
     }
 }
 
@@ -66,6 +79,8 @@ pub enum ConnectStep {
     ClosingLastWorld,
     /// The local server of a world loads it, then accepts the client.
     StartingWorld,
+    /// The hub starts a hosted world, until its status port answers (`HostedStart`).
+    StartingHostedWorld,
     /// The client connects to a server and authenticates.
     Connecting,
     /// `received` of the `total` chunks around the spawn are in.
@@ -104,6 +119,9 @@ pub enum ConnectError {
     /// The server dismissed the player, for this reason: kicked or banned by an operator, or
     /// refused when it asked to join (banned, not on the whitelist).
     Dismissed(String),
+    /// A hosted world did not start, for this reason: the hub refused or could not be reached,
+    /// or the world did not answer in time.
+    HostedWorldFailed(String),
 }
 
 /// The reason the server gave for dismissing the player, received before the authentication
@@ -201,14 +219,23 @@ pub fn end_session(
 }
 
 /// Starts watching the session at its first step.
-fn start_watching(origin: Option<Res<SessionOrigin>>, mut commands: Commands) {
+fn start_watching(
+    origin: Option<Res<SessionOrigin>>,
+    hosted: Option<Res<HostedStart>>,
+    mut commands: Commands,
+) {
     // the dismissal of an earlier session is not this one's
     commands.remove_resource::<Dismissal>();
     let Some(origin) = origin else {
         return;
     };
+    let step = if hosted.is_some() {
+        ConnectStep::StartingHostedWorld
+    } else {
+        connect_step(&origin, false, None)
+    };
     commands.insert_resource(ConnectWatch {
-        step: connect_step(&origin, false, None),
+        step,
         since: Instant::now(),
         verdict: None,
     });
@@ -226,7 +253,7 @@ pub(crate) fn track_connection(
     target: Res<TargetServer>,
     world: Res<ClientWorldMap>,
     player: Query<&Transform, With<CurrentPlayerMarker>>,
-    closing: Option<Res<LastWorldClosing>>,
+    (closing, hosted): (Option<Res<LastWorldClosing>>, Option<Res<HostedStart>>),
 ) {
     let (Some(mut watch), Some(origin)) = (watch, origin) else {
         return;
@@ -237,6 +264,8 @@ pub(crate) fn track_connection(
     });
     let step = if closing.is_some() {
         ConnectStep::ClosingLastWorld
+    } else if hosted.is_some() {
+        ConnectStep::StartingHostedWorld
     } else {
         connect_step(&origin, authenticated(target), chunks)
     };
@@ -256,7 +285,8 @@ pub(crate) fn track_connection(
 /// A world still starting has no timeout: its server thread is the watchdog. When its
 /// connection gives up first (netcode's connect token, 15 s), a new one is opened. A world
 /// waiting for the last one to close (`LastWorldClosing`) is not watched: the server running is
-/// the last world's, and the launch bounds the wait.
+/// the last world's, and the launch bounds the wait. Nor is a hosted world the hub starts
+/// (`HostedStart`): it has no connection yet, and its start bounds the wait.
 ///
 /// The timeout counts from the last new step, not from the start: on a busy server the chunks
 /// around the spawn may come after those of the other players, and each one that comes is a
@@ -272,14 +302,14 @@ fn watch_connection(
     profile: Res<CurrentPlayerProfile>,
     timeout: Res<ConnectTimeout>,
     probe: Res<StatusProbe>,
-    closing: Option<Res<LastWorldClosing>>,
+    (closing, hosted): (Option<Res<LastWorldClosing>>, Option<Res<HostedStart>>),
     mut game: ResMut<NextState<GameState>>,
     mut commands: Commands,
 ) {
     let (Some(mut watch), Some(origin)) = (watch, origin) else {
         return;
     };
-    if !matches!(*game, NextState::Unchanged) || closing.is_some() {
+    if !matches!(*game, NextState::Unchanged) || closing.is_some() || hosted.is_some() {
         return;
     }
     // the handle is that of this session's world: no other one starts while it is held
@@ -546,7 +576,7 @@ pub fn connect_step(
 /// How far the progress bar is filled at `step` (Decision 3), from 0 to 1.
 pub fn progress(step: ConnectStep) -> f32 {
     match step {
-        ConnectStep::ClosingLastWorld => 0.0,
+        ConnectStep::ClosingLastWorld | ConnectStep::StartingHostedWorld => 0.0,
         ConnectStep::StartingWorld | ConnectStep::Connecting => 0.1,
         ConnectStep::LoadingChunks { received, total } => {
             let loaded = if total == 0 {
@@ -619,6 +649,7 @@ mod tests {
             name: "Friends".into(),
             ip: "127.0.0.1:8000".into(),
             address: "127.0.0.1:8000".parse().unwrap(),
+            realm: None,
         }
     }
 
@@ -859,6 +890,7 @@ mod tests {
                 name: "Nowhere".into(),
                 ip: "127.0.0.1:9".into(),
                 address: "127.0.0.1:9".parse().unwrap(),
+                realm: None,
             })
             .insert_resource(TargetServer {
                 address: None,

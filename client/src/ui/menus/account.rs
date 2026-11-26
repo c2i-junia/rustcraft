@@ -746,7 +746,7 @@ fn poll_call(
 }
 
 /// Adds `content` to the panel of the dialog `root`, above its buttons.
-fn add_to_panel(commands: &mut Commands, root: Entity, content: Vec<Entity>) {
+pub(crate) fn add_to_panel(commands: &mut Commands, root: Entity, content: Vec<Entity>) {
     commands.queue(move |world: &mut World| {
         let panel = world.get::<Children>(root).and_then(|children| {
             children

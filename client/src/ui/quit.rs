@@ -357,6 +357,7 @@ mod tests {
             name: "Friends".to_string(),
             ip: "127.0.0.1".to_string(),
             address: "127.0.0.1:8000".parse().unwrap(),
+            realm: None,
         };
         app.insert_resource(origin.clone())
             .world_mut()
@@ -418,6 +419,7 @@ mod tests {
                 name: "Friends".to_string(),
                 ip: "127.0.0.1".to_string(),
                 address: "127.0.0.1:8000".parse().unwrap(),
+                realm: None,
             })
             .world_mut()
             .resource_mut::<NextState<GameState>>()

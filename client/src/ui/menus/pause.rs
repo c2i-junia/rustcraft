@@ -671,6 +671,7 @@ mod tests {
             name: "Local".to_string(),
             ip: "127.0.0.1".to_string(),
             address: "127.0.0.1:8000".parse().unwrap(),
+            realm: None,
         };
         let solo = [BackToGame, Progress, Settings, SaveNow, SaveAndQuit];
         assert_eq!(pause_buttons(Some(&world)), solo);
@@ -982,6 +983,7 @@ mod tests {
             name: "Friends".to_string(),
             ip: "127.0.0.1".to_string(),
             address: "127.0.0.1:8000".parse().unwrap(),
+            realm: None,
         });
         app.update();
         assert!(!app.world().contains_resource::<AutosaveWatch>());

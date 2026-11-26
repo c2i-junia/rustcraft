@@ -21,6 +21,7 @@ mod gestures;
 mod hand;
 mod harness;
 mod helpers;
+mod hosted;
 mod hud;
 mod input;
 mod inventory;

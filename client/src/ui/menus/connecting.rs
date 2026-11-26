@@ -14,6 +14,7 @@ use bevy::{
 
 use super::background::menu_background;
 use super::text;
+use crate::network::hosted::HostedStart;
 use crate::network::session::{
     end_session, progress, track_connection, ConnectStep, ConnectWatch, SessionOrigin,
 };
@@ -70,6 +71,8 @@ pub(crate) const BLINK: f32 = 0.5;
 const CHUNKS_ROW: usize = 2;
 /// The label of the first step of a world opened while the last one closes.
 pub const CLOSING_LAST_WORLD: &str = "connecting.closing";
+/// The label of the first step of a hosted world, while the hub starts it.
+pub const STARTING_HOSTED_WORLD: &str = "connecting.starting_hosted";
 
 /// The title of the card: `Opening "Survie"` for a world, `Joining "Friends"` for a server.
 pub fn connecting_title(origin: &SessionOrigin) -> String {
@@ -80,20 +83,31 @@ pub fn connecting_title(origin: &SessionOrigin) -> String {
 }
 
 /// The labels of the steps of a session, in order. The first row, the wait for the last world
-/// to close, only shows on the card of a world that waits for it.
+/// to close or for the hub to start a hosted world, only shows on the card of a session that
+/// waits for it.
 pub fn step_labels(origin: &SessionOrigin) -> [&'static str; 4] {
     let first = if origin.is_world() {
         tr("connecting.starting")
     } else {
         tr("connecting.connecting")
     };
-    [crate::i18n::tr(CLOSING_LAST_WORLD), first, tr("connecting.loading"), tr("connecting.spawning")]
+    let wait = if origin.realm().is_some() {
+        STARTING_HOSTED_WORLD
+    } else {
+        CLOSING_LAST_WORLD
+    };
+    [
+        tr(wait),
+        first,
+        tr("connecting.loading"),
+        tr("connecting.spawning"),
+    ]
 }
 
 /// The row of `step`.
 fn step_row(step: ConnectStep) -> usize {
     match step {
-        ConnectStep::ClosingLastWorld => 0,
+        ConnectStep::ClosingLastWorld | ConnectStep::StartingHostedWorld => 0,
         ConnectStep::StartingWorld | ConnectStep::Connecting => 1,
         ConnectStep::LoadingChunks { .. } => CHUNKS_ROW,
         ConnectStep::Spawning => 3,
@@ -118,10 +132,12 @@ pub fn connecting_plugin(app: &mut App) {
 }
 
 /// Spawns the card of the session being opened, every step pending until `show_step`; with the
-/// wait for the last world to close first when it does (`LastWorldClosing`).
+/// wait for the last world to close first when it does (`LastWorldClosing`), or for the hub to
+/// start its hosted world (`HostedStart`).
 pub fn setup_connecting_card(
     origin: Option<Res<SessionOrigin>>,
     closing: Option<Res<LastWorldClosing>>,
+    hosted: Option<Res<HostedStart>>,
     assets: Res<AssetServer>,
     mut commands: Commands,
 ) {
@@ -183,8 +199,11 @@ pub fn setup_connecting_card(
             children![text(&title, FONT_L, TEXT, &font)],
         ))
         .id();
+    // a hosted world being started has no address yet
     if let SessionOrigin::Server { ip, .. } = &*origin {
-        commands.spawn((text(ip, FONT_S, MUTED, &font), ChildOf(heading)));
+        if !ip.is_empty() {
+            commands.spawn((text(ip, FONT_S, MUTED, &font), ChildOf(heading)));
+        }
     }
     let steps = commands
         .spawn((
@@ -196,7 +215,11 @@ pub fn setup_connecting_card(
             ChildOf(card),
         ))
         .id();
-    let skipped = if closing.is_some() { 0 } else { 1 };
+    let skipped = if closing.is_some() || hosted.is_some() {
+        0
+    } else {
+        1
+    };
     for (index, label) in step_labels(&origin).into_iter().enumerate().skip(skipped) {
         let row = commands
             .spawn((

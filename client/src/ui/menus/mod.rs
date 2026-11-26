@@ -23,7 +23,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::input_focus::{FocusCause, InputFocus, InputFocusVisible};
 
 use crate::network::leave::Quitting;
-use crate::network::session::SessionEnd;
+use crate::network::session::{SessionEnd, SessionOrigin};
 use crate::state::{GameState, MenuCamera};
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::credits::{scroll_credits, Credits};
@@ -38,6 +38,8 @@ pub enum MenuState {
     Main,
     Solo,
     Multi,
+    /// The Hosted worlds tab of the Multiplayer screen.
+    Hosted,
     Settings,
     /// The error card of a session that failed.
     ConnectError,
@@ -118,9 +120,19 @@ pub fn first_menu(end: Option<&SessionEnd>) -> MenuState {
         Some(SessionEnd {
             origin,
             error: None,
-        }) if origin.is_world() => MenuState::Solo,
-        Some(SessionEnd { error: None, .. }) => MenuState::Multi,
+        }) => list_of(origin),
         _ => MenuState::Main,
+    }
+}
+
+/// The list a session was started from: the worlds, the servers or the hosted worlds.
+pub fn list_of(origin: &SessionOrigin) -> MenuState {
+    if origin.is_world() {
+        MenuState::Solo
+    } else if origin.realm().is_some() {
+        MenuState::Hosted
+    } else {
+        MenuState::Multi
     }
 }
 
@@ -144,7 +156,7 @@ fn escape_button(
     }
     if keys.just_pressed(KeyCode::Escape) {
         match menu_state.get() {
-            MenuState::Solo | MenuState::Multi | MenuState::Skins => {
+            MenuState::Solo | MenuState::Multi | MenuState::Hosted | MenuState::Skins => {
                 next_menu_state.set(MenuState::Main)
             }
             // The settings close themselves
@@ -315,6 +327,7 @@ mod tests {
             name: "Friends".into(),
             ip: "127.0.0.1:8000".into(),
             address: "127.0.0.1:8000".parse().unwrap(),
+            realm: None,
         };
         assert_eq!(first_menu(None), MenuState::Main);
         assert_eq!(first_menu(Some(&cancelled(world))), MenuState::Solo);
@@ -322,6 +335,13 @@ mod tests {
             first_menu(Some(&cancelled(server.clone()))),
             MenuState::Multi
         );
+        let hosted = SessionOrigin::Server {
+            name: "Castle".into(),
+            ip: String::new(),
+            address: "0.0.0.0:0".parse().unwrap(),
+            realm: Some(uuid::Uuid::from_u128(1)),
+        };
+        assert_eq!(first_menu(Some(&cancelled(hosted))), MenuState::Hosted);
         let failed = SessionEnd {
             origin: server,
             error: Some(ConnectError::NoAnswer),
