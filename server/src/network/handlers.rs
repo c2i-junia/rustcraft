@@ -354,7 +354,7 @@ pub(super) fn chat_message(
                             )
                         } else {
                             access.lookups.start(hub, client_id, admin, &name);
-                            format!("Asking the hub for {name}…")
+                            format!("Asking the hub for {name}...")
                         }
                     }
                 }

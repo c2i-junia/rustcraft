@@ -3909,7 +3909,7 @@ fn a_player_banned_through_the_hub_is_dismissed_whatever_its_name_online() {
     // the name of its certificate is not the one the hub gives it now
     let mut bob = hub.join(&server, &hub.certificate_of(BOB, "Robert"));
     alex.send(chat_message("/ban Bob"));
-    command_answer(&mut alex, "Asking the hub for Bob…");
+    command_answer(&mut alex, "Asking the hub for Bob...");
     command_answer(&mut alex, "Banned Bob");
     assert_eq!(dismissed(&mut bob), "You are banned from this server.");
 }

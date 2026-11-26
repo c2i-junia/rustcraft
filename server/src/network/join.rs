@@ -42,10 +42,15 @@ pub fn no_proof(hub: &str) -> String {
 }
 
 /// The reason given to a player whose proof was made for an address the server does not have:
-/// it dialed another server, which passed it the challenge of this one.
+/// it dialed another server, which passed it the challenge of this one. The address comes from
+/// the client: it is quoted, escaped and cut to `SHOWN_ADDRESS_CHARS` characters.
 pub fn wrong_address(address: &str) -> String {
-    format!("This server does not answer to {address}.")
+    let shown: String = address.chars().take(SHOWN_ADDRESS_CHARS).collect();
+    format!("This server does not answer to {shown:?}.")
 }
+
+/// How much of the address of a refused proof is shown, in the log and to the player.
+const SHOWN_ADDRESS_CHARS: usize = 100;
 
 pub const EXPIRED: &str = "The certificate of your account has expired: the game renews it as soon as it reaches the hub.";
 pub const NOT_YET_VALID: &str =
@@ -434,6 +439,13 @@ mod tests {
             fixture.check(&trust, &relayed),
             Err(wrong_address("evil.example:8000"))
         );
+        assert_eq!(
+            wrong_address("evil.example:8000"),
+            "This server does not answer to \"evil.example:8000\"."
+        );
+        let long = wrong_address(&format!("a\n{}", "b".repeat(500)));
+        assert!(long.contains("a\\n") && !long.contains('\n'), "{long}");
+        assert!(long.len() < 150, "{long}");
         let other_hub = Fixture::new().trust();
         assert_eq!(fixture.check(&other_hub, &proof), reason(UNKNOWN_HUB));
         let mut elsewhere = fixture.certificate.clone();
