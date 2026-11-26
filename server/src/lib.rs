@@ -8,7 +8,7 @@ mod world;
 
 pub use init::{
     acquire_local_ephemeral_udp_socket, acquire_local_socket_pair, acquire_socket_by_port, init,
-    init_with_status,
+    init_hosted, init_with_status,
 };
 pub use network::join;
 pub use network::permissions::{Entry, Permissions, BANNED_FILE, OPS_FILE, WHITELIST_FILE};

@@ -7,4 +7,5 @@ mod handlers;
 pub mod join;
 pub mod permissions;
 pub mod profiles;
+pub mod realm;
 pub(crate) mod status;

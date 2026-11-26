@@ -434,6 +434,12 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    `GET /v1/profiles?name=` in a thread (`network/profiles.rs`, `ProfileLookups`, polled by
    `finish_lookups_system`, which runs the command and answers its author); `--op` asks it
    at start (`hub::resolve_names`). Tests replace the question with `set_profile_lookup`.
+   A hosted world (`--realm`, `init_hosted`) has `Permissions::hosted`: the members of
+   `GET /v1/realms/{id}/config` (`hub::watch_realm`, read at start and every minute by a thread
+   that sends `RealmEvent`s) as the whitelist, its operator members and its owner as the
+   operators, nothing read from or written to files, and `Permissions::refuses` answers the
+   commands that change the lists. `realm_system` applies each new config, dismisses the
+   players it no longer lets in and, on `Gone` (401 or 404), saves and exits.
    `ServerWorldMap::accounts` gives the files of the players their account for name.
    Joining starts with a challenge: as soon as a client connects, `send_challenges_system`
    (`network/join.rs`, in `PreUpdate`) sends it `AuthChallenge`, a nonce of its own, the

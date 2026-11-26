@@ -26,7 +26,7 @@ use crate::network::commands::{
 };
 use crate::network::extensions::SendGameMessageExtension;
 use crate::network::join::{check_proof, BAD_NAME};
-use crate::network::permissions::{same_name, Admin, Dismissals, Permissions};
+use crate::network::permissions::{same_name, Admin, Dismissals, Permissions, HOSTED_REFUSAL};
 use crate::network::profiles::ProfileLookups;
 use crate::world::data::ServerWorldMap;
 use crate::world::generation::WorldGeneration;
@@ -317,6 +317,9 @@ pub(super) fn chat_message(
             _ if refused.is_some() => refused.unwrap_or_default(),
             Ok(Command::List) => {
                 list_players(lobby.players.values().map(|p| p.name.as_str()).collect())
+            }
+            Ok(Command::Admin(admin)) if access.permissions.refuses(&admin) => {
+                HOSTED_REFUSAL.to_string()
             }
             Ok(Command::Admin(admin)) => {
                 let hub = match access.auth {

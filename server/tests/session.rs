@@ -6,10 +6,11 @@ use bevy::prelude::Transform;
 use bevy_renet::netcode::{ClientAuthentication, NetcodeClientTransport};
 use bevy_renet::RenetClient;
 use ed25519_dalek::SigningKey;
-use rustcraft_protocol::api::Profile;
+use rustcraft_protocol::api::{AccountSummary, MemberRole, Profile, RealmConfig, RealmMember};
 use rustcraft_protocol::identity::{
     player_id, sign, sign_join, Certificate, CERTIFICATE_LIFETIME_SECS, CERTIFICATE_VERSION,
 };
+use server::hub::{RealmEvent, RealmWatch};
 use server::{read_chunk, region_file_name, region_of, write_chunk_in_region};
 use shared::messages::{
     AuthRegisterRequest, ChatMessageRequest, ClientToServerMessage, FullChatMessage, JoinProof,
@@ -92,6 +93,7 @@ impl TestServer {
             Some(status),
             shared::MAX_PLAYERS,
             ServerAuth::Offline,
+            None,
         )
     }
 
@@ -107,6 +109,7 @@ impl TestServer {
             None,
             max_players,
             ServerAuth::Offline,
+            None,
         )
     }
 
@@ -121,6 +124,7 @@ impl TestServer {
             None,
             shared::MAX_PLAYERS,
             ServerAuth::Offline,
+            None,
         )
     }
 
@@ -142,7 +146,31 @@ impl TestServer {
             None,
             shared::MAX_PLAYERS,
             ServerAuth::Hub(trust),
+            None,
         )
+    }
+
+    /// A hosted world of the hub `trust` describes, with the members of `initial`: the events
+    /// the hub would send are those of the sender.
+    fn start_hosted(
+        trust: HubTrust,
+        initial: RealmConfig,
+    ) -> (Self, std::sync::mpsc::Sender<RealmEvent>) {
+        server::set_profile_lookup(hub_profile);
+        let socket =
+            server::acquire_local_ephemeral_udp_socket(IpAddr::V4(Ipv4Addr::LOCALHOST)).unwrap();
+        let (sender, events) = std::sync::mpsc::channel();
+        let server = Self::start_on(
+            tempfile::tempdir().unwrap(),
+            WORLD_NAME,
+            false,
+            socket,
+            None,
+            shared::MAX_PLAYERS,
+            ServerAuth::Hub(trust),
+            Some(RealmWatch { initial, events }),
+        );
+        (server, sender)
     }
 
     fn start_on(
@@ -153,6 +181,7 @@ impl TestServer {
         status: Option<UdpSocket>,
         max_players: usize,
         auth: ServerAuth,
+        realm: Option<RealmWatch>,
     ) -> Self {
         // A new world gets a fixed seed: a random one may put a tree or the sea at the spawn
         let world_dir = tmp.path().join("saves").join(world_name);
@@ -181,9 +210,14 @@ impl TestServer {
             new_world: Default::default(),
             auth,
         };
-        let handle = thread::spawn(move || match status {
-            Some(status) => server::init_with_status(socket, status, config, paths).unwrap(),
-            None => server::init(socket, config, paths).unwrap(),
+        let handle = thread::spawn(move || match (realm, status) {
+            (Some(realm), status) => {
+                server::init_hosted(socket, status, config, paths, realm).unwrap()
+            }
+            (None, Some(status)) => {
+                server::init_with_status(socket, status, config, paths).unwrap()
+            }
+            (None, None) => server::init(socket, config, paths).unwrap(),
         });
         Self {
             tmp,
@@ -3892,4 +3926,130 @@ fn the_commands_of_a_player_run_in_the_order_it_typed_them_whatever_the_hub_spee
     command_answer(&mut alex, "Pardoned Slow");
     let banned = std::fs::read_to_string(server.tmp.path().join(server::BANNED_FILE)).unwrap();
     assert!(!banned.contains("Slow"), "{banned}");
+}
+
+const OWNER: Uuid = account(0x0123);
+
+/// A hosted world whose members are Alex (a member) and Bob (an operator), owned by `OWNER`.
+fn realm_config(members: &[(Uuid, &str, MemberRole)]) -> RealmConfig {
+    RealmConfig {
+        members: members
+            .iter()
+            .map(|&(id, username, role)| RealmMember {
+                id,
+                username: username.into(),
+                role,
+            })
+            .collect(),
+        owner: AccountSummary {
+            id: OWNER,
+            username: "Olivia".into(),
+        },
+    }
+}
+
+fn alex_and_bob() -> RealmConfig {
+    realm_config(&[
+        (ALEX, "Alex", MemberRole::Member),
+        (BOB, "Bob", MemberRole::Operator),
+    ])
+}
+
+#[test]
+fn a_hosted_world_lets_in_its_members_and_its_owner_and_its_operators_are_the_hubs() {
+    let hub = TestHub::new();
+    let (server, _hub_events) = TestServer::start_hosted(hub.trust.clone(), alex_and_bob());
+
+    let mut alex = hub.join(&server, &hub.certificate_of(ALEX, "Alex"));
+    assert!(!may_give(&mut alex));
+    let mut bob = hub.join(&server, &hub.certificate_of(BOB, "Bob"));
+    assert!(may_give(&mut bob));
+    // the owner need not be a member
+    let mut owner = hub.join(&server, &hub.certificate_of(OWNER, "Olivia"));
+    assert!(may_give(&mut owner));
+
+    let mut stranger = hub.connect(&server, &hub.certificate_of(account(7), "Eve"));
+    assert_eq!(
+        dismissed(&mut stranger),
+        "You are not on the whitelist of this server."
+    );
+}
+
+#[test]
+fn a_hosted_world_leaves_its_members_to_the_hub() {
+    let hub = TestHub::new();
+    let (server, _hub_events) = TestServer::start_hosted(hub.trust.clone(), alex_and_bob());
+    let mut bob = hub.join(&server, &hub.certificate_of(BOB, "Bob"));
+    for command in [
+        "/op Alex",
+        "/deop Bob",
+        "/ban Alex",
+        "/pardon Alex",
+        "/whitelist add Eve",
+        "/whitelist list",
+    ] {
+        bob.send(chat_message(command));
+        command_answer(
+            &mut bob,
+            "Manage the members of a hosted world from the game's Hosted worlds tab.",
+        );
+    }
+    // it is still the hub's list, and nothing is written
+    assert!(may_give(&mut bob));
+    for file in [
+        server::OPS_FILE,
+        server::BANNED_FILE,
+        server::WHITELIST_FILE,
+    ] {
+        assert!(!server.tmp.path().join(file).exists(), "{file} was written");
+    }
+}
+
+#[test]
+fn a_member_removed_from_a_hosted_world_is_dismissed_and_a_demoted_one_is_not_an_operator() {
+    let hub = TestHub::new();
+    let (server, hub_events) = TestServer::start_hosted(hub.trust.clone(), alex_and_bob());
+    let mut alex = hub.join(&server, &hub.certificate_of(ALEX, "Alex"));
+    let mut bob = hub.join(&server, &hub.certificate_of(BOB, "Bob"));
+    assert!(may_give(&mut bob));
+
+    hub_events
+        .send(RealmEvent::Config(realm_config(&[
+            (ALEX, "Alex", MemberRole::Operator),
+            (BOB, "Bob", MemberRole::Member),
+        ])))
+        .unwrap();
+    // the hub promoted Alex and demoted Bob, who is still a member
+    let start = Instant::now();
+    while !may_give(&mut alex) {
+        assert!(start.elapsed() < WAIT_TIMEOUT, "Alex was not promoted");
+    }
+    assert!(!may_give(&mut bob));
+
+    hub_events
+        .send(RealmEvent::Config(realm_config(&[(
+            ALEX,
+            "Alex",
+            MemberRole::Operator,
+        )])))
+        .unwrap();
+    assert_eq!(dismissed(&mut bob), "You were removed from this world.");
+    // and cannot come back
+    let mut again = hub.connect(&server, &hub.certificate_of(BOB, "Bob"));
+    assert_eq!(
+        dismissed(&mut again),
+        "You are not on the whitelist of this server."
+    );
+    assert!(may_give(&mut alex));
+}
+
+#[test]
+fn a_hosted_world_stops_when_its_hub_no_longer_knows_it() {
+    let hub = TestHub::new();
+    let (mut server, hub_events) = TestServer::start_hosted(hub.trust.clone(), alex_and_bob());
+    let _bob = hub.join(&server, &hub.certificate_of(BOB, "Bob"));
+    hub_events.send(RealmEvent::Gone).unwrap();
+    server.join_after_exit();
+    // saved on the way out
+    assert!(server.world_dir().join("players").is_dir());
 }

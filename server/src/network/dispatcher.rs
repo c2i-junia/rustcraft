@@ -171,6 +171,7 @@ pub fn register_systems(app: &mut App) {
     .add_systems(
         FixedUpdate,
         (
+            super::realm::realm_system.run_if(resource_exists::<super::realm::RealmEvents>),
             crate::shutdown::shutdown_system,
             world::save::save_world_system,
             world::unload::unload_far_chunks_system,

@@ -12,6 +12,9 @@
 //! and a player is its account whatever its name is. An entry that is only a name, as an offline
 //! server writes it, matches the account that has this name when it joins, and is rewritten with
 //! its id then.
+//!
+//! A hosted world keeps no list: its members and its operators are those the hub tells, and
+//! only the hub changes them (`Permissions::hosted`).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -20,6 +23,7 @@ use std::time::{Duration, Instant};
 use bevy::prelude::*;
 use bevy_renet::renet::ClientId;
 use bevy_renet::RenetServer;
+use rustcraft_protocol::api::{MemberRole, RealmConfig};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use shared::messages::ServerToClientMessage;
@@ -35,6 +39,13 @@ pub const OPS_FILE: &str = "ops.ron";
 pub const BANNED_FILE: &str = "banned.ron";
 /// The whitelist of a dedicated server, and whether it is on.
 pub const WHITELIST_FILE: &str = "whitelist.ron";
+
+/// The answer to the commands that change the lists, on a hosted world.
+pub const HOSTED_REFUSAL: &str =
+    "Manage the members of a hosted world from the game's Hosted worlds tab.";
+
+/// What a player is dismissed with when the hub no longer lists it among the members.
+pub const REMOVED: &str = "You were removed from this world.";
 
 /// How long a dismissed client stays connected after its `Dismissed` message, so that the
 /// message reaches it before the connection closes: the client ends its session on the message
@@ -281,6 +292,8 @@ pub struct Permissions {
     ops: Vec<Entry>,
     banned: Vec<Ban>,
     whitelist: Whitelist,
+    /// Whether the lists are those of a hosted world: the hub's, and read only.
+    hosted: bool,
 }
 
 /// Whether `a` and `b` are the same name, whatever their case.
@@ -326,7 +339,48 @@ impl Permissions {
             ops: read_list(folder, OPS_FILE)?,
             banned: read_list::<BannedFile>(folder, BANNED_FILE)?.into(),
             whitelist: read_list(folder, WHITELIST_FILE)?,
+            hosted: false,
         })
+    }
+
+    /// The lists of a hosted world: the whitelist is on and holds the members, the operators
+    /// are those of the members that are, and the owner. Nothing is read from nor written to
+    /// files, and nobody is banned: a removed member is.
+    pub fn hosted(config: &RealmConfig) -> Self {
+        let mut permissions = Self {
+            hosted: true,
+            ..Self::default()
+        };
+        permissions.follow(config);
+        permissions
+    }
+
+    /// Replaces the lists of a hosted world with the members of `config`.
+    pub fn follow(&mut self, config: &RealmConfig) {
+        let entry = |id, name: &str| Entry::account(id, name);
+        self.ops = std::iter::once(entry(config.owner.id, &config.owner.username))
+            .chain(
+                config
+                    .members
+                    .iter()
+                    .filter(|member| member.role == MemberRole::Operator)
+                    .map(|member| entry(member.id, &member.username)),
+            )
+            .collect();
+        self.whitelist = Whitelist {
+            enabled: true,
+            players: config
+                .members
+                .iter()
+                .map(|member| entry(member.id, &member.username))
+                .collect(),
+        };
+    }
+
+    /// Whether a command that changes who may do what is refused: all of them on a hosted
+    /// world, but `/kick`, whose hub is the one that knows its members.
+    pub fn refuses(&self, admin: &Admin) -> bool {
+        self.hosted && !matches!(admin, Admin::Kick { .. })
     }
 
     /// Makes `players` operators of the server whose game folder is `folder`, in its file: the
@@ -996,5 +1050,48 @@ mod tests {
         assert_eq!(dismissals.due(now), [2]);
         assert_eq!(dismissals.due(now + DISMISS_DELAY), [1]);
         assert!(dismissals.due(now + DISMISS_DELAY).is_empty());
+    }
+
+    #[test]
+    fn a_hosted_world_lists_its_members_and_makes_operators_of_the_owner_and_the_operators() {
+        use rustcraft_protocol::api::{AccountSummary, RealmMember};
+        let member = |n: u128, name: &str, role| RealmMember {
+            id: Uuid::from_u128(n),
+            username: name.into(),
+            role,
+        };
+        let config = |members| RealmConfig {
+            members,
+            owner: AccountSummary {
+                id: Uuid::from_u128(9),
+                username: "Olivia".into(),
+            },
+        };
+        let mut permissions = Permissions::hosted(&config(vec![
+            member(1, "Alex", MemberRole::Member),
+            member(2, "Bob", MemberRole::Operator),
+        ]));
+        let (alex, bob, owner) = (Uuid::from_u128(1), Uuid::from_u128(2), Uuid::from_u128(9));
+        assert!(permissions.admission("Alex", Some(alex)).is_ok());
+        assert!(permissions.admission("Olivia", Some(owner)).is_ok());
+        assert!(permissions
+            .admission("Eve", Some(Uuid::from_u128(3)))
+            .is_err());
+        assert!(!permissions.is_operator("Alex", Some(alex)));
+        assert!(permissions.is_operator("Bob", Some(bob)));
+        assert!(permissions.is_operator("Olivia", Some(owner)));
+        assert!(permissions.refuses(&Admin::Op("Alex".into())));
+        assert!(permissions.refuses(&Admin::Whitelist(WhitelistAction::List)));
+        assert!(!permissions.refuses(&Admin::Kick {
+            name: "Alex".into(),
+            reason: None
+        }));
+        assert!(!Permissions::default().refuses(&Admin::Op("Alex".into())));
+
+        // a member renamed on the hub is still the same account, and a removed one is out
+        permissions.follow(&config(vec![member(2, "Robert", MemberRole::Member)]));
+        assert!(permissions.admission("Robert", Some(bob)).is_ok());
+        assert!(!permissions.is_operator("Bob", Some(bob)));
+        assert!(permissions.admission("Alex", Some(alex)).is_err());
     }
 }

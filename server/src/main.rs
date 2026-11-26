@@ -6,6 +6,7 @@ use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::Parser;
 use rustcraft_protocol::{check_hub_url, normalize_address, DEFAULT_HUB};
 use server::acquire_socket_by_port;
+use server::hub::{watch_realm, RealmLink, REALM_EVERY};
 use shared::players::game_mode::GameMode;
 use shared::status::status_port;
 use shared::world::hostiles::Difficulty;
@@ -14,6 +15,10 @@ use shared::{
     get_game_folder_paths, GameServerConfig, NewWorldSettings, ServerAuth,
     DEFAULT_MAX_RENDER_DISTANCE, DEFAULT_PORT, MAX_PLAYERS,
 };
+use uuid::Uuid;
+
+/// The environment variable that holds the token of a hosted world: not a flag, which `ps` shows.
+const REALM_TOKEN_VARIABLE: &str = "RUSTCRAFT_REALM_TOKEN";
 
 /// The exit code of a process interrupted twice: 128 + SIGINT.
 const INTERRUPTED_EXIT_CODE: i32 = 130;
@@ -101,6 +106,11 @@ struct Args {
     /// The hub whose accounts join in `--auth hub`: https://, or http:// on this computer only
     #[arg(long, default_value = DEFAULT_HUB, value_parser = check_hub_url)]
     hub: String,
+
+    /// Runs the hosted world of this id of the hub, whose members are the hub's: needs
+    /// `--auth hub`, and the realm token in the environment variable RUSTCRAFT_REALM_TOKEN
+    #[arg(long, value_name = "UUID", conflicts_with = "ops")]
+    realm: Option<Uuid>,
 
     /// An address players join this server at, as they type it (`host[:port]`, port 8000 by
     /// default): a proof of an account made for another is refused. Needed with `--auth hub`;
@@ -214,6 +224,27 @@ fn main() -> ExitCode {
             }
         }
     };
+    // A hosted world reads its members now: it does not start without them
+    let realm = match (args.realm, &auth) {
+        (None, _) => None,
+        (Some(id), ServerAuth::Hub(trust)) => {
+            let Ok(token) = std::env::var(REALM_TOKEN_VARIABLE) else {
+                error!("--realm needs the token of the world in {REALM_TOKEN_VARIABLE}");
+                return ExitCode::FAILURE;
+            };
+            match watch_realm(RealmLink::new(&trust.url, id, token), REALM_EVERY) {
+                Ok(watch) => Some(watch),
+                Err(err) => {
+                    error!("{err}");
+                    return ExitCode::FAILURE;
+                }
+            }
+        }
+        (Some(_), ServerAuth::Offline) => {
+            error!("--realm needs --auth hub");
+            return ExitCode::FAILURE;
+        }
+    };
     let config = GameServerConfig {
         world_name: args.world,
         is_solo: false,
@@ -237,9 +268,12 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     }
-    let result = match status {
-        Some(status) => server::init_with_status(socket, status, config, game_folder_paths),
-        None => server::init(socket, config, game_folder_paths),
+    let result = match (realm, status) {
+        (Some(realm), status) => {
+            server::init_hosted(socket, status, config, game_folder_paths, realm)
+        }
+        (None, Some(status)) => server::init_with_status(socket, status, config, game_folder_paths),
+        (None, None) => server::init(socket, config, game_folder_paths),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -317,5 +351,19 @@ mod tests {
         .unwrap();
         assert_eq!(args.public_addresses, ["play.example.com:8000", "[::1]:9"]);
         assert!(parse(&["--public-address", "a b"]).is_err());
+    }
+
+    #[test]
+    fn a_hosted_world_takes_an_id_and_no_operator_option() {
+        let parse = |args: &[&str]| {
+            Args::try_parse_from(["server"].into_iter().chain(args.iter().copied()))
+        };
+        let id = "00000000-0000-0000-0000-00000000007a";
+        assert_eq!(
+            parse(&["--realm", id]).unwrap().realm,
+            Some(Uuid::from_u128(0x7a))
+        );
+        assert!(parse(&["--realm", "nonsense"]).is_err());
+        assert!(parse(&["--realm", id, "--op", "Alex"]).is_err());
     }
 }

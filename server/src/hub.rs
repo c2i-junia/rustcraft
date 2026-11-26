@@ -1,18 +1,19 @@
 //! What a server in hub mode learns from its hub: the keys that sign the certificates, read at
 //! start and kept in the game folder for when the hub cannot be reached, and the revoked
 //! certificates, read at start and every hour, and the accounts of the names of the players the
-//! operators name.
+//! operators name. A hosted world also reads its members from the hub (`watch_realm`).
 
 use std::collections::HashSet;
 use std::path::Path;
+use std::sync::mpsc::{channel, Receiver};
 use std::sync::{Arc, PoisonError, RwLock};
 use std::time::Duration;
 
 use bevy::log::{info, warn};
 use ed25519_dalek::VerifyingKey;
-use rustcraft_protocol::api::{HubKey, Profile, Revoked, WellKnown};
-use rustcraft_protocol::hub_base;
+use rustcraft_protocol::api::{HubKey, Profile, RealmConfig, Revoked, WellKnown};
 use rustcraft_protocol::identity::key_from_hex;
+use rustcraft_protocol::{hub_base, REALM_AUTH_SCHEME};
 use serde::{Deserialize, Serialize};
 use shared::HubTrust;
 use uuid::Uuid;
@@ -29,6 +30,8 @@ const TIMEOUT: Duration = Duration::from_secs(10);
 const REVOCATIONS_EVERY: Duration = Duration::from_secs(3600);
 /// How soon they are read again after a failed read.
 const REVOCATIONS_RETRY: Duration = Duration::from_secs(5 * 60);
+/// How often a hosted world reads its members.
+pub const REALM_EVERY: Duration = Duration::from_secs(60);
 
 #[derive(Serialize, Deserialize)]
 struct CachedKeys {
@@ -201,12 +204,120 @@ fn refresh_revocations(url: &str, revoked: &RwLock<HashSet<Uuid>>) -> bool {
     }
 }
 
+/// What a hosted world needs to read its members from the hub: its hub, its id and the token
+/// that proves it is that world. The token is never shown.
+#[derive(Clone)]
+pub struct RealmLink {
+    url: String,
+    id: Uuid,
+    token: String,
+}
+
+impl RealmLink {
+    pub fn new(url: &str, id: Uuid, token: String) -> Self {
+        Self {
+            url: hub_base(url).to_string(),
+            id,
+            token,
+        }
+    }
+}
+
+impl std::fmt::Debug for RealmLink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RealmLink")
+            .field("url", &self.url)
+            .field("id", &self.id)
+            .finish_non_exhaustive()
+    }
+}
+
+/// What the hub told a hosted world after its first read.
+#[derive(Debug)]
+pub enum RealmEvent {
+    /// The members now.
+    Config(RealmConfig),
+    /// The hub no longer knows this world or its token: it was deleted, or the token renewed.
+    Gone,
+}
+
+/// The members of a hosted world, read at start, and what the hub tells after.
+#[derive(Debug)]
+pub struct RealmWatch {
+    pub initial: RealmConfig,
+    pub events: Receiver<RealmEvent>,
+}
+
+/// Why the config of a hosted world could not be read: `Gone` when the hub refuses the token
+/// or does not know the world.
+#[derive(Debug, PartialEq)]
+enum RealmError {
+    Gone,
+    Failed(String),
+}
+
+fn fetch_realm_config(link: &RealmLink) -> Result<RealmConfig, RealmError> {
+    let answer = agent()
+        .get(format!("{}/v1/realms/{}/config", link.url, link.id))
+        .header(
+            "Authorization",
+            format!("{REALM_AUTH_SCHEME} {}", link.token),
+        )
+        .call();
+    match answer {
+        Ok(mut response) => response
+            .body_mut()
+            .read_json()
+            .map_err(|err| RealmError::Failed(err.to_string())),
+        Err(ureq::Error::StatusCode(401 | 404)) => Err(RealmError::Gone),
+        Err(err) => Err(RealmError::Failed(err.to_string())),
+    }
+}
+
+/// Reads the members of the hosted world `link` now, an error when the hub does not give them,
+/// then every `every` in a thread of its own, which tells what it reads: a failed read keeps
+/// the last members and is only logged, and a hub that no longer knows the world is told once
+/// (`RealmEvent::Gone`) before the thread ends, as it does when nobody listens any more.
+pub fn watch_realm(link: RealmLink, every: Duration) -> Result<RealmWatch, String> {
+    let initial = fetch_realm_config(&link).map_err(|err| match err {
+        RealmError::Gone => format!(
+            "The hub at {} refuses the token of the hosted world {}, or does not know it",
+            link.url, link.id
+        ),
+        RealmError::Failed(err) => format!(
+            "Could not read the members of the hosted world {} from the hub at {}: {err}",
+            link.id, link.url
+        ),
+    })?;
+    let (sender, events) = channel();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(every);
+        let event = match fetch_realm_config(&link) {
+            Ok(config) => RealmEvent::Config(config),
+            Err(RealmError::Gone) => RealmEvent::Gone,
+            Err(RealmError::Failed(err)) => {
+                warn!(
+                    "Could not read the members of the hosted world from the hub at {}, keeping the last ones: {err}",
+                    link.url
+                );
+                continue;
+            }
+        };
+        let gone = matches!(event, RealmEvent::Gone);
+        if sender.send(event).is_err() || gone {
+            return;
+        }
+    });
+    Ok(RealmWatch { initial, events })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use rustcraft_protocol::identity::key_to_hex;
     use std::io::{Read, Write};
     use std::net::TcpListener;
+    use std::sync::mpsc::channel;
 
     /// A hub that answers each of its first connections with the next of `bodies` (JSON, 200).
     fn hub(bodies: Vec<String>) -> String {
@@ -342,5 +453,128 @@ mod tests {
         let err = resolve_names(&url, &names).unwrap_err();
         assert!(err.contains("does not know a player named eve"), "{err}");
         assert!(resolve_names(NOWHERE, &names).is_err());
+    }
+    /// A hub like `hub_answering`, that also hands over the text of each request it gets.
+    fn hub_recording(
+        answers: Vec<(&'static str, String)>,
+    ) -> (String, std::sync::mpsc::Receiver<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let (sender, requests) = channel();
+        std::thread::spawn(move || {
+            for (status, body) in answers {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0u8; 4096];
+                let read = stream.read(&mut request).unwrap_or(0);
+                let _ = sender.send(String::from_utf8_lossy(&request[..read]).into_owned());
+                let response = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+            }
+        });
+        (url, requests)
+    }
+
+    const REALM: Uuid = Uuid::from_u128(0x7ea1);
+
+    fn config_json(members: &[(&str, &str)]) -> String {
+        let members: Vec<String> = members
+            .iter()
+            .enumerate()
+            .map(|(n, (name, role))| {
+                format!(
+                    r#"{{"id":"{}","username":"{name}","role":"{role}"}}"#,
+                    Uuid::from_u128(n as u128 + 1)
+                )
+            })
+            .collect();
+        format!(
+            r#"{{"members":[{}],"owner":{{"id":"{}","username":"Owner"}}}}"#,
+            members.join(","),
+            Uuid::from_u128(99)
+        )
+    }
+
+    fn link(url: &str) -> RealmLink {
+        RealmLink::new(&format!("{url}/"), REALM, "s3cret-token".into())
+    }
+
+    #[test]
+    fn a_hosted_world_asks_its_members_with_its_token() {
+        let (url, requests) = hub_recording(vec![(
+            "200 OK",
+            config_json(&[("Bob", "operator"), ("Cy", "member")]),
+        )]);
+        let watch = watch_realm(link(&url), Duration::from_secs(3600)).unwrap();
+        let request = requests.recv().unwrap();
+        assert!(
+            request.starts_with(&format!("GET /v1/realms/{REALM}/config HTTP/1.1")),
+            "{request}"
+        );
+        assert!(
+            request
+                .to_lowercase()
+                .contains("authorization: realm s3cret-token\r\n"),
+            "{request}"
+        );
+        let members: Vec<_> = watch
+            .initial
+            .members
+            .iter()
+            .map(|m| (m.username.as_str(), m.role))
+            .collect();
+        assert_eq!(
+            members,
+            [
+                ("Bob", rustcraft_protocol::api::MemberRole::Operator),
+                ("Cy", rustcraft_protocol::api::MemberRole::Member)
+            ]
+        );
+        assert_eq!(watch.initial.owner.username, "Owner");
+    }
+
+    #[test]
+    fn a_hosted_world_does_not_start_without_its_members() {
+        for answer in [
+            ("401 Unauthorized", "{}".to_string()),
+            ("404 Not Found", "{}".to_string()),
+            ("500 Internal Server Error", "{}".to_string()),
+            ("200 OK", "broken".to_string()),
+        ] {
+            let url = hub_answering(vec![answer]);
+            assert!(watch_realm(link(&url), Duration::from_secs(3600)).is_err());
+        }
+        assert!(watch_realm(link(NOWHERE), Duration::from_secs(3600)).is_err());
+    }
+
+    #[test]
+    fn a_failed_poll_keeps_the_members_and_a_refused_token_ends_the_watch() {
+        let url = hub_answering(vec![
+            ("200 OK", config_json(&[("Bob", "member")])),
+            ("500 Internal Server Error", "{}".into()),
+            ("200 OK", config_json(&[])),
+            ("401 Unauthorized", "{}".into()),
+        ]);
+        let watch = watch_realm(link(&url), Duration::from_millis(20)).unwrap();
+        // the failed poll sends nothing: the next event is the empty list of the third
+        let Ok(RealmEvent::Config(config)) = watch.events.recv_timeout(Duration::from_secs(10))
+        else {
+            panic!("expected the members");
+        };
+        assert!(config.members.is_empty());
+        assert!(matches!(
+            watch.events.recv_timeout(Duration::from_secs(10)),
+            Ok(RealmEvent::Gone)
+        ));
+        // the thread ended: nothing more comes
+        assert!(watch.events.recv_timeout(Duration::from_secs(10)).is_err());
+    }
+
+    #[test]
+    fn the_token_of_a_hosted_world_is_not_shown() {
+        let shown = format!("{:?}", link("https://hub.example"));
+        assert!(!shown.contains("s3cret-token"), "{shown}");
     }
 }

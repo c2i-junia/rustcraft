@@ -1,10 +1,12 @@
 use crate::{
+    hub::RealmWatch,
     mods::Mods,
     network::{
         cleanup::cleanup_all_players_from_world,
         dispatcher::{self, setup_resources_and_events},
         join::ServerKey,
         permissions::Permissions,
+        realm::RealmEvents,
         status::{publish_player_count, spawn_status_responder, StatusCounter},
     },
     world::{
@@ -152,7 +154,7 @@ pub fn init(
     config: GameServerConfig,
     game_folder_paths: GameFolderPaths,
 ) -> Result<(), String> {
-    run(socket, None, config, game_folder_paths)
+    run(socket, None, config, game_folder_paths, None)
 }
 
 /// Like `init`, and answers status requests on `status` while the server runs.
@@ -162,7 +164,19 @@ pub fn init_with_status(
     config: GameServerConfig,
     game_folder_paths: GameFolderPaths,
 ) -> Result<(), String> {
-    run(socket, Some(status), config, game_folder_paths)
+    run(socket, Some(status), config, game_folder_paths, None)
+}
+
+/// Like `init_with_status` (or `init` without a status socket), for a hosted world: its members
+/// are those of `realm`, which the hub keeps up to date, instead of the lists of its folder.
+pub fn init_hosted(
+    socket: UdpSocket,
+    status: Option<UdpSocket>,
+    config: GameServerConfig,
+    game_folder_paths: GameFolderPaths,
+    realm: RealmWatch,
+) -> Result<(), String> {
+    run(socket, status, config, game_folder_paths, Some(realm))
 }
 
 fn run(
@@ -170,6 +184,7 @@ fn run(
     status: Option<UdpSocket>,
     config: GameServerConfig,
     game_folder_paths: GameFolderPaths,
+    realm: Option<RealmWatch>,
 ) -> Result<(), String> {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(LOOP_PERIOD)));
@@ -202,8 +217,12 @@ fn run(
         )?);
     }
 
-    // A solo world keeps no lists: its player is an operator
-    if !is_solo {
+    // A hosted world has the members of its hub, and no list of its own
+    if let Some(realm) = realm {
+        app.insert_resource(Permissions::hosted(&realm.initial));
+        app.insert_resource(RealmEvents::new(realm));
+    } else if !is_solo {
+        // A solo world keeps no lists: its player is an operator
         let permissions = Permissions::load(&game_folder_paths.game_folder_path)?;
         if matches!(config_auth, ServerAuth::Hub(_)) {
             let unbound: Vec<String> = permissions

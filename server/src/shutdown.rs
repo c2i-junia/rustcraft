@@ -28,6 +28,15 @@ pub fn shutdown_system(
         return;
     }
     info!("Stopping: saving the world and the players");
+    save_and_exit(&world_map, &mut save, &mut exit);
+}
+
+/// Asks for the world and the connected players to be saved, and the app to end.
+pub fn save_and_exit(
+    world_map: &ServerWorldMap,
+    save: &mut MessageWriter<SaveRequestEvent>,
+    exit: &mut MessageWriter<AppExit>,
+) {
     save.write(SaveRequestEvent::World);
     for &id in world_map.players.keys() {
         save.write(SaveRequestEvent::Player(id));
