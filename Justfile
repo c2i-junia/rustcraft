@@ -21,6 +21,13 @@ debug: create-game-folders
 release: create-game-folders
     cargo build --release --no-default-features
 
+# Runs the client at release speed with a fast rebuild (the `play` profile). Extra arguments go
+# to the client.
+play *args: create-game-folders
+    cargo run --profile play --package client --bin client -- \
+        --game-folder-path {{justfile_directory()}}/appdata/client-1 \
+        --assets-folder-path {{justfile_directory()}}/data {{args}}
+
 generate-release-folder:
     cargo build --release --no-default-features
 

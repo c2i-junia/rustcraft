@@ -18,6 +18,14 @@ opt-level = 1
 opt-level = 3
 debug = false
 
+# Release speed, rebuilt quickly: for playing and testing worldgen and meshing, where the debug
+# profile is too slow. Measured: a rebuild after an edit takes 21-52 s (release: 72-188 s).
+# Run it with `just play`.
+[profile.play]
+inherits = "release"
+incremental = true
+codegen-units = 256
+
 [workspace.lints.clippy]
 type_complexity = "allow"
 too_many_arguments = "allow"

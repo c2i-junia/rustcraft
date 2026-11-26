@@ -56,3 +56,5 @@ Headless only, never on the desktop, under gamescope:
 ```
 gamescope --backend headless -W 1280 -H 720 -- env -u WAYLAND_DISPLAY <command>
 ```
+
+To play at release speed with fast rebuilds, use `just play [client args]` (the `play` profile).
