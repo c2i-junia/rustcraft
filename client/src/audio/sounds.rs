@@ -399,7 +399,7 @@ impl Sound {
 
     /// The sounds of the later features (`scripts/generate_feature_sounds.py`), but those of
     /// the armour put on and off and the voices of the villagers.
-    pub const FEATURES: [Sound; 27] = [
+    pub const FEATURES: [Sound; 29] = [
         Sound::BowLoose,
         Sound::ArmourBreak,
         Sound::BowDraw,
