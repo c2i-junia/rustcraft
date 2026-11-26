@@ -114,7 +114,10 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
 
 ---- SOUNDS AND MUSIC ----
 All the sounds and the music are original, synthesised by our own scripts (MIT, like the code):
-scripts/generate_sounds.py (the sound effects, the creatures' voices included) and
+scripts/generate_sounds.py (the sound effects, the creatures' voices included),
+scripts/generate_feature_sounds.py (the armour, the bow and arrows, the experience, the engraving
+table, the trade and the villagers' voices, the breeding and taming, and the stings of the
+progress) and
 scripts/generate_music.py (the eight pieces of music in data/music/).
 
 ---- OTHER ----
