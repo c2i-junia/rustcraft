@@ -202,7 +202,7 @@ A release comes with an image of the server (game data goes to a volume):
 
 ```bash
 docker run -p 8000:8000/udp -p 8001:8001/udp -v rustcraft:/root/.local/share/rustcraft \
-  ghcr.io/c2i-junia/rustcraft/rustcraft-server:v1.0.0
+  ghcr.io/c2i-junia/rustcraft/rustcraft-server:v<version>
 ```
 
 While a world opens or a server is joined, a card shows each step and can be cancelled with

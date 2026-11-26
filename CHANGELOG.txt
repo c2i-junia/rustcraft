@@ -1,41 +1,6 @@
 ----------------------------------------------------------------------------------------------------
-Version: 1.0
-Date: Unreleased
-
-  Summary:
-
-    ## World
-    - New terrain: mountain ranges, rivers, lakes, caves, coasts and more than a dozen biomes, jungles among them, in several world types.
-    - Weather the same for everyone, with rain, snow and thunderstorms, light levels, and seeds that always give the same world.
-    - Villages with villagers who trade, and dungeons: ruins, crypts and sanctuaries. /locate finds them.
-
-    ## Survival
-    - Survival and creative, four difficulties, health, hunger, air, fire, lava, death and respawn.
-    - Tools, ores and smelting from wood to diamond, bronze included; furnace, chest, barrel, campfire, bucket, farming, food and a bedroll.
-    - Many building blocks: stairs, slabs, doors, fences, ladders, signs, lanterns.
-    - Experience, and enchantments at an engraving table.
-    - A portal gun, whose portals are seen and walked through.
-
-    ## Combat
-    - Swords, spear, bow and arrows, and four suits of armour.
-    - Blows knock back, wear the weapon and drop loot.
-
-    ## Creatures
-    - Ten animals with voices of their own, to breed; wolves and cats are tamed.
-    - Seven hostile mobs that spawn in the dark, from the Gnawers to the Gust Owls.
-
-    ## Depths and boss
-    - Underground, hostile mobs are harder and more rewarding the deeper they are.
-    - The Ember Mother sleeps at the bottom of the world; a depths compass points to her.
-
-    ## Multiplayer
-    - A dedicated server with operators, kick, ban and whitelist; a chat with completed commands; bodies, skins and held items seen by all.
-    - Smoother movement, small block updates, and a render distance up to 64 chunks.
-
-    ## Interface
-    - New menus, a map and a minimap, an item browser with every recipe, and inventory gestures.
-    - Sounds and original music, skins to choose or import, settings for video, audio, controls and interface.
-    - Worlds from older versions are converted on first load, and the old file is kept.
+Version: Unreleased
+Date: 11.10.2026
 
   Changes: 
     - Updated the game engine to Bevy 0.19.

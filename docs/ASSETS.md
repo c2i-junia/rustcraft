@@ -1,6 +1,6 @@
 # Where the assets come from
 
-An audit for the 1.0 release, of 25.11.2026. "Verified" is what was read or compared; anything else
+An audit before the first release, of 25.11.2026. "Verified" is what was read or compared; anything else
 is marked as uncertain. It is not legal advice, and `LICENSE.txt` remains the license of the project.
 
 Names are those under `data/graphics/`, without `base_textures/` and `.png`. Of the 328 PNG files:
