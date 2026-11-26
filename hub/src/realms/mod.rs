@@ -27,7 +27,7 @@ use probe::StatusProbe;
 pub use routes::routes;
 
 /// The advisory lock under which a start counts the running worlds and takes a slot.
-const SLOTS_LOCK: i64 = 0x5245_414c_4d53;
+pub(crate) const SLOTS_LOCK: i64 = 0x5245_414c_4d53;
 
 /// How the hub runs hosted worlds. `base_port` and `slots` must be those of the agent's
 /// configuration: slot `n` is reached at `host`, port `base_port + 2n`.

@@ -1,6 +1,8 @@
 mod common;
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
+
+use tokio::sync::Notify;
 
 use axum::{body::Body, http::Response};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -884,4 +886,26 @@ fn slots_must_fit_the_ports_and_a_smallint() {
     assert!(hosting(65000, 269).is_err());
     assert!(hosting(0, 32767).is_ok());
     assert!(hosting(0, 32768).is_err());
+}
+
+#[tokio::test]
+async fn a_start_made_while_the_hub_reconciles_is_not_taken_for_a_stray() {
+    let hub = TestHub::start().await;
+    let host = new_host(&hub, "Alex", 1).await;
+    let id = create(&hub, &host, "Home").await;
+    let (reached, release) = (Arc::new(Notify::new()), Arc::new(Notify::new()));
+    *hub.agent.status_gate.lock().unwrap() = Some((reached.clone(), release.clone()));
+
+    // Reconcile has read the world as stopped and asks for its container...
+    let state = hub.state.clone();
+    let reconcile = tokio::spawn(async move { monitor::reconcile(&state).await });
+    reached.notified().await;
+    // ...when a start takes a slot and starts it
+    assert_eq!(start(&hub, &host, id).await.status(), 200);
+    release.notify_one();
+    reconcile.await.unwrap().unwrap();
+
+    assert!(!hub.agent.requests().contains(&Request::Stop { realm: id }));
+    assert_eq!(hub.agent.container(id), ContainerState::Running);
+    assert_eq!(row(&hub, id).await, ("starting".into(), Some(0)));
 }

@@ -10,7 +10,7 @@ use rustcraft_protocol::status::status_port;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use super::{finish_stop, stop};
+use super::{finish_stop, stop, SLOTS_LOCK};
 use crate::AppState;
 
 /// How often the monitor looks, and how long it waits.
@@ -226,18 +226,49 @@ pub async fn reconcile(state: &AppState) -> Result<(), sqlx::Error> {
             .fetch_all(&state.db)
             .await?;
     for id in idle {
-        // Only a running container: an exited one is removed by the next start. A start that
-        // comes after this check is refused by the agent while the stray container runs, so
-        // this stop never ends a world started since.
+        // Only a running container: an exited one is removed by the next start
         if container(state, id).await == Some(ContainerState::Running) {
-            tracing::warn!(%id, "stopping the container of a world without a slot");
-            let stopped = state.realms.agent.call(Request::Stop { realm: id }).await;
+            stop_stray(state, id).await?;
+        }
+    }
+    Ok(())
+}
+
+/// The longest a stray stop holds the starts back: the agent's Docker client gives up on a
+/// stop after 120 s, and its stop grace is at most 100 s.
+const STRAY_STOP_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Stops the container of world `id` if the world still has no slot. The check and the stop
+/// run under the lock the starts take their slot under, so that a start made since the
+/// container was seen is not stopped, and a start made now waits until the agent has the stop.
+async fn stop_stray(state: &AppState, id: Uuid) -> Result<(), sqlx::Error> {
+    let mut tx = state.db.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(SLOTS_LOCK)
+        .execute(&mut *tx)
+        .await?;
+    let slotless: Option<bool> = sqlx::query_scalar(
+        "SELECT state IN ('stopped', 'failed') AND slot IS NULL FROM realms \
+         WHERE id = $1 FOR UPDATE",
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if slotless != Some(true) {
+        return Ok(());
+    }
+    tracing::warn!(%id, "stopping the container of a world without a slot");
+    let stop = state.realms.agent.call(Request::Stop { realm: id });
+    match tokio::time::timeout(STRAY_STOP_TIMEOUT, stop).await {
+        Ok(stopped) => {
             if let Some(reason) = super::agent::failure(&stopped) {
                 tracing::warn!(%id, reason, "could not stop a stray container");
             }
         }
+        // The agent has the stop, and a later start waits for it on the agent's side
+        Err(_) => tracing::warn!(%id, "a stray container takes long to stop"),
     }
-    Ok(())
+    tx.commit().await
 }
 
 /// Reconciles, then checks the starting and the running worlds at their intervals.

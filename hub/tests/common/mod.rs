@@ -36,6 +36,7 @@ use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
     Connection, PgConnection,
 };
+use tokio::sync::Notify;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -56,6 +57,9 @@ pub struct FakeAgent {
     pub start_answer: Mutex<Option<AgentResponse>>,
     /// The answer to every `stop`, instead of stopping.
     pub stop_answer: Mutex<Option<AgentResponse>>,
+    /// When set, the next `status` notifies the first and waits for the second before it
+    /// reads the containers.
+    pub status_gate: Mutex<Option<(Arc<Notify>, Arc<Notify>)>>,
 }
 
 impl FakeAgent {
@@ -79,6 +83,17 @@ impl FakeAgent {
 impl RealmAgent for FakeAgent {
     fn call(&self, request: AgentRequest) -> AgentFuture<'_> {
         self.requests.lock().unwrap().push(request.clone());
+        if let AgentRequest::Status { realm } = request {
+            if let Some((reached, release)) = self.status_gate.lock().unwrap().take() {
+                return Box::pin(async move {
+                    reached.notify_one();
+                    release.notified().await;
+                    Ok(AgentResponse::Status {
+                        state: self.container(realm),
+                    })
+                });
+            }
+        }
         let mut containers = self.containers.lock().unwrap();
         let response = match request {
             AgentRequest::Start { realm, .. } => match self.start_answer.lock().unwrap().clone() {
