@@ -9,7 +9,8 @@ from the game's workspace, but it builds with the repository's nightly toolchain
 
 So far it serves the `/.well-known/rustcraft-hub` document, `/healthz`, the accounts (sign-up,
 login and logout, recovery codes, `GET /v1/me`, password change and account deletion), device
-certificates, the list of revoked ones and public profiles.
+certificates, the list of revoked ones and public profiles. Its realm agent runs hosted worlds
+in Docker containers, which the hub does not drive yet.
 The design, with the routes and their limits, is in
 `docs/superpowers/specs/2026-11-25-hub-design.md`.
 
@@ -53,6 +54,56 @@ rustcraft-hub admin unsuspend <user>
 rustcraft-hub admin reset-password <user>            # prints a 16-character password
 ```
 
+## Realm agent
+
+Hosted worlds run in Docker containers, which only the realm agent (`realm-agent/`, binary
+`rustcraft-realm-agent`) creates: it is the one service with `docker.sock`, and the hub asks it
+over a Unix socket (mode 0660), so that a hub taken over can start, stop and archive worlds but
+not run a container of its choosing. Its configuration (`--config`, `realm-agent.example.toml`)
+fixes the image, the limits, the ports and the hub of the worlds; a request names only the world
+(a UUID), its slot (below `slots`), its token and the settings of a new world, which are checked
+against the game's names before they reach a command line.
+
+The requests are newline-delimited JSON, a response per line in order (types in
+`agent-protocol/`, crate `rustcraft-agent-protocol`):
+
+| Request | Does | Response |
+|---|---|---|
+| `{"request":"start","realm":…,"slot":n,"token":…,"settings":{…}}` | creates volume and container `rustcraft-realm-<uuid>` and starts it | `done`; `refused` if it runs |
+| `{"request":"stop","realm":…}` | SIGTERM, `stop_grace_seconds` (30) to save, then removes the container; the volume stays | `done` |
+| `{"request":"status","realm":…}` | reads the state of the container | `status` with `absent`, `running` or `exited` and its code |
+| `{"request":"archive","realm":…}` | stops the world, moves its volume to `rustcraft-realm-<uuid>-archived-<yyyymmdd>` | `done` |
+| `{"request":"purge"}` | removes the archives older than `archive_days` (30), by the date in their name | `purged` with their names |
+
+A malformed or out-of-bounds request gets `{"result":"refused","reason":…}`, a Docker failure
+`{"result":"failed","error":…}`.
+
+A world's container runs the configured image as user 10001 with a read-only root filesystem,
+`/tmp` on a tmpfs, the world on its volume at `/data`, `cap_drop ALL`, `no-new-privileges`,
+`memory` (1536m, no swap), `cpus` (1.5) and `pids` (256), on the Docker network `network`
+(`bridge`). Slot `n` publishes UDP `base_port + 2n` (game) and the next port (status) on
+`0.0.0.0` and `::`, to the server's 8000 and 8001. The command is `--world world --port 8000
+--auth hub --hub <hub_url> --public-address <public_host>:<game port> --realm <uuid>
+--max-render-distance 12 --max-players 10` and the settings, with the token in
+`RUSTCRAFT_REALM_TOKEN`.
+
+Docker cannot rename a volume, so `archive` copies it: it creates the archive volume, runs a
+throwaway container of the configured image (`cp -a`, user 10001, no network, the world's
+volume read-only) and removes the world's volume once the copy has succeeded; on a failure the
+archive is removed and the world stays as it was. The image must therefore have `cp`, as the
+game's (Debian) does. Archiving a world that has no volume does nothing; a second archive the
+same day is refused.
+
+The agent does not pull: `docker pull` the image on the host. As a world takes the image at each
+start, a new image upgrades the worlds as they restart.
+
+The test against Docker is ignored by default. It builds a small stand-in image of the server,
+uses ports 47310 to 47313 and a random world, and removes all it made:
+
+```sh
+cargo test -p rustcraft-realm-agent --test docker -- --ignored
+```
+
 ## Running it locally
 
 You need Postgres 17 (the extension `citext` comes with it). The test database script starts
@@ -87,9 +138,23 @@ Migrations (`migrations/`) are applied at start. Every option has an environment
 ## Deploying
 
 The hub runs with Docker Compose (`hub/compose.yaml`): a `postgres:17` service on an internal
-network with a named volume, and the hub, published on `127.0.0.1:8080` only, for Caddy. Both
-restart unless stopped; the hub waits for the database to be healthy. The image is built from the
-repository root (`hub/Dockerfile`, target `hub`, a distroless image running as uid 65532).
+network with a named volume, the hub, published on `127.0.0.1:8080` only, for Caddy, and the
+realm agent. All restart unless stopped; the hub waits for the database to be healthy. The
+images are built from the repository root (`hub/Dockerfile`, targets `hub` and `realm-agent`,
+distroless images).
+
+The realm agent has no network (`network_mode: none`), a read-only root filesystem and no
+capability; it mounts `/var/run/docker.sock` and shares its socket with the hub in the
+`agent-socket` volume (`/run/realm-agent/agent.sock`). It runs as root with the group 65532:
+root because the host's `docker.sock` is `root:docker 0660` and the gid of `docker` differs from
+one host to the next (holding that socket is as good as root anyway), and the group 65532 is the
+hub's (`nonroot`), which the agent's socket gets, so that the hub can connect. Its configuration
+is `hub/realm-agent.toml` (git-ignored), mounted as a Compose config:
+
+```sh
+cp realm-agent.example.toml realm-agent.toml   # set image and public_host
+docker pull ghcr.io/c2i-junia/rustcraft/rustcraft-server:latest
+```
 
 On the server, from `hub/`, build the image, then create the secrets
 (`secrets.example/README.txt` lists them):

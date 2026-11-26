@@ -1,0 +1,30 @@
+# The realm agent's configuration: copy it to realm-agent.toml (which compose.yaml mounts) and
+# set `image` and `public_host`. The values below are the defaults, but for the first four.
+
+# The Unix socket the hub sends its requests to, created with mode 0660.
+socket = "/run/realm-agent/agent.sock"
+# The game server's image. It must be on the host (`docker pull` it): the agent does not pull.
+# A world takes the image at each start, so a new image upgrades the worlds as they restart.
+image = "ghcr.io/c2i-junia/rustcraft/rustcraft-server:latest"
+# The hub the worlds take their members from.
+hub_url = "https://hub.rustcraft.dev"
+# The host players join the worlds at; a world's port is that of its slot.
+public_host = "play.rustcraft.dev"
+
+# The limits of each world.
+memory = "1536m"
+cpus = 1.5
+pids = 256
+max_render_distance = 12
+max_players = 10
+
+# Slot n publishes UDP base_port + 2n (game) and base_port + 2n + 1 (status), on IPv4 and IPv6.
+base_port = 25000
+slots = 20
+
+# How long a world has to save after SIGTERM before Docker kills it.
+stop_grace_seconds = 30
+# The Docker network of the worlds' containers.
+network = "bridge"
+# How many days `purge` keeps an archived world.
+archive_days = 30

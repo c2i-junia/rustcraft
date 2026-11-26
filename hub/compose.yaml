@@ -1,4 +1,5 @@
-# The hub and its database. Secrets are files in secrets/ (see README.md and secrets.example/).
+# The hub, its database and its realm agent. Secrets are files in secrets/ (see README.md and
+# secrets.example/); the agent reads realm-agent.toml (from realm-agent.example.toml).
 #   docker compose up -d --build
 name: rustcraft-hub
 
@@ -44,6 +45,8 @@ services:
       - database_url
       - signing_key
       - ip_secret
+    volumes:
+      - agent-socket:/run/realm-agent:ro
     # Only Caddy, on this machine, reaches the hub. Docker's proxy makes every connection come
     # from the gateway of the `default` network (below), which is therefore the trusted proxy.
     ports:
@@ -51,6 +54,27 @@ services:
     networks:
       - backend
       - default
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+  # The only service with docker.sock. It has no network: it takes the hub's requests on a Unix
+  # socket in the agent-socket volume, and talks to Docker on docker.sock.
+  realm-agent:
+    build:
+      context: ..
+      dockerfile: hub/Dockerfile
+      target: realm-agent
+    image: rustcraft-realm-agent
+    restart: unless-stopped
+    configs:
+      - source: realm_agent
+        target: /etc/rustcraft/realm-agent.toml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - agent-socket:/run/realm-agent
+    network_mode: none
     read_only: true
     cap_drop: [ALL]
     security_opt:
@@ -68,6 +92,11 @@ networks:
 
 volumes:
   db-data:
+  agent-socket:
+
+configs:
+  realm_agent:
+    file: ./realm-agent.toml
 
 secrets:
   db_password:

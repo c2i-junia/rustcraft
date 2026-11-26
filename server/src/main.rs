@@ -326,6 +326,35 @@ mod tests {
         }
     }
 
+    /// The realm agent's copy of the world settings it puts on a server's command line.
+    mod agent_allowlist {
+        include!("../../hub/realm-agent/src/allowlist.rs");
+    }
+
+    #[test]
+    fn the_realm_agent_allows_the_world_settings_of_the_game() {
+        let world_types: Vec<String> = WorldPreset::NAMES
+            .into_iter()
+            .filter(|name| *name != "single_biome")
+            .map(|name| name.replace('_', "-"))
+            .collect();
+        assert_eq!(agent_allowlist::WORLD_TYPES.as_slice(), world_types);
+        assert_eq!(
+            agent_allowlist::GAME_MODES,
+            GameMode::ALL.map(GameMode::name)
+        );
+        assert_eq!(
+            agent_allowlist::DIFFICULTIES,
+            Difficulty::ALL.map(Difficulty::name)
+        );
+        for world_type in agent_allowlist::WORLD_TYPES {
+            assert!(
+                new_world(&["--world-type", world_type]).is_ok(),
+                "{world_type}"
+            );
+        }
+    }
+
     #[test]
     fn a_biome_goes_with_the_single_biome_type_only() {
         assert!(new_world(&["--world-type", "single-biome"]).is_err());

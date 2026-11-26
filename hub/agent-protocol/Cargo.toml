@@ -1,0 +1,13 @@
+[package]
+name = "rustcraft-agent-protocol"
+version = "0.0.0"
+edition = "2021"
+description = "The requests the Rustcraft hub sends to its realm agent, and their answers."
+
+[dependencies]
+rustcraft-protocol = { path = "../../crates/protocol" }
+serde = { version = "1", features = ["derive"] }
+uuid = { version = "1", features = ["serde"] }
+
+[dev-dependencies]
+serde_json = "1"

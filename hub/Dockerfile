@@ -1,5 +1,6 @@
-# The hub and its tools. The build context is the repository root:
+# The hub and its realm agent. The build context is the repository root:
 #   docker build --file hub/Dockerfile --target hub --tag rustcraft-hub .
+#   docker build --file hub/Dockerfile --target realm-agent --tag rustcraft-realm-agent .
 FROM debian:bookworm-slim AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -29,8 +30,20 @@ WORKDIR /app/hub
 RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cargo/git \
     --mount=type=cache,target=/app/hub/target \
-    cargo build --release --locked \
-    && cp target/release/rustcraft-hub /rustcraft-hub
+    cargo build --release --locked --workspace \
+    && cp target/release/rustcraft-hub target/release/rustcraft-realm-agent /
+
+
+# Before `hub`, which stays the image of a build without --target
+FROM gcr.io/distroless/cc-debian12 AS realm-agent
+
+COPY --from=builder /rustcraft-realm-agent /usr/local/bin/rustcraft-realm-agent
+
+# Root, as the owner of the host's docker.sock (root:docker, 0660) whatever the gid of the host's
+# docker group: holding that socket is as good as root on the host anyway. The group is the
+# hub's (nonroot, 65532), which the agent's socket (0660) gets, so that the hub can connect.
+USER 0:65532
+ENTRYPOINT ["rustcraft-realm-agent", "--config", "/etc/rustcraft/realm-agent.toml"]
 
 
 FROM gcr.io/distroless/cc-debian12 AS hub

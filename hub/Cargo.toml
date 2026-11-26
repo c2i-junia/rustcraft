@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["."]
+members = [".", "agent-protocol", "realm-agent"]
 
 [package]
 name = "rustcraft-hub"
