@@ -224,59 +224,54 @@ async fn a_world_starts_stops_and_is_archived_then_purged() {
     );
     assert_eq!(volumes_of(realm), [format!("rustcraft-realm-{realm}")]);
 
-    // An archive interrupted earlier today left its copy and a partial archive
-    let today = time::OffsetDateTime::now_utc().date();
-    let archive = format!(
-        "rustcraft-realm-{realm}-archived-{:04}{:02}{:02}",
-        today.year(),
-        u8::from(today.month()),
-        today.day()
-    );
-    docker(&["volume", "create", &archive]);
+    // An interrupted archive left its copy container and a partial archive, long ago
+    let partial = format!("rustcraft-realm-{realm}-archived-20200102030405");
+    docker(&["volume", "create", &partial]);
     docker(&[
         "create",
         "--name",
         &format!("rustcraft-realm-{realm}-archiving"),
         "--volume",
-        &format!("{archive}:/data"),
+        &format!("{partial}:/data"),
         "--entrypoint",
         "touch",
         IMAGE,
         "/data/partial",
     ]);
+    let in_volume = |volume: &str, command: &str, path: &str| {
+        docker(&[
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "--volume",
+            &format!("{volume}:/data:ro"),
+            "--entrypoint",
+            command,
+            IMAGE,
+            path,
+        ])
+    };
+    let archives = || {
+        let volumes = volumes_of(realm);
+        assert!(
+            volumes.iter().all(|volume| volume.contains("-archived-")),
+            "{volumes:?}"
+        );
+        volumes
+    };
 
-    // Archived while it runs: stopped first, and the interrupted archive redone
+    // Archived while it runs: stopped first; the partial archive is left alone
     assert_eq!(client.request(start(0)).await, Response::Done);
     assert_eq!(
         client.request(Request::Archive { realm }).await,
         Response::Done
     );
-    assert_eq!(volumes_of(realm), std::slice::from_ref(&archive));
-    let args = docker(&[
-        "run",
-        "--rm",
-        "--network",
-        "none",
-        "--volume",
-        &format!("{archive}:/data:ro"),
-        "--entrypoint",
-        "cat",
-        IMAGE,
-        "/data/args",
-    ]);
-    let listed = docker(&[
-        "run",
-        "--rm",
-        "--network",
-        "none",
-        "--volume",
-        &format!("{archive}:/data:ro"),
-        "--entrypoint",
-        "ls",
-        IMAGE,
-        "/data",
-    ]);
-    assert_eq!(listed.trim(), "args");
+    let first = archives();
+    assert_eq!(first.len(), 2);
+    assert_eq!(first[0], partial);
+    let archive = first[1].clone();
+    assert_eq!(in_volume(&archive, "ls", "/data").trim(), "args");
     assert!(docker(&[
         "ps",
         "--all",
@@ -287,7 +282,7 @@ async fn a_world_starts_stops_and_is_archived_then_purged() {
     .trim()
     .is_empty());
     assert_eq!(
-        args.trim(),
+        in_volume(&archive, "cat", "/data/args").trim(),
         format!(
             "{TOKEN} --world world --port 8000 --auth hub --hub https://hub.example \
              --public-address play.example:47310 --realm {realm} --max-render-distance 12 \
@@ -298,14 +293,29 @@ async fn a_world_starts_stops_and_is_archived_then_purged() {
         client.request(Request::Archive { realm }).await,
         Response::Done
     );
+    assert_eq!(archives(), first);
 
-    // An archive of 2020 is purged, today's is kept
-    let old = format!("rustcraft-realm-{realm}-archived-20200101");
+    // Started again and archived again the same day: both archives stay
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    assert_eq!(client.request(start(0)).await, Response::Done);
+    assert_eq!(
+        client.request(Request::Archive { realm }).await,
+        Response::Done
+    );
+    let second = archives();
+    assert_eq!(second.len(), 3);
+    assert_eq!(second[..2], first[..]);
+    assert_eq!(in_volume(&archive, "ls", "/data").trim(), "args");
+
+    // The archives of 2020, the partial one among them, are purged; today's are kept
+    let old = format!("rustcraft-realm-{realm}-archived-20200101000000");
     docker(&["volume", "create", &old]);
     assert_eq!(
         client.request(Request::Purge).await,
-        Response::Purged { volumes: vec![old] }
+        Response::Purged {
+            volumes: vec![old, partial]
+        }
     );
-    assert_eq!(volumes_of(realm), [archive]);
+    assert_eq!(archives(), second[1..]);
     std::fs::remove_dir_all(&folder).unwrap();
 }

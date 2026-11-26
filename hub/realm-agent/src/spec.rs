@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use bollard::models::{ContainerCreateBody, HostConfig, HostConfigLogConfig, PortBinding};
 use rustcraft_protocol::api::RealmSettings;
-use time::Date;
+use time::{Date, PrimitiveDateTime, Time};
 use uuid::Uuid;
 
 use crate::allowlist::{DIFFICULTIES, GAME_MODES, WORLD_TYPES};
@@ -28,50 +28,63 @@ pub fn realm_name(realm: Uuid) -> String {
     format!("{PREFIX}{realm}")
 }
 
-/// The name of the volume a world is archived to on `date`:
-/// `rustcraft-realm-<uuid>-archived-<yyyymmdd>`.
-pub fn archived_name(realm: Uuid, date: Date) -> String {
+/// The name of the volume a world is archived to at `at` (UTC), to the second:
+/// `rustcraft-realm-<uuid>-archived-<yyyymmddHHMMSS>`. Each archive has its own name, so that
+/// no archive is ever replaced by another.
+pub fn archived_name(realm: Uuid, at: PrimitiveDateTime) -> String {
     format!(
-        "{PREFIX}{realm}{ARCHIVED}{:04}{:02}{:02}",
-        date.year(),
-        u8::from(date.month()),
-        date.day()
+        "{PREFIX}{realm}{ARCHIVED}{:04}{:02}{:02}{:02}{:02}{:02}",
+        at.year(),
+        u8::from(at.month()),
+        at.day(),
+        at.hour(),
+        at.minute(),
+        at.second()
     )
 }
 
-/// The date of an archived world's volume, from its name; `None` for any other volume.
-pub fn archived_on(name: &str) -> Option<Date> {
+/// When an archived world's volume was made, from its name; `None` for any other volume.
+pub fn archived_at(name: &str) -> Option<PrimitiveDateTime> {
     let rest = name.strip_prefix(PREFIX)?;
-    let (realm, date) = rest.split_at_checked(36)?;
-    let date = date.strip_prefix(ARCHIVED)?;
+    let (realm, stamp) = rest.split_at_checked(36)?;
+    let stamp = stamp.strip_prefix(ARCHIVED)?;
     if Uuid::parse_str(realm).ok()?.to_string() != realm
-        || date.len() != 8
-        || !date.bytes().all(|byte| byte.is_ascii_digit())
+        || stamp.len() != 14
+        || !stamp.bytes().all(|byte| byte.is_ascii_digit())
     {
         return None;
     }
-    let number = |range: std::ops::Range<usize>| date[range].parse::<u32>().ok();
-    let month = time::Month::try_from(number(4..6)? as u8).ok()?;
-    Date::from_calendar_date(number(0..4)? as i32, month, number(6..8)? as u8).ok()
+    let number = |range: std::ops::Range<usize>| stamp[range].parse::<u8>().ok();
+    let month = time::Month::try_from(number(4..6)?).ok()?;
+    let year = stamp[0..4].parse::<i32>().ok()?;
+    let date = Date::from_calendar_date(year, month, number(6..8)?).ok()?;
+    let time = Time::from_hms(number(8..10)?, number(10..12)?, number(12..14)?).ok()?;
+    Some(PrimitiveDateTime::new(date, time))
 }
 
-/// What `archive` does, from the volumes there are.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ArchivePlan {
+/// What `archive` does at `at`, from whether the world's volume and an archive of that second
+/// are there. It never removes an archive: only `purge` does.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ArchiveStep {
     /// The world has no volume: never started, or archived already.
     Nothing,
-    /// Copy the world's volume into today's archive, after removing an archive of today that
-    /// is there beside the world's volume: the remains of an interrupted archive, as a finished
-    /// one removes the world's volume.
-    Copy { remove_partial: bool },
+    /// An archive of this very second is there already.
+    Refuse(String),
+    /// Copy the world's volume into this new archive, then remove the world's volume.
+    Copy(String),
 }
 
-pub fn archive_plan(world_volume: bool, todays_archive: bool) -> ArchivePlan {
-    match world_volume {
-        false => ArchivePlan::Nothing,
-        true => ArchivePlan::Copy {
-            remove_partial: todays_archive,
-        },
+pub fn archive_step(
+    realm: Uuid,
+    at: PrimitiveDateTime,
+    world_volume: bool,
+    archive_exists: bool,
+) -> ArchiveStep {
+    let archive = archived_name(realm, at);
+    match (world_volume, archive_exists) {
+        (false, _) => ArchiveStep::Nothing,
+        (true, true) => ArchiveStep::Refuse(archive),
+        (true, false) => ArchiveStep::Copy(archive),
     }
 }
 
@@ -240,48 +253,96 @@ mod tests {
         toml::from_str(EXAMPLE).unwrap()
     }
 
+    fn at(day: u8, hour: u8, minute: u8, second: u8) -> PrimitiveDateTime {
+        PrimitiveDateTime::new(
+            Date::from_calendar_date(2026, time::Month::March, day).unwrap(),
+            Time::from_hms(hour, minute, second).unwrap(),
+        )
+    }
+
     #[test]
-    fn a_world_s_names_hold_its_id_and_the_date_of_its_archive() {
+    fn a_world_s_names_hold_its_id_and_the_second_of_its_archive() {
         assert_eq!(
             realm_name(REALM),
             "rustcraft-realm-00000000-0000-0000-0000-00000000007a"
         );
-        let date = Date::from_calendar_date(2026, time::Month::March, 4).unwrap();
-        let archived = archived_name(REALM, date);
+        let archived = archived_name(REALM, at(4, 9, 5, 7));
         assert_eq!(
             archived,
-            "rustcraft-realm-00000000-0000-0000-0000-00000000007a-archived-20260304"
+            "rustcraft-realm-00000000-0000-0000-0000-00000000007a-archived-20260304090507"
         );
-        assert_eq!(archived_on(&archived), Some(date));
+        assert_eq!(archived_at(&archived), Some(at(4, 9, 5, 7)));
+        let stamp = |replacement: &str| archived.replace("20260304090507", replacement);
         for other in [
             realm_name(REALM),
             format!("{archived}1"),
-            archived.replace("20260304", "20261304"),
+            format!("{archived} "),
+            stamp("20260304"),
+            stamp("2026030409050"),
+            stamp("20261304090507"),
+            stamp("20260230090507"),
+            stamp("20260300090507"),
+            stamp("20260304240507"),
+            stamp("20260304096007"),
+            stamp("20260304090560"),
+            stamp("2026030409050a"),
+            stamp("+2026030409050"),
             archived.replace("-archived-", "-archive-"),
             archived.to_uppercase(),
-            "rustcraft-realm-nonsense-archived-20260304".into(),
+            archived.replace(
+                "00000000-0000-0000-0000-00000000007a",
+                "00000000000000000000000000000000007a",
+            ),
+            "rustcraft-realm-nonsense-archived-20260304090507".into(),
             "db-data".into(),
         ] {
-            assert_eq!(archived_on(&other), None, "{other}");
+            assert_eq!(archived_at(&other), None, "{other}");
         }
     }
 
     #[test]
-    fn an_interrupted_archive_is_redone_and_a_finished_one_left_alone() {
-        assert_eq!(archive_plan(false, false), ArchivePlan::Nothing);
-        assert_eq!(archive_plan(false, true), ArchivePlan::Nothing);
-        assert_eq!(
-            archive_plan(true, false),
-            ArchivePlan::Copy {
-                remove_partial: false
+    fn a_world_archived_started_again_and_archived_again_keeps_both_archives() {
+        let world = realm_name(REALM);
+        let mut volumes = std::collections::HashSet::from([world.clone()]);
+        let archive = |volumes: &mut std::collections::HashSet<String>, at| {
+            let step = archive_step(
+                REALM,
+                at,
+                volumes.contains(&world),
+                volumes.contains(&archived_name(REALM, at)),
+            );
+            if let ArchiveStep::Copy(archive) = &step {
+                volumes.insert(archive.clone());
+                volumes.remove(&world);
             }
+            step
+        };
+        let first = archive(&mut volumes, at(4, 10, 0, 0));
+        assert_eq!(
+            first,
+            ArchiveStep::Copy(archived_name(REALM, at(4, 10, 0, 0)))
+        );
+        assert_eq!(archive(&mut volumes, at(4, 10, 0, 1)), ArchiveStep::Nothing);
+        // Started again the same day: a new world volume
+        volumes.insert(world.clone());
+        let second = archive(&mut volumes, at(4, 18, 30, 0));
+        assert_eq!(
+            second,
+            ArchiveStep::Copy(archived_name(REALM, at(4, 18, 30, 0)))
         );
         assert_eq!(
-            archive_plan(true, true),
-            ArchivePlan::Copy {
-                remove_partial: true
-            }
+            volumes,
+            [at(4, 10, 0, 0), at(4, 18, 30, 0)]
+                .map(|at| archived_name(REALM, at))
+                .into()
         );
+        // An archive of this very second is refused, not replaced
+        volumes.insert(world.clone());
+        assert_eq!(
+            archive(&mut volumes, at(4, 18, 30, 0)),
+            ArchiveStep::Refuse(archived_name(REALM, at(4, 18, 30, 0)))
+        );
+        assert_eq!(volumes.len(), 3);
     }
 
     #[test]
@@ -437,10 +498,7 @@ mod tests {
     #[test]
     fn an_archive_is_copied_without_network_from_the_volume_read_only() {
         let config = config();
-        let archive = archived_name(
-            REALM,
-            Date::from_calendar_date(2026, time::Month::May, 1).unwrap(),
-        );
+        let archive = archived_name(REALM, at(1, 0, 0, 0));
         let spec = copy_spec(&config, REALM, &archive);
         assert_eq!(
             spec.entrypoint.unwrap(),

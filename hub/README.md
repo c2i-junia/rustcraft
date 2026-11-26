@@ -72,8 +72,8 @@ The requests are newline-delimited JSON, a response per line in order (types in
 | `{"request":"start","realm":…,"slot":n,"token":…,"settings":{…}}` | creates volume and container `rustcraft-realm-<uuid>` and starts it | `done`; `refused` if it runs |
 | `{"request":"stop","realm":…}` | SIGTERM, `stop_grace_seconds` (30) to save, then removes the container; the volume stays | `done` |
 | `{"request":"status","realm":…}` | reads the state of the container | `status` with `absent`, `running` or `exited` and its code |
-| `{"request":"archive","realm":…}` | stops the world, moves its volume to `rustcraft-realm-<uuid>-archived-<yyyymmdd>` | `done` |
-| `{"request":"purge"}` | removes the archives older than `archive_days` (30), by the date in their name | `purged` with their names |
+| `{"request":"archive","realm":…}` | stops the world, moves its volume to `rustcraft-realm-<uuid>-archived-<yyyymmddHHMMSS>` (UTC) | `done` |
+| `{"request":"purge"}` | removes the archives older than `archive_days` (30), by the time in their name | `purged` with their names |
 
 A malformed or out-of-bounds request gets `{"result":"refused","reason":…}`, a Docker failure
 `{"result":"failed","error":…}`.
@@ -88,13 +88,15 @@ A world's container runs the configured image as user 10001 with a read-only roo
 --max-render-distance 12 --max-players 10` and the settings, with the token in
 `RUSTCRAFT_REALM_TOKEN`.
 
-Docker cannot rename a volume, so `archive` copies it: it creates the archive volume, runs a
-throwaway container of the configured image (`cp -a`, user 10001, no network, the world's
-volume read-only, the limits of a world, 15 minutes at most) and removes the world's volume once
-the copy has succeeded; on a failure the archive is removed and the world stays as it was. The
-image must therefore have `cp`, as the game's (Debian) does. Archiving a world that has no
-volume does nothing. An archive of today beside the world's volume, or a copy container left
-over, are the remains of an interrupted archive: they are removed and the archive redone.
+Docker cannot rename a volume, so `archive` copies it: it creates the archive volume, named
+after the UTC second of the archive, runs a throwaway container of the configured image (`cp
+-a`, user 10001, no network, the world's volume read-only, the limits of a world, 15 minutes at
+most) and removes the world's volume once the copy has succeeded. The image must therefore have
+`cp`, as the game's (Debian) does. Archiving a world that has no volume does nothing; an archive
+of the same second is refused. Only `purge` ever removes an archive: a world archived, started
+again and archived again keeps both archives, and a copy that fails or is interrupted leaves the
+world as it was and a partial archive, which `purge` removes in its time. A copy container left
+over by an interrupted archive is removed before the next one.
 
 A start that fails (a port taken, say) removes the container, and the volume if the start
 created it. `stop_grace_seconds` is at most 100, below the 120 s after which the agent's Docker

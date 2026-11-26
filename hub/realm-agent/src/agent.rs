@@ -17,7 +17,7 @@ use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::config::Config;
-use crate::spec::{self, archive_plan, archived_name, archived_on, realm_name, ArchivePlan};
+use crate::spec::{self, archive_step, archived_at, realm_name, ArchiveStep};
 
 /// How long an archive's copy may take.
 const COPY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
@@ -125,11 +125,13 @@ impl Agent {
         };
         if let Err(error) = started {
             // A port taken by another world, say: nothing is left behind
-            self.remove_container(&name).await?;
+            let removed = self.remove_container(&name).await;
             if new_volume {
-                let _ = self.docker.remove_volume(&name, None::<RemoveVolume>).await;
+                if let Err(err) = self.docker.remove_volume(&name, None::<RemoveVolume>).await {
+                    failed("remove the new volume")(err);
+                }
             }
-            return Err(error);
+            return Err(removed.err().unwrap_or(error));
         }
         tracing::info!(%realm, slot, "started");
         Ok(Response::Done)
@@ -185,34 +187,32 @@ impl Agent {
         }
     }
 
-    /// Docker cannot rename a volume: the world is copied into a new volume named after the day
-    /// of its archive, by a throwaway container, and its volume is removed once the copy is done.
+    /// Docker cannot rename a volume: the world is copied into a new volume named after the
+    /// second of its archive, by a throwaway container, and its volume is removed once the copy
+    /// is done. An archive is never removed here: one left by an interrupted copy stays beside
+    /// the world's volume, and goes with the others through `purge`.
     async fn archive(&self, realm: Uuid) -> Result<Response, Failure> {
         self.stop(realm).await?;
         let volume = realm_name(realm);
-        let archive = archived_name(realm, OffsetDateTime::now_utc().date());
-        let plan = archive_plan(
-            self.volume_exists(&volume).await?,
-            self.volume_exists(&archive).await?,
-        );
-        match plan {
-            ArchivePlan::Nothing => return Ok(Response::Done),
-            ArchivePlan::Copy { remove_partial } => {
-                // The copy of an interrupted archive may still be there, and hold its volume
-                self.remove_container(&copy_name(realm)).await?;
-                if remove_partial {
-                    tracing::warn!(%realm, archive, "redoing an interrupted archive");
-                    self.docker
-                        .remove_volume(&archive, None::<RemoveVolume>)
-                        .await
-                        .map_err(failed("remove an interrupted archive"))?;
-                }
+        let now = OffsetDateTime::now_utc();
+        let at = time::PrimitiveDateTime::new(now.date(), now.time());
+        let world_volume = self.volume_exists(&volume).await?;
+        let archive_exists = self.volume_exists(&spec::archived_name(realm, at)).await?;
+        let archive = match archive_step(realm, at, world_volume, archive_exists) {
+            ArchiveStep::Nothing => return Ok(Response::Done),
+            ArchiveStep::Refuse(archive) => {
+                return Ok(Response::Refused {
+                    reason: format!("{archive} exists already"),
+                })
             }
-        }
+            ArchiveStep::Copy(archive) => archive,
+        };
+        // The copy of an interrupted archive may still be there
+        self.remove_container(&copy_name(realm)).await?;
         let mut labels = spec::labels(realm);
         labels.insert(
             "rustcraft.archived".into(),
-            archive[archive.len() - 8..].into(),
+            archive[archive.len() - 14..].into(),
         );
         self.docker
             .create_volume(VolumeCreateRequest {
@@ -222,14 +222,8 @@ impl Agent {
             })
             .await
             .map_err(failed("create the archive"))?;
-        if let Err(error) = self.copy(realm, &archive).await {
-            // The world stays where it was
-            let _ = self
-                .docker
-                .remove_volume(&archive, None::<RemoveVolume>)
-                .await;
-            return Err(error);
-        }
+        // On a failure the world stays where it was, and the partial archive until `purge`
+        self.copy(realm, &archive).await?;
         self.docker
             .remove_volume(&volume, None::<RemoveVolume>)
             .await
@@ -270,7 +264,7 @@ impl Agent {
         copied
     }
 
-    /// Removes the archives older than `archive_days`, by the date in their name.
+    /// Removes the archives older than `archive_days`, by the time in their name.
     async fn purge(&self) -> Result<Response, Failure> {
         let oldest =
             OffsetDateTime::now_utc().date() - Duration::days(self.config.archive_days.into());
@@ -285,7 +279,7 @@ impl Agent {
             .map_err(failed("list the volumes"))?;
         let mut volumes = Vec::new();
         for volume in listed.volumes.unwrap_or_default() {
-            if archived_on(&volume.name).is_some_and(|date| date < oldest) {
+            if archived_at(&volume.name).is_some_and(|at| at.date() < oldest) {
                 self.docker
                     .remove_volume(&volume.name, None::<RemoveVolume>)
                     .await
