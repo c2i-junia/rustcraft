@@ -84,7 +84,8 @@ pub(super) fn apply_dropped_items_updates(
                 ItemRemoval::Gone => None,
                 ItemRemoval::PickedUp(player_id) => {
                     if *player_id == profile.id {
-                        picked_up.write(ItemPickedUp);
+                        let orb = roots.get(entity).is_ok_and(|(root, _)| root.orb);
+                        picked_up.write(ItemPickedUp { orb });
                     }
                     players
                         .iter()
@@ -148,6 +149,7 @@ fn roots_of(
                 since_update: 0.0,
                 copies,
                 passes: state.passes,
+                orb: state.experience > 0,
             },
             Transform::from_translation(shown_at),
             Visibility::default(),
@@ -226,6 +228,7 @@ mod tests {
             since_update: 0.05,
             copies: 1,
             passes: 0,
+            orb: false,
         };
         let mut transform = Transform::from_translation(shown);
 

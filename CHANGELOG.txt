@@ -100,6 +100,7 @@ Date: 11.10.2026
     - Added 21 achievements, from the first tool to the Ember Mother, kept per player in each world: a toast tells each one, and Progress in the pause menu lists them all. None are earned in creative.
     - Added statistics of each player in a world, on the Progress screen and in the end credits: play time, greatest depth, blocks mined, creatures beaten and deaths.
     - Added hints for the first minutes of a new player in a survival world, from walking to placing torches, with the keys bound. Each shows once. Settings > Interface turns them off.
+    - Added sounds to the later features, all synthesised for the game: armour put on and taken off (by material) and breaking, the bow drawn and loosed, arrows hitting blocks, creatures and players and picked up, experience orbs and levels, the engraving table, trades (coins) and villager voices per trade, hearts, births and tamings, mobs falling into water, and short stings for a new depth, an achievement, a boss, the victory and the credits. Other players' are heard where they are.
 
 ----------------------------------------------------------------------------------------------------
 Version: 0.8    

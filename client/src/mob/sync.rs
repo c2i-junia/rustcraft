@@ -5,7 +5,11 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use bevy::prelude::*;
-use shared::world::{MobAction, MobId, MobKind, ServerMob};
+use shared::constants::TICKS_PER_SECOND;
+use shared::world::{MobAction, MobId, MobKind, ServerMob, GROW_TICKS};
+
+/// A young mob first seen this few ticks into its growth was just born, not come into sight.
+const BORN_TICKS: u32 = 2 * TICKS_PER_SECOND as u32;
 
 use super::{
     hurt::MobHurt,
@@ -46,6 +50,13 @@ impl ClientMobs {
 #[derive(Resource, Default)]
 pub struct MobEntities(HashMap<MobId, Entity>);
 
+impl MobEntities {
+    /// The entity of the mob `id`, if it is drawn.
+    pub fn get(&self, id: MobId) -> Option<Entity> {
+        self.0.get(&id).copied()
+    }
+}
+
 /// A mob drawn, and where the server last said it is and what it does.
 #[derive(Component, Debug)]
 pub struct Mob {
@@ -65,6 +76,8 @@ pub struct Mob {
     pub in_love: bool,
     /// Whether the mob was tamed: hearts burst over it when it is.
     pub tamed: bool,
+    /// Whether the mob was first seen just born (`audio::cues`): young, its growth hardly begun.
+    pub born: bool,
 }
 
 /// The model of a mob, a child of its entity, scaled with the mob.
@@ -101,6 +114,7 @@ impl Mob {
             scale: scale_of(server),
             in_love: server.in_love > 0,
             tamed: server.owner.is_some(),
+            born: server.is_young() && server.growing + BORN_TICKS >= GROW_TICKS,
         }
     }
 }
@@ -326,6 +340,7 @@ mod tests {
             scale: 1.0,
             in_love: false,
             tamed: false,
+            born: false,
         };
         let mut transform = Transform::from_translation(shown).with_rotation(mob.rotation);
         let mut server = ServerMob {

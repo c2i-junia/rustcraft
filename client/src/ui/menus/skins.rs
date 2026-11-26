@@ -25,6 +25,7 @@ use shared::GameFolderPaths;
 
 use super::background::menu_background;
 use super::{follow_focus_with_hints, list_hint_bar, text, ListFocus, ListHints, MenuState};
+use crate::audio::{PlaySound, Sound};
 use crate::player::model::{skin_material, spawn_player_model};
 use crate::player::skin::{
     built_in_skin_path, custom_skins_folder, import_skin, list_custom_skins, skin_image,
@@ -564,6 +565,7 @@ fn import_dropped_skins(
     mut chosen: ResMut<ChosenSkin>,
     paths: Res<GameFolderPaths>,
     mut commands: Commands,
+    mut sounds: MessageWriter<PlaySound>,
 ) {
     for drop in drops.read() {
         let FileDragAndDrop::DroppedFile { path_buf, .. } = drop else {
@@ -586,6 +588,12 @@ fn import_dropped_skins(
                 Some(error.message())
             }
         };
+        // No click goes with a drop: the import is heard
+        sounds.write(PlaySound::here(if error.is_none() {
+            Sound::SkinImported
+        } else {
+            Sound::Refused
+        }));
         commands.trigger(SkinsChanged { error });
     }
 }

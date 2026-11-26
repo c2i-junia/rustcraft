@@ -1,8 +1,10 @@
 //! The sounds of the game and the files they are played from. The files are made by
-//! `scripts/generate_sounds.py`, in `data/sounds/`.
+//! `scripts/generate_sounds.py` and, for the later features,
+//! `scripts/generate_feature_sounds.py`, in `data/sounds/`.
 
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
+use shared::players::armour::ArmourMaterial;
 use shared::world::{BlockId, MobKind};
 
 use super::settings::Channel;
@@ -190,13 +192,13 @@ impl CreatureCall {
 
     /// What creatures of `kind` say: every one cries and is hurt, a hostile approaches and
     /// attacks too, and a projectile, never struck, only flies, and a
-    /// villager says nothing.
+    /// villager speaks and is hurt as an animal is.
     pub fn of(kind: MobKind) -> &'static [CreatureCall] {
         if kind == MobKind::Arrow {
             // `creatures::creature_calls` gives it other sounds
             &[]
         } else if kind.is_villager() {
-            &[]
+            &[CreatureCall::Cry, CreatureCall::Hurt]
         } else if kind.is_projectile() {
             &[CreatureCall::Cry]
         } else if kind.is_hostile() {
@@ -284,6 +286,58 @@ pub enum Sound {
     PortalPass,
     /// A creature of a kind says something: each kind has a voice of its own.
     Creature(MobKind, CreatureCall),
+    /// A piece of armour of the material is put on.
+    ArmourOn(ArmourMaterial),
+    /// A piece of armour of the material is taken off.
+    ArmourOff(ArmourMaterial),
+    /// A piece of armour worn out breaks.
+    ArmourBreak,
+    /// A bow starts to be drawn: the creak of its stave, as long as a full draw.
+    BowDraw,
+    /// An arrow sticks in a block.
+    ArrowHitBlock,
+    /// An arrow strikes a creature.
+    ArrowHitCreature,
+    /// An arrow strikes a player.
+    ArrowHitPlayer,
+    /// A stuck arrow is picked up.
+    ArrowPickup,
+    /// The local player picks up an orb of experience: three pitches.
+    Orb,
+    /// The local player goes up a level.
+    LevelUp,
+    /// The engraving table opens.
+    EngravingOpen,
+    /// An enchantment is engraved.
+    Enchant,
+    /// An enchantment clicked that the player cannot have.
+    EnchantRefused,
+    /// A trade with a villager opens.
+    TradeOpen,
+    /// An offer is taken: coins.
+    TradeDone,
+    /// An offer clicked that cannot be taken.
+    TradeRefused,
+    /// An animal starts to want a mate: hearts rise.
+    Love,
+    /// A young animal is born.
+    Birth,
+    /// An animal is tamed.
+    Tamed,
+    /// A mob falls into water.
+    MobSplash,
+    /// The local player reaches a deeper tier: a low sting.
+    DepthReached,
+    /// An achievement is earned.
+    Achievement,
+    /// The bar of a boss appears.
+    BossBar,
+    /// The boss is beaten.
+    Victory,
+    /// The credits start.
+    Credits,
+    /// A skin dropped on the skins screen is imported.
+    SkinImported,
 }
 
 impl Sound {
@@ -309,9 +363,14 @@ impl Sound {
                 Sound::Craft,
                 Sound::Refused,
                 Sound::PortalOpen,
-                Sound::BowLoose,
                 Sound::PortalPass,
             ])
+            .chain(Self::FEATURES)
+            .chain(
+                Self::ARMOUR_MATERIALS
+                    .into_iter()
+                    .flat_map(|material| [Sound::ArmourOn(material), Sound::ArmourOff(material)]),
+            )
             .chain(Self::WEATHER)
             .chain(MobKind::ALL.into_iter().flat_map(|kind| {
                 CreatureCall::of(kind)
@@ -319,6 +378,43 @@ impl Sound {
                     .map(move |&call| Sound::Creature(kind, call))
             }))
     }
+
+    const ARMOUR_MATERIALS: [ArmourMaterial; 4] = [
+        ArmourMaterial::Leather,
+        ArmourMaterial::Bronze,
+        ArmourMaterial::Iron,
+        ArmourMaterial::Diamond,
+    ];
+
+    /// The sounds of the later features (`scripts/generate_feature_sounds.py`), but those of
+    /// the armour put on and off and the voices of the villagers.
+    pub const FEATURES: [Sound; 25] = [
+        Sound::BowLoose,
+        Sound::ArmourBreak,
+        Sound::BowDraw,
+        Sound::ArrowHitBlock,
+        Sound::ArrowHitCreature,
+        Sound::ArrowHitPlayer,
+        Sound::ArrowPickup,
+        Sound::Orb,
+        Sound::LevelUp,
+        Sound::EngravingOpen,
+        Sound::Enchant,
+        Sound::EnchantRefused,
+        Sound::TradeOpen,
+        Sound::TradeDone,
+        Sound::TradeRefused,
+        Sound::Love,
+        Sound::Birth,
+        Sound::Tamed,
+        Sound::MobSplash,
+        Sound::DepthReached,
+        Sound::Achievement,
+        Sound::BossBar,
+        Sound::Victory,
+        Sound::Credits,
+        Sound::SkinImported,
+    ];
 
     /// The sounds of the weather, played by `audio::weather`.
     pub const WEATHER: [Sound; 5] = [
@@ -331,8 +427,22 @@ impl Sound {
 
     pub fn channel(self) -> Channel {
         match self {
-            Sound::Click | Sound::ItemPick | Sound::ItemPlace | Sound::Craft | Sound::Refused => {
-                Channel::Interface
+            Sound::Click
+            | Sound::ItemPick
+            | Sound::ItemPlace
+            | Sound::Craft
+            | Sound::Refused
+            | Sound::EngravingOpen
+            | Sound::Enchant
+            | Sound::EnchantRefused
+            | Sound::TradeOpen
+            | Sound::TradeDone
+            | Sound::TradeRefused
+            | Sound::Achievement
+            | Sound::SkinImported => Channel::Interface,
+            // The stings of the progress, short pieces of music
+            Sound::DepthReached | Sound::BossBar | Sound::Victory | Sound::Credits => {
+                Channel::Music
             }
             Sound::Thunder
             | Sound::DistantThunder
@@ -351,6 +461,7 @@ impl Sound {
                 .map(|i| format!("sounds/{kind}/{}{i}.ogg", material.file_name()))
                 .collect()
         };
+        let one = |name: &str| vec![format!("sounds/{name}.ogg")];
         match self {
             Sound::Step(material) => variants("step", material.footsteps(), 4),
             Sound::Dig(material) => variants("dig", material, 3),
@@ -378,8 +489,36 @@ impl Sound {
             Sound::Wind => vec!["sounds/ambient/wind.ogg".to_string()],
             // No sound of their own: a knock and a glassy ring, and a short rising pop
             Sound::PortalOpen => vec!["sounds/place/glass.ogg".to_string()],
-            // No sound of its own: a soft tick rising over a puff
-            Sound::BowLoose => vec!["sounds/ui/item_pick.ogg".to_string()],
+            Sound::BowLoose => one("bow/loose"),
+            Sound::ArmourOn(material) => one(&format!("armour/{}_on", armour_name(material))),
+            Sound::ArmourOff(material) => one(&format!("armour/{}_off", armour_name(material))),
+            Sound::ArmourBreak => one("armour/break"),
+            Sound::BowDraw => one("bow/draw"),
+            Sound::ArrowHitBlock => one("bow/hit_block"),
+            Sound::ArrowHitCreature => one("bow/hit_creature"),
+            Sound::ArrowHitPlayer => one("bow/hit_player"),
+            Sound::ArrowPickup => one("bow/pickup"),
+            // Three pitches, a little apart
+            Sound::Orb => (1..=3)
+                .map(|i| format!("sounds/player/orb{i}.ogg"))
+                .collect(),
+            Sound::LevelUp => one("player/level_up"),
+            Sound::EngravingOpen => one("ui/engraving_open"),
+            Sound::Enchant => one("ui/enchant"),
+            Sound::EnchantRefused => one("ui/enchant_refused"),
+            Sound::TradeOpen => one("ui/trade_open"),
+            Sound::TradeDone => one("ui/trade_done"),
+            Sound::TradeRefused => one("ui/trade_refused"),
+            Sound::Love => one("mob/love"),
+            Sound::Birth => one("mob/birth"),
+            Sound::Tamed => one("mob/tamed"),
+            Sound::MobSplash => one("liquid/mob_splash"),
+            Sound::DepthReached => one("ui/depth"),
+            Sound::Achievement => one("ui/achievement"),
+            Sound::BossBar => one("ui/boss_bar"),
+            Sound::Victory => one("ui/victory"),
+            Sound::Credits => one("ui/credits"),
+            Sound::SkinImported => one("ui/skin_import"),
             Sound::PortalPass => vec!["sounds/player/pickup.ogg".to_string()],
             Sound::Creature(kind, call) => {
                 let folder = creature_folder(kind);
@@ -398,6 +537,16 @@ impl Sound {
                 }
             }
         }
+    }
+}
+
+/// The name of `material` in the files of the armour sounds.
+fn armour_name(material: ArmourMaterial) -> &'static str {
+    match material {
+        ArmourMaterial::Leather => "leather",
+        ArmourMaterial::Bronze => "bronze",
+        ArmourMaterial::Iron => "iron",
+        ArmourMaterial::Diamond => "diamond",
     }
 }
 
@@ -557,6 +706,58 @@ mod tests {
                     assert!(peak < 1.0 && peak > 0.1, "{file}: peak {peak}");
                 }
             }
+        }
+    }
+
+    /// The sounds of the later features, and the voices of the villagers.
+    fn feature_sounds() -> Vec<Sound> {
+        let villagers = MobKind::ALL
+            .into_iter()
+            .filter(|kind| kind.is_villager())
+            .flat_map(|kind| {
+                CreatureCall::of(kind)
+                    .iter()
+                    .map(move |&call| Sound::Creature(kind, call))
+            });
+        Sound::FEATURES
+            .into_iter()
+            .chain(
+                Sound::ARMOUR_MATERIALS
+                    .into_iter()
+                    .flat_map(|m| [Sound::ArmourOn(m), Sound::ArmourOff(m)]),
+            )
+            .chain(villagers)
+            .collect()
+    }
+
+    #[test]
+    fn the_feature_sounds_are_known_short_and_mixed_as_the_others() {
+        for sound in feature_sounds() {
+            assert!(Sound::all().any(|known| known == sound), "{sound:?}");
+            for file in sound.files() {
+                let (length, peak) = length_and_peak(&file);
+                // The stings of the music ring longer
+                let longest = match sound.channel() {
+                    Channel::Music => 3000,
+                    _ => 1500,
+                };
+                assert!(
+                    length < std::time::Duration::from_millis(longest),
+                    "{file}: {length:?}"
+                );
+                // Under -1 dBFS, over -20 dBFS, as the others
+                assert!(peak < 0.9 && peak > 0.1, "{file}: peak {peak}");
+            }
+        }
+    }
+
+    #[test]
+    fn every_villager_has_a_voice_of_its_own() {
+        for kind in MobKind::ALL.into_iter().filter(|kind| kind.is_villager()) {
+            assert_eq!(
+                CreatureCall::of(kind),
+                [CreatureCall::Cry, CreatureCall::Hurt]
+            );
         }
     }
 

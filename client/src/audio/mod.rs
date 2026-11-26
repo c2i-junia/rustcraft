@@ -5,14 +5,15 @@ use bevy::audio::{DefaultSpatialScale, SpatialScale};
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
 
-use crate::dropped_items::ItemPickedUp;
 use crate::mob::MobHurt;
 use crate::player::LocalPlayerHurt;
 use crate::portal::PortalOpened;
 use crate::state::{GameSet, GameState};
+use crate::ui::hud::{depths, progress};
 
 mod blocks;
 mod creatures;
+mod cues;
 mod footsteps;
 mod inventory;
 pub mod music;
@@ -21,8 +22,9 @@ pub mod settings;
 pub(crate) mod sounds;
 pub(crate) mod weather;
 
-use playback::PlaySound;
-use sounds::{CreatureCall, Sound};
+pub(crate) use playback::PlaySound;
+use sounds::CreatureCall;
+pub(crate) use sounds::Sound;
 
 /// Distances in blocks are multiplied by this before the spatial attenuation, which divides a
 /// sound's volume by the square of its distance: full volume up to 4 blocks away, a sixteenth
@@ -34,6 +36,7 @@ pub fn audio_plugin(app: &mut App) {
         .add_message::<PlaySound>()
         .add_plugins((weather::weather_sound_plugin, music::music_plugin))
         .add_observer(click_on_activate)
+        .add_observer(cues::refused_click)
         .add_systems(Startup, sounds::load_sound_library)
         .add_systems(
             Update,
@@ -42,26 +45,31 @@ pub fn audio_plugin(app: &mut App) {
                     blocks::block_sounds,
                     footsteps::local_footsteps,
                     footsteps::other_players_footsteps,
-                    pickup_sounds,
+                    cues::pickup_sounds,
                     hurt_sounds,
                     mob_hurt_sounds,
                     creatures::creature_calls,
                     inventory::inventory_sounds,
                     portal_sounds,
+                    (
+                        cues::player_cues,
+                        cues::arrow_cues,
+                        cues::mob_cues,
+                        cues::level_cues,
+                        cues::trade_cues,
+                        cues::depth_cue.before(depths::announce_depth),
+                        cues::achievement_cue.before(progress::show_earned),
+                        cues::boss_cue,
+                    ),
                 )
                     .after(GameSet::Reconciliation)
                     .run_if(in_state(GameState::Game)),
+                // The credits roll from the menu too
+                cues::credits_cue,
                 playback::play_sounds,
             )
                 .chain(),
         );
-}
-
-/// A pop for every item the local player picks up.
-fn pickup_sounds(mut pickups: MessageReader<ItemPickedUp>, mut sounds: MessageWriter<PlaySound>) {
-    for _ in pickups.read() {
-        sounds.write(PlaySound::here(Sound::Pickup));
-    }
 }
 
 /// A grunt for every hurt of the local player.

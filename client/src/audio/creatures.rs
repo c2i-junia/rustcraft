@@ -10,7 +10,7 @@ use rand::Rng;
 use shared::world::{MobAction, MobKind};
 
 use super::playback::PlaySound;
-use super::sounds::{CreatureCall, Sound, SoundMaterial};
+use super::sounds::{CreatureCall, Sound};
 use crate::mob::Mob;
 use crate::portal::PortalCamera;
 
@@ -25,10 +25,10 @@ const APPROACH_DELAY: Range<f32> = 4.0..8.0;
 pub const HEARING_DISTANCE: f32 = 32.0;
 
 /// What a creature says now and then while it does `action`: a hostile that hunts approaches,
-/// one that strikes or burrows and an ember in flight say nothing more, nor does a
-/// villager, the others cry.
+/// one that strikes or burrows and an ember in flight say nothing more, the others (a villager
+/// too) cry.
 pub fn periodic_call(kind: MobKind, action: MobAction) -> Option<CreatureCall> {
-    if kind.is_projectile() || kind.is_villager() {
+    if kind.is_projectile() {
         return None;
     }
     match action {
@@ -128,7 +128,7 @@ pub fn creature_calls(
             let sound = match &voice {
                 None if mob.action != MobAction::Idle => Some(Sound::BowLoose),
                 Some(voice) if mob.action == MobAction::Idle && voice.action != mob.action => {
-                    Some(Sound::Dig(SoundMaterial::Wood))
+                    Some(Sound::ArrowHitBlock)
                 }
                 _ => None,
             };

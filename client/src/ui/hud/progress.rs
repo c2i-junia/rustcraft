@@ -19,6 +19,13 @@ pub struct PlayerProgress(pub Option<Progress>);
 #[derive(Resource, Debug, Default)]
 pub struct JustEarned(Vec<Achievement>);
 
+impl JustEarned {
+    /// Whether achievements were earned that no toast told of yet.
+    pub fn any(&self) -> bool {
+        !self.0.is_empty()
+    }
+}
+
 /// The server told the progress of the local player, with what it has just earned.
 pub struct Earn {
     pub progress: Progress,
@@ -58,7 +65,11 @@ fn toasts(earned: &[Achievement]) -> Vec<String> {
         .collect()
 }
 
-fn show_earned(mut earned: ResMut<JustEarned>, assets: Res<AssetServer>, mut commands: Commands) {
+pub fn show_earned(
+    mut earned: ResMut<JustEarned>,
+    assets: Res<AssetServer>,
+    mut commands: Commands,
+) {
     if earned.0.is_empty() {
         return;
     }

@@ -679,7 +679,7 @@ saved with the mobs, with what they remember (`ServerMob::villager`: their home 
 sold), never despawn, are never hurt, and the hostiles ignore them. By day they walk about their
 home, at night they go into it, along routes of cells (`server/src/mob/villager.rs`,
 `find_route`, A* over a bounded number of cells); no door stops them (`collides_at`). One from a
-spawn egg lives where it first stood. They make no sound.
+spawn egg lives where it first stood. Each trade has a voice of its own, heard now and then and as a trade opens.
 
 The offers are a table both sides know (`shared/src/world/trade.rs`), against `Coin`s, which
 players earn by selling; the stock of each offer is renewed at sunrise (`market_day`). A press
@@ -1103,7 +1103,16 @@ of other sounds; the sound files in `data/sounds/` are made by `scripts/generate
 creature has its voice (`audio/creatures.rs`): a `CreatureVoice` on each mob drawn times its
 cries, and follows the actions the server sends: a hostile that starts to `Chase` is heard
 approaching, again every few seconds while it hunts, and one that starts to `Attack` strikes;
-`MobHurt` carries the kind, for its own hurt. The music (`audio/music.rs`) is made by
+`MobHurt` carries the kind, for its own hurt. The sounds of the later features (`audio/cues.rs`, files by
+`scripts/generate_feature_sounds.py`) are read from what the server already sends, nothing
+added to the protocol: the armour worn and the bow drawn of each player (put on, taken off, or
+gone in a hurt: broken), the arrows that vanish (in flight near a player or a creature: a hit;
+stuck near a player: picked up), `ItemPickedUp::orb`, the level, `TradeUpdated` (an offer left
+that goes down was taken), a click on a disabled offer or enchantment (refused), `Mob::in_love`,
+`Mob::tamed`, `Mob::born` (first seen in its first two seconds), a mob's feet going into water
+after a second out of it, and the resources of the HUD (`DepthReached`, `JustEarned`, `NearBoss`,
+a `Credits` spawned: the victory in a game). Each is rate-limited; the stings play on the Music
+volume, the screens' on the Interface one, the first-step hints none. The music (`audio/music.rs`) is made by
 `scripts/generate_music.py` into `data/music/`: a `MusicScheduler` plays one piece at a time,
 with minutes of silence between them, chosen for the mood of the moment it starts in (the title
 in the menus, the day, the night, the underground below y 50). It fades a piece out early only

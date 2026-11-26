@@ -13,7 +13,10 @@ mod sync;
 
 /// The local player picked up an item, or an orb of experience.
 #[derive(Message, Debug, Clone, Copy)]
-pub struct ItemPickedUp;
+pub struct ItemPickedUp {
+    /// Whether it was an orb of experience.
+    pub orb: bool,
+}
 
 /// An item lying in the world. It is drawn by its children, which `animate` turns and bobs.
 #[derive(Component, Debug)]
@@ -28,6 +31,8 @@ pub(crate) struct DroppedItemRoot {
     copies: usize,
     /// How many portals the server said the item went through.
     passes: u32,
+    /// Whether it is an orb of experience.
+    orb: bool,
 }
 
 /// The child of a `DroppedItemRoot` that turns and bobs, and holds the meshes.
