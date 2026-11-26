@@ -24,7 +24,7 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Command {
     /// Runs the hub.
-    Serve(ServeArgs),
+    Serve(Box<ServeArgs>),
     /// Writes a new signing key (a hex seed) to a file readable by its owner only.
     GenerateKey {
         /// The file to create; it must not exist.
@@ -128,9 +128,12 @@ pub struct ServeArgs {
         default_value = "127.0.0.1/32,::1/128"
     )]
     pub trusted_proxies: Vec<IpNet>,
-    /// The host players join the hosted worlds at, which the hub also probes them at.
+    /// The host players join the hosted worlds at.
     #[arg(long, env = "HUB_REALM_HOST", default_value = "play.rustcraft.dev")]
     pub realm_host: String,
+    /// The host the hub probes the hosted worlds' status ports at; `--realm-host` by default.
+    #[arg(long, env = "HUB_REALM_PROBE_HOST")]
+    pub realm_probe_host: Option<String>,
     /// The game port of slot 0; slot n is at `base + 2n`. As the agent's `base_port`.
     #[arg(long, env = "HUB_REALM_BASE_PORT", default_value_t = 25000)]
     pub realm_base_port: u16,

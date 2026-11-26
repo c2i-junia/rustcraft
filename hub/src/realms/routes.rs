@@ -103,16 +103,20 @@ async fn owned(db: &PgPool, id: Uuid, account: Uuid) -> Result<RealmRow, AppErro
     Ok(realm)
 }
 
+/// The members of `realms`; of active accounts only when `active_only`.
 async fn members(
     db: &PgPool,
     realms: &[Uuid],
+    active_only: bool,
 ) -> Result<HashMap<Uuid, Vec<RealmMember>>, AppError> {
     let rows: Vec<(Uuid, Uuid, String, String)> = sqlx::query_as(
         "SELECT m.realm_id, a.id, a.username::text, m.role \
          FROM realm_members m JOIN accounts a ON a.id = m.account_id \
-         WHERE m.realm_id = ANY($1) ORDER BY a.username",
+         WHERE m.realm_id = ANY($1) AND (NOT $2 OR a.status = 'active') \
+         ORDER BY a.username",
     )
     .bind(realms)
+    .bind(active_only)
     .fetch_all(db)
     .await?;
     let mut members: HashMap<Uuid, Vec<RealmMember>> = HashMap::new();
@@ -128,7 +132,7 @@ async fn members(
 
 async fn realms(state: &AppState, rows: Vec<RealmRow>) -> Result<RealmList, AppError> {
     let ids: Vec<Uuid> = rows.iter().map(|row| row.id).collect();
-    let mut members = members(&state.db, &ids).await?;
+    let mut members = members(&state.db, &ids, false).await?;
     Ok(rows
         .into_iter()
         .map(|row| {
@@ -385,7 +389,7 @@ async fn config(
         return Err(unauthorized());
     }
     Ok(Json(RealmConfig {
-        members: members(&state.db, &[id])
+        members: members(&state.db, &[id], true)
             .await?
             .remove(&id)
             .unwrap_or_default(),

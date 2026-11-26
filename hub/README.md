@@ -79,13 +79,18 @@ rustcraft-hub admin realms                           # id, name, owner, state, s
   it answers, `failed` (and stopped) after 60 s without an answer or when its container ends. It
   looks at each running world every 30 s: 10 minutes at 0 players (or without an answer) stop
   it, and a container that ended makes it `stopped` (exit code 0) or `failed`. A world the agent
-  did not stop stays `stopping` and is stopped again. When the hub starts, it takes the agent's
-  view of the worlds it thought had a container.
+  did not stop stays `stopping` and is stopped again. When the hub starts, and every day, it
+  takes the agent's view of the worlds it thought had a container, and stops a running
+  container of a world it thought had none (a start cut short while the agent carried it out).
 - An archived world leaves the lists at once and its token ends; the agent then moves its volume
   aside, and the world keeps its slot until it has. Deleting an account archives the worlds it
   owns and takes it out of the others. Every day the hub archives again what the agent did not,
   and asks it to purge the archives older than its `archive_days`.
-- The hub probes the worlds at `--realm-host`, on the status port of their slot, over UDP.
+- The hub probes the worlds over UDP on the status port of their slot, at `--realm-probe-host`
+  (`--realm-host` by default). In Compose, set it to the gateway of the hub's network, so that
+  the probes reach the published ports without going out through the public address.
+- The config of a world lists its active members only: a suspended member stays in the owner's
+  list, to be removed, but not in the world's whitelist.
 
 ## Realm agent
 
@@ -176,7 +181,8 @@ Migrations (`migrations/`) are applied at start. Every option has an environment
 | `--name` | `HUB_NAME` | `Rustcraft` |
 | `--trusted-proxies` | `HUB_TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` (peers whose `X-Forwarded-For` is believed) |
 | `--trusted-ranges` | `HUB_TRUSTED_RANGES` | (none; comma-separated CIDRs allowed 60 sign-ups an hour per address) |
-| `--realm-host` | `HUB_REALM_HOST` | `play.rustcraft.dev` (where players join hosted worlds, and the hub probes them) |
+| `--realm-host` | `HUB_REALM_HOST` | `play.rustcraft.dev` (where players join hosted worlds) |
+| `--realm-probe-host` | `HUB_REALM_PROBE_HOST` | `--realm-host` (where the hub probes the worlds' status ports) |
 | `--realm-base-port` | `HUB_REALM_BASE_PORT` | `25000` (the agent's `base_port`) |
 | `--realm-slots` | `HUB_REALM_SLOTS` | `20` (the agent's `slots`) |
 | `--max-running` | `HUB_MAX_RUNNING` | `3` (hosted worlds running at once) |

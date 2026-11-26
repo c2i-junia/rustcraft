@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use axum::{body::Body, http::Response};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use common::{TestHub, BASE_PORT, REALM_HOST};
+use common::{FakeAgent, FakeProbe, TestHub, BASE_PORT, REALM_HOST};
 use http_body_util::BodyExt;
 use rustcraft_agent_protocol::{RealmState as ContainerState, Request, Response as AgentResponse};
 use rustcraft_hub::{
@@ -13,6 +13,7 @@ use rustcraft_hub::{
     realms::monitor::{self, Timings},
 };
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -215,7 +216,11 @@ async fn a_start_takes_the_lowest_free_slot_and_gives_its_port() {
         .fetch_one(&hub.state.db)
         .await
         .unwrap();
-    assert_ne!(hash, URL_SAFE_NO_PAD.decode(&token).unwrap(), "only a hash");
+    assert_eq!(
+        hash,
+        Sha256::digest(URL_SAFE_NO_PAD.decode(&token).unwrap()).to_vec(),
+        "the SHA-256 of the token, and only that"
+    );
 
     let realms = list(&hub, &host).await;
     assert_eq!(realms[0]["state"], "starting");
@@ -747,4 +752,136 @@ async fn the_admin_lists_the_worlds() {
     );
     assert_ne!(home_row[6], "-");
     assert_eq!(columns(lines[2])[2..], ["Alex", "stopped", "-", "0", "-"]);
+}
+
+#[tokio::test]
+async fn concurrent_starts_never_share_a_slot_nor_pass_the_limit() {
+    let hub = TestHub::start().await;
+    let host = new_host(&hub, "Alex", 4).await;
+    let mut ids = Vec::new();
+    for name in ["A", "B", "C", "D"] {
+        ids.push(create(&hub, &host, name).await);
+    }
+    // Two places, two starts at once: two slots
+    let (a, b) = tokio::join!(start(&hub, &host, ids[0]), start(&hub, &host, ids[1]));
+    let (a, b) = (body(a).await, body(b).await);
+    assert_eq!(a["state"], "starting");
+    assert_eq!(b["state"], "starting");
+    assert_ne!(a["port"], b["port"]);
+    // One place left, two starts at once: one slot and one refusal
+    let (c, d) = tokio::join!(start(&hub, &host, ids[2]), start(&hub, &host, ids[3]));
+    let mut statuses = [c.status().as_u16(), d.status().as_u16()];
+    statuses.sort();
+    assert_eq!(statuses, [200, 503]);
+    let slots: Vec<i16> =
+        sqlx::query_scalar("SELECT slot FROM realms WHERE slot IS NOT NULL ORDER BY slot")
+            .fetch_all(&hub.state.db)
+            .await
+            .unwrap();
+    assert_eq!(slots, [0, 1, 2]);
+}
+
+#[tokio::test]
+async fn a_stopping_world_whose_container_is_gone_ends_stopped() {
+    let hub = TestHub::start().await;
+    let host = new_host(&hub, "Alex", 1).await;
+    let id = create(&hub, &host, "Home").await;
+    start(&hub, &host, id).await;
+    hub.probe.answer(0, Some(0));
+    monitor::check_starting(&hub.state, &timings(), later(5))
+        .await
+        .unwrap();
+    // As while the owner's stop holds the agent: the world is stopping, its container gone
+    sqlx::query("UPDATE realms SET state = 'stopping' WHERE id = $1")
+        .bind(id)
+        .execute(&hub.state.db)
+        .await
+        .unwrap();
+    hub.agent.containers.lock().unwrap().remove(&id);
+    monitor::check_running(&hub.state, &timings(), later(30))
+        .await
+        .unwrap();
+    assert_eq!(row(&hub, id).await, ("stopped".into(), None));
+    let reason: Option<String> =
+        sqlx::query_scalar("SELECT failed_reason FROM realms WHERE id = $1")
+            .bind(id)
+            .fetch_one(&hub.state.db)
+            .await
+            .unwrap();
+    assert_eq!(reason, None);
+}
+
+#[tokio::test]
+async fn the_running_container_of_a_world_without_a_slot_is_stopped() {
+    let hub = TestHub::start().await;
+    let host = new_host(&hub, "Alex", 2).await;
+    let stray = create(&hub, &host, "Stray").await;
+    let exited = create(&hub, &host, "Exited").await;
+    hub.agent.set_container(stray, ContainerState::Running);
+    hub.agent
+        .set_container(exited, ContainerState::Exited { exit_code: Some(0) });
+    rustcraft_hub::realms::daily(&hub.state).await.unwrap();
+    assert!(hub
+        .agent
+        .requests()
+        .contains(&Request::Stop { realm: stray }));
+    assert!(!hub
+        .agent
+        .requests()
+        .contains(&Request::Stop { realm: exited }));
+    assert_eq!(hub.agent.container(stray), ContainerState::Absent);
+    assert_eq!(row(&hub, stray).await, ("stopped".into(), None));
+}
+
+#[tokio::test]
+async fn the_config_lists_the_active_members_only() {
+    let hub = TestHub::start().await;
+    let host = new_host(&hub, "Alex", 1).await;
+    new_account(&hub, "Bob").await;
+    new_account(&hub, "Cyd").await;
+    let id = create(&hub, &host, "Home").await;
+    set_member(&hub, &host, id, "Bob", "member").await;
+    set_member(&hub, &host, id, "Cyd", "operator").await;
+    admin::suspend(&hub.state.db, "Cyd", "griefing")
+        .await
+        .unwrap();
+    start(&hub, &host, id).await;
+    let token = token_of(&hub, id);
+    let config = hub
+        .get_with(
+            &format!("/v1/realms/{id}/config"),
+            &format!("Realm {token}"),
+        )
+        .await;
+    let members = body(config).await["members"].clone();
+    assert_eq!(members.as_array().unwrap().len(), 1);
+    assert_eq!(members[0]["username"], "Bob");
+    // The owner still sees the suspended member, to remove them
+    assert_eq!(
+        list(&hub, &host).await[0]["members"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn slots_must_fit_the_ports_and_a_smallint() {
+    let hosting = |base_port, slots| {
+        rustcraft_hub::realms::Hosting::new(
+            std::sync::Arc::new(FakeAgent::default()),
+            std::sync::Arc::new(FakeProbe::default()),
+            REALM_HOST.into(),
+            base_port,
+            slots,
+            3,
+        )
+    };
+    assert!(hosting(25000, 20).is_ok());
+    assert!(hosting(25000, 0).is_err());
+    assert!(hosting(65000, 268).is_ok());
+    assert!(hosting(65000, 269).is_err());
+    assert!(hosting(0, 32767).is_ok());
+    assert!(hosting(0, 32768).is_err());
 }

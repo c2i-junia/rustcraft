@@ -21,7 +21,7 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
     match Cli::parse().command {
-        Command::Serve(args) => serve(args).await,
+        Command::Serve(args) => serve(*args).await,
         Command::Admin { database, command } => {
             let db = connect(&database.database_url()?).await?;
             println!("{}", admin::run(&db, command).await?);
@@ -42,7 +42,9 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
     let realms = Hosting::new(
         Arc::new(SocketAgent::new(args.agent_socket)),
         Arc::new(UdpProbe {
-            host: args.realm_host.clone(),
+            host: args
+                .realm_probe_host
+                .unwrap_or_else(|| args.realm_host.clone()),
             timeout: Duration::from_secs(2),
         }),
         args.realm_host,

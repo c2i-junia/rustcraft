@@ -173,7 +173,12 @@ pub async fn check_running(
             continue;
         };
         if container != ContainerState::Running {
-            gone(state, realm.id, exit_failure(container)).await?;
+            // A stopping world's container is gone because it was stopped: the stop ends
+            let reason = match realm.state.as_str() {
+                "running" => exit_failure(container),
+                _ => None,
+            };
+            gone(state, realm.id, reason).await?;
             continue;
         }
         if realm.state == "stopping" {
@@ -195,8 +200,10 @@ pub async fn check_running(
     Ok(())
 }
 
-/// Brings the database in line with the agent after the hub starts: a world whose container is
-/// gone ends, a stopping one is stopped again. Starting worlds go on with their timeout.
+/// Brings the database in line with the agent, when the hub starts and every day: a world whose
+/// container is gone ends, a stopping one is stopped again, and the container of a world
+/// without a slot, left by a start whose row was cleared while the agent started it, is
+/// stopped. Starting worlds go on with their timeout.
 pub async fn reconcile(state: &AppState) -> Result<(), sqlx::Error> {
     for realm in active(state, &["starting", "running", "stopping"]).await? {
         match container(state, realm.id).await {
@@ -212,6 +219,22 @@ pub async fn reconcile(state: &AppState) -> Result<(), sqlx::Error> {
                 gone(state, realm.id, reason).await?;
             }
             _ => {}
+        }
+    }
+    let idle: Vec<Uuid> =
+        sqlx::query_scalar("SELECT id FROM realms WHERE state IN ('stopped', 'failed')")
+            .fetch_all(&state.db)
+            .await?;
+    for id in idle {
+        // Only a running container: an exited one is removed by the next start. A start that
+        // comes after this check is refused by the agent while the stray container runs, so
+        // this stop never ends a world started since.
+        if container(state, id).await == Some(ContainerState::Running) {
+            tracing::warn!(%id, "stopping the container of a world without a slot");
+            let stopped = state.realms.agent.call(Request::Stop { realm: id }).await;
+            if let Some(reason) = super::agent::failure(&stopped) {
+                tracing::warn!(%id, reason, "could not stop a stray container");
+            }
         }
     }
     Ok(())

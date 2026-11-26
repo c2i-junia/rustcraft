@@ -52,7 +52,10 @@ impl Hosting {
         slots: u16,
         max_running: u16,
     ) -> anyhow::Result<Self> {
-        if slots == 0 || u32::from(base_port) + 2 * u32::from(slots) > 65536 {
+        if slots == 0
+            || slots > i16::MAX as u16
+            || u32::from(base_port) + 2 * u32::from(slots) > 65536
+        {
             bail!("{slots} slots from port {base_port} do not fit below 65536");
         }
         Ok(Self {
@@ -267,9 +270,10 @@ pub(crate) async fn archive_volume(state: &AppState, id: Uuid) -> Result<(), sql
 pub(crate) const MARK_ARCHIVED: &str = "UPDATE realms SET state = 'archived', \
      token_hash = NULL, players = 0, last_empty_at = NULL, state_changed_at = now()";
 
-/// Archives the worlds left marked `archived` but not archived by the agent, and asks the
-/// agent to purge the old archives.
+/// Reconciles the worlds with the agent, archives the worlds left marked `archived` but not
+/// archived by the agent, and asks the agent to purge the old archives.
 pub async fn daily(state: &AppState) -> Result<(), sqlx::Error> {
+    monitor::reconcile(state).await?;
     let pending: Vec<Uuid> = sqlx::query_scalar(
         "SELECT id FROM realms WHERE state = 'archived' AND volume_archived_at IS NULL",
     )
