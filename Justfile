@@ -84,3 +84,17 @@ test:
 
 test-fast:
     scripts/check.sh test-fast
+
+# Runs the client under the Dioxus CLI with hot patching: a saved change to a system's body is
+# patched into the running game, and the menu screen shown is rebuilt. Needs dioxus-cli 0.7.10
+# (`cargo install dioxus-cli --version 0.7.10 --locked`). Extra arguments go to dx, e.g.
+# `just hot --interactive=false` for a plain log (agents). See docs/HOT_RELOAD.md.
+hot *dx_args: create-game-folders
+    # dx needs the linker arguments of a fresh build of the client: without this, a client left
+    # unchanged since the last `just hot` fails to start ("Missing linker args for fat link")
+    touch client/src/main.rs
+    BEVY_ASSET_ROOT="{{justfile_directory()}}/client" \
+    RUST_LOG="${RUST_LOG:-info,bevy_ecs::system=debug,wgpu=error,naga=warn}" \
+    dx serve --hot-patch {{dx_args}} \
+        -p client --bin client --no-default-features --features hot \
+        "--args=--game-folder-path {{justfile_directory()}}/appdata/client-1 --assets-folder-path {{justfile_directory()}}/data --player-name PlayerOne"
