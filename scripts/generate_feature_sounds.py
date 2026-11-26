@@ -3,7 +3,8 @@
 bow and its arrows, the experience, the engraving table, the anvil, the trade and the villagers' voices,
 the breeding and the taming, a mob falling into water, and the stings of the progress (a depth
 reached, an achievement, a boss, the victory, the credits, a skin imported), and the critical
-blows and the sweeps of the melee.
+blows and the sweeps of the melee, and the mounts: a saddle put on, a boat's oars and a blow on its
+hull.
 
 Built with the primitives of `generate_sounds.py` (its seed, its loudness and its output), so
 that they sound of a piece with the others; every sound is synthesised here, entirely original
@@ -474,6 +475,42 @@ def build_sweep(rng):
     return finish(outdoors(rng, swing + edge), -19)
 
 
+# --- mounts -----------------------------------------------------------------
+
+def build_saddle(rng):
+    """A saddle thrown on a horse: the leather flapping down, its girth pulled tight and a
+    buckle's clink."""
+    d = 0.6
+    flap = thump(rng, d, 190, 95, 0.04) * 0.6 + band(colored(rng, d, 1), 300, 2500) * env(d, 0.002, 0.05) * 0.5
+    girth = rustle(rng, d, [(0.18, 0.2), (0.32, 0.16)], 500, 3200)
+    buckle = clinks(rng, d, [0.46], 2300, 4200, 0.03)
+    return finish(outdoors(rng, flap + girth * 0.6 + buckle * 0.35), -22)
+
+
+def build_boat_paddle(rng):
+    """An oar's stroke: the blade dipping in, the water pushed along it, the drops it lifts."""
+    d = 0.7
+    dip = band(colored(rng, d, 1), 250, 3000) * env(d, 0.004, 0.04)
+    push = band(colored(rng, d, 1), 180, 1400) * env(d, 0.12, 0.14)
+    parts = [dip * 0.5, push * 0.35]
+    for offset in np.sort(rng.uniform(0.25, 0.55, 6)):
+        f0 = rng.uniform(600, 1500)
+        tau = 0.012 * 900 / f0
+        t = t_axis(tau * 8)
+        drop = np.sin(2 * np.pi * np.cumsum(f0 * (1 + 2.0 * t)) / 44100) * env(tau * 8, 0.001, tau)
+        parts.append(place_at(d, drop * rng.uniform(0.1, 0.25), offset))
+    return finish(mix(*parts), -26)
+
+
+def build_boat_hit(rng):
+    """A blow on the hull: a hollow wooden knock that rings in the planks."""
+    d = 0.5
+    knock = thump(rng, d, 210, 120, 0.05)
+    hull = modes(rng, d, [(330, 0.09, 1.0), (520, 0.06, 0.6), (870, 0.04, 0.4)], 0.02)
+    crack = band(white(rng, d), 900, 5000) * env(d, 0.0005, 0.012)
+    return finish(outdoors(rng, knock * 0.8 + hull * 0.5 + crack * 0.3), -19)
+
+
 def main():
     write_ogg("armour/leather_on", build_leather_on)
     write_ogg("armour/leather_off", build_leather_off)
@@ -514,6 +551,9 @@ def main():
     write_ogg("ui/skin_import", build_skin_import)
     write_ogg("combat/critical", build_critical)
     write_ogg("combat/sweep", build_sweep)
+    write_ogg("mob/saddle", build_saddle)
+    write_ogg("boat/paddle", build_boat_paddle)
+    write_ogg("boat/hit", build_boat_hit)
 
 
 if __name__ == "__main__":

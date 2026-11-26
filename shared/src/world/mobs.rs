@@ -47,10 +47,12 @@ pub enum MobKind {
     /// The mother of the Cinderlings, asleep in her lair (`crate::world::lair`): the boss, which
     /// the server moves apart from the other hostiles.
     EmberMother,
+    /// A boat of planks (`crate::players::riding`): a vehicle, neither an animal nor hostile.
+    Boat,
 }
 
 impl MobKind {
-    pub const ALL: [MobKind; 23] = [
+    pub const ALL: [MobKind; 24] = [
         MobKind::Fox,
         MobKind::Sheep,
         MobKind::Cow,
@@ -74,6 +76,7 @@ impl MobKind {
         MobKind::Smith,
         MobKind::Cartographer,
         MobKind::EmberMother,
+        MobKind::Boat,
     ];
 
     /// Whether mobs of this kind hunt the players (`crate::world::hostiles`), and appear in the
@@ -114,9 +117,23 @@ impl MobKind {
         )
     }
 
+    /// Whether mobs of this kind are vehicles, which players ride and break into an item: the
+    /// boat. They neither live nor are born.
+    pub fn is_vehicle(self) -> bool {
+        self == MobKind::Boat
+    }
+
+    /// Whether players ride mobs of this kind (`crate::players::riding`): the horse, saddled and
+    /// tamed, and the boat.
+    pub fn is_mount(self) -> bool {
+        matches!(self, MobKind::Horse | MobKind::Boat)
+    }
+
     /// The points of health of a mob of this kind.
     pub fn health(self) -> u32 {
         match self {
+            // A few blows break it
+            MobKind::Boat => 4,
             MobKind::Fox | MobKind::Pig | MobKind::Goat | MobKind::Cat => 10,
             MobKind::Gnawer => 6,
             MobKind::Bramble => 12,
@@ -160,12 +177,18 @@ impl MobKind {
 
     /// Whether mobs of this kind are animals: neither hostile, nor projectiles, nor villagers.
     pub fn is_animal(self) -> bool {
-        !self.is_hostile() && !self.is_projectile() && !self.is_villager()
+        !self.is_hostile() && !self.is_projectile() && !self.is_villager() && !self.is_vehicle()
     }
 
-    /// Whether a player tames mobs of this kind by feeding them (`MobKind::eats`): the wolf
-    /// and the cat. A tamed one follows its owner, and only tamed ones breed.
+    /// Whether a player tames mobs of this kind by feeding them (`MobKind::eats`): the wolf,
+    /// the cat and the horse. Only tamed ones breed, and a tamed horse takes a saddle.
     pub fn is_tameable(self) -> bool {
+        matches!(self, MobKind::Wolf | MobKind::Cat | MobKind::Horse)
+    }
+
+    /// Whether a tamed mob of this kind follows its owner: the wolf and the cat, not the horse,
+    /// which waits where it was left.
+    pub fn follows_owner(self) -> bool {
         matches!(self, MobKind::Wolf | MobKind::Cat)
     }
 
@@ -224,6 +247,7 @@ impl MobKind {
             MobKind::Smith => "Smith",
             MobKind::Cartographer => "Cartographer",
             MobKind::EmberMother => "Ember Mother",
+            MobKind::Boat => "Boat",
         }
     }
 
@@ -265,6 +289,115 @@ impl MobKind {
             MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => Vec3::new(0.7, 1.6, 0.7),
             // Her body 1.5 wide, 3.1 tall with her crown of flames
             MobKind::EmberMother => Vec3::new(1.9, 3.0, 1.9),
+            // The hull of `scripts/generate_boat.py`, 1.25 wide and 2 long, 0.5 high
+            MobKind::Boat => Vec3::new(1.4, 0.6, 1.4),
+        }
+    }
+}
+
+/// The coat of a horse, which goes with its breed: some are faster, some last longer at a
+/// gallop (`Coat::base`). Append only: sent by index.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Coat {
+    Bay,
+    Chestnut,
+    Black,
+    Grey,
+    White,
+    Dun,
+}
+
+impl Coat {
+    pub const ALL: [Coat; 6] = [
+        Coat::Bay,
+        Coat::Chestnut,
+        Coat::Black,
+        Coat::Grey,
+        Coat::White,
+        Coat::Dun,
+    ];
+
+    /// The speed, in blocks/s, and the endurance, in seconds of gallop, a horse of this coat has
+    /// on average: the dark ones are fast and short of breath, the pale ones slower and enduring.
+    pub fn base(self) -> (f32, f32) {
+        match self {
+            Coat::Bay => (8.5, 8.0),
+            Coat::Chestnut => (9.5, 6.5),
+            Coat::Black => (10.0, 5.0),
+            Coat::Grey => (8.0, 11.0),
+            Coat::White => (9.0, 8.5),
+            Coat::Dun => (7.5, 13.0),
+        }
+    }
+
+    /// The key of its name in the translations.
+    pub fn key(self) -> &'static str {
+        match self {
+            Coat::Bay => "horse.coat.Bay",
+            Coat::Chestnut => "horse.coat.Chestnut",
+            Coat::Black => "horse.coat.Black",
+            Coat::Grey => "horse.coat.Grey",
+            Coat::White => "horse.coat.White",
+            Coat::Dun => "horse.coat.Dun",
+        }
+    }
+}
+
+/// The slowest and the fastest a horse walks, in blocks/s.
+pub const HORSE_SPEED: std::ops::RangeInclusive<f32> = 6.0..=12.0;
+/// The lowest and the highest a horse jumps at full charge, in blocks.
+pub const HORSE_JUMP: std::ops::RangeInclusive<f32> = 1.3..=3.2;
+/// The shortest and the longest a horse gallops, in seconds.
+pub const HORSE_ENDURANCE: std::ops::RangeInclusive<f32> = 3.0..=16.0;
+
+/// What a horse is born with.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct HorseTraits {
+    pub coat: Coat,
+    /// How fast it walks under a rider, in blocks/s: it gallops faster (`riding::GALLOP`).
+    pub speed: f32,
+    /// How high it jumps at full charge, in blocks.
+    pub jump: f32,
+    /// How long it gallops before it is out of breath, in seconds.
+    pub endurance: f32,
+}
+
+fn clamp_to(value: f32, range: &std::ops::RangeInclusive<f32>) -> f32 {
+    value.clamp(*range.start(), *range.end())
+}
+
+impl HorseTraits {
+    /// A horse born in the wild: a coat drawn at random, its speed and endurance about those
+    /// of its coat, its jump anywhere.
+    pub fn roll(rng: &mut impl rand::Rng) -> Self {
+        let coat = Coat::ALL[rng.gen_range(0..Coat::ALL.len())];
+        let (speed, endurance) = coat.base();
+        Self {
+            coat,
+            speed: clamp_to(speed + rng.gen_range(-1.0..=1.0), &HORSE_SPEED),
+            jump: rng.gen_range(HORSE_JUMP),
+            endurance: clamp_to(endurance + rng.gen_range(-2.0..=2.0), &HORSE_ENDURANCE),
+        }
+    }
+
+    /// A foal of `a` and `b`: the coat of one of them, but now and then one of its own, and
+    /// each trait the mean of theirs, give or take a little.
+    pub fn inherit(a: &Self, b: &Self, rng: &mut impl rand::Rng) -> Self {
+        let coat = if rng.gen_bool(0.1) {
+            Coat::ALL[rng.gen_range(0..Coat::ALL.len())]
+        } else if rng.gen_bool(0.5) {
+            a.coat
+        } else {
+            b.coat
+        };
+        let speed = (a.speed + b.speed) / 2.0 + rng.gen_range(-0.6..=0.6);
+        let jump = (a.jump + b.jump) / 2.0 + rng.gen_range(-0.25..=0.25);
+        let endurance = (a.endurance + b.endurance) / 2.0 + rng.gen_range(-1.2..=1.2);
+        Self {
+            coat,
+            speed: clamp_to(speed, &HORSE_SPEED),
+            jump: clamp_to(jump, &HORSE_JUMP),
+            endurance: clamp_to(endurance, &HORSE_ENDURANCE),
         }
     }
 }
@@ -403,6 +536,17 @@ pub struct ServerMob {
     /// it with the hurt (`melee::Strike`).
     #[serde(default)]
     pub struck: Option<crate::players::melee::Strike>,
+    /// What a horse was born with: its coat, its speed, its jump and its endurance; none for
+    /// the other mobs, and for a horse of a save from before them until the server rolls them.
+    #[serde(default)]
+    pub horse: Option<HorseTraits>,
+    /// Whether a horse wears a saddle, which lets its owner ride it.
+    #[serde(default)]
+    pub saddled: bool,
+    /// The players on each seat of a mount (`riding::seats`), which the server keeps in step
+    /// with their `Player::riding`. Neither saved nor sent: the riders' states tell it.
+    #[serde(skip)]
+    pub riders: [Option<PlayerId>; 2],
 }
 
 impl ServerMob {
@@ -437,6 +581,9 @@ impl ServerMob {
             route: None,
             villager: kind.is_villager().then(Villager::default),
             struck: None,
+            horse: None,
+            saddled: false,
+            riders: [None; 2],
         }
     }
 
@@ -512,6 +659,39 @@ mod tests {
         }
         assert!(!MobKind::Ember.is_hostile());
         assert!(MobKind::Cinderling.is_hostile());
+    }
+
+    #[test]
+    fn a_foal_takes_after_its_parents_within_the_bounds_of_its_kind() {
+        use rand::{rngs::StdRng, SeedableRng};
+        let mut rng = StdRng::seed_from_u64(7);
+        for _ in 0..200 {
+            let wild = HorseTraits::roll(&mut rng);
+            assert!(HORSE_SPEED.contains(&wild.speed), "{wild:?}");
+            assert!(HORSE_JUMP.contains(&wild.jump), "{wild:?}");
+            assert!(HORSE_ENDURANCE.contains(&wild.endurance), "{wild:?}");
+        }
+        let fast = HorseTraits {
+            coat: Coat::Black,
+            speed: 11.5,
+            jump: 3.0,
+            endurance: 5.0,
+        };
+        let slow = HorseTraits {
+            coat: Coat::Dun,
+            speed: 7.0,
+            jump: 1.5,
+            endurance: 13.0,
+        };
+        for _ in 0..200 {
+            let foal = HorseTraits::inherit(&fast, &slow, &mut rng);
+            assert!((foal.speed - 9.25).abs() <= 0.6 + 1e-4, "{foal:?}");
+            assert!((foal.jump - 2.25).abs() <= 0.25 + 1e-4, "{foal:?}");
+            assert!((foal.endurance - 9.0).abs() <= 1.2 + 1e-4, "{foal:?}");
+        }
+        // The dark coats are faster on average, the pale ones last longer
+        assert!(Coat::Black.base().0 > Coat::Dun.base().0);
+        assert!(Coat::Black.base().1 < Coat::Dun.base().1);
     }
 
     #[test]

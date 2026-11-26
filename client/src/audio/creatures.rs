@@ -28,7 +28,7 @@ pub const HEARING_DISTANCE: f32 = 32.0;
 /// one that strikes or burrows and an ember in flight say nothing more, the others (a villager
 /// too) cry.
 pub fn periodic_call(kind: MobKind, action: MobAction) -> Option<CreatureCall> {
-    if kind.is_projectile() {
+    if kind.is_projectile() || kind.is_vehicle() {
         return None;
     }
     match action {

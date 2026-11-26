@@ -8,6 +8,7 @@ mod float;
 pub mod guards;
 pub mod hostile;
 pub mod path;
+pub mod riding;
 pub mod spawning;
 pub mod villager;
 
@@ -25,8 +26,12 @@ fn create_new_mob_id() -> u128 {
 pub(crate) fn add_mob(
     mobs: &mut HashMap<MobId, ServerMob>,
     changed_mobs: &mut HashSet<MobId>,
-    mob: ServerMob,
+    mut mob: ServerMob,
 ) -> MobId {
+    // Each horse is born with its coat and its gifts
+    if mob.kind == shared::world::MobKind::Horse && mob.horse.is_none() {
+        mob.horse = Some(shared::world::HorseTraits::roll(&mut rand::thread_rng()));
+    }
     let id = create_new_mob_id();
     mobs.insert(id, mob);
     changed_mobs.insert(id);

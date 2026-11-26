@@ -6,14 +6,14 @@ use std::time::Duration;
 
 use bevy::prelude::*;
 use shared::constants::TICKS_PER_SECOND;
-use shared::world::{MobAction, MobId, MobKind, ServerMob, GROW_TICKS};
+use shared::world::{Coat, MobAction, MobId, MobKind, ServerMob, GROW_TICKS};
 
 /// A young mob first seen this few ticks into its growth was just born, not come into sight.
 const BORN_TICKS: u32 = 2 * TICKS_PER_SECOND as u32;
 
 use super::{
     hurt::MobHurt,
-    models::{clip_for, model, model_lift, MobAnimations, MobClip},
+    models::{clip_for, model_lift, scene_path, MobAnimations, MobClip},
     MobRoot,
 };
 use crate::state::GameState;
@@ -78,6 +78,12 @@ pub struct Mob {
     pub tamed: bool,
     /// Whether the mob was first seen just born (`audio::cues`): young, its growth hardly begun.
     pub born: bool,
+    /// The coat of a horse, which its model was drawn with.
+    pub coat: Option<Coat>,
+    /// Whether a horse wears its saddle (`show_saddles`).
+    pub saddled: bool,
+    /// The points of health the mob has at most, for the mount's bar (`ui::hud::mount`).
+    pub max_health: u32,
 }
 
 /// The model of a mob, a child of its entity, scaled with the mob.
@@ -115,7 +121,15 @@ impl Mob {
             in_love: server.in_love > 0,
             tamed: server.owner.is_some(),
             born: server.is_young() && server.growing + BORN_TICKS >= GROW_TICKS,
+            coat: server.horse.map(|traits| traits.coat),
+            saddled: server.saddled,
+            max_health: server.max_health(),
         }
+    }
+
+    /// The points of health the server said the mob lost.
+    pub fn damage(&self) -> u32 {
+        self.damage
     }
 }
 
@@ -172,6 +186,8 @@ fn take_update(mob: &mut Mob, transform: &mut Transform, server: &ServerMob) -> 
     mob.scale = scale_of(server);
     mob.in_love = server.in_love > 0;
     mob.tamed = server.owner.is_some();
+    mob.saddled = server.saddled;
+    mob.max_health = server.max_health();
     mob.position = server.position;
     mob.rotation = server.rotation;
     if mob.passes != server.passes {
@@ -185,8 +201,8 @@ fn take_update(mob: &mut Mob, transform: &mut Transform, server: &ServerMob) -> 
 /// The entity of a mob: its position is the middle of its hitbox, its model stands on the
 /// bottom of it.
 fn spawn_mob(commands: &mut Commands, server: &ServerMob, asset_server: &AssetServer) -> Entity {
-    let model = model(server.kind);
-    let scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(model.path));
+    let path = scene_path(server.kind, server.horse.map(|traits| traits.coat));
+    let scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(path));
     commands
         .spawn((
             MobRoot,
@@ -302,6 +318,52 @@ pub fn play_mob_clips(
     }
 }
 
+/// Shows the saddle of each horse that wears one, and hides that of the others: a part of the
+/// model of every horse (`scripts/generate_animals.py`).
+pub fn show_saddles(
+    mobs: Query<(Entity, &Mob)>,
+    children: Query<&Children>,
+    mut parts: Query<(&Name, &mut Visibility), Without<Mob>>,
+) {
+    for (entity, mob) in &mobs {
+        if mob.kind != MobKind::Horse {
+            continue;
+        }
+        let wanted = if mob.saddled {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+        for descendant in children.iter_descendants(entity) {
+            if let Ok((name, mut visibility)) = parts.get_mut(descendant) {
+                if name.as_str() == "saddle" {
+                    visibility.set_if_neq(wanted);
+                }
+            }
+        }
+    }
+}
+
+/// Puts the mount the local player drives under it, where its prediction says, rather than
+/// where the server last said: the mount would trail behind its rider.
+pub fn place_ridden_mount(
+    local: Query<&shared::players::Player, With<crate::player::CurrentPlayerMarker>>,
+    entities: Res<MobEntities>,
+    mut mobs: Query<&mut Transform, With<Mob>>,
+) {
+    let Ok(player) = local.single() else {
+        return;
+    };
+    let Some(riding) = player.riding.filter(|riding| riding.seat == 0) else {
+        return;
+    };
+    let Some(mut transform) = entities.get(riding.mob).and_then(|e| mobs.get_mut(e).ok()) else {
+        return;
+    };
+    transform.translation = player.position - riding.seat_offset();
+    transform.rotation = Quat::from_rotation_y(riding.heading);
+}
+
 /// Forgets the mobs of a session that ended: their entities are despawned with the game.
 pub fn forget_mobs(mut client_mobs: ResMut<ClientMobs>, mut entities: ResMut<MobEntities>) {
     *client_mobs = ClientMobs::default();
@@ -342,6 +404,9 @@ mod tests {
             in_love: false,
             tamed: false,
             born: false,
+            coat: None,
+            saddled: false,
+            max_health: 8,
         };
         let mut transform = Transform::from_translation(shown).with_rotation(mob.rotation);
         let mut server = ServerMob {

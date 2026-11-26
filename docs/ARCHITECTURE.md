@@ -843,6 +843,38 @@ cursor, the crafting grid, the engraving table and the anvil (`InventoryActionOu
 what `/give` gives, a backpack of it at most. Crafting into the inventory and trades are refused
 without room, and an item on the ground stays there until there is.
 
+### Mounts
+
+`players/riding.rs` (shared) is the ride: `Player::riding` (`Riding`: the mob, its kind, the seat,
+the heading, and for a horse its speed, jump, breath and the charge of its jump) is part of the
+`MovementState`, so the client predicts a ride as it predicts a walk, the server repeats it, and the
+others see the rider seated. While it is set, `simulate_player_movement` hands the input to
+`simulate_riding`: the sneak key gets off (`dismount`, beside the mount where there is room); the
+driver moves the mount's box, steered by where it looks, and sits on it (`seat_offset`). A horse walks
+at its speed, gallops `GALLOP` times faster with the sprint key while its breath lasts (winded, it
+waits for a third of it back), steps up a block, and jumps when the jump key, held on the ground, is
+let go, as high as it was held long (`CHARGE_MS`); a fall is cushioned by 3 blocks. A boat floats,
+glides to its speed, 8 blocks/s on the water and 1 on land. The passenger of a boat (seat 1) does not
+move by itself.
+
+`server/src/mob/riding.rs` puts a player on a mount when it right-clicks it (`mount`, from
+`combat::interact`): a boat on a free seat, a horse grown up, tamed and saddled by that player
+(`free_seat`). After the inputs of each tick, `riding_system` puts each driven mob where its driver's
+simulation says, carries each passenger with its boat, and takes off the riders whose mount is gone
+or who died; `ServerMob::riders`, neither saved nor sent, is rebuilt from them. A driven mob has no
+behaviour of its own and is not pushed, and a rider pushes nothing. On the client, the mount of the
+local driver is drawn under its prediction (`place_ridden_mount`), and `ui/hud/mount.rs` writes the
+line over the hotbar.
+
+A horse is tamed by its food like the wolf (`MobKind::is_tameable`), but does not follow its owner
+(`follows_owner`); a hurt tamed horse heals by eating. Each horse has `HorseTraits` (`world/mobs.rs`):
+a `Coat` whose base gives its speed and endurance, varied at random, and a jump; `add_mob` rolls
+them, and a foal inherits the mean of its parents' with a little drift. The coat picks the model,
+`Horse<Coat>.glb`, of the same parts as `Horse.glb` whose clips move them; its `saddle` part shows
+when the horse is saddled (`ServerMob::saddled`, which a saddle item sets). The boat is the mob
+`MobKind::Boat` (`is_vehicle`: no behaviour, no voice, it floats), put down from `ItemId::Boat` as a
+spawn egg aimed like a bucket, on the water, and dropping its item when broken.
+
 ### The depth tiers
 
 `world/depths.rs` (shared) is their one definition: `DepthTier` is the caves (y 50 to 20), the depths
@@ -1492,6 +1524,9 @@ the integrated server, on wall-clock time. How to write one is in the README.
   the fix; they are left for later.
 - Block interactions are processed once per input, so once per rendered frame of the client:
   a client with a higher frame rate breaks blocks faster.
+- A rider is not saved on its mount: a player who joins again stands where it sat. The passenger of a
+  boat is carried by the server, a tick behind its rower. A horse's coat and gifts are rolled by the
+  server, so a horse of an older save gets them the first tick it moves.
 - A player is not held back by the mobs it pushes; no animal is born after a chunk is
   generated: a herd led away is gone for good.
 - What `/give` finds no room for falls at the feet of the player up to a backpack of it (36 stacks);

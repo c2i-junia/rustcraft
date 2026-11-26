@@ -132,6 +132,11 @@ pub fn simulate_player_movement(
         );
         return MovementOutcome::default();
     }
+    // A rider moves with its mount
+    if player.riding.is_some() {
+        let delta_ms = action.delta_ms.min(MAX_FRAME_DELTA_MS);
+        return super::riding::simulate_riding(player, world_map, action, delta_ms);
+    }
     let start = player.position;
     player.portal_rest = world_map
         .portals()

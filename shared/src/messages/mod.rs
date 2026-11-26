@@ -216,6 +216,9 @@ mod tests {
                 route: None,
                 villager: None,
                 struck: None,
+                horse: None,
+                saddled: false,
+                riders: [None; 2],
             },
         };
         let update = PlayerUpdateEvent {
@@ -428,6 +431,7 @@ mod tests {
             22,
             "{ENCODING_WARNING}"
         );
+        assert_eq!(variant_index(&MobKind::Boat), 23, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobTarget::None), 0, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobTarget::Position(Vec3::ZERO)), 1);
         assert_eq!(variant_index(&MobTarget::Player(0)), 2);

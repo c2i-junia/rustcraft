@@ -34,6 +34,8 @@ pub fn mob_plugin(app: &mut App) {
                 hearts::show_hearts,
                 hurt::flash_hurt_mobs,
                 smooth_mob_motion,
+                place_ridden_mount,
+                show_saddles,
                 setup_mob_animators,
                 play_mob_clips,
             )

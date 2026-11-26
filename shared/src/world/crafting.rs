@@ -285,6 +285,16 @@ const RECIPES: &[Recipe] = &[
         nb: 1,
         shapeless: false,
     },
+    // Minecraft's boat, of any planks
+    Recipe { width: 3, cells: &[PLANKS, None, PLANKS, PLANKS, PLANKS, PLANKS], output: ItemId::Boat, nb: 1, shapeless: false },
+    // Minecraft has none: leather over an iron tree, its girth of rope
+    Recipe {
+        width: 3,
+        cells: &[LEATHER, LEATHER, LEATHER, item(ItemId::Rope), IRON, item(ItemId::Rope)],
+        output: ItemId::Saddle,
+        nb: 1,
+        shapeless: false,
+    },
     Recipe { width: 3, cells: &helmet(LEATHER), output: ItemId::LeatherHelmet, nb: 1, shapeless: false },
     Recipe { width: 3, cells: &chestplate(LEATHER), output: ItemId::LeatherChestplate, nb: 1, shapeless: false },
     Recipe { width: 3, cells: &leggings(LEATHER), output: ItemId::LeatherLeggings, nb: 1, shapeless: false },
@@ -959,7 +969,7 @@ mod tests {
     #[test]
     fn every_recipe_is_listed_with_its_index_and_size() {
         let all: Vec<RecipeView> = recipes().collect();
-        assert_eq!(all.len(), 107);
+        assert_eq!(all.len(), 109);
         for (position, recipe) in all.iter().enumerate() {
             assert_eq!(recipe.index as usize, position);
             assert_eq!(recipe.cells.len(), recipe.width * recipe.height);
@@ -979,15 +989,15 @@ mod tests {
         let counts = |item| (recipes_for(item).count(), uses_of(item).count());
         assert_eq!(counts(ItemId::WoodenPickaxe), (1, 0));
         assert_eq!(counts(ItemId::Stick), (1, 44));
-        assert_eq!(counts(ItemId::OakPlanks), (1, 14));
-        assert_eq!(counts(ItemId::SprucePlanks), (1, 14));
-        assert_eq!(counts(ItemId::JunglePlanks), (1, 14));
+        assert_eq!(counts(ItemId::OakPlanks), (1, 15));
+        assert_eq!(counts(ItemId::SprucePlanks), (1, 15));
+        assert_eq!(counts(ItemId::JunglePlanks), (1, 15));
         // the same recipes for each species
         let uses = |item| uses_of(item).map(|r| r.index).collect::<Vec<_>>();
         assert_eq!(uses(ItemId::OakPlanks), uses(ItemId::SprucePlanks));
         assert_eq!(uses(ItemId::OakPlanks), uses(ItemId::JunglePlanks));
         assert_eq!(counts(ItemId::Cobblestone), (0, 6));
-        assert_eq!(counts(ItemId::IronIngot), (1, 14));
+        assert_eq!(counts(ItemId::IronIngot), (1, 16));
         assert_eq!(counts(ItemId::Torch), (2, 1));
         assert_eq!(counts(ItemId::Bedrock), (0, 0));
         assert!(recipes_for(ItemId::Chest).all(|r| r.output.item_id == ItemId::Chest));
@@ -1161,6 +1171,7 @@ mod tests {
                 ItemId::Fence,
                 ItemId::Barrel,
                 ItemId::Sign,
+                ItemId::Boat,
             ]
         );
         for recipe in &with_planks {

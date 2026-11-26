@@ -221,9 +221,26 @@ pub fn arrow_cues(
 pub struct MobCues {
     in_love: bool,
     tamed: bool,
+    saddled: bool,
+    /// Where it was the frame before, and when a boat's oars were last heard.
+    last_at: Vec3,
+    paddled_at: f32,
     in_water: bool,
     dry_secs: f32,
     splashed_at: f32,
+}
+
+/// A boat faster than this is rowed, in blocks/s, a stroke every so many seconds.
+const PADDLE_SPEED: f32 = 2.0;
+const PADDLE_INTERVAL_SECS: f32 = 0.8;
+
+/// Whether the hull of a boat centred on `at` is in water.
+fn boat_on_water(at: Vec3, world: &ClientWorldMap) -> bool {
+    let hull = at - Vec3::Y * (MobKind::Boat.size().y / 2.0 - 0.05);
+    world
+        .blocks
+        .get_block(hull.floor().as_ivec3())
+        .is_some_and(|block| block.id == BlockId::Water)
 }
 
 /// Whether the feet of `mob`, whose hitbox is centred on `at`, are in water.
@@ -257,6 +274,9 @@ pub fn mob_cues(
             commands.entity(entity).insert(MobCues {
                 in_love: mob.in_love,
                 tamed: mob.tamed,
+                saddled: mob.saddled,
+                last_at: at,
+                paddled_at: f32::MIN,
                 in_water,
                 dry_secs: 0.0,
                 splashed_at: f32::MIN,
@@ -272,6 +292,22 @@ pub fn mob_cues(
         if mob.tamed && !cues.tamed {
             sounds.write_batch(heard(ears, Sound::Tamed, at));
         }
+        if mob.saddled && !cues.saddled {
+            sounds.write_batch(heard(ears, Sound::Saddle, at));
+        }
+        // A boat going on the water is rowed
+        let delta = time.delta_secs();
+        let speed = (at - cues.last_at).with_y(0.0).length() / delta.max(1e-3);
+        if mob.kind == MobKind::Boat
+            && speed > PADDLE_SPEED
+            && boat_on_water(at, &world)
+            && now - cues.paddled_at >= PADDLE_INTERVAL_SECS
+        {
+            sounds.write_batch(heard(ears, Sound::BoatPaddle, at));
+            cues.paddled_at = now;
+        }
+        cues.last_at = at;
+        cues.saddled = mob.saddled;
         if in_water
             && !cues.in_water
             && cues.dry_secs >= DRY_SECS

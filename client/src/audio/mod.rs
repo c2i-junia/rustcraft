@@ -84,10 +84,13 @@ fn hurt_sounds(mut hurts: MessageReader<LocalPlayerHurt>, mut sounds: MessageWri
 /// sweep swishes over it.
 fn mob_hurt_sounds(mut hurts: MessageReader<MobHurt>, mut sounds: MessageWriter<PlaySound>) {
     for MobHurt { kind, at, struck } in hurts.read() {
-        sounds.write(PlaySound::at(
-            Sound::Creature(*kind, CreatureCall::Hurt),
-            *at,
-        ));
+        // A boat has no voice: its planks knock
+        let hurt = if *kind == shared::world::MobKind::Boat {
+            Sound::BoatHit
+        } else {
+            Sound::Creature(*kind, CreatureCall::Hurt)
+        };
+        sounds.write(PlaySound::at(hurt, *at));
         match struck {
             Some(Strike::Critical) => {
                 sounds.write(PlaySound::at(Sound::CriticalHit, *at));

@@ -28,6 +28,7 @@ class Animal:
 
     def __init__(self, name, seed, drop=0, hops=False):
         self.name, self.rng, self.drop, self.hops = name, random.Random(seed), drop, hops
+        self.file = name
         self.parts, self.pivots = {}, {}
 
     def fur(self, *colours):
@@ -217,10 +218,26 @@ def wolf():
     return a
 
 
-def horse():
+# The coats of the horses (`shared::world::Coat`): the body, then the mane and the tail.
+COATS = {
+    "Bay": (("#8b4d2b", "#7f4426", "#965631"), ("#2a211f", "#332927")),
+    "Chestnut": (("#a5582a", "#9a4f22", "#b2632f"), ("#7a3a1a", "#6e3416")),
+    "Black": (("#2b2523", "#241f1d", "#332c29"), ("#141010", "#1c1717")),
+    "Grey": (("#9a9a96", "#8c8c88", "#a8a8a3"), ("#4a4a48", "#575754")),
+    "White": (("#e8e4dc", "#ddd8ce", "#f1eee8"), ("#cfc9bd", "#bdb6a9")),
+    "Dun": (("#c8a96e", "#bb9c62", "#d3b67b"), ("#3a2c22", "#45362a")),
+}
+
+
+def horse(coat="Bay"):
+    """A horse of `coat`, its saddle a part of its own, which the game shows on a saddled one;
+    the bay one is Horse.glb, the others Horse<Coat>.glb, all of the same parts, which the clips
+    of Horse.glb move."""
     a = Animal("Horse", 7, drop=8)
-    bay = a.fur("#8b4d2b", "#7f4426", "#965631")
-    mane, hoof, white, muzzle = a.fur("#2a211f", "#332927"), "#352b27", "#ebe5da", "#4c3028"
+    a.file = "Horse" if coat == "Bay" else f"Horse{coat}"
+    body, hair = COATS[coat]
+    bay = a.fur(*body)
+    mane, hoof, white, muzzle = a.fur(*hair), "#352b27", "#ebe5da", "#4c3028"
     a.part("body", (0, 0, 16))
     a.box("body", (-5, 5), (-10, 10), (12, 21), bay)
     a.round_back(5, 21)
@@ -237,6 +254,15 @@ def horse():
     a.legs(5, 3, -9, 6, 3, 12, lambda i, j, k: hoof if k < 2 else white if k < 4 else bay())
     a.part("tail", (0, 10, 19))
     a.box("tail", (-1, 1), (10, 12), (9, 20), mane)
+    # The saddle on the back, its girth under the belly and its stirrups, moving with the body
+    leather, dark, iron = "#5b3a22", "#3f2716", "#9aa0a6"
+    a.part("saddle", (0, 0, 16))
+    a.box("saddle", (-5, 5), (-4, 3), (21, 22), leather)
+    a.box("saddle", (-3, 3), (-5, -4), (21, 23), dark)
+    a.box("saddle", (-3, 3), (3, 4), (21, 23), dark)
+    a.mirror("saddle", (5, 6), (-1, 1), (12, 22), dark)
+    a.box("saddle", (-5, 5), (-1, 1), (11, 12), dark)
+    a.mirror("saddle", (5, 6), (-1, 1), (9, 11), iron)
     return a
 
 
@@ -353,7 +379,7 @@ def export(animal):
     for obj in scene.objects:
         obj.select_set(True)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out = OUT_DIR / f"{animal.name}.glb"
+    out = OUT_DIR / f"{animal.file}.glb"
     bpy.ops.export_scene.gltf(filepath=str(out), export_format="GLB", use_selection=True,
                               use_active_scene=True, export_animations=True,
                               export_animation_mode="NLA_TRACKS",
@@ -364,3 +390,6 @@ def export(animal):
 if __name__ == "__main__":
     for build in ANIMALS:
         export(build())
+    for coat in COATS:
+        if coat != "Bay":
+            export(horse(coat))

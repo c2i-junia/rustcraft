@@ -15,6 +15,7 @@ pub mod inventory;
 pub mod melee;
 pub mod movement;
 pub mod progress;
+pub mod riding;
 pub mod simulation;
 pub mod skin;
 

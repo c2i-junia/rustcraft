@@ -197,8 +197,8 @@ impl CreatureCall {
     /// attacks too, and a projectile, never struck, only flies, and a
     /// villager speaks and is hurt as an animal is.
     pub fn of(kind: MobKind) -> &'static [CreatureCall] {
-        if kind == MobKind::Arrow {
-            // `creatures::creature_calls` gives it other sounds
+        if kind == MobKind::Arrow || kind.is_vehicle() {
+            // `creatures::creature_calls` gives the arrow other sounds; a boat has no voice
             &[]
         } else if kind.is_villager() {
             &[CreatureCall::Cry, CreatureCall::Hurt]
@@ -243,6 +243,7 @@ fn creature_folder(kind: MobKind) -> &'static str {
         MobKind::Farmer => "farmer",
         MobKind::Smith => "smith",
         MobKind::Cartographer => "cartographer",
+        MobKind::Boat => "boat",
     }
 }
 
@@ -349,6 +350,12 @@ pub enum Sound {
     CriticalHit,
     /// A sword sweeps: the blade cutting the air.
     Sweep,
+    /// A saddle is put on a horse.
+    Saddle,
+    /// A boat is rowed on the water: a stroke of its oars.
+    BoatPaddle,
+    /// A boat is struck: its hull knocks.
+    BoatHit,
 }
 
 impl Sound {
@@ -399,7 +406,7 @@ impl Sound {
 
     /// The sounds of the later features (`scripts/generate_feature_sounds.py`), but those of
     /// the armour put on and off and the voices of the villagers.
-    pub const FEATURES: [Sound; 29] = [
+    pub const FEATURES: [Sound; 32] = [
         Sound::BowLoose,
         Sound::ArmourBreak,
         Sound::BowDraw,
@@ -429,6 +436,9 @@ impl Sound {
         Sound::SkinImported,
         Sound::CriticalHit,
         Sound::Sweep,
+        Sound::Saddle,
+        Sound::BoatPaddle,
+        Sound::BoatHit,
     ];
 
     /// The sounds of the weather, played by `audio::weather`.
@@ -540,6 +550,9 @@ impl Sound {
             Sound::SkinImported => one("ui/skin_import"),
             Sound::CriticalHit => one("combat/critical"),
             Sound::Sweep => one("combat/sweep"),
+            Sound::Saddle => one("mob/saddle"),
+            Sound::BoatPaddle => one("boat/paddle"),
+            Sound::BoatHit => one("boat/hit"),
             Sound::PortalPass => vec!["sounds/player/pickup.ogg".to_string()],
             Sound::Creature(kind, call) => {
                 let folder = creature_folder(kind);
@@ -681,7 +694,7 @@ mod tests {
         for kind in MobKind::ALL.into_iter().filter(|kind| !kind.is_villager()) {
             let calls = CreatureCall::of(kind);
             assert!(
-                calls.contains(&CreatureCall::Cry) || kind == MobKind::Arrow,
+                calls.contains(&CreatureCall::Cry) || kind == MobKind::Arrow || kind.is_vehicle(),
                 "{kind:?}"
             );
             assert_eq!(
@@ -696,7 +709,8 @@ mod tests {
             );
             assert_eq!(
                 calls.contains(&CreatureCall::Hurt),
-                !kind.is_projectile(),
+                // A struck boat knocks (`Sound::BoatHit`)
+                !kind.is_projectile() && !kind.is_vehicle(),
                 "{kind:?}"
             );
             for &call in calls {

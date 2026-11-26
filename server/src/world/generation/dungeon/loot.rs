@@ -26,6 +26,7 @@ pub fn table(kind: DungeonKind) -> &'static [LootEntry] {
             (ItemId::LeatherHelmet, 0.1, 1, 1),
             (ItemId::LeatherBoots, 0.1, 1, 1),
             (ItemId::BronzeHelmet, 0.05, 1, 1),
+            (ItemId::Saddle, 0.15, 1, 1),
         ],
         DungeonKind::Crypt => &[
             (ItemId::Torch, 0.5, 4, 10),
@@ -44,6 +45,7 @@ pub fn table(kind: DungeonKind) -> &'static [LootEntry] {
             (ItemId::BronzeChestplate, 0.12, 1, 1),
             (ItemId::IronHelmet, 0.1, 1, 1),
             (ItemId::IronBoots, 0.1, 1, 1),
+            (ItemId::Saddle, 0.12, 1, 1),
         ],
         DungeonKind::Sanctuary => &[
             (ItemId::IronIngot, 0.8, 3, 8),

@@ -229,11 +229,15 @@ pub enum ItemId {
     CobbledGloomrock,
     /// Repairs, merges and renames what wears: see `anvil`.
     Anvil,
+    /// Put on a tamed horse, it lets its owner ride it (`players::riding`).
+    Saddle,
+    /// Put on the water, a boat of planks for two (`players::riding`).
+    Boat,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 197] = [
+    pub const ALL: [ItemId; 199] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -431,6 +435,8 @@ impl ItemId {
         Self::Gloomrock,
         Self::CobbledGloomrock,
         Self::Anvil,
+        Self::Saddle,
+        Self::Boat,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -464,7 +470,12 @@ impl ItemId {
     pub fn get_max_stack(&self) -> u32 {
         match *self {
             Self::Bucket => 16,
-            Self::WaterBucket | Self::LavaBucket | Self::Spear | Self::PortalGun => 1,
+            Self::WaterBucket
+            | Self::LavaBucket
+            | Self::Spear
+            | Self::PortalGun
+            | Self::Saddle
+            | Self::Boat => 1,
             _ if self.durability().is_some() => 1,
             _ => 64,
         }
@@ -545,6 +556,8 @@ impl ItemId {
             Self::FarmerSpawnEgg => Some(MobKind::Farmer),
             Self::SmithSpawnEgg => Some(MobKind::Smith),
             Self::CartographerSpawnEgg => Some(MobKind::Cartographer),
+            // Put down as a spawn egg, on the water it aims at
+            Self::Boat => Some(MobKind::Boat),
             _ => None,
         }
     }
@@ -790,7 +803,9 @@ impl ItemId {
             | Self::DiamondBoots
             | Self::Bow
             | Self::Arrow
-            | Self::DepthsCompass => ItemCategory::Tools,
+            | Self::DepthsCompass
+            | Self::Saddle
+            | Self::Boat => ItemCategory::Tools,
             Self::FoxSpawnEgg
             | Self::SheepSpawnEgg
             | Self::CowSpawnEgg
@@ -965,7 +980,9 @@ impl ItemId {
             | Self::RoastRabbit
             | Self::Leather
             | Self::Feather
-            | Self::BakedPotato => ItemType::Generic,
+            | Self::BakedPotato
+            | Self::Saddle
+            | Self::Boat => ItemType::Generic,
 
             Self::WoodenPickaxe
             | Self::WoodenAxe
@@ -1372,6 +1389,8 @@ mod tests {
             (ItemId::Gloomrock, 194),
             (ItemId::CobbledGloomrock, 195),
             (ItemId::Anvil, 196),
+            (ItemId::Saddle, 197),
+            (ItemId::Boat, 198),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -1572,7 +1591,9 @@ mod tests {
                 | ItemId::EngravingTable
                 | ItemId::Gloomrock
                 | ItemId::CobbledGloomrock
-                | ItemId::Anvil => {}
+                | ItemId::Anvil
+                | ItemId::Saddle
+                | ItemId::Boat => {}
             }
         }
         for (id, expected) in table {
@@ -1791,6 +1812,8 @@ mod tests {
             ItemId::Spear,
             ItemId::FlintAndSteel,
             ItemId::Bow,
+            ItemId::Saddle,
+            ItemId::Boat,
         ];
         let others = ItemId::ALL
             .iter()
@@ -1967,6 +1990,8 @@ mod tests {
                     | ItemId::Bow
                     | ItemId::Arrow
                     | ItemId::DepthsCompass
+                    | ItemId::Saddle
+                    | ItemId::Boat
             );
             assert_eq!(
                 item.category() == ItemCategory::Tools,

@@ -268,7 +268,9 @@ fn reconcile_prediction(
     if predicted == Some(update.movement) {
         return;
     }
-    if let Some(predicted) = predicted {
+    // A passenger is carried by the server, which no prediction foresees
+    let carried = update.movement.riding.is_some_and(|riding| riding.seat > 0);
+    if let Some(predicted) = predicted.filter(|_| !carried) {
         warn!(
             "Player position mismatch: Client({predicted:?}) != Server({:?}) at t={acknowledged} (id={})",
             update.movement, player.id

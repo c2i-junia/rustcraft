@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use shared::world::{MobAction, MobKind};
+use shared::world::{Coat, MobAction, MobKind};
 
 /// What a mob looks like it does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -77,8 +77,21 @@ pub fn model(kind: MobKind) -> MobModel {
         MobKind::Farmer => ("models/animated/Farmer.glb", VILLAGER_CLIPS),
         MobKind::Smith => ("models/animated/Smith.glb", VILLAGER_CLIPS),
         MobKind::Cartographer => ("models/animated/Cartographer.glb", VILLAGER_CLIPS),
+        // `scripts/generate_boat.py`: its three clips stand still
+        MobKind::Boat => ("models/animated/Boat.glb", HOSTILE_CLIPS),
     };
     MobModel { path, clips }
+}
+
+/// The scene a mob of `kind` is drawn with: a horse's is that of its coat, whose model has the
+/// parts of `Horse.glb`, which the clips of the kind move (`scripts/generate_animals.py`).
+pub fn scene_path(kind: MobKind, coat: Option<Coat>) -> String {
+    match (kind, coat) {
+        (MobKind::Horse, Some(coat)) if coat != Coat::Bay => {
+            format!("models/animated/Horse{coat:?}.glb")
+        }
+        _ => model(kind).path.to_string(),
+    }
 }
 
 /// How far above the origin of the model of `kind` the bottom of its box is, in metres: the

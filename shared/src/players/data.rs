@@ -17,6 +17,7 @@ use super::hunger::{
     full_food, respawn_saturation, DAMAGE_EXHAUSTION, MAX_FOOD, RESPAWN_SATURATION,
 };
 use super::progress::Progress;
+use super::riding::Riding;
 use super::skin::PlayerSkin;
 use crate::{
     messages::PlayerId,
@@ -325,6 +326,10 @@ pub struct Player {
     /// others are given with it. Not saved: it is the client's choice, sent at each join.
     #[serde(skip)]
     pub skin: PlayerSkin,
+    /// The mount the player rides (`riding`). Part of the `MovementState`; not saved: a player
+    /// who joins stands.
+    #[serde(skip)]
+    pub riding: Option<Riding>,
 }
 
 /// What the movement simulation carries over from one input to the next. The server sends it
@@ -344,6 +349,8 @@ pub struct MovementState {
     pub dragged_ms: u32,
     /// `Player::bow_draw_ms`: the others see the bow drawn.
     pub bow_draw_ms: u32,
+    /// `Player::riding`: the others see the player seated.
+    pub riding: Option<Riding>,
 }
 
 /// The upward velocity a knock back gives at least, in blocks/s: a hop of a quarter of a block.
@@ -371,6 +378,7 @@ impl Player {
             portal_rest: self.portal_rest,
             dragged_ms: self.dragged_ms,
             bow_draw_ms: self.bow_draw_ms,
+            riding: self.riding,
         }
     }
 
@@ -386,6 +394,7 @@ impl Player {
         self.portal_rest = state.portal_rest;
         self.dragged_ms = state.dragged_ms;
         self.bow_draw_ms = state.bow_draw_ms;
+        self.riding = state.riding;
     }
 
     /// What the portals know of the player going through them: its box, and the floor portal it
@@ -532,6 +541,7 @@ impl Player {
             is_swinging: false,
             hotbar_slot: 0,
             skin: PlayerSkin::default(),
+            riding: None,
         }
     }
 }

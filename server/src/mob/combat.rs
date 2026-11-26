@@ -102,7 +102,22 @@ pub fn interact(
     let villager = mob.kind.is_villager();
     // A bow being drawn is not let go by what it sweeps over
     let trades = right && villager && player.bow_draw_ms == 0;
-    if !left && !shears && !feeds && !trades {
+    let saddles = right
+        && held == Some(ItemId::Saddle)
+        && mob.kind == MobKind::Horse
+        && !mob.saddled
+        && !mob.is_young()
+        && mob.owner.as_deref() == Some(player.name.as_str());
+    let mounts = right
+        && !feeds
+        && !saddles
+        && !shears
+        && player.bow_draw_ms == 0
+        && player.riding.is_none()
+        && !player.is_sneaking
+        && !held.is_some_and(|i| i.spawned_mob().is_some())
+        && super::riding::free_seat(mob, &player.name).is_some();
+    if !left && !shears && !feeds && !trades && !saddles && !mounts {
         return None;
     }
     let target = aim(
@@ -148,6 +163,23 @@ pub fn interact(
         rest.inputs.remove(&NetworkAction::RightClick);
         if pressed {
             world.trades.open.insert(player.id, id);
+        }
+    }
+    if saddles {
+        rest.inputs.remove(&NetworkAction::RightClick);
+        if pressed {
+            mob.saddled = true;
+            player
+                .inventory
+                .remove_item_from_stack(input.hotbar_slot, 1);
+            world.changed.insert(id);
+        }
+    }
+    if mounts {
+        rest.inputs.remove(&NetworkAction::RightClick);
+        if pressed {
+            super::riding::mount(player, id, mob, rng);
+            world.changed.insert(id);
         }
     }
     let position = mob.position;
@@ -380,9 +412,14 @@ fn kind_loot(mob: &ServerMob, rng: &mut impl Rng) -> Vec<(ItemId, u32)> {
             (ItemId::Flint, u32::from(rng.gen_ratio(1, 10))),
         ],
         MobKind::EmberMother => vec![(ItemId::EmberHeart, 1)],
+        // It breaks into the item it was put down from
+        MobKind::Boat => vec![(ItemId::Boat, 1)],
+        MobKind::Horse => vec![
+            (ItemId::Leather, rng.gen_range(0..=2)),
+            (ItemId::Saddle, u32::from(mob.saddled)),
+        ],
         MobKind::Fox
         | MobKind::Wolf
-        | MobKind::Horse
         | MobKind::Goat
         | MobKind::Cat
         | MobKind::Gnawer
@@ -434,6 +471,8 @@ fn aimed_mob(
     .unwrap_or(f32::INFINITY);
     mobs.iter()
         .filter(|(_, mob)| !mob.kind.is_projectile())
+        // Not the mount it rides
+        .filter(|(id, _)| player.riding.is_none_or(|riding| riding.mob != **id))
         .filter_map(|(id, mob)| {
             let half = Vec3::new(mob.width, mob.height, mob.depth) / 2.0;
             Some((*id, distance(&Aabb3d::new(mob.position, half))?))
@@ -762,10 +801,17 @@ mod tests {
         );
         assert_eq!(drops(MobKind::Rabbit), [(RawRabbit, (1, 1))]);
         assert_eq!(drops(MobKind::Sheep), [(Wool, (1, 1)), (RawMutton, (1, 2))]);
+        // A horse leaves its hide, and its saddle when it wore one; a boat breaks into its item
+        assert_eq!(drops(MobKind::Horse), [(Leather, (1, 2))]);
+        assert_eq!(drops(MobKind::Boat), [(Boat, (1, 1))]);
+        let saddled = ServerMob {
+            saddled: true,
+            ..ServerMob::new(MobKind::Horse, AHEAD)
+        };
+        assert!(loot(&saddled, &mut StdRng::seed_from_u64(9)).contains(&(Saddle, 1)));
         for kind in [
             MobKind::Fox,
             MobKind::Wolf,
-            MobKind::Horse,
             MobKind::Goat,
             MobKind::Cat,
             MobKind::Gnawer,

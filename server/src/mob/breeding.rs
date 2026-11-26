@@ -11,8 +11,8 @@ use shared::{
     messages::PlayerId,
     players::{progress::Achievement, Player},
     world::{
-        ItemId, MobAction, MobId, MobTarget, ServerMob, BREED_WAIT_TICKS, FED_YOUNG_SPEED_UP,
-        GROW_TICKS, LOVE_TICKS, TAME_CHANCE,
+        HorseTraits, ItemId, MobAction, MobId, MobKind, MobTarget, ServerMob, BREED_WAIT_TICKS,
+        FED_YOUNG_SPEED_UP, GROW_TICKS, LOVE_TICKS, TAME_CHANCE,
     },
 };
 
@@ -37,6 +37,14 @@ const GROW_RETRY_TICKS: u32 = 20;
 const GROW_REACH: f32 = 1.1;
 const GROW_STEPS: i32 = 6;
 
+/// The points of health a horse gets back by eating `item`.
+fn horse_heal(item: ItemId) -> u32 {
+    match item {
+        ItemId::Carrot => 4,
+        _ => 2,
+    }
+}
+
 /// What a player named `player` does by feeding `item` to `mob`. Returns whether the animal ate
 /// it, which takes one from the player's hand:
 /// - a wolf or a cat not tamed is tamed by `player` one time in three (`TAME_CHANCE`), and eats
@@ -56,6 +64,11 @@ pub fn feed(mob: &mut ServerMob, player: &str, item: ItemId, rng: &mut impl Rng)
                 (mob.action, mob.target, mob.action_ticks) = (MobAction::Idle, MobTarget::None, 1);
             }
         }
+        return true;
+    }
+    // A tamed horse that was hurt eats to heal
+    if mob.kind == MobKind::Horse && mob.damage > 0 {
+        mob.damage = mob.damage.saturating_sub(horse_heal(item));
         return true;
     }
     if mob.is_young() {
@@ -178,6 +191,10 @@ pub fn breed(
         if distance <= MATE_DISTANCE {
             let mut young = ServerMob::young(mob.kind, (here + there) / 2.0);
             young.owner = mob.owner.clone();
+            // A foal takes after its parents
+            if let (Some(a), Some(b)) = (mob.horse, mobs[&mate].horse) {
+                young.horse = Some(HorseTraits::inherit(&a, &b, &mut rand::thread_rng()));
+            }
             young.rotation = mob.rotation;
             // Standing where its parents' feet are
             young.position.y = here.y - mob.height / 2.0 + young.height / 2.0;

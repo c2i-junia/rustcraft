@@ -107,6 +107,8 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
    (items/{Carrot,Potato,BakedPotato}.png), the pack's item/{carrot,potato,baked_potato}.png.
 -> The textures of the anvil (blocks/Anvil.png, AnvilTop.png), the pack's block/anvil.png and
    block/anvil_top.png, the top laid over the side where it is transparent.
+-> The textures of the saddle and of the boat (items/Saddle.png, items/Boat.png), the pack's
+   item/saddle.png and item/oak_boat.png.
 
 -> Drawn for Rustcraft, not from the pack: HewnStone, Limestone, Slate, Clay, BrickWall, RammedEarth, Thatch, CoalBlock, CopperOre, TinOre, CopperBlock, TinBlock, BronzeBlock, WillowLog, WillowLogTop, WillowPlanks, WillowLeaves, AcaciaLog, AcaciaLogTop, AcaciaPlanks, AcaciaLeaves, WoodenSlab, HewnStoneSlab, BrickSlab, Lantern, Reed, Heather, Mushroom, CopperIngot, TinIngot, BronzeIngot, FiredBrick, Fiber, Rope, Flint, RoastMushroom, BronzePickaxe, BronzeAxe, BronzeShovel, BronzeHoe, BronzeSword.
 -> Also drawn for Rustcraft: AcaciaSapling, Barrel, BarrelTop, Bedroll, Berries, BerryBush, BrickStairs, Campfire, CampfireFlame, Door, DoorTop, Fence, FullRainCisternTop, GlassPane, HewnStoneStairs, JungleSapling, Ladder, OakSapling, RainCistern, RainCisternTop, RawMutton, RipeBerryBush, RipeRye, RoastMutton, Rye, RyeBread, RyeSprout, Sign, Spear, SpruceSapling, TilledSoil, WillowSapling, WoodenStairs, Wool, YoungRye.
@@ -114,13 +116,14 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
 -> DepthsCompass*, EmberHeart: drawn for Rustcraft by scripts/generate_boss.py; the model of the Ember Mother by scripts/generate_hostiles.py.
 -> The armour (items/{Leather,Bronze,Iron,Diamond}{Helmet,Chestplate,Leggings,Boots}.png, data/graphics/armour/, hud/armour_*.png, hud/slot_*.png): drawn for Rustcraft by scripts/generate_armour.py.
 -> The engraving table (blocks/EngravingTable.png, EngravingTableTop.png): drawn for Rustcraft by scripts/generate_engraving_table.py.
+-> The coats and the saddle of the horses (models/animated/Horse*.glb) and the boat (models/animated/Boat.glb): built for Rustcraft by scripts/generate_animals.py and scripts/generate_boat.py.
 
 ---- SOUNDS AND MUSIC ----
 All the sounds and the music are original, synthesised by our own scripts (MIT, like the code):
 scripts/generate_sounds.py (the sound effects, the creatures' voices included),
 scripts/generate_feature_sounds.py (the armour, the bow and arrows, the experience, the engraving
-table, the anvil, the trade and the villagers' voices, the breeding and taming, and the stings of the
-progress) and
+table, the anvil, the trade and the villagers' voices, the breeding and taming, the stings of the
+progress, and the saddle and the boat's oars and hull) and
 scripts/generate_music.py (the eight pieces of music in data/music/).
 
 ---- OTHER ----

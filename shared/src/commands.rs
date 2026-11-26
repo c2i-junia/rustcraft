@@ -469,12 +469,12 @@ mod tests {
         assert_eq!(
             texts(&completion)[..6],
             [
+                "saddle",
                 "sand",
                 "sheep_spawn_egg",
                 "sign",
                 "slate",
-                "smith_spawn_egg",
-                "snow"
+                "smith_spawn_egg"
             ]
         );
         // `stone` is a value, the stone tools start with it, and `cobblestone` contains it

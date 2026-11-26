@@ -321,7 +321,7 @@ pub fn aim(
     held: Option<ItemId>,
 ) -> Option<RaycastResponse> {
     match held {
-        Some(ItemId::Bucket) => {
+        Some(ItemId::Bucket | ItemId::Boat) => {
             raycast::raycast_to_source(world_map, camera, player_position, view_mode)
         }
         Some(ItemId::PortalGun) => {

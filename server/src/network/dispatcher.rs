@@ -135,6 +135,8 @@ pub fn register_systems(app: &mut App) {
         (
             tick_damage_timers_system,
             handle_player_inputs_system,
+            // The mounts go where their riders took them
+            crate::mob::riding::riding_system,
             // Once the blows and the arrows of the tick landed
             crate::mob::boss::boss_system,
             breathe_system,

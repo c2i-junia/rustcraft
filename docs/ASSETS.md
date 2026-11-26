@@ -179,11 +179,11 @@ custom_textures/blocks/Left, custom_textures/blocks/Right, custom_textures/block
 
 ## Sounds, music and models
 
-- The 217 files of `data/sounds/` and the 8 of `data/music/`: synthesised by `scripts/generate_sounds.py`,
-  `scripts/generate_feature_sounds.py` (the 46 of the armour, the bow, the experience, the engraving
-  table, the anvil, the trade, the villagers, the breeding, the progress and the melee) and `scripts/generate_music.py`, as commits `86973646`, `52050487`, `2396d533`, `75bd05c9` and others
+- The 220 files of `data/sounds/` and the 8 of `data/music/`: synthesised by `scripts/generate_sounds.py`,
+  `scripts/generate_feature_sounds.py` (the 49 of the armour, the bow, the experience, the engraving
+  table, the anvil, the trade, the villagers, the breeding, the progress, the melee and the mounts) and `scripts/generate_music.py`, as commits `86973646`, `52050487`, `2396d533`, `75bd05c9` and others
   and `docs/ressources.txt` say. Not run again to compare their output.
-- The 23 models of `data/models/animated/`: built by `scripts/generate_{animals,sheep,hostiles,villagers}.py`.
+- The 29 models of `data/models/animated/`: built by `scripts/generate_{animals,sheep,hostiles,villagers,boat}.py`.
   Not run again either.
 
 ## To do before the release

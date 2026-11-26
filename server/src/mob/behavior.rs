@@ -74,7 +74,8 @@ pub(super) fn walk_speed(kind: MobKind) -> f32 {
         | MobKind::GustOwl
         | MobKind::EmberMother
         | MobKind::Ember
-        | MobKind::Arrow => 0.0,
+        | MobKind::Arrow
+        | MobKind::Boat => 0.0,
         MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => 1.5,
         MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 1.6,
         MobKind::Horse => 1.5,
@@ -95,7 +96,7 @@ fn flee_speed(kind: MobKind) -> f32 {
         | MobKind::Cinderling
         | MobKind::GustOwl
         | MobKind::EmberMother => super::hostile::own_speed(kind),
-        MobKind::Ember | MobKind::Arrow => 0.0,
+        MobKind::Ember | MobKind::Arrow | MobKind::Boat => 0.0,
         // Never struck
         MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => 3.0,
         MobKind::Horse => 6.0,
@@ -165,6 +166,15 @@ fn step_mobs(
             continue;
         }
         mob.hurt_ticks = mob.hurt_ticks.saturating_sub(1);
+        // Its rider moves it (`riding::riding_system`)
+        if super::riding::is_driven(mob) {
+            continue;
+        }
+        // A horse of a save from before the coats is given its own
+        if mob.kind == MobKind::Horse && mob.horse.is_none() {
+            mob.horse = Some(shared::world::HorseTraits::roll(rng));
+            changed.insert(*id);
+        }
         // A mob whose position is not a number cannot be simulated: it stays as it is
         if !mob.position.is_finite() || !mob.velocity.is_finite() {
             continue;
@@ -342,6 +352,10 @@ fn act(
         super::villager::act(mob, chunks, players, delta, rng);
         return None;
     }
+    // A boat only floats
+    if mob.kind.is_vehicle() {
+        return None;
+    }
     wander_or_flee(mob, chunks, players, delta, rng);
     None
 }
@@ -402,6 +416,10 @@ fn follow_owner(
     delta: f32,
     rng: &mut impl Rng,
 ) -> bool {
+    // A horse waits where it was left
+    if !mob.kind.follows_owner() {
+        return false;
+    }
     let Some(owner) = super::breeding::owner_of(players, mob) else {
         return false;
     };
@@ -780,8 +798,8 @@ fn push_mobs(
 ) {
     let mut grid: HashMap<IVec2, Vec<(Option<MobId>, Pusher)>> = HashMap::new();
     for (&id, mob) in mobs.iter() {
-        // A projectile goes through what it does not hit
-        if mob.kind.is_projectile() || mob.kind.is_boss() {
+        // A projectile goes through what it does not hit; a rider moves its mount
+        if mob.kind.is_projectile() || mob.kind.is_boss() || super::riding::is_driven(mob) {
             continue;
         }
         if mob.position.is_finite() && is_terrain_loaded(mob.position, chunks) {
@@ -792,7 +810,12 @@ fn push_mobs(
     }
     for player in players.values() {
         // A flying player goes through everything
-        if player.is_dead() || player.is_flying || !player.position.is_finite() {
+        // A rider pushes nothing: it sits on its mount
+        if player.is_dead()
+            || player.is_flying
+            || player.riding.is_some()
+            || !player.position.is_finite()
+        {
             continue;
         }
         let pusher = Pusher {

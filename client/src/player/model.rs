@@ -295,6 +295,9 @@ pub struct Motion {
     pub is_swinging: bool,
     /// Whether the player draws a bow.
     pub is_drawing: bool,
+    /// The heading of the mount the player rides (`Riding::heading`), if it rides one: it sits
+    /// facing where the mount goes.
+    pub mount_heading: Option<f32>,
 }
 
 /// The angles of each joint, in radians, as Euler angles (X, Y, Z), and the lean of the whole
@@ -389,6 +392,10 @@ impl PlayerAnimation {
             let follow = 1.0 - (-delta * BODY_FOLLOW).exp();
             self.body_yaw += angle_between(self.body_yaw, motion.look.yaw) * follow;
         }
+        // A rider faces where its mount goes, whose heading turns +Z where a look turns -Z
+        if let Some(heading) = motion.mount_heading {
+            self.body_yaw = heading + PI;
+        }
         self.body_yaw = self.body_yaw.rem_euclid(TAU);
 
         // A strike runs to its end, and another starts while the button is held
@@ -430,6 +437,14 @@ impl PlayerAnimation {
             let stroke = self.walk_phase;
             pose.right_arm.x = pose.right_arm.x.lerp(-PI + stroke.sin() * 0.6, self.swim);
             pose.left_arm.x = pose.left_arm.x.lerp(-PI - stroke.sin() * 0.6, self.swim);
+        }
+
+        if motion.mount_heading.is_some() {
+            // Seated: the legs bent forward and apart, the hands on the reins
+            pose.right_leg = Vec3::new(-1.4, 0.0, 0.18);
+            pose.left_leg = Vec3::new(-1.4, 0.0, -0.18);
+            pose.right_arm = Vec3::new(-0.5, 0.0, 0.05);
+            pose.left_arm = Vec3::new(-0.5, 0.0, -0.05);
         }
 
         if motion.is_drawing {
@@ -580,6 +595,7 @@ pub fn animate_players_system(
             is_flying: player.is_flying,
             is_swinging,
             is_drawing: player.bow_draw_ms > 0 && !player.is_dead(),
+            mount_heading: player.riding.map(|riding| riding.heading),
         };
         let pose = animation.advance(motion, delta, time.elapsed_secs());
 
@@ -719,6 +735,21 @@ mod tests {
             pose = animation.advance(motion, 1.0 / 60.0, frame as f32 / 60.0);
         }
         pose
+    }
+
+    #[test]
+    fn a_rider_sits_its_legs_forward_facing_where_its_mount_goes() {
+        let mut animation = PlayerAnimation::default();
+        let motion = Motion {
+            velocity: Vec2::new(0.0, 8.0),
+            on_ground: true,
+            mount_heading: Some(0.0),
+            ..default()
+        };
+        let pose = walk(&mut animation, motion, 0.5);
+        assert_eq!(pose.right_leg.x, pose.left_leg.x);
+        assert!(pose.right_leg.x < -1.0, "{pose:?}");
+        assert!((pose.body_yaw - PI).abs() < 1e-4, "{pose:?}");
     }
 
     #[test]
