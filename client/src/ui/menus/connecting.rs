@@ -3,6 +3,7 @@
 //!
 //! The card only uses the fonts the menus already hold, so it is laid out on its first frame.
 
+use crate::i18n::{tr, trf};
 use accesskit::Role;
 use bevy::{
     a11y::AccessibilityNode,
@@ -68,13 +69,13 @@ pub(crate) const BLINK: f32 = 0.5;
 /// The row of the chunks.
 const CHUNKS_ROW: usize = 2;
 /// The label of the first step of a world opened while the last one closes.
-pub const CLOSING_LAST_WORLD: &str = "Closing the last world...";
+pub const CLOSING_LAST_WORLD: &str = "connecting.closing";
 
 /// The title of the card: `Opening "Survie"` for a world, `Joining "Friends"` for a server.
 pub fn connecting_title(origin: &SessionOrigin) -> String {
     match origin {
-        SessionOrigin::World { name } => format!("Opening \"{name}\""),
-        SessionOrigin::Server { name, .. } => format!("Joining \"{name}\""),
+        SessionOrigin::World { name } => trf("connecting.opening", &[("name", &name)]),
+        SessionOrigin::Server { name, .. } => trf("connecting.joining", &[("name", &name)]),
     }
 }
 
@@ -82,11 +83,11 @@ pub fn connecting_title(origin: &SessionOrigin) -> String {
 /// to close, only shows on the card of a world that waits for it.
 pub fn step_labels(origin: &SessionOrigin) -> [&'static str; 4] {
     let first = if origin.is_world() {
-        "Starting the world"
+        tr("connecting.starting")
     } else {
-        "Connecting"
+        tr("connecting.connecting")
     };
-    [CLOSING_LAST_WORLD, first, "Loading chunks", "Spawning"]
+    [crate::i18n::tr(CLOSING_LAST_WORLD), first, tr("connecting.loading"), tr("connecting.spawning")]
 }
 
 /// The row of `step`.
@@ -234,7 +235,7 @@ pub fn setup_connecting_card(
             ));
         }
     }
-    commands.spawn((progress_bar("Progress"), ChildOf(card)));
+    commands.spawn((progress_bar(tr("connecting.progress")), ChildOf(card)));
     commands.spawn((
         Node {
             justify_content: JustifyContent::FlexEnd,
@@ -242,7 +243,7 @@ pub fn setup_connecting_card(
         },
         ChildOf(card),
         children![(
-            button("Cancel", ButtonVariant::Default, font.clone()),
+            button(tr("common.cancel"), ButtonVariant::Default, font.clone()),
             CancelConnect,
             AutoFocus,
         )],

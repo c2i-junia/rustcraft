@@ -1,6 +1,7 @@
 //! The player's name: saved in `player.ron`, asked on the first launch, and changed from the
 //! button that shows it on the main menu.
 
+use crate::i18n::tr;
 use std::fs;
 use std::io;
 
@@ -32,10 +33,10 @@ use crate::ui::widgets::text_field::{set_text, spawn_text_field, value_of, Field
 pub const DEFAULT_PLAYER_NAME: &str = "Player";
 
 /// The title of the dialog asking for a name on the first launch.
-pub const CHOOSE_NAME_TITLE: &str = "Choose your name";
+pub const CHOOSE_NAME_TITLE: &str = "player_name.choose";
 
 /// The title of the dialog changing the name.
-pub const PLAYER_NAME_TITLE: &str = "Player name";
+pub const PLAYER_NAME_TITLE: &str = "player_name.title";
 
 /// The key hints of the name dialog.
 const NAME_HINTS: [Hint; 3] = [
@@ -105,9 +106,9 @@ fn name_error(typed: &str) -> Option<&'static str> {
     if sanitize_username(typed).is_some() {
         None
     } else if typed.trim().is_empty() {
-        Some("Enter a name")
+        Some(tr("player_name.empty"))
     } else {
-        Some("No control characters")
+        Some(tr("player_name.control"))
     }
 }
 
@@ -124,7 +125,7 @@ pub fn open_player_name_dialog(
     let field = spawn_text_field(
         commands,
         &TextField {
-            label: "Name",
+            label: tr("player_name.field"),
             placeholder: DEFAULT_PLAYER_NAME,
             max_characters: Some(MAX_USERNAME_LENGTH),
             font: font.clone(),
@@ -144,27 +145,27 @@ pub fn open_player_name_dialog(
     }
     let (title, body) = match current {
         None => (
-            CHOOSE_NAME_TITLE,
-            "Other players see it. You can change it later.",
+            crate::i18n::tr(CHOOSE_NAME_TITLE),
+            tr("player_name.note1"),
         ),
         Some(_) => (
-            PLAYER_NAME_TITLE,
-            "Your progress in each world is kept under it.",
+            crate::i18n::tr(PLAYER_NAME_TITLE),
+            tr("player_name.note2"),
         ),
     };
     let dialog = Dialog {
         title,
         body,
         actions: &[
-            ("Cancel", ButtonVariant::Default),
-            ("Save", ButtonVariant::Primary),
+            (tr("common.cancel"), ButtonVariant::Default),
+            (tr("common.save"), ButtonVariant::Primary),
         ],
         focused: 0,
     };
     let parts = spawn_form_dialog(
         commands,
         &dialog,
-        &[("Name", field)],
+        &[(tr("player_name.field"), field)],
         &NAME_HINTS,
         font,
         focus,
@@ -242,7 +243,7 @@ fn save_name_on_submit(
         error!("Could not save the player name: {e}");
         commands
             .entity(form.input)
-            .insert(FieldError(Some("Could not save the name".to_string())));
+            .insert(FieldError(Some(tr("player_name.save_failed").to_string())));
         return;
     }
     *profile = CurrentPlayerProfile {

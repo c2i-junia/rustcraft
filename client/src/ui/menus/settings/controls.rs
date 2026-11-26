@@ -11,6 +11,7 @@
 //! Under the list, the slider of the mouse sensitivity, saved with the view settings, and the switch of the inventory tweaks, the Mouse Tweaks gestures of the open
 //! inventory, saved with the interface settings as soon as it is chosen.
 
+use crate::i18n::{tr, tr_as, trf};
 use std::ops::Range;
 
 use accesskit::Role;
@@ -152,7 +153,7 @@ impl KeyCapture {
 }
 
 /// What a slot waiting for a key shows.
-pub const PRESS_A_KEY: &str = "Press a key...";
+pub const PRESS_A_KEY: &str = "controls.press_a_key";
 
 /// The key hints of the Controls tab.
 pub const CONTROLS_HINTS: [Hint; 5] = [
@@ -305,17 +306,18 @@ pub(crate) fn key_label(key: KeyCode) -> String {
             return name.replace("Key", "");
         }
     };
-    named.to_string()
+    // the names of the language of the game: "Maj gauche"
+    tr_as("keyname", named).to_string()
 }
 
 /// How a key is named in a text: as on its key cap, but the arrows, which only key caps can draw,
 /// are written in words.
 fn key_name(key: KeyCode) -> String {
     match key {
-        KeyCode::ArrowUp => "Up arrow".to_string(),
-        KeyCode::ArrowDown => "Down arrow".to_string(),
-        KeyCode::ArrowLeft => "Left arrow".to_string(),
-        KeyCode::ArrowRight => "Right arrow".to_string(),
+        KeyCode::ArrowUp => tr("keyname.Up arrow").to_string(),
+        KeyCode::ArrowDown => tr("keyname.Down arrow").to_string(),
+        KeyCode::ArrowLeft => tr("keyname.Left arrow").to_string(),
+        KeyCode::ArrowRight => tr("keyname.Right arrow").to_string(),
         _ => key_label(key),
     }
 }
@@ -344,8 +346,14 @@ fn conflict_message(shared: &[(KeyCode, KeyUse)]) -> String {
     sentences
         .iter()
         .map(|(key, names, slot)| match slot {
-            Some(slot) => format!("{} also selects hotbar slot {}", key_name(*key), slot + 1),
-            None => format!("{} is also bound to {}", key_name(*key), and_list(names)),
+            Some(slot) => trf(
+                "controls.conflict.hotbar",
+                &[("key", &key_name(*key)), ("slot", &(slot + 1))],
+            ),
+            None => trf(
+                "controls.conflict.action",
+                &[("key", &key_name(*key)), ("actions", &and_list(names))],
+            ),
         })
         .collect::<Vec<_>>()
         .join(" · ")
@@ -355,7 +363,7 @@ fn conflict_message(shared: &[(KeyCode, KeyUse)]) -> String {
 fn and_list(names: &[&str]) -> String {
     match names.split_last() {
         Some((last, [])) => last.to_string(),
-        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+        Some((last, rest)) => trf("controls.and_list", &[("rest", &rest.join(", ")), ("last", last)]),
         None => String::new(),
     }
 }
@@ -439,8 +447,12 @@ fn is_modifier(key: KeyCode) -> bool {
 
 /// The accessible label of a slot: "Jump, primary key".
 fn slot_label(action: GameAction, slot: usize) -> String {
-    let which = if slot == 0 { "primary" } else { "secondary" };
-    format!("{}, {which} key", action.name())
+    let key = if slot == 0 {
+        "controls.slot.primary"
+    } else {
+        "controls.slot.secondary"
+    };
+    trf(key, &[("action", &action.name())])
 }
 
 /// A text of the tab.
@@ -466,7 +478,7 @@ fn line() -> Node {
 }
 
 /// What the switch of the inventory tweaks does, beside it.
-pub const TWEAKS_NOTE: &str = "Shift+drag: stacks  Wheel: one item";
+pub const TWEAKS_NOTE: &str = "controls.tweaks_note";
 
 /// Spawns the search field, the headers of the key columns, the scrolling list of the actions, the
 /// slider of the mouse sensitivity and the switch of the inventory tweaks under `panel`, and the count of the actions found and the
@@ -549,7 +561,7 @@ pub fn spawn_controls_tab(
             .entry::<EditableText>()
             .and_modify(move |mut text| set_text(&mut text, &query));
     }
-    for column in ["Primary", "Secondary"] {
+    for column in [tr("controls.primary"), tr("controls.secondary")] {
         commands.spawn((
             Node {
                 width: px(SLOT_WIDTH),
@@ -641,7 +653,7 @@ pub fn spawn_controls_tab(
     spawn_tweaks_switch(commands, content, interface, &font);
     commands.spawn((MatchCount, label("", &font, FONT_S, MUTED), ChildOf(footer)));
     commands.spawn((
-        button("Reset to defaults", ButtonVariant::Default, font),
+        button(tr("controls.reset_defaults"), ButtonVariant::Default, font),
         ResetBindings,
         observe(ask_reset),
         ChildOf(footer),
@@ -665,7 +677,7 @@ fn spawn_sensitivity(
     font: &Handle<Font>,
 ) {
     let field = SliderField {
-        label: "Mouse sensitivity",
+        label: tr("controls.sensitivity"),
         value: view.mouse_sensitivity,
         scale: SENSITIVITY_SCALE,
     };
@@ -703,14 +715,14 @@ fn spawn_tweaks_switch(
     interface: &InterfaceSettings,
     font: &Handle<Font>,
 ) {
-    let row = spawn_row(commands, content, "Inventory tweaks", font);
+    let row = spawn_row(commands, content, tr("controls.tweaks"), font);
     let labels = InventoryTweaksChoice::ALL.map(InventoryTweaksChoice::label);
     let selected = InventoryTweaksChoice::ALL
         .iter()
         .position(|&choice| choice == interface.inventory_tweaks)
         .unwrap_or_default();
     let segmented = Segmented {
-        label: "Inventory tweaks",
+        label: tr("controls.tweaks"),
         options: &labels,
         selected,
     };
@@ -720,7 +732,7 @@ fn spawn_tweaks_switch(
         .insert(ChildOf(row))
         .observe(choose_inventory_tweaks);
     commands.spawn((
-        label(TWEAKS_NOTE, font, FONT_S, MUTED),
+        label(tr(TWEAKS_NOTE), font, FONT_S, MUTED),
         TextLayout::no_wrap(),
         ChildOf(row),
     ));
@@ -737,17 +749,17 @@ fn choose_inventory_tweaks(
 }
 
 /// The title of the confirmation of the reset.
-const RESET_TITLE: &str = "Reset key bindings?";
+const RESET_TITLE: &str = "controls.reset_title";
 
 /// Asks to confirm the reset, Cancel focused; Reset binds the default keys to every action and
 /// saves them. The focus goes back to the reset button either way.
 fn ask_reset(activate: On<Activate>, assets: Res<AssetServer>, mut commands: Commands) {
     let dialog = Dialog {
-        title: RESET_TITLE,
-        body: "Every action gets its default keys back.",
+        title: tr(RESET_TITLE),
+        body: tr("controls.reset_body"),
         actions: &[
-            ("Cancel", ButtonVariant::Default),
-            ("Reset", ButtonVariant::Danger),
+            (tr("common.cancel"), ButtonVariant::Default),
+            (tr("controls.reset"), ButtonVariant::Danger),
         ],
         focused: 0,
     };
@@ -864,7 +876,7 @@ fn show_in_slot(
         }
         SlotContent::Capturing => {
             commands.spawn((
-                label(PRESS_A_KEY, font, FONT_S, TEXT),
+                label(tr(PRESS_A_KEY), font, FONT_S, TEXT),
                 Pickable::IGNORE,
                 ChildOf(slot),
             ));
@@ -1162,13 +1174,16 @@ fn filter_rows(
     show(*no_match, found.is_empty());
     let query = search.query.trim();
     if let Ok(mut text) = texts.get_mut(*no_match) {
-        text.0 = format!("No action or key matches \u{201c}{query}\u{201d}");
+        text.0 = trf("controls.no_match", &[("query", &query)]);
     }
     if let Ok(mut text) = texts.get_mut(*count) {
         text.0 = if query.is_empty() {
             String::new()
         } else {
-            format!("{} of {}", found.len(), rows.iter().count())
+            trf(
+                "controls.match_count",
+                &[("found", &found.len()), ("total", &rows.iter().count())],
+            )
         };
     }
 }

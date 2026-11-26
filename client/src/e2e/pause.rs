@@ -37,7 +37,7 @@ use crate::ui::widgets::hints::HintBar;
 
 /// The pause menu, found by its role and title.
 fn pause_menu() -> L {
-    L::role(Role::Dialog, PAUSE_TITLE)
+    L::role(Role::Dialog, crate::i18n::tr(PAUSE_TITLE))
 }
 
 /// A button, found by its role and label.
@@ -336,7 +336,7 @@ fn save_now_says_when_the_world_is_saved(
     h.click(&button("Save now"));
     let saving = h.get(&button(SAVING));
     assert!(h.world().get::<InteractionDisabled>(saving).is_some());
-    let saved = L::role(Role::Status, WORLD_SAVED);
+    let saved = L::role(Role::Status, crate::i18n::tr(WORLD_SAVED));
     h.wait_for(&saved, SERVER);
     h.snapshot("world saved");
     let toast = h.get(&saved);

@@ -3,6 +3,7 @@
 //! statistics of the player after their opening, and over the main menu from its Credits button
 //! (`spawn_credits`), without them.
 
+use crate::i18n::{tr_as, trf};
 use bevy::input_focus::InputFocus;
 use bevy::prelude::*;
 use shared::players::progress::Stats;
@@ -39,7 +40,7 @@ pub enum CreditsLine {
 struct CreditsStat(usize);
 
 fn stat_line(progress: &PlayerProgress, i: usize) -> String {
-    format!("{}: {}", Stats::LABELS[i], stat_values(progress)[i])
+    trf("credits.stat", &[("label", &tr_as("stat", Stats::LABELS[i])), ("value", &stat_values(progress)[i])])
 }
 
 fn show_stats(progress: Res<PlayerProgress>, mut stats: Query<(&CreditsStat, &mut Text)>) {
@@ -183,7 +184,7 @@ pub fn spawn_credits(
             CreditsLine::Title(title) if i == 0 => {
                 commands.spawn(text(title, FONT_XL * 2.0, ACCENT))
             }
-            CreditsLine::Title(title) => commands.spawn(text(title, FONT_L, ACCENT)),
+            CreditsLine::Title(title) => commands.spawn(text(tr_as("credits", title), FONT_L, ACCENT)),
             CreditsLine::Text(line) => commands.spawn(text(line, FONT_M, TEXT)),
             CreditsLine::Space => commands.spawn(Node {
                 height: px(SPACE_L * 2.0),

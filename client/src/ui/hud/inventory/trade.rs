@@ -2,6 +2,7 @@
 //! villager the player trades with, each a button. The server opens it (`TradeUpdate`), and
 //! closes it when the villager is too far; closing the panel ends the trade.
 
+use crate::i18n::{tr, trf};
 use bevy::input_focus::tab_navigation::TabIndex;
 use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
@@ -269,26 +270,26 @@ pub fn display_trade(
             Goods::Items(item, nb) => counted((item, nb)),
             Goods::Directions => crate::i18n::tr(DIRECTIONS_TITLE).to_string(),
         };
-        let text = format!("{title} for {}", counted(offer.cost));
+        let text = trf("trade.offer", &[("title", &title), ("cost", &counted(offer.cost))]);
         if label.0 != text {
             commands.entity(entity).insert(AccessibleLabel::new(text));
         }
         tooltip.set_if_neq(Tooltip {
             title,
-            detail: format!("For {}", counted(offer.cost)),
+            detail: trf("trade.for", &[("cost", &counted(offer.cost))]),
             note: String::new(),
             hint: match refusal {
-                None => "Click to trade".to_string(),
-                Some(TradeRefusal::SoldOut) => "Sold out until sunrise".to_string(),
-                Some(TradeRefusal::CannotPay) => "You cannot pay for it".to_string(),
-                Some(TradeRefusal::NoRoom) => "Your inventory is full".to_string(),
+                None => tr("trade.click").to_string(),
+                Some(TradeRefusal::SoldOut) => tr("trade.sold_out_sunrise").to_string(),
+                Some(TradeRefusal::CannotPay) => tr("trade.cannot_pay").to_string(),
+                Some(TradeRefusal::NoRoom) => tr("trade.full").to_string(),
             },
         });
         for child in children.iter() {
             if let Ok(mut text) = lefts.get_mut(child) {
                 let shown = match left {
-                    0 => "Sold out".to_string(),
-                    left => format!("{left} left"),
+                    0 => tr("trade.sold_out").to_string(),
+                    left => trf("trade.left", &[("left", &left)]),
                 };
                 if text.0 != shown {
                     text.0 = shown;

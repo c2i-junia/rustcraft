@@ -50,12 +50,12 @@ pub struct Locator {
 impl Locator {
     /// A visible `Text` whose content, with the `TextSpan`s under it, equals `content`.
     pub fn text(content: &str) -> Locator {
-        Self::of(Target::Text(content.to_string()))
+        Self::of(Target::Text(crate::i18n::tr(content).to_string()))
     }
 
     /// A visible `Text` whose content, with the `TextSpan`s under it, contains `part`.
     pub fn text_containing(part: &str) -> Locator {
-        Self::of(Target::TextContaining(part.to_string()))
+        Self::of(Target::TextContaining(crate::i18n::tr(part).to_string()))
     }
 
     /// An element with this `Name`, for the ones without text.
@@ -66,7 +66,7 @@ impl Locator {
     /// A widget with the accessibility role `role` and the label `label`, as every widget of the
     /// UI carries them.
     pub fn role(role: Role, label: &str) -> Locator {
-        Self::of(Target::Role(role, label.to_string()))
+        Self::of(Target::Role(role, crate::i18n::tr(label).to_string()))
     }
 
     /// An element with the component `C`.
@@ -88,7 +88,7 @@ impl Locator {
 
     /// The nearest ancestor of `text(content)` that holds another `Text` or a `Button`.
     pub fn row(content: &str) -> Locator {
-        Self::of(Target::Row(content.to_string()))
+        Self::of(Target::Row(crate::i18n::tr(content).to_string()))
     }
 
     /// Restricts the locator to the elements inside the ones `scope` finds.

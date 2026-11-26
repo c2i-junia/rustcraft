@@ -2,6 +2,7 @@
 //! full, half or empty, hidden while the inventory is open over them. The textures are Pixel
 //! Perfection's `gui/sprites/hud/heart/`.
 
+use crate::i18n::{tr, trf};
 use bevy::prelude::*;
 use shared::players::game_mode::{GameMode, MAX_HEALTH};
 use shared::players::Player;
@@ -57,7 +58,7 @@ pub fn heart(health: u32, index: u32) -> Heart {
 /// The hearts as the accessibility tree and the tests read them.
 pub fn health_label(health: u32) -> String {
     let hearts = health as f32 / 2.0;
-    format!("Health: {hearts} of {HEARTS} hearts")
+    trf("hud.health.label", &[("hearts", &hearts), ("HEARTS", &HEARTS)])
 }
 
 /// Spawns the hearts over the hotbar, hidden until the local player is known to be in survival.
@@ -74,7 +75,7 @@ pub fn spawn_health_bar(
     let row = commands
         .spawn((
             HealthBar,
-            Name::new("Health"),
+            Name::new(tr("hud.health")),
             AccessibleLabel::new(health_label(MAX_HEALTH)),
             Node {
                 position_type: PositionType::Absolute,

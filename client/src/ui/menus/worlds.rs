@@ -93,32 +93,35 @@ fn folder_size(folder: &Path) -> u64 {
 pub fn format_size(bytes: u64) -> String {
     const KIB: u64 = 1024;
     let kb = bytes.div_ceil(KIB);
+    let unit = |key: &str, size: String| crate::i18n::trf(key, &[("n", &size)]);
+    // the decimal separator of the language of the game: 1.5 MB, 1,5 Mo
+    let decimal = crate::i18n::tr("size.decimal");
     if kb < KIB {
-        return format!("{kb} KB");
+        return unit("size.kb", kb.to_string());
     }
     // the size in tenths of `unit`, rounded to the nearest
     let tenths = |unit: u64| (u128::from(bytes) * 10 + u128::from(unit / 2)) / u128::from(unit);
     let mb = tenths(KIB * KIB);
     if mb < 10 * u128::from(KIB) {
-        return format!("{}.{} MB", mb / 10, mb % 10);
+        return unit("size.mb", format!("{}{decimal}{}", mb / 10, mb % 10));
     }
     let gb = tenths(KIB * KIB * KIB);
-    format!("{}.{} GB", gb / 10, gb % 10)
+    unit("size.gb", format!("{}{decimal}{}", gb / 10, gb % 10))
 }
 
 /// The longest name a new world may have.
 pub const MAX_WORLD_NAME_LENGTH: usize = 32;
 
 /// Shown under the name field when it is empty.
-pub const EMPTY_WORLD_NAME: &str = "Enter a name";
+pub const EMPTY_WORLD_NAME: &str = "worlds.empty_name";
 /// Shown under the name field when Windows keeps the typed name for a device, such as `CON`.
-pub const RESERVED_WORLD_NAME: &str = "Windows reserves this name: choose another";
+pub const RESERVED_WORLD_NAME: &str = "worlds.reserved_name";
 /// Shown under the name field when the typed name breaks the rule of `is_valid_world_name`.
-pub const INVALID_WORLD_NAME: &str = "Use only A-Z, a-z, 0-9, spaces, _ and -";
+pub const INVALID_WORLD_NAME: &str = "worlds.invalid_name";
 /// Shown under the name field when another world already has the typed name, whatever its case.
-pub const WORLD_EXISTS: &str = "A world with this name already exists";
+pub const WORLD_EXISTS: &str = "worlds.exists";
 /// Shown under the seed field when the typed seed is not a `u32`.
-pub const INVALID_SEED: &str = "Use a number from 0 to 4294967295";
+pub const INVALID_SEED: &str = "worlds.invalid_seed";
 
 /// A world name becomes a folder name under the saves folder, so it must be a single plain
 /// path component: letters, digits, spaces, `_` and `-`, 1 to 32 characters.
@@ -189,8 +192,10 @@ pub fn check_world_name(typed: &str, others: &[String]) -> Result<String, &'stat
 /// its case.
 pub fn free_world_name(others: &[String]) -> String {
     let taken = |name: &str| others.iter().any(|other| other.eq_ignore_ascii_case(name));
-    std::iter::once("New world".to_string())
-        .chain((2..).map(|index| format!("New world {index}")))
+    // a name of the language of the game, of the letters a world name may have
+    let base = crate::i18n::tr("worlds.default_name");
+    std::iter::once(base.to_string())
+        .chain((2..).map(|index| format!("{base} {index}")))
         .find(|name| !taken(name))
         .unwrap_or_default()
 }
@@ -346,13 +351,13 @@ pub fn played_ago(elapsed: Duration) -> String {
     const DAY: u64 = 24 * HOUR;
     let secs = elapsed.as_secs();
     let (count, unit) = match secs {
-        0..MINUTE => return "played just now".to_string(),
+        0..MINUTE => return crate::i18n::tr("worlds.played_now").to_string(),
         MINUTE..HOUR => (secs / MINUTE, "minute"),
         HOUR..DAY => (secs / HOUR, "hour"),
         _ => (secs / DAY, "day"),
     };
     let plural = if count == 1 { "" } else { "s" };
-    format!("played {count} {unit}{plural} ago")
+    crate::i18n::trf(&format!("worlds.played_{unit}{plural}"), &[("n", &count)])
 }
 
 /// The colour of a world's thumbnail, which its seed picks; a world of unknown seed is grey.

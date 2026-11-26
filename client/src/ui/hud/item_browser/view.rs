@@ -1,6 +1,7 @@
 //! The recipe view: the recipes or the uses of an item, as cards, in the panel of the browser
 //! instead of the catalog, and the history the back button and Escape walk back.
 
+use crate::i18n::tr;
 use accesskit::Role;
 use bevy::{
     a11y::AccessibilityNode,
@@ -57,7 +58,7 @@ const DASH_PERIOD: f32 = 9.0;
 /// The tint over an ingredient the player lacks, on the cards and under the ghost of a recipe.
 pub const MISSING_TINT: Color = Color::srgba(0.89, 0.35, 0.25, 0.32);
 /// The label of the button filling the crafting grid.
-pub const FILL_GRID: &str = "+ Fill grid";
+pub const FILL_GRID: &str = "browser.fill_grid";
 /// The text of a disabled `+ Fill grid`.
 fn fill_disabled_text() -> Color {
     MUTED.with_alpha(DISABLED_ALPHA * 2.0)
@@ -148,7 +149,7 @@ pub fn spawn_recipe_panel(
         },
         ChildOf(view),
         children![
-            (BackButton, RecipeStop, small_button("<- Items", TEXT, font)),
+            (BackButton, RecipeStop, small_button(tr("browser.back_to_items"), TEXT, font)),
             key_cap("Esc", font.clone(), glyph_font.clone()),
         ],
     ));
@@ -197,12 +198,12 @@ pub fn spawn_recipe_panel(
                 (
                     RecipeTabChip(RecipeTab::Recipes),
                     RecipeStop,
-                    small_button("Recipes", MUTED, font),
+                    small_button(tr("browser.recipes"), MUTED, font),
                 ),
                 (
                     RecipeTabChip(RecipeTab::Uses),
                     RecipeStop,
-                    small_button("Uses", MUTED, font)
+                    small_button(tr("browser.uses"), MUTED, font)
                 ),
             ],
         ));
@@ -473,7 +474,7 @@ fn spawn_card(
                 FillGridButton(recipe.index),
                 // enabled by `style_recipe_cards` once the recipe can be made
                 InteractionDisabled,
-                small_button(FILL_GRID, fill_disabled_text(), font),
+                small_button(tr(FILL_GRID), fill_disabled_text(), font),
             ),
         ],
     ));

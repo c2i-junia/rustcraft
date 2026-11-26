@@ -1,6 +1,7 @@
 //! The bar of the boss near the local player: its name and its health, at the top of the screen.
 //! Its music plays meanwhile.
 
+use crate::i18n::tr;
 use bevy::prelude::*;
 use shared::messages::BossBar;
 
@@ -63,7 +64,7 @@ pub fn show_boss_bar(
     }
     commands.spawn((
         BossBarRoot,
-        Name::new("Boss bar"),
+        Name::new(tr("hud.boss_bar")),
         Node {
             position_type: PositionType::Absolute,
             top: px(SPACE_L),

@@ -195,7 +195,7 @@ impl Harness {
         self.hover_at(Vec2::ZERO);
         self.settled_snapshot("multi");
         ctrl(self, KeyCode::KeyN);
-        self.wait_for(&L::role(Role::Dialog, ADD_SERVER_TITLE), SCREEN);
+        self.wait_for(&L::role(Role::Dialog, crate::i18n::tr(ADD_SERVER_TITLE)), SCREEN);
         self.settled_snapshot("multi_add");
         self.press(KeyCode::Tab);
         self.type_text("10.0.0.2");
@@ -552,7 +552,7 @@ fn every_screen_at_three_resolutions() {
         h.wait_for(&L::role(Role::Button, "Back to game"), SCREEN);
         h.snapshot_in_game("pause_after_settings");
         h.click(&L::role(Role::Button, "Save now"));
-        h.wait_for(&L::role(Role::Status, WORLD_SAVED), SERVER);
+        h.wait_for(&L::role(Role::Status, crate::i18n::tr(WORLD_SAVED)), SERVER);
         h.snapshot_in_game("toast_saved");
         // leaving, as Save and quit to title shows it, without leaving
         h.world_mut().insert_resource(Leaving {

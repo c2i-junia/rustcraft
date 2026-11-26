@@ -7,6 +7,7 @@
 //!
 //! The main menu shows the same model (`spawn_home_preview`).
 
+use crate::i18n::tr;
 use accesskit::Role;
 use bevy::{
     a11y::AccessibilityNode,
@@ -42,10 +43,10 @@ use crate::ui::widgets::list::{spawn_list_card, spawn_scroll_list, CardSelected,
 use crate::ui::widgets::{raised_bevel, sunken_bevel};
 
 /// The title of the screen, and the label of the button, under the preview of the main menu, that opens it.
-pub const SKINS_TITLE: &str = "Skin";
+pub const SKINS_TITLE: &str = "skins.title";
 
 /// What the screen says of the import, under the preview.
-pub const IMPORT_NOTE: &str = "Drop a 64x64 PNG on the window to add your own skin.";
+pub const IMPORT_NOTE: &str = "skins.import_note";
 
 /// The layer of the preview's model, its light and its camera: no other camera draws it.
 pub const PREVIEW_LAYER: usize = 30;
@@ -187,7 +188,7 @@ fn skins_setup(
             ChildOf(root),
         ))
         .id();
-    commands.spawn((text(SKINS_TITLE, FONT_XL, TEXT, &font), ChildOf(content)));
+    commands.spawn((text(tr(SKINS_TITLE), FONT_XL, TEXT, &font), ChildOf(content)));
     let body = commands
         .spawn((
             Node {
@@ -207,7 +208,7 @@ fn skins_setup(
             SkinList,
             // the role before the label: the label's default node must not win
             AccessibilityNode(accesskit::Node::new(Role::ListBox)),
-            AccessibleLabel::new("Skins"),
+            AccessibleLabel::new(tr("skins.list")),
         ))
         .observe(choose_selected_skin);
 
@@ -272,7 +273,7 @@ fn skins_setup(
         text(chosen.choice.label(), FONT_M, TEXT, &font),
         ChildOf(pane),
     ));
-    commands.spawn((text(IMPORT_NOTE, FONT_S, MUTED, &font), ChildOf(pane)));
+    commands.spawn((text(tr(IMPORT_NOTE), FONT_S, MUTED, &font), ChildOf(pane)));
     commands.spawn((
         SkinMessage,
         text("", FONT_S, DANGER, &font),
@@ -287,7 +288,7 @@ fn skins_setup(
         Node::default(),
         ChildOf(content),
         children![(
-            button("Back", ButtonVariant::Default, font.clone()),
+            button(tr("common.back"), ButtonVariant::Default, font.clone()),
             observe(
                 |_: On<Activate>, mut menu_state: ResMut<NextState<MenuState>>| {
                     menu_state.set(MenuState::Main);
@@ -448,7 +449,7 @@ fn show_skins(
         let card = spawn_list_card(&mut commands, list, choice.label());
         let kind = match choice {
             SkinChoice::BuiltIn(_) => "",
-            SkinChoice::Custom(_) => "Imported",
+            SkinChoice::Custom(_) => tr("skins.imported"),
         };
         commands.entity(card).insert(children![
             face(texture.clone()),

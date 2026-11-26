@@ -166,9 +166,9 @@ fn world_noises(
     match Biomes::from_defs(defs) {
         Ok(biomes) => {
             let warning = (!unknown.is_empty()).then(|| {
-                format!(
-                    "This server adds biomes this game does not know: {}",
-                    unknown.join(", ")
+                crate::i18n::trf(
+                    "connect.unknown_biomes",
+                    &[("biomes", &unknown.join(", "))],
                 )
             });
             (
@@ -177,7 +177,7 @@ fn world_noises(
             )
         }
         Err(err) => {
-            let warning = format!("The biomes of this server are invalid ({err}): the colours of the world may be wrong");
+            let warning = crate::i18n::trf("connect.invalid_biomes", &[("error", &err)]);
             (TerrainNoises::with(seed, settings, vanilla), Some(warning))
         }
     }
@@ -298,7 +298,7 @@ pub fn launch_local_server_system(
     let Some(world_name) = selected_world.name.clone() else {
         error!("No world selected, unable to launch the local server");
         fail(ConnectError::WorldFailed(
-            "No world was selected".to_string(),
+            crate::i18n::tr("connect.no_world").to_string(),
         ));
         return;
     };

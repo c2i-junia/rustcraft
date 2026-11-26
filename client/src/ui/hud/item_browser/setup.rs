@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use accesskit::Role;
 use bevy::{
     a11y::AccessibilityNode, input_focus::tab_navigation::TabIndex, picking::hover::Hovered,
@@ -173,7 +174,7 @@ fn spawn_footer(
             ChildOf(footer),
         ))
         .id();
-    for (index, (key, action)) in [("LMB", "recipes"), ("RMB", "uses"), ("A", "bookmark")]
+    for (index, (key, action)) in [("LMB", "browser.footer.recipes"), ("RMB", "browser.footer.uses"), ("A", "browser.footer.bookmark")]
         .into_iter()
         .enumerate()
     {
@@ -187,7 +188,7 @@ fn spawn_footer(
             ));
         }
         commands.spawn((key_cap(key, font.clone(), glyph_font.clone()), ChildOf(row)));
-        commands.spawn((label(action, font, FONT_S, MUTED), ChildOf(row)));
+        commands.spawn((label(tr(action), font, FONT_S, MUTED), ChildOf(row)));
     }
 
     let creative = commands
@@ -339,16 +340,16 @@ fn spawn_search_field(
 }
 
 /// The label of the bookmarks, and of their row.
-pub const BOOKMARKS_LABEL: &str = "Bookmarks";
+pub const BOOKMARKS_LABEL: &str = "browser.bookmarks";
 /// The label of the recent crafts, and of their row.
-pub const RECENT_LABEL: &str = "Recent";
+pub const RECENT_LABEL: &str = "browser.recent";
 
 /// The category chips, All first, then Craftable: they wrap, so that every one is in view.
 fn spawn_chips(commands: &mut Commands, panel: Entity, font: &Handle<Font>) {
     let row = commands
         .spawn((
             AccessibilityNode(accesskit::Node::new(Role::Toolbar)),
-            AccessibleLabel::new("Categories"),
+            AccessibleLabel::new(tr("browser.categories")),
             CatalogPart,
             Node {
                 flex_shrink: 0.0,
@@ -362,7 +363,7 @@ fn spawn_chips(commands: &mut Commands, panel: Entity, font: &Handle<Font>) {
         .id();
     let chips = std::iter::once(None).chain(ItemCategory::ALL.map(Some));
     for category in chips {
-        let name = category.map_or("All", ItemCategory::name);
+        let name = category.map_or(tr("browser.all"), crate::i18n::category_name);
         commands
             .spawn((
                 // the widget before the label: its `Role::Button` must win over the label's node
@@ -467,7 +468,7 @@ fn spawn_bookmark_bar(commands: &mut Commands, panel: Entity, font: &Handle<Font
         commands,
         panel,
         font,
-        BOOKMARKS_LABEL,
+        crate::i18n::tr(BOOKMARKS_LABEL),
         BookmarkBar,
         BookmarkRow,
     );
@@ -475,7 +476,7 @@ fn spawn_bookmark_bar(commands: &mut Commands, panel: Entity, font: &Handle<Font
 
 /// The recent crafts, under the bookmarks, hidden until there is one, as the bookmarks.
 fn spawn_recent_bar(commands: &mut Commands, panel: Entity, font: &Handle<Font>) {
-    spawn_shelf_bar(commands, panel, font, RECENT_LABEL, RecentBar, RecentRow);
+    spawn_shelf_bar(commands, panel, font, crate::i18n::tr(RECENT_LABEL), RecentBar, RecentRow);
 }
 
 /// A shelf of the catalog named `name`, hidden: `bar`, a label over `row`, which wraps.

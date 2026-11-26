@@ -2,6 +2,7 @@
 //! the rest of the HUD, cut frame by frame from the block texture of the fire (Pixel
 //! Perfection's `fire_0.png`, 8 frames of 16x16).
 
+use crate::i18n::tr;
 use bevy::prelude::*;
 use shared::players::Player;
 
@@ -41,7 +42,7 @@ pub fn spawn_burning_flames(mut commands: Commands, assets: Res<AssetServer>) {
     let row = commands
         .spawn((
             BurningFlames,
-            Name::new("Burning flames"),
+            Name::new(tr("hud.burning")),
             Node {
                 position_type: PositionType::Absolute,
                 left: px(0.),

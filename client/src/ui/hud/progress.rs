@@ -1,6 +1,7 @@
 //! What the local player achieved in the world, as the server last told, and the toasts of what
 //! it has just earned.
 
+use crate::i18n::trf;
 use bevy::prelude::*;
 use shared::players::progress::{Achievement, Progress};
 
@@ -57,11 +58,11 @@ pub fn forget_progress(mut progress: ResMut<PlayerProgress>, mut earned: ResMut<
 /// What the toasts of `earned` say.
 fn toasts(earned: &[Achievement]) -> Vec<String> {
     if earned.len() > MOST_NAMED {
-        return vec![format!("{} achievements earned", earned.len())];
+        return vec![trf("achievement.many", &[("count", &earned.len())])];
     }
     let named = earned.iter();
     named
-        .map(|achievement| format!("Achievement: {}", achievement.title()))
+        .map(|achievement| trf("achievement.toast", &[("title", &crate::i18n::achievement_title(*achievement))]))
         .collect()
 }
 

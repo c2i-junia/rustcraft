@@ -2,6 +2,7 @@
 //! the chosen skin between the player's name and the Skin button, and a confirmation before
 //! quitting.
 
+use crate::i18n::tr;
 use bevy::{
     input::keyboard::KeyboardInput,
     input_focus::{
@@ -176,9 +177,9 @@ pub fn home_setup(
             ))
             .id()
     };
-    let singleplayer = wide(&mut commands, "Singleplayer", MainMenuButton::Singleplayer);
+    let singleplayer = wide(&mut commands, tr("home.singleplayer"), MainMenuButton::Singleplayer);
     commands.entity(singleplayer).insert(AutoFocus);
-    wide(&mut commands, "Multiplayer", MainMenuButton::Multiplayer);
+    wide(&mut commands, tr("home.multiplayer"), MainMenuButton::Multiplayer);
     wide(&mut commands, crate::i18n::tr(CREDITS_LABEL), MainMenuButton::Credits);
     // Settings and Quit, half as wide each, a little apart from the rows above
     let pair = commands
@@ -192,8 +193,8 @@ pub fn home_setup(
         ))
         .id();
     for (label, action) in [
-        ("Settings", MainMenuButton::Settings),
-        ("Quit game", MainMenuButton::Quit),
+        (tr("home.settings"), MainMenuButton::Settings),
+        (tr("home.quit"), MainMenuButton::Quit),
     ] {
         commands
             .spawn((
@@ -229,7 +230,7 @@ pub fn home_setup(
     spawn_home_preview(&mut commands, skin, &asset_server, &mut preview);
     commands
         .spawn((
-            button(SKINS_TITLE, ButtonVariant::Default, font.clone()),
+            button(tr(SKINS_TITLE), ButtonVariant::Default, font.clone()),
             MainMenuButton::Skin,
             ChildOf(skin),
         ))
@@ -336,8 +337,8 @@ fn open_quit_dialog(commands: &mut Commands, asset_server: &Res<AssetServer>, fo
         title: crate::i18n::tr(QUIT_TITLE),
         body: "",
         actions: &[
-            ("Cancel", ButtonVariant::Default),
-            ("Quit", ButtonVariant::Danger),
+            (tr("common.cancel"), ButtonVariant::Default),
+            (tr("home.quit_confirm"), ButtonVariant::Danger),
         ],
         focused: 0,
     };

@@ -1,6 +1,7 @@
 //! The dialogs of the world list. New world checks the name and the seed as they are typed, and
 //! writes the world to disk as soon as it is submitted. Delete asks first.
 
+use crate::i18n::{tr, trf};
 use std::io;
 
 use bevy::{
@@ -36,10 +37,10 @@ use crate::ui::widgets::text_field::{
 };
 
 /// The title of the New world dialog.
-pub const NEW_WORLD_TITLE: &str = "New world";
+pub const NEW_WORLD_TITLE: &str = "worlds.new";
 
 /// What the detail pane says when a world could not be deleted for lack of permission.
-pub const DELETE_PERMISSION: &str = "No permission to delete this world";
+pub const DELETE_PERMISSION: &str = "worlds.delete_permission";
 
 /// The most digits a seed has: a `u32` has at most 10.
 const SEED_DIGITS: usize = 10;
@@ -87,23 +88,23 @@ pub struct WorldSeedInput;
 /// The world types the New world dialog offers, by their caption. A world of a single biome is
 /// made by editing its `world.ron`, as a tool to look at one biome.
 const WORLD_TYPES: [(&str, WorldPreset); 3] = [
-    ("Default", WorldPreset::Default),
-    ("Large biomes", WorldPreset::LargeBiomes),
-    ("Archipelago", WorldPreset::Archipelago),
+    ("worlds.type.default", WorldPreset::Default),
+    ("worlds.type.large_biomes", WorldPreset::LargeBiomes),
+    ("worlds.type.archipelago", WorldPreset::Archipelago),
 ];
 
 /// The game modes the New world dialog offers, by their caption.
 const GAME_MODES: [(&str, GameMode); 2] = [
-    ("Survival", GameMode::Survival),
-    ("Creative", GameMode::Creative),
+    ("worlds.mode.survival", GameMode::Survival),
+    ("worlds.mode.creative", GameMode::Creative),
 ];
 
 /// The difficulties the New world dialog offers, by their caption.
 const DIFFICULTIES: [(&str, Difficulty); 4] = [
-    ("Peaceful", Difficulty::Peaceful),
-    ("Easy", Difficulty::Easy),
-    ("Normal", Difficulty::Normal),
-    ("Hard", Difficulty::Hard),
+    ("worlds.difficulty.peaceful", Difficulty::Peaceful),
+    ("worlds.difficulty.easy", Difficulty::Easy),
+    ("worlds.difficulty.normal", Difficulty::Normal),
+    ("worlds.difficulty.hard", Difficulty::Hard),
 ];
 
 /// What is checked in the controls of the New world dialog, on its root.
@@ -235,8 +236,8 @@ pub fn open_new_world_dialog(
             },
         )
     };
-    let name = field("Name", "", MAX_WORLD_NAME_LENGTH);
-    let seed = field("Seed (optional)", "Random", SEED_DIGITS);
+    let name = field(tr("worlds.field.name"), "", MAX_WORLD_NAME_LENGTH);
+    let seed = field(tr("worlds.field.seed"), tr("worlds.field.seed_random"), SEED_DIGITS);
     let free = free_world_name(&others);
     commands
         .entity(name.input)
@@ -248,18 +249,18 @@ pub fn open_new_world_dialog(
         EditableTextFilter::new(|c: char| c.is_ascii_digit()),
     ));
     let dialog = Dialog {
-        title: NEW_WORLD_TITLE,
+        title: tr(NEW_WORLD_TITLE),
         body: "",
         actions: &[
-            ("Cancel", ButtonVariant::Default),
-            ("Create", ButtonVariant::Primary),
+            (tr("common.cancel"), ButtonVariant::Default),
+            (tr("worlds.create"), ButtonVariant::Primary),
         ],
         focused: 0,
     };
     let parts = spawn_form_dialog(
         commands,
         &dialog,
-        &[("Name", name), ("Seed (optional)", seed)],
+        &[(tr("worlds.field.name"), name), (tr("worlds.field.seed"), seed)],
         &NEW_WORLD_HINTS,
         font.clone(),
         focus,
@@ -269,7 +270,11 @@ pub fn open_new_world_dialog(
         spawn_world_choice(
             commands,
             (root, form),
-            ("Game mode", &GAME_MODES.map(|(caption, _)| caption), 0),
+            (
+                tr("worlds.game_mode"),
+                &GAME_MODES.map(|(caption, _)| tr(caption)),
+                0,
+            ),
             &font,
             |options, index| options.game_mode = GAME_MODES[index].1,
         );
@@ -281,8 +286,8 @@ pub fn open_new_world_dialog(
             commands,
             (root, form),
             (
-                "Difficulty",
-                &DIFFICULTIES.map(|(caption, _)| caption),
+                tr("worlds.difficulty"),
+                &DIFFICULTIES.map(|(caption, _)| tr(caption)),
                 normal,
             ),
             &font,
@@ -291,7 +296,11 @@ pub fn open_new_world_dialog(
         spawn_world_choice(
             commands,
             (root, form),
-            ("World type", &WORLD_TYPES.map(|(caption, _)| caption), 0),
+            (
+                tr("worlds.world_type"),
+                &WORLD_TYPES.map(|(caption, _)| tr(caption)),
+                0,
+            ),
             &font,
             |options, index| options.generation.preset = WORLD_TYPES[index].1.clone(),
         );
@@ -321,7 +330,7 @@ pub fn open_rename_dialog(
     let name = spawn_text_field(
         commands,
         &TextField {
-            label: "Name",
+            label: tr("worlds.field.name"),
             placeholder: "",
             max_characters: Some(MAX_WORLD_NAME_LENGTH),
             font: font.clone(),
@@ -335,20 +344,20 @@ pub fn open_rename_dialog(
         .insert((WorldNameInput, SelectAllOnFocus))
         .entry::<EditableText>()
         .and_modify(move |mut text| set_text(&mut text, &current));
-    let title = format!("Rename \"{world}\"");
+    let title = trf("worlds.rename_title", &[("world", &world)]);
     let dialog = Dialog {
         title: &title,
         body: "",
         actions: &[
-            ("Cancel", ButtonVariant::Default),
-            ("Rename", ButtonVariant::Primary),
+            (tr("common.cancel"), ButtonVariant::Default),
+            (tr("worlds.rename"), ButtonVariant::Primary),
         ],
         focused: 0,
     };
     let parts = spawn_form_dialog(
         commands,
         &dialog,
-        &[("Name", name)],
+        &[(tr("worlds.field.name"), name)],
         &RENAME_HINTS,
         font,
         focus,
@@ -418,12 +427,12 @@ fn check_world_form(changed: On<FormChanged>, forms: Query<&WorldForm>, mut comm
 /// line holds one line.
 fn create_failure(error: &io::Error) -> &'static str {
     match error.kind() {
-        io::ErrorKind::StorageFull => "The disk is full",
+        io::ErrorKind::StorageFull => "error.disk_full",
         io::ErrorKind::PermissionDenied | io::ErrorKind::ReadOnlyFilesystem => {
-            "No permission to write here"
+            "error.no_permission"
         }
-        io::ErrorKind::AlreadyExists => "A folder with this name already exists",
-        _ => "Could not create the world",
+        io::ErrorKind::AlreadyExists => "worlds.folder_exists",
+        _ => "worlds.create_failed",
     }
 }
 
@@ -431,13 +440,13 @@ fn create_failure(error: &io::Error) -> &'static str {
 /// `create_failure`.
 fn rename_failure(error: &io::Error) -> &'static str {
     match error.kind() {
-        io::ErrorKind::StorageFull => "The disk is full",
+        io::ErrorKind::StorageFull => "error.disk_full",
         io::ErrorKind::PermissionDenied | io::ErrorKind::ReadOnlyFilesystem => {
-            "No permission to rename this world"
+            "worlds.rename_permission"
         }
-        io::ErrorKind::AlreadyExists => "A folder with this name already exists",
-        io::ErrorKind::ResourceBusy => "The world is in use",
-        _ => "Could not rename the world",
+        io::ErrorKind::AlreadyExists => "worlds.folder_exists",
+        io::ErrorKind::ResourceBusy => "worlds.in_use",
+        _ => "worlds.rename_failed",
     }
 }
 
@@ -446,8 +455,8 @@ fn rename_failure(error: &io::Error) -> &'static str {
 fn delete_failure(error: &io::Error) -> &'static str {
     match error.kind() {
         io::ErrorKind::PermissionDenied | io::ErrorKind::ReadOnlyFilesystem => DELETE_PERMISSION,
-        io::ErrorKind::ResourceBusy => "The world is in use",
-        _ => "Could not delete the world",
+        io::ErrorKind::ResourceBusy => "worlds.in_use",
+        _ => "worlds.delete_failed",
     }
 }
 
@@ -553,17 +562,14 @@ pub fn open_delete_world_dialog(
     world: &WorldSummary,
     next: Option<String>,
 ) -> Entity {
-    let title = format!("Delete \"{}\"?", world.name);
-    let body = format!(
-        "Its {} of saves will be deleted for good.",
-        format_size(world.size)
-    );
+    let title = trf("worlds.delete_title", &[("world", &world.name)]);
+    let body = trf("worlds.delete_body", &[("size", &format_size(world.size))]);
     let dialog = Dialog {
         title: &title,
         body: &body,
         actions: &[
-            ("Cancel", ButtonVariant::Default),
-            ("Delete", ButtonVariant::Danger),
+            (tr("common.cancel"), ButtonVariant::Default),
+            (tr("worlds.delete"), ButtonVariant::Danger),
         ],
         focused: 0,
     };
@@ -617,8 +623,8 @@ mod tests {
     #[test]
     fn a_failed_delete_says_why_in_a_few_words() {
         let cases = [
-            (io::ErrorKind::PermissionDenied, DELETE_PERMISSION),
-            (io::ErrorKind::ReadOnlyFilesystem, DELETE_PERMISSION),
+            (io::ErrorKind::PermissionDenied, crate::i18n::tr(DELETE_PERMISSION)),
+            (io::ErrorKind::ReadOnlyFilesystem, crate::i18n::tr(DELETE_PERMISSION)),
             (io::ErrorKind::ResourceBusy, "The world is in use"),
             (io::ErrorKind::Other, "Could not delete the world"),
         ];
@@ -646,7 +652,7 @@ mod tests {
             },
         );
         let dialog = Dialog {
-            title: NEW_WORLD_TITLE,
+            title: crate::i18n::tr(NEW_WORLD_TITLE),
             body: "",
             actions: &[
                 ("Cancel", ButtonVariant::Default),

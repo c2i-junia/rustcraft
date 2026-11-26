@@ -232,6 +232,6 @@ fn charcoal_smelts_iron_ore_into_an_ingot_whose_smelting_the_browser_shows() {
     ] {
         assert!(h.is_visible(&shown), "{shown:?}");
     }
-    assert_eq!(h.find(&L::role(Role::Button, FILL_GRID)).len(), 1);
+    assert_eq!(h.find(&L::role(Role::Button, crate::i18n::tr(FILL_GRID))).len(), 1);
     h.snapshot("iron_ingot_recipes");
 }

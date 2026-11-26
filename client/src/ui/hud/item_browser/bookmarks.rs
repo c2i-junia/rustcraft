@@ -2,6 +2,7 @@
 //! world, saved by the client in `item_browser.ron` in the game folder. A world of this computer
 //! is known by its name, a server by its address as the server list holds it.
 
+use crate::i18n::trf;
 use std::collections::BTreeMap;
 use std::fs;
 
@@ -242,9 +243,9 @@ pub fn show_shelf<S: Shelf>(
 pub fn bookmark_message(item: ItemId, added: bool) -> String {
     let name = item_name(item);
     if added {
-        format!("Bookmarked {name}")
+        trf("browser.bookmarked", &[("name", &name)])
     } else {
-        format!("Removed {name} from bookmarks")
+        trf("browser.unbookmarked", &[("name", &name)])
     }
 }
 

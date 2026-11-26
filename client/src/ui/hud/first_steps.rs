@@ -2,6 +2,7 @@
 //! game: one at a time, each fading once done, or after a while. The server keeps which are done
 //! (`Progress::steps`), so that none comes back.
 
+use crate::i18n::tr;
 use bevy::prelude::*;
 use bevy_renet::RenetClient;
 use shared::messages::ClientToServerMessage;
@@ -32,6 +33,7 @@ const WALKED: f32 = 4.0;
 const TURNED: f32 = 1.0;
 
 /// A part of a hint: the caps of the keys of some actions, or a text.
+/// The texts are keys of the language files.
 enum Part {
     Keys(&'static [GameAction]),
     Cap(&'static str),
@@ -48,27 +50,27 @@ fn parts(step: FirstStep) -> &'static [Part] {
                 GameAction::MoveBackward,
                 GameAction::MoveRight,
             ]),
-            Text("Walk, and look around with the mouse"),
+            Text("hint.first.walk"),
         ],
         FirstStep::Wood => &[
-            Cap("Left click"),
-            Text("Hold it on the trunk of a tree to cut wood"),
+            Cap("hint.first.left_click"),
+            Text("hint.first.wood"),
         ],
         FirstStep::Inventory => &[
             Keys(&[GameAction::ToggleInventory]),
-            Text("Open your inventory"),
+            Text("hint.first.inventory"),
         ],
         FirstStep::CraftingTable => &[
             Keys(&[GameAction::ToggleInventory]),
-            Text("Make planks of the wood, then a crafting table of four planks"),
+            Text("hint.first.planks"),
         ],
         FirstStep::Torch => &[
-            Cap("Right click"),
-            Text("Place torches before night: a stick and coal or charcoal make four"),
+            Cap("hint.first.right_click"),
+            Text("hint.first.torches"),
         ],
         FirstStep::Achievements => &[
             Keys(&[GameAction::Escape]),
-            Text("Progress lists the achievements ahead of you"),
+            Text("hint.first.progress"),
         ],
     }
 }
@@ -207,7 +209,7 @@ fn show_step(
     let hint = commands
         .spawn((
             FirstStepHint { step, opacity: 0.0 },
-            Name::new("First step"),
+            Name::new(tr("hint.first.label")),
             Node {
                 position_type: PositionType::Absolute,
                 left: px(SPACE_L),
@@ -241,19 +243,19 @@ fn show_step(
     };
     for part in parts(step) {
         match part {
-            Part::Cap(label) => cap(&mut commands, label),
+            Part::Cap(label) => cap(&mut commands, tr(label)),
             Part::Keys(actions) => {
                 for action in *actions {
                     let key = key_map.map.get(action).and_then(|keys| keys.first());
                     cap(
                         &mut commands,
-                        &key.map_or("No key".into(), |&k| key_label(k)),
+                        &key.map_or(tr("hint.first.no_key").into(), |&k| key_label(k)),
                     );
                 }
             }
             Part::Text(text) => {
                 commands.spawn((
-                    Text::new(*text),
+                    Text::new(tr(text)),
                     TextFont {
                         font: font.clone().into(),
                         font_size: px(FONT_S).into(),

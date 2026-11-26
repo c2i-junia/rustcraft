@@ -444,7 +444,7 @@ mod tests {
 
     #[test]
     fn a_missing_key_falls_back_on_english_then_on_itself() {
-        assert_eq!(lookup(Language::French, "menu.quit"), Some("Quitter"));
+        assert_eq!(lookup(Language::French, "home.quit_confirm"), Some("Quitter"));
         // a key French would lack is looked up in English
         let english = &tables()[0].texts;
         let french = &tables()[1].texts;
@@ -461,10 +461,10 @@ mod tests {
         assert_eq!(item_name(ItemId::OakLog), "Oak Log");
         in_language(Language::French, || {
             assert_eq!(language(), Language::French);
-            assert_eq!(tr("menu.quit"), "Quitter");
+            assert_eq!(tr("home.quit_confirm"), "Quitter");
             assert_eq!(item_name(ItemId::OakLog), "Bûche de chêne");
         });
-        assert_eq!(tr("menu.quit"), "Quit");
+        assert_eq!(tr("home.quit_confirm"), "Quit");
     }
 
     #[test]

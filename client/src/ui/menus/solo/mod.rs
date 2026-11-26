@@ -6,6 +6,8 @@
 
 pub mod dialogs;
 
+use crate::i18n::{tr, trf};
+
 use accesskit::Role;
 use bevy::{
     a11y::AccessibilityNode,
@@ -44,7 +46,10 @@ use crate::ui::widgets::list::{
     cards_of, spawn_list_card, spawn_scroll_list, CardSelected, WheelStep,
 };
 use crate::ui::widgets::{raised_bevel, sunken_bevel};
-use dialogs::{open_delete_world_dialog, open_new_world_dialog, open_rename_dialog, WorldsChanged};
+use dialogs::{
+    open_delete_world_dialog, open_new_world_dialog, open_rename_dialog, WorldsChanged,
+    NEW_WORLD_TITLE,
+};
 
 /// The world the game plays, set when the player chooses one.
 #[derive(Resource, Default, Debug, Clone)]
@@ -53,7 +58,7 @@ pub struct SelectedWorld {
 }
 
 /// The title of the screen.
-pub const WORLDS_TITLE: &str = "Worlds";
+pub const WORLDS_TITLE: &str = "worlds.title";
 
 /// A world card, and what it shows of its world.
 #[derive(Component)]
@@ -193,13 +198,13 @@ fn solo_setup(end: Option<Res<SessionEnd>>, mut commands: Commands, assets: Res<
         },
         ChildOf(content),
         children![
-            text(WORLDS_TITLE, FONT_XL, TEXT, &font),
+            text(tr(WORLDS_TITLE), FONT_XL, TEXT, &font),
             Node {
                 flex_grow: 1.0,
                 ..default()
             },
             (
-                button("New world", ButtonVariant::Default, font.clone()),
+                button(tr(NEW_WORLD_TITLE), ButtonVariant::Default, font.clone()),
                 NewWorldButton,
                 observe(open_new_world),
             ),
@@ -224,7 +229,7 @@ fn solo_setup(end: Option<Res<SessionEnd>>, mut commands: Commands, assets: Res<
             WorldList,
             // the role before the label: the label's default node must not win
             AccessibilityNode(accesskit::Node::new(Role::ListBox)),
-            AccessibleLabel::new(WORLDS_TITLE),
+            AccessibleLabel::new(tr(WORLDS_TITLE)),
         ))
         .observe(show_selected_world);
     spawn_detail_pane(&mut commands, body, &font);
@@ -232,7 +237,7 @@ fn solo_setup(end: Option<Res<SessionEnd>>, mut commands: Commands, assets: Res<
         Node::default(),
         ChildOf(content),
         children![(
-            button("Back", ButtonVariant::Default, font.clone()),
+            button(tr("common.back"), ButtonVariant::Default, font.clone()),
             observe(
                 |_: On<Activate>, mut menu_state: ResMut<NextState<MenuState>>| {
                     menu_state.set(MenuState::Main);
@@ -299,7 +304,7 @@ fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>)
             },
             ChildOf(actions),
             children![(
-                button("Play", ButtonVariant::Primary, font.clone()),
+                button(tr("worlds.play"), ButtonVariant::Primary, font.clone()),
                 WorldAction::Play,
             )],
         ))
@@ -316,8 +321,8 @@ fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>)
         .id();
     // red only in the confirmation: Play stays the one strong action
     for (label, action) in [
-        ("Rename", WorldAction::Rename),
-        ("Delete", WorldAction::Delete),
+        (tr("worlds.rename"), WorldAction::Rename),
+        (tr("worlds.delete"), WorldAction::Delete),
     ] {
         commands
             .spawn((
@@ -381,13 +386,13 @@ fn show_worlds(
                 },
                 ChildOf(list),
                 children![
-                    text("No worlds yet", FONT_L, TEXT, font),
-                    text("Create one with New world (Ctrl+N).", FONT_S, MUTED, font),
+                    text(tr("worlds.empty"), FONT_L, TEXT, font),
+                    text(tr("worlds.empty_hint"), FONT_S, MUTED, font),
                 ],
             ))
             .id();
         if let Some(message) = error {
-            commands.spawn((text(message, FONT_S, DANGER, font), ChildOf(empty)));
+            commands.spawn((text(tr(message), FONT_S, DANGER, font), ChildOf(empty)));
         }
         return Vec::new();
     }
@@ -397,9 +402,14 @@ fn show_worlds(
             let card = spawn_list_card(commands, list, &world.name);
             let details = match (world.day, world.seed) {
                 (Some(day), Some(seed)) => {
-                    text(&format!("Day {day} · Seed {seed}"), FONT_S, MUTED, font)
+                    text(
+                        &trf("worlds.day_seed", &[("day", &day), ("seed", &seed)]),
+                        FONT_S,
+                        MUTED,
+                        font,
+                    )
                 }
-                _ => text("Cannot read world.ron", FONT_S, DANGER, font),
+                _ => text(tr("worlds.unreadable"), FONT_S, DANGER, font),
             };
             let played = text(
                 &played_ago(elapsed_since(world.played)),
@@ -477,14 +487,14 @@ fn show_detail(commands: &mut Commands, facts: Entity, world: &WorldSummary, fon
     line(&world.name, FONT_L, TEXT);
     match (world.day, world.seed) {
         (Some(day), Some(seed)) => {
-            line(&format!("Day {day}"), FONT_M, TEXT);
-            line(&format!("Seed {seed}"), FONT_S, MUTED);
+            line(&trf("worlds.day", &[("day", &day)]), FONT_M, TEXT);
+            line(&trf("worlds.seed", &[("seed", &seed)]), FONT_S, MUTED);
         }
-        _ => line("Cannot read world.ron", FONT_S, DANGER),
+        _ => line(tr("worlds.unreadable"), FONT_S, DANGER),
     }
     line(&played_ago(elapsed_since(world.played)), FONT_S, MUTED);
     line(
-        &format!("{} on disk", format_size(world.size)),
+        &trf("worlds.on_disk", &[("size", &format_size(world.size))]),
         FONT_S,
         MUTED,
     );
@@ -501,7 +511,7 @@ fn show_world_error<F: QueryFilter>(
         } else {
             Display::None
         };
-        text.0 = message.clone().unwrap_or_default();
+        text.0 = message.as_deref().map(tr).unwrap_or_default().to_string();
     }
 }
 

@@ -336,7 +336,8 @@ fn show_errors(
         }
         if let Some(message) = &error.0 {
             if let Ok(mut text) = texts.get_mut(parts.message) {
-                text.0.clone_from(message);
+                // a key of the language files, or a text already in the language of the game
+                text.0 = crate::i18n::tr(message).to_string();
             }
         }
         if parts.reserve_error {

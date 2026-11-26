@@ -70,7 +70,7 @@ fn the_skin_shows_beside_the_buttons_and_fits_every_window() {
         h.snapshot("home");
         let window = Rect::from_corners(Vec2::ZERO, Vec2::new(width as f32, height as f32));
         let preview = h.rect_of(&L::marker::<SkinPreview>());
-        let skin = h.rect_of(&L::role(Role::Button, SKINS_TITLE));
+        let skin = h.rect_of(&L::role(Role::Button, crate::i18n::tr(SKINS_TITLE)));
         let top = h.rect_of(&L::role(Role::Button, "Singleplayer"));
         let bottom = h.rect_of(&L::role(Role::Button, "Quit game"));
         let hints = h.rect_of(&L::marker::<HintBar>());
@@ -102,7 +102,7 @@ fn the_skin_shows_beside_the_buttons_and_fits_every_window() {
 
     // Tab reaches the button, and the preview follows a change of skin
     h.resize(1280, 720);
-    while h.focus_label().as_deref() != Some(SKINS_TITLE) {
+    while h.focus_label().as_deref() != Some(crate::i18n::tr(SKINS_TITLE)) {
         h.press(KeyCode::Tab);
     }
     h.press(KeyCode::Enter);
@@ -256,7 +256,7 @@ fn the_keyboard_alone_opens_a_screen() {
         (KeyCode::ArrowDown, crate::i18n::tr(CREDITS_LABEL)),
         (KeyCode::ArrowDown, "Settings"),
         (KeyCode::ArrowRight, "Quit game"),
-        (KeyCode::ArrowRight, SKINS_TITLE),
+        (KeyCode::ArrowRight, crate::i18n::tr(SKINS_TITLE)),
         (KeyCode::ArrowLeft, "Quit game"),
         (KeyCode::ArrowUp, crate::i18n::tr(CREDITS_LABEL)),
     ] {
@@ -271,7 +271,7 @@ fn the_keyboard_alone_opens_a_screen() {
     h.press(KeyCode::Tab);
     assert_eq!(h.focus_label().as_deref(), Some("Tester"));
     h.press(KeyCode::Tab);
-    assert_eq!(h.focus_label().as_deref(), Some(SKINS_TITLE));
+    assert_eq!(h.focus_label().as_deref(), Some(crate::i18n::tr(SKINS_TITLE)));
     h.key_down(KeyCode::ShiftLeft);
     for _ in 0..3 {
         h.press(KeyCode::Tab);
@@ -394,7 +394,7 @@ fn first_launch(folder: GameFolder) -> Harness {
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn the_first_launch_asks_for_a_name_and_saves_it() {
     let mut h = first_launch(GameFolder::new());
-    let dialog = || L::role(Role::Dialog, CHOOSE_NAME_TITLE);
+    let dialog = || L::role(Role::Dialog, crate::i18n::tr(CHOOSE_NAME_TITLE));
     h.wait_for(&dialog(), SCREEN);
     h.frames(2);
     h.snapshot("choose_your_name");
@@ -418,10 +418,10 @@ fn the_first_launch_asks_for_a_name_and_saves_it() {
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn a_first_launch_dismissed_plays_as_player_and_saves_nothing() {
     let mut h = first_launch(GameFolder::new());
-    h.wait_for(&L::role(Role::Dialog, CHOOSE_NAME_TITLE), SCREEN);
+    h.wait_for(&L::role(Role::Dialog, crate::i18n::tr(CHOOSE_NAME_TITLE)), SCREEN);
     h.press(KeyCode::Escape);
     h.frames(3);
-    assert!(!h.is_visible(&L::role(Role::Dialog, CHOOSE_NAME_TITLE)));
+    assert!(!h.is_visible(&L::role(Role::Dialog, crate::i18n::tr(CHOOSE_NAME_TITLE))));
     assert_eq!(
         h.world().resource::<CurrentPlayerProfile>().name,
         DEFAULT_PLAYER_NAME
@@ -435,7 +435,7 @@ fn a_saved_name_is_used_without_asking() {
     let folder = GameFolder::new().with_file(PLAYER_NAME_PATH, "(name: \"Alex\")");
     let mut h = first_launch(folder);
     h.frames(5);
-    assert!(h.find(&L::role(Role::Dialog, CHOOSE_NAME_TITLE)).is_empty());
+    assert!(h.find(&L::role(Role::Dialog, crate::i18n::tr(CHOOSE_NAME_TITLE))).is_empty());
     assert_eq!(h.world().resource::<CurrentPlayerProfile>().name, "Alex");
     assert!(h.is_visible(&L::role(Role::Button, "Alex")));
 }
@@ -454,7 +454,7 @@ fn the_name_given_on_the_command_line_wins_over_the_saved_one() {
 fn the_name_button_changes_the_name() {
     let mut h = main_menu();
     h.click(&L::role(Role::Button, "Tester"));
-    let dialog = || L::role(Role::Dialog, PLAYER_NAME_TITLE);
+    let dialog = || L::role(Role::Dialog, crate::i18n::tr(PLAYER_NAME_TITLE));
     h.wait_for(&dialog(), SCREEN);
     h.frames(2);
     assert_eq!(h.value_of::<PlayerNameInput>(), "Tester");

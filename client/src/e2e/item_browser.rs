@@ -779,7 +779,7 @@ fn fill_grid_moves_a_recipe_into_the_grid() {
     h.wait_for(&button("Recipes 1"), SCREEN);
     h.frames(2);
     let enabled: Vec<Entity> = h
-        .find(&button(FILL_GRID))
+        .find(&button(crate::i18n::tr(FILL_GRID)))
         .into_iter()
         .filter(|&b| h.world().get::<InteractionDisabled>(b).is_none())
         .collect();
@@ -887,7 +887,7 @@ fn fill_grid_mixes_the_species_of_planks_at_a_table() {
     }
 
     // Filled, the grid takes all the oak, then the spruce
-    let fill = h.get(&button(FILL_GRID));
+    let fill = h.get(&button(crate::i18n::tr(FILL_GRID)));
     assert!(h.world().get::<InteractionDisabled>(fill).is_none());
     h.click_entity(fill, MouseButton::Left);
     let oak = [(0, 0), (0, 1), (0, 2), (1, 0), (1, 2)];
@@ -1195,7 +1195,7 @@ fn a_card_missing_ingredients_lays_a_ghost_until_the_grid_changes() {
         h.frames(2);
     };
     let fill_buttons = |h: &mut Harness| -> Vec<Entity> {
-        let buttons = h.find(&button(FILL_GRID));
+        let buttons = h.find(&button(crate::i18n::tr(FILL_GRID)));
         for &b in &buttons {
             assert!(h.world().get::<InteractionDisabled>(b).is_none());
         }

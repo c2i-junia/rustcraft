@@ -1,6 +1,7 @@
 //! The dialogs of the server list. Add server and Edit check the name and the address as they
 //! are typed, and write the server to `servers.ron` as soon as it is submitted. Remove asks first.
 
+use crate::i18n::{tr, trf};
 use std::io;
 
 use bevy::{
@@ -31,7 +32,7 @@ use crate::ui::widgets::text_field::{
 };
 
 /// The title of the Add server dialog.
-pub const ADD_SERVER_TITLE: &str = "Add server";
+pub const ADD_SERVER_TITLE: &str = "servers.add";
 
 /// The key hints of the Add server dialog.
 const ADD_SERVER_HINTS: [Hint; 3] = [
@@ -173,18 +174,18 @@ fn open_server_dialog(
             },
         )
     };
-    let name = field("Name", "", MAX_SERVER_NAME_LENGTH);
-    let address = field("Address", "host:port", MAX_ADDRESS_LENGTH);
+    let name = field(tr("servers.field.name"), "", MAX_SERVER_NAME_LENGTH);
+    let address = field(tr("servers.field.address"), "host:port", MAX_ADDRESS_LENGTH);
     let (title, primary, hints, values) = match &editing {
         None => {
             let names: Vec<String> = others.iter().map(|other| other.name.clone()).collect();
             let free = (free_server_name(&names), String::new());
-            (ADD_SERVER_TITLE.to_string(), "Add", &ADD_SERVER_HINTS, free)
+            (tr(ADD_SERVER_TITLE).to_string(), tr("servers.add_button"), &ADD_SERVER_HINTS, free)
         }
         Some(server) => {
-            let title = format!("Edit \"{}\"", server.name);
+            let title = trf("servers.edit_title", &[("name", &server.name)]);
             let values = (server.name.clone(), server.ip.clone());
-            (title, "Save", &EDIT_SERVER_HINTS, values)
+            (title, tr("common.save"), &EDIT_SERVER_HINTS, values)
         }
     };
     let (name_value, address_value) = values;
@@ -202,7 +203,7 @@ fn open_server_dialog(
         title: &title,
         body: "",
         actions: &[
-            ("Cancel", ButtonVariant::Default),
+            (tr("common.cancel"), ButtonVariant::Default),
             (primary, ButtonVariant::Primary),
         ],
         focused: 0,
@@ -210,7 +211,7 @@ fn open_server_dialog(
     let parts = spawn_form_dialog(
         commands,
         &dialog,
-        &[("Name", name), ("Address", address)],
+        &[(tr("servers.field.name"), name), (tr("servers.field.address"), address)],
         hints,
         font,
         focus,
@@ -288,12 +289,12 @@ fn typed_server(form: &ServerForm, texts: &Query<&EditableText>) -> Option<Serve
 /// What a field says when servers.ron could not be written, in a few words.
 fn save_failure(error: &io::Error) -> &'static str {
     match error.kind() {
-        io::ErrorKind::StorageFull => "The disk is full",
+        io::ErrorKind::StorageFull => tr("error.disk_full"),
         io::ErrorKind::PermissionDenied | io::ErrorKind::ReadOnlyFilesystem => {
-            "No permission to write here"
+            tr("error.no_permission")
         }
-        io::ErrorKind::InvalidData => "Cannot read servers.ron",
-        _ => "Could not save the server list",
+        io::ErrorKind::InvalidData => tr("servers.unreadable"),
+        _ => tr("servers.save_failed"),
     }
 }
 
@@ -395,14 +396,14 @@ pub fn open_remove_server_dialog(
     next: Option<String>,
 ) -> Entity {
     cancel_join(commands);
-    let title = format!("Remove \"{}\"?", server.name);
-    let body = format!("{} will leave your server list.", server.ip);
+    let title = trf("servers.remove_title", &[("name", &server.name)]);
+    let body = trf("servers.remove_body", &[("address", &server.ip)]);
     let dialog = Dialog {
         title: &title,
         body: &body,
         actions: &[
-            ("Cancel", ButtonVariant::Default),
-            ("Remove", ButtonVariant::Danger),
+            (tr("common.cancel"), ButtonVariant::Default),
+            (tr("common.remove"), ButtonVariant::Danger),
         ],
         focused: 0,
     };
@@ -551,7 +552,7 @@ mod tests {
         };
         let (name, address) = (field("Name"), field("Address"));
         let dialog = Dialog {
-            title: ADD_SERVER_TITLE,
+            title: crate::i18n::tr(ADD_SERVER_TITLE),
             body: "",
             actions: &[
                 ("Cancel", ButtonVariant::Default),

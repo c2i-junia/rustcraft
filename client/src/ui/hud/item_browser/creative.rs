@@ -1,6 +1,7 @@
 //! What the gestures on the catalog do in Creative, where items come out of it, and the texts
 //! that say so. Pure: `catalog_actions` sends what they decide.
 
+use crate::i18n::trf;
 use shared::players::inventory::InventoryAction;
 use shared::world::{ItemId, ItemStack};
 
@@ -43,12 +44,12 @@ pub fn creative_action(item: ItemId, gesture: Gesture, held: Option<ItemStack>) 
 
 /// The line of the tooltip of a catalog item in Creative: what each gesture takes.
 pub fn creative_hint(item: ItemId) -> String {
-    format!("LMB {}  RMB 1  Shift to inventory", item.get_max_stack())
+    trf("browser.creative_hint", &[("stack", &item.get_max_stack())])
 }
 
 /// The toast saying that `stack` was destroyed.
 pub fn destroyed_message(stack: ItemStack) -> String {
-    format!("Destroyed {} {}", stack.nb, item_name(stack.item_id))
+    trf("browser.destroyed", &[("count", &stack.nb), ("item", &item_name(stack.item_id))])
 }
 
 #[cfg(test)]

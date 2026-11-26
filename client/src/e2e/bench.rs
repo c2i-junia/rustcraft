@@ -140,7 +140,7 @@ fn bench_world_lifecycle() {
     h.wait_for(&L::role(Role::Button, "Save now"), SCREEN);
     let save = Instant::now();
     h.click(&L::role(Role::Button, "Save now"));
-    h.wait_for(&L::role(Role::Status, WORLD_SAVED), SERVER);
+    h.wait_for(&L::role(Role::Status, crate::i18n::tr(WORLD_SAVED)), SERVER);
     let save_now = save.elapsed().as_secs_f64();
     let quit_after_save = save_and_quit(&mut h);
 

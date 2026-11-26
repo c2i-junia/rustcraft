@@ -1,3 +1,4 @@
+use crate::i18n::{tr, trf};
 use super::armour::spawn_armour_slots;
 use super::engraving::spawn_engraving_row;
 use super::furnace::spawn_furnace_row;
@@ -26,9 +27,9 @@ use shared::players::inventory::chest_slots;
 use shared::world::{grid_slot, CRAFTING_GRID_SIZE};
 use shared::MAX_INVENTORY_SLOTS;
 
-pub const INVENTORY_TITLE: &str = "Inventory";
-pub const CRAFTING_TABLE_TITLE: &str = "Crafting Table";
-pub const CHEST_TITLE: &str = "Chest";
+pub const INVENTORY_TITLE: &str = "inventory.title";
+pub const CRAFTING_TABLE_TITLE: &str = "inventory.crafting_table";
+pub const CHEST_TITLE: &str = "inventory.chest";
 
 /// The height of the hotbar above the bottom of the window, in logical px.
 const HOTBAR_BOTTOM: f32 = SPACE_L;
@@ -127,7 +128,7 @@ pub fn setup_inventory(
                         ))
                         .with_children(|inventory| {
                             inventory
-                                .spawn((InventoryTitle, panel_text(INVENTORY_TITLE, &font, TEXT)));
+                                .spawn((InventoryTitle, panel_text(crate::i18n::tr(INVENTORY_TITLE), &font, TEXT)));
                             spawn_crafting_row(inventory, atlas, &font, &asset_server);
                             spawn_chest_grid(inventory, atlas, &font);
                             spawn_furnace_row(inventory, atlas, &font, &asset_server);
@@ -176,7 +177,7 @@ fn spawn_chest_grid(parent: &mut ChildSpawnerCommands, atlas: &AtlasWrapper, fon
         ))
         .with_children(|grid| {
             for (index, id) in chest_slots().enumerate() {
-                let label = format!("Chest slot {}", index + 1);
+                let label = trf("inventory.slot.chest", &[("n", &(index + 1))]);
                 grid.spawn((
                     InventoryCell { id },
                     Tooltip::default(),
@@ -198,7 +199,7 @@ fn spawn_backpack(parent: &mut ChildSpawnerCommands, atlas: &AtlasWrapper, font:
         })
         .with_children(|grid| {
             for id in MAX_HOTBAR_SLOTS..MAX_INVENTORY_SLOTS {
-                let label = format!("Backpack slot {}", id - MAX_HOTBAR_SLOTS + 1);
+                let label = trf("inventory.slot.backpack", &[("n", &(id - MAX_HOTBAR_SLOTS + 1))]);
                 grid.spawn((
                     InventoryCell { id },
                     Tooltip::default(),
@@ -246,7 +247,7 @@ fn spawn_hotbar(parent: &mut ChildSpawnerCommands, atlas: &AtlasWrapper, font: &
                 Pickable::IGNORE,
             ));
             for id in 0..MAX_HOTBAR_SLOTS {
-                let label = format!("Hotbar slot {}", id + 1);
+                let label = trf("inventory.slot.hotbar", &[("n", &(id + 1))]);
                 bar.spawn((
                     InventoryCell { id },
                     Tooltip::default(),
@@ -284,7 +285,7 @@ fn spawn_crafting_row(
             .with_children(|grid| {
                 for row in 0..CRAFTING_GRID_SIZE {
                     for col in 0..CRAFTING_GRID_SIZE {
-                        let label = format!("Crafting grid {}, {}", row + 1, col + 1);
+                        let label = trf("inventory.slot.grid", &[("row", &(row + 1)), ("col", &(col + 1))]);
                         // Placed by hand: a hidden cell leaves the grid, which would move
                         // the next ones in its place
                         grid.spawn((
@@ -312,7 +313,7 @@ fn spawn_crafting_row(
             row.spawn((
                 CraftResultCell,
                 Tooltip::default(),
-                slot("Crafting result", None, icon(atlas), font.clone()),
+                slot(tr("inventory.slot.result"), None, icon(atlas), font.clone()),
             ));
             spawn_armour_slots(row, atlas, font, assets);
         });

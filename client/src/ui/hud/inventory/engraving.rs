@@ -2,6 +2,7 @@
 //! of the item, and beside it a button per enchantment the item takes, with its levels and what
 //! the next one does and costs. The server makes it (`InventoryAction::Enchant`).
 
+use crate::i18n::{tr, trf};
 use bevy::input_focus::tab_navigation::TabIndex;
 use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
@@ -89,7 +90,7 @@ pub(super) fn spawn_engraving_row(
             row.spawn((
                 InventoryCell { id: ENGRAVING_SLOT },
                 Tooltip::default(),
-                slot("Item to enchant", None, icon(atlas), font.clone()),
+                slot(tr("engraving.slot"), None, icon(atlas), font.clone()),
             ));
             row.spawn(Node {
                 flex_grow: 1.0,
@@ -186,8 +187,8 @@ fn choose_enchantment(
 /// "1 level", "5 levels".
 fn levels(count: u32) -> String {
     match count {
-        1 => "1 level".to_string(),
-        count => format!("{count} levels"),
+        1 => tr("engraving.one_level").to_string(),
+        count => trf("engraving.levels", &[("count", &count)]),
     }
 }
 
@@ -221,9 +222,9 @@ pub fn display_engraving(
     };
     if let Ok(mut text) = status.single_mut() {
         let shown = match held {
-            None => "Put in a tool, a weapon, armour or a bow".to_string(),
-            Some(_) if creative => "Free in creative".to_string(),
-            Some(_) => format!("You have {}", levels(experience)),
+            None => tr("engraving.put_in").to_string(),
+            Some(_) if creative => tr("engraving.free_creative").to_string(),
+            Some(_) => trf("engraving.you_have", &[("levels", &levels(experience))]),
         };
         set(&mut text, &shown);
     }
@@ -258,13 +259,13 @@ pub fn display_engraving(
             }
         }
         let price = match full {
-            true => "Complete".to_string(),
-            false if creative => "Free".to_string(),
+            true => tr("engraving.complete").to_string(),
+            false if creative => tr("engraving.free").to_string(),
             false => levels(cost),
         };
         let effect = crate::i18n::enchantment_effect(enchantment, if full { level } else { next });
         let name = crate::i18n::enchantment_title(enchantment, if full { level } else { next });
-        let described = format!("{name}: {effect}, {price}");
+        let described = trf("engraving.choice", &[("name", &name), ("effect", &effect), ("price", &price)]);
         if label.0 != described {
             commands
                 .entity(entity)

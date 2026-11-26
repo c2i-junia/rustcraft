@@ -9,6 +9,7 @@
 pub mod dialogs;
 pub mod status;
 
+use crate::i18n::{tr, trf};
 use std::io;
 use std::net::SocketAddr;
 
@@ -60,7 +61,7 @@ use status::{
 };
 
 /// The title of the screen.
-pub const SERVERS_TITLE: &str = "Servers";
+pub const SERVERS_TITLE: &str = "servers.title";
 
 /// A server card, and the server it shows.
 #[derive(Component)]
@@ -202,7 +203,7 @@ impl ListHints for MultiHints {
 const DETAIL_WIDTH: f32 = 280.0;
 
 /// The line of the screen while `servers.ron` cannot be read.
-const UNREADABLE: &str = "Cannot read servers.ron";
+const UNREADABLE: &str = "servers.unreadable";
 
 /// The Multiplayer screen and its dialogs.
 pub fn multi_plugin(app: &mut App) {
@@ -265,18 +266,18 @@ fn multi_setup(end: Option<Res<SessionEnd>>, mut commands: Commands, assets: Res
         },
         ChildOf(content),
         children![
-            text(SERVERS_TITLE, FONT_XL, TEXT, &font),
+            text(tr(SERVERS_TITLE), FONT_XL, TEXT, &font),
             Node {
                 flex_grow: 1.0,
                 ..default()
             },
             (
-                button("Refresh", ButtonVariant::Default, font.clone()),
+                button(tr("servers.refresh"), ButtonVariant::Default, font.clone()),
                 RefreshButton,
                 observe(refresh),
             ),
             (
-                button("Add server", ButtonVariant::Default, font.clone()),
+                button(tr("servers.add"), ButtonVariant::Default, font.clone()),
                 AddServerButton,
                 observe(open_add_server),
             ),
@@ -301,7 +302,7 @@ fn multi_setup(end: Option<Res<SessionEnd>>, mut commands: Commands, assets: Res
             ServerList,
             // the role before the label: the label's default node must not win
             AccessibilityNode(accesskit::Node::new(Role::ListBox)),
-            AccessibleLabel::new(SERVERS_TITLE),
+            AccessibleLabel::new(tr(SERVERS_TITLE)),
         ))
         .observe(show_selected_server);
     spawn_detail_pane(&mut commands, body, &font);
@@ -309,7 +310,7 @@ fn multi_setup(end: Option<Res<SessionEnd>>, mut commands: Commands, assets: Res
         Node::default(),
         ChildOf(content),
         children![(
-            button("Back", ButtonVariant::Default, font.clone()),
+            button(tr("common.back"), ButtonVariant::Default, font.clone()),
             BackButton,
             observe(
                 |_: On<Activate>, mut menu_state: ResMut<NextState<MenuState>>| {
@@ -377,7 +378,7 @@ fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>)
             },
             ChildOf(actions),
             children![(
-                button("Join", ButtonVariant::Primary, font.clone()),
+                button(tr("servers.join"), ButtonVariant::Primary, font.clone()),
                 ServerAction::Join,
             )],
         ))
@@ -394,8 +395,8 @@ fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>)
         .id();
     // red only in the confirmation: Join stays the one strong action
     for (label, action) in [
-        ("Edit", ServerAction::Edit),
-        ("Remove", ServerAction::Remove),
+        (tr("servers.edit"), ServerAction::Edit),
+        (tr("common.remove"), ServerAction::Remove),
     ] {
         commands
             .spawn((
@@ -464,7 +465,7 @@ fn show_servers(
     font: &Handle<Font>,
 ) -> Vec<Entity> {
     if servers.is_empty() {
-        let empty = ("No servers yet", "Add one with Add server (Ctrl+N).");
+        let empty = (tr("servers.empty"), tr("servers.empty_hint"));
         show_empty(commands, list, empty, error, font);
         return Vec::new();
     }
@@ -639,7 +640,7 @@ fn show_changed_servers(
         Ok(servers) => show_servers(&mut commands, list, servers, changed.error, &board, &font),
         Err(e) => {
             error!("Cannot read the server list {path:?}, it will be left as it is: {e}");
-            let unreadable = (UNREADABLE, "Fix or delete the file, then come back.");
+            let unreadable = (tr(UNREADABLE), tr("servers.unreadable_hint"));
             show_empty(&mut commands, list, unreadable, changed.error, &font);
             Vec::new()
         }
@@ -746,7 +747,7 @@ fn start_join(
     let Ok(address) = parse_server_address(&server.ip) else {
         return;
     };
-    let looking_up = (!address.is_ip()).then(|| (format!("Looking up {}...", address.host), MUTED));
+    let looking_up = (!address.is_ip()).then(|| (trf("servers.looking_up", &[("host", &address.host)]), MUTED));
     show_server_error(errors, looking_up);
     let host = address.host.clone();
     commands.entity(root).insert(PendingJoin {
@@ -808,7 +809,7 @@ fn finish_join(
             ),
             Err(e) => {
                 warn!("Cannot find the server {:?}: {e}", join.host);
-                let message = format!("Cannot find {}", join.host);
+                let message = trf("servers.cannot_find", &[("host", &join.host)]);
                 show_server_error(&mut errors, Some((message, DANGER)));
             }
         }

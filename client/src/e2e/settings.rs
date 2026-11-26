@@ -578,7 +578,7 @@ fn in_game_the_render_distance_says_when_the_server_grants_less() {
     // as a server that grants 3 would have answered
     h.world_mut().insert_resource(ServerRenderDistanceLimit(3));
     h.press(KeyCode::Escape);
-    h.wait_for(&L::role(Role::Dialog, PAUSE_TITLE), SCREEN);
+    h.wait_for(&L::role(Role::Dialog, crate::i18n::tr(PAUSE_TITLE)), SCREEN);
     h.click(&L::role(Role::Button, "Settings"));
     h.wait_for(&L::role(Role::Tab, "Controls"), SCREEN);
     h.open_tab_showing("Video", &render_distance());

@@ -2,6 +2,7 @@
 //! Edit of the address and on Refresh (F5), and shown on their cards and in the detail pane as the
 //! answers come.
 
+use crate::i18n::{tr, trf};
 use std::collections::HashMap;
 
 use bevy::{prelude::*, ui::Selected};
@@ -115,11 +116,11 @@ pub fn card_status(status: &ServerStatus) -> (String, Color) {
             max_players,
             ..
         } => (format!("{players} / {max_players}"), TEXT),
-        ServerStatus::Pinging => ("Pinging...".to_string(), MUTED),
-        ServerStatus::Offline => ("Offline".to_string(), MUTED),
-        ServerStatus::Incompatible => ("Incompatible".to_string(), DANGER),
-        ServerStatus::UnknownHost => ("Unknown host".to_string(), DANGER),
-        ServerStatus::BadAddress => ("Bad address".to_string(), DANGER),
+        ServerStatus::Pinging => (tr("servers.status.pinging").to_string(), MUTED),
+        ServerStatus::Offline => (tr("servers.status.offline").to_string(), MUTED),
+        ServerStatus::Incompatible => (tr("servers.status.incompatible").to_string(), DANGER),
+        ServerStatus::UnknownHost => (tr("servers.status.unknown_host").to_string(), DANGER),
+        ServerStatus::BadAddress => (tr("servers.status.bad_address").to_string(), DANGER),
     }
 }
 
@@ -131,19 +132,22 @@ pub fn pane_status(status: &ServerStatus) -> (String, Color, String) {
             max_players,
             latency,
         } => {
-            let headline = format!("Online \u{b7} {players} / {max_players} players");
+            let headline = trf(
+                "servers.status.online",
+                &[("players", players), ("max_players", max_players)],
+            );
             let ms = format!("{} ms", latency.as_millis());
             return (headline, OK, ms);
         }
-        ServerStatus::Pinging => ("Pinging...", MUTED, ""),
-        ServerStatus::Offline => ("Offline", MUTED, "No answer. Check the address or refresh."),
+        ServerStatus::Pinging => (tr("servers.status.pinging"), MUTED, ""),
+        ServerStatus::Offline => (tr("servers.status.offline"), MUTED, tr("servers.status.offline.note")),
         ServerStatus::Incompatible => (
-            "Incompatible version",
+            tr("servers.status.incompatible_version"),
             DANGER,
-            "This server runs another version of Rustcraft.",
+            tr("servers.status.incompatible.note"),
         ),
-        ServerStatus::UnknownHost => ("Unknown host", DANGER, "Check the address."),
-        ServerStatus::BadAddress => ("Bad address", DANGER, "Edit the server to fix it."),
+        ServerStatus::UnknownHost => (tr("servers.status.unknown_host"), DANGER, tr("servers.status.unknown_host.note")),
+        ServerStatus::BadAddress => (tr("servers.status.bad_address"), DANGER, tr("servers.status.bad_address.note")),
     };
     (headline.to_string(), color, line.to_string())
 }

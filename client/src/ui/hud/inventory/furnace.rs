@@ -4,6 +4,7 @@
 //! `gui/sprites/container/furnace/` sprites, drawn at twice their texels like the item icons,
 //! over silhouettes of them.
 
+use crate::i18n::tr;
 use accesskit::Role;
 use bevy::a11y::AccessibilityNode;
 use bevy::prelude::*;
@@ -18,7 +19,7 @@ use crate::ui::widgets::slot::{slot, slot_node, SLOT_SIZE};
 use crate::ui::widgets::tooltip::Tooltip;
 use crate::world::{AtlasWrapper, ClientWorldMap};
 
-pub const FURNACE_TITLE: &str = "Furnace";
+pub const FURNACE_TITLE: &str = "furnace.title";
 
 pub const FLAME_PATH: &str = "./graphics/hud/furnace_flame.png";
 pub const FLAME_EMPTY_PATH: &str = "./graphics/hud/furnace_flame_empty.png";
@@ -88,8 +89,8 @@ impl FurnaceGauge {
     /// Its accessible name.
     fn label(self) -> &'static str {
         match self {
-            FurnaceGauge::Flame => "Fuel",
-            FurnaceGauge::Arrow => "Smelting",
+            FurnaceGauge::Flame => tr("furnace.fuel"),
+            FurnaceGauge::Arrow => tr("furnace.smelting"),
         }
     }
 }
@@ -198,12 +199,12 @@ pub(super) fn spawn_furnace_row(
                 ..default()
             })
             .with_children(|column| {
-                column.spawn(cell(FURNACE_INPUT_SLOT, "Furnace input"));
+                column.spawn(cell(FURNACE_INPUT_SLOT, tr("furnace.input")));
                 column.spawn(gauge(FurnaceGauge::Flame, assets));
-                column.spawn(cell(FURNACE_FUEL_SLOT, "Furnace fuel"));
+                column.spawn(cell(FURNACE_FUEL_SLOT, tr("furnace.fuel_slot")));
             });
             row.spawn(gauge(FurnaceGauge::Arrow, assets));
-            row.spawn(cell(FURNACE_OUTPUT_SLOT, "Furnace output"))
+            row.spawn(cell(FURNACE_OUTPUT_SLOT, tr("furnace.output")))
                 .insert(Node {
                     width: px(OUTPUT_SIZE),
                     height: px(OUTPUT_SIZE),

@@ -90,13 +90,13 @@ pub fn remove_server(path: &Path, name: &str) -> io::Result<()> {
 /// The most characters of a server name.
 pub const MAX_SERVER_NAME_LENGTH: usize = 32;
 /// Shown under the name field when it is empty.
-pub const EMPTY_SERVER_NAME: &str = "Enter a name";
+pub const EMPTY_SERVER_NAME: &str = "servers.empty_name";
 /// Shown under the name field when the name is too long or has a character the font lacks.
-pub const INVALID_SERVER_NAME: &str = "Use letters, digits and punctuation";
+pub const INVALID_SERVER_NAME: &str = "servers.invalid_name";
 /// Shown under the name field when another server has the typed name, whatever its case.
-pub const SERVER_NAME_EXISTS: &str = "Another server has this name";
+pub const SERVER_NAME_EXISTS: &str = "servers.name_exists";
 /// Shown under the address field when another server has the typed address.
-pub const SERVER_EXISTS: &str = "Another server has this address";
+pub const SERVER_EXISTS: &str = "servers.exists";
 
 /// The trimmed name, or the message to show. `others` are the names of the other servers.
 /// A name is 1 to 32 printable ASCII characters but the backtick, which the font lacks.
@@ -135,8 +135,9 @@ pub fn check_server_address(
 /// whatever its case.
 pub fn free_server_name(others: &[String]) -> String {
     let taken = |name: &str| others.iter().any(|other| other.eq_ignore_ascii_case(name));
-    std::iter::once("My server".to_string())
-        .chain((2..).map(|index| format!("My server {index}")))
+    let base = crate::i18n::tr("servers.default_name");
+    std::iter::once(base.to_string())
+        .chain((2..).map(|index| format!("{base} {index}")))
         .find(|name| !taken(name))
         .unwrap_or_default()
 }

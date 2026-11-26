@@ -1,8 +1,12 @@
 //! The chat: a log of the last messages with their times, over the field to write in, at the
 //! bottom-left above the hotbar. Closed, the recent lines stay over the game a few seconds.
 
+use crate::i18n::tr;
 use std::time::{Duration, Instant};
 
+use crate::ui::fonts::ACCENTS_FONT_CHARS;
+#[cfg(test)]
+use crate::ui::fonts::ACCENTS_FONT_PATH;
 use bevy::input::{
     keyboard::{Key, KeyboardInput},
     ButtonState,
@@ -199,8 +203,8 @@ pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
     let field = spawn_text_field(
         &mut commands,
         &TextField {
-            label: "Chat",
-            placeholder: "Send a message...",
+            label: tr("chat.label"),
+            placeholder: tr("chat.placeholder"),
             max_characters: Some(256),
             font: asset_server.load(FONT_PATH),
             font_size: FONT_S,
@@ -248,10 +252,29 @@ pub fn line_alpha(age: Duration) -> f32 {
     (left.as_secs_f32() / CHAT_FADE.as_secs_f32()).min(1.0)
 }
 
-/// The font that draws all of `text`: the pixel font, or Fira Mono when the pixel font lacks one
-/// of its characters. A message is drawn in a single font, without a missing letter.
+/// The line of `message`: its author and its text. The answers of the server, in English, are
+/// given in the language of the game when they are known.
+fn said(message: &FullChatMessage) -> String {
+    if message.author == SERVER_AUTHOR {
+        let content = crate::i18n::translate_server_answer(&message.content)
+            .unwrap_or_else(|| message.content.clone());
+        format!("<{}> {content}", crate::i18n::tr("chat.server"))
+    } else {
+        format!("<{}> {}", message.author, message.content)
+    }
+}
+
+/// The author of the answers of the server, as it writes it.
+const SERVER_AUTHOR: &str = "Server";
+
+/// The font that draws all of `text`: the pixel font, with the accents that fall back on
+/// RustCraft Accents, or Fira Mono when they lack one of its characters. A message is drawn in a
+/// single font, without a missing letter.
 fn font_for(text: &str) -> &'static str {
-    if text.chars().all(|c| PIXEL_FONT_CHARS.contains(c)) {
+    if text
+        .chars()
+        .all(|c| PIXEL_FONT_CHARS.contains(c) || ACCENTS_FONT_CHARS.contains(c))
+    {
         FONT_PATH
     } else {
         MONO_FONT_PATH
@@ -472,7 +495,7 @@ pub fn display_chat_messages_system(
 
     let now = Instant::now();
     for message in &incoming[skipped..] {
-        let said = format!("<{}> {}", message.author, message.content);
+        let said = said(message);
         let time = chat_time(message.timestamp, local_offset(message.timestamp));
         commands.spawn((
             ChatLine { received: now },
@@ -1001,5 +1024,34 @@ mod tests {
             "listed once each"
         );
         assert_eq!(listed, mapped_characters(&font));
+    }
+
+    #[test]
+    fn every_text_of_every_language_is_drawn_by_the_pixel_fonts() {
+        // the accents of French included: é è ê à ç ô û î ï ù œ « » …
+        for (language, source) in [
+            ("en", include_str!("../../../../data/lang/en.ron")),
+            ("fr", include_str!("../../../../data/lang/fr.ron")),
+        ] {
+            let texts: std::collections::HashMap<String, String> = ron::from_str(source).unwrap();
+            for (key, text) in texts {
+                let missing: String = text
+                    .chars()
+                    .filter(|&c| !PIXEL_FONT_CHARS.contains(c) && !ACCENTS_FONT_CHARS.contains(c))
+                    .collect();
+                assert!(missing.is_empty(), "{language} {key}: no glyph for {missing:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_characters_of_the_accents_font_are_those_of_its_file() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../data/fonts/RustCraftAccents.ttf");
+        assert!(path.ends_with(ACCENTS_FONT_PATH));
+        let font = std::fs::read(path).unwrap();
+        let listed: std::collections::BTreeSet<char> = ACCENTS_FONT_CHARS.chars().collect();
+        assert_eq!(listed, mapped_characters(&font));
+        // and the pixel font lacks every one of them
+        assert!(!ACCENTS_FONT_CHARS.chars().any(|c| PIXEL_FONT_CHARS.contains(c)));
     }
 }

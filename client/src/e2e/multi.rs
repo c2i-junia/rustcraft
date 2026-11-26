@@ -140,7 +140,7 @@ fn is_disabled(h: &mut Harness, locator: &L) -> bool {
 
 /// The Add server dialog.
 fn dialog() -> L {
-    L::role(Role::Dialog, ADD_SERVER_TITLE)
+    L::role(Role::Dialog, crate::i18n::tr(ADD_SERVER_TITLE))
 }
 
 /// The Remove dialog of the server `name`.
@@ -985,12 +985,12 @@ fn the_server_is_checked_as_you_type_and_nothing_moves() {
     let y = h.center_of(&add_button()).y;
     let add_disabled = |h: &mut Harness| is_disabled(h, &add_button());
     let messages = [
-        EMPTY_ADDRESS,
-        INVALID_ADDRESS,
-        INVALID_PORT,
-        SERVER_EXISTS,
-        EMPTY_SERVER_NAME,
-        SERVER_NAME_EXISTS,
+        crate::i18n::tr(EMPTY_ADDRESS),
+        crate::i18n::tr(INVALID_ADDRESS),
+        crate::i18n::tr(INVALID_PORT),
+        crate::i18n::tr(SERVER_EXISTS),
+        crate::i18n::tr(EMPTY_SERVER_NAME),
+        crate::i18n::tr(SERVER_NAME_EXISTS),
     ];
 
     // an empty address never typed into says nothing, yet cannot be added
@@ -1085,7 +1085,7 @@ fn edit_changes_the_server_in_place_and_pings_a_new_address() {
     let mut h = status_list();
     let edit_dialog = |name: &str| L::role(Role::Dialog, &format!("Edit \"{name}\""));
     let save = || L::role(Role::Button, "Save").within(edit_dialog("Friends"));
-    let messages = [SERVER_NAME_EXISTS, SERVER_EXISTS, EMPTY_SERVER_NAME];
+    let messages = [crate::i18n::tr(SERVER_NAME_EXISTS), crate::i18n::tr(SERVER_EXISTS), crate::i18n::tr(EMPTY_SERVER_NAME)];
     h.click(&card("Friends"));
     h.click(&L::role(Role::Button, "Edit"));
     h.wait_for(&edit_dialog("Friends"), SCREEN);

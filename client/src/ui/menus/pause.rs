@@ -1,6 +1,7 @@
 //! The pause menu, over the game, which goes on beneath it: back to the game, the settings,
 //! saving, and leaving. Escape opens it during gameplay and closes it.
 
+use crate::i18n::tr;
 use std::time::{Duration, Instant};
 
 use accesskit::Role;
@@ -46,7 +47,7 @@ use crate::ui::widgets::text_field::{text_field_focused, TextFieldSystems};
 use crate::ui::widgets::toast::{show_toast, ToastKind};
 
 /// The title of the pause menu. Not "Paused": the server keeps ticking beneath it.
-pub const PAUSE_TITLE: &str = "Game menu";
+pub const PAUSE_TITLE: &str = "pause.title";
 
 /// The key hints of the pause menu.
 pub const PAUSE_HINTS: [Hint; 3] = [
@@ -65,13 +66,13 @@ pub const PAUSE_HINTS: [Hint; 3] = [
 ];
 
 /// The label of "Save now", and of "Save and quit to title", while the world is being saved.
-pub const SAVING: &str = "Saving...";
+pub const SAVING: &str = "pause.saving";
 
 /// The toast once the world is saved.
-pub const WORLD_SAVED: &str = "World saved";
+pub const WORLD_SAVED: &str = "pause.saved";
 
 /// The toast when the world was not saved, or not in time.
-pub const SAVE_FAILED: &str = "Could not save the world";
+pub const SAVE_FAILED: &str = "pause.save_failed";
 
 /// How long "Save now" waits for the world to be written before saying it could not be saved.
 pub const SAVE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -102,12 +103,12 @@ pub enum PauseButton {
 impl PauseButton {
     pub fn label(self) -> &'static str {
         match self {
-            PauseButton::BackToGame => "Back to game",
-            PauseButton::Progress => "Progress",
-            PauseButton::Settings => "Settings",
-            PauseButton::SaveNow => "Save now",
-            PauseButton::SaveAndQuit => "Save and quit to title",
-            PauseButton::Disconnect => "Disconnect",
+            PauseButton::BackToGame => tr("pause.back"),
+            PauseButton::Progress => tr("progress.title"),
+            PauseButton::Settings => tr("settings.title"),
+            PauseButton::SaveNow => tr("pause.save_now"),
+            PauseButton::SaveAndQuit => tr("pause.save_quit"),
+            PauseButton::Disconnect => tr("pause.disconnect"),
         }
     }
 
@@ -288,7 +289,7 @@ fn spawn_pause_menu(commands: &mut Commands, assets: &AssetServer, origin: Optio
             UiDialog,
             // the role before the label: the label's default node must not win
             AccessibilityNode(accesskit::Node::new(Role::Dialog)),
-            AccessibleLabel::new(PAUSE_TITLE),
+            AccessibleLabel::new(tr(PAUSE_TITLE)),
             TabGroup::modal(),
             Node {
                 position_type: PositionType::Absolute,
@@ -337,7 +338,7 @@ fn spawn_pause_menu(commands: &mut Commands, assets: &AssetServer, origin: Optio
         ))
         .id();
     commands.spawn((
-        Text::new(PAUSE_TITLE),
+        Text::new(tr(PAUSE_TITLE)),
         TextFont {
             font: font.clone().into(),
             font_size: px(FONT_XL).into(),
@@ -444,7 +445,7 @@ pub(crate) fn act_on_pause_button(
                 });
                 commands
                     .entity(event.entity)
-                    .queue(set_label(SAVING))
+                    .queue(set_label(tr(SAVING)))
                     .insert(InteractionDisabled);
             }
         }
@@ -477,7 +478,7 @@ fn watch_save_now(
         let mut button = commands.entity(entity);
         match outcome {
             None if !disabled => {
-                button.queue(set_label(SAVING)).insert(InteractionDisabled);
+                button.queue(set_label(tr(SAVING))).insert(InteractionDisabled);
             }
             None => {}
             Some(_) => {
@@ -491,13 +492,13 @@ fn watch_save_now(
         return;
     };
     let (text, kind) = if saved {
-        (WORLD_SAVED, ToastKind::Info)
+        (tr(WORLD_SAVED), ToastKind::Info)
     } else {
         if let Some(mut autosaves) = autosaves {
             autosaves.told = true;
             autosaves.failed = saves.0.failures();
         }
-        (SAVE_FAILED, ToastKind::Error)
+        (tr(SAVE_FAILED), ToastKind::Error)
     };
     show_toast(&mut commands, text, kind, load_font(&assets));
     commands.remove_resource::<SaveNow>();
@@ -515,7 +516,7 @@ fn show_leaving(
         let mut button = commands.entity(entity);
         button.insert(InteractionDisabled);
         if action == PauseButton::SaveAndQuit {
-            button.queue(set_label(SAVING));
+            button.queue(set_label(tr(SAVING)));
         }
     }
     for children in &menus {
@@ -569,7 +570,7 @@ fn watch_autosaves(
         if save_now.is_none() || leaving.is_some() {
             show_toast(
                 &mut commands,
-                SAVE_FAILED,
+                crate::i18n::tr(SAVE_FAILED),
                 ToastKind::Error,
                 load_font(&assets),
             );
@@ -772,7 +773,7 @@ mod tests {
     fn a_menu_opened_while_saving_shows_save_now_waiting_from_its_first_frame() {
         let mut app = saving_app(&SaveCounter::default());
         open_pause_menu(&mut app);
-        assert_eq!(save_now(&mut app), (SAVING.to_string(), true));
+        assert_eq!(save_now(&mut app), (tr(SAVING).to_string(), true));
     }
 
     #[test]
@@ -793,7 +794,7 @@ mod tests {
             .filter(|node| node.role() == Role::Alert)
             .map(|node| node.label().map(str::to_string))
             .collect();
-        assert_eq!(alerts, [Some(SAVE_FAILED.to_string())]);
+        assert_eq!(alerts, [Some(tr(SAVE_FAILED).to_string())]);
     }
 
     /// The labels of the toasts of `role` shown.
@@ -830,7 +831,7 @@ mod tests {
             .iter(world)
             .find(|(action, _)| **action == PauseButton::SaveAndQuit)
             .map(|(_, label)| label.0.clone());
-        assert_eq!(leave.as_deref(), Some(SAVING));
+        assert_eq!(leave.as_deref(), Some(tr(SAVING)));
         let hints = world
             .query_filtered::<&Visibility, With<HintBar>>()
             .single(world)
@@ -855,7 +856,7 @@ mod tests {
         saves.bump();
         app.update();
 
-        assert_eq!(save_now(&mut app), (SAVING.to_string(), true));
+        assert_eq!(save_now(&mut app), (tr(SAVING).to_string(), true));
         assert_eq!(toasts(&mut app, Role::Status), []);
     }
 
@@ -865,7 +866,7 @@ mod tests {
         let mut app = saving_app(&saves);
         app.world_mut().remove_resource::<SaveNow>();
         app.update();
-        let failed = Some(SAVE_FAILED.to_string());
+        let failed = Some(tr(SAVE_FAILED).to_string());
 
         saves.bump_failure();
         app.update();
@@ -912,7 +913,7 @@ mod tests {
             since: Instant::now() - SAVE_TIMEOUT,
         });
         app.update();
-        let failed = Some(SAVE_FAILED.to_string());
+        let failed = Some(tr(SAVE_FAILED).to_string());
         assert_eq!(toasts(&mut app, Role::Alert), std::slice::from_ref(&failed));
 
         saves.bump_failure();
@@ -1004,7 +1005,7 @@ mod tests {
         app.update();
         assert_eq!(
             toasts(&mut app, Role::Alert),
-            [Some(SAVE_FAILED.to_string())]
+            [Some(tr(SAVE_FAILED).to_string())]
         );
         assert!(!app.world().contains_resource::<AutosaveWatch>());
     }

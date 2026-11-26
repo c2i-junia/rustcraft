@@ -1,6 +1,7 @@
 //! The announcement of a depth tier the local player reaches for the first time: its name in the
 //! upper part of the screen, which fades in, stays a while and fades out.
 
+use crate::i18n::tr;
 use bevy::prelude::*;
 use shared::world::depths::DepthTier;
 
@@ -49,7 +50,7 @@ pub fn announce_depth(
     }
     commands.spawn((
         DepthBanner { age: 0.0 },
-        Name::new("Depth reached"),
+        Name::new(tr("hud.depth_reached")),
         Text::new(crate::i18n::depth_title(tier)),
         TextFont {
             font: assets.load(FONT_PATH).into(),

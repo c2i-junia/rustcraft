@@ -2,6 +2,7 @@
 //! settings or with its key: the frame rate alone, or over a graph of the frame times of the last
 //! seconds, which shows the stutters an average hides.
 
+use crate::i18n::tr;
 use std::collections::VecDeque;
 
 use bevy::prelude::*;
@@ -230,7 +231,7 @@ pub fn spawn_fps_counter(
             ..default()
         },
         ChildOf(graph),
-        children![muted(format!("-{seconds} s")), muted("now".into())],
+        children![muted(format!("-{seconds} s")), muted(crate::i18n::tr("fps.now").into())],
     ));
     let stats = commands
         .spawn((
@@ -244,9 +245,9 @@ pub fn spawn_fps_counter(
         ))
         .id();
     for (stat, label) in [
-        (GraphStat::Average, "AVERAGE"),
-        (GraphStat::OnePercentLow, "1% LOW"),
-        (GraphStat::WorstFrame, "WORST FRAME"),
+        (GraphStat::Average, tr("fps.average")),
+        (GraphStat::OnePercentLow, tr("fps.low")),
+        (GraphStat::WorstFrame, tr("fps.worst")),
     ] {
         commands.spawn((
             Node {

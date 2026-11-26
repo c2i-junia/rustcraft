@@ -2,6 +2,7 @@
 //! drumsticks, mirroring the hearts, shown while the air is not full. They go from the left, the
 //! last one bursting before it goes. The textures are Pixel Perfection's `gui/sprites/hud/air*.png`.
 
+use crate::i18n::{tr, trf};
 use bevy::prelude::*;
 use shared::players::air::{bubble, Bubble, BUBBLES, MAX_AIR};
 use shared::players::Player;
@@ -33,7 +34,7 @@ pub fn air_label(air: u16) -> String {
     let shown = (0..BUBBLES)
         .filter(|&index| bubble(air, index) != Bubble::Empty)
         .count();
-    format!("Air: {shown} of {BUBBLES} bubbles")
+    trf("hud.air.label", &[("shown", &shown), ("BUBBLES", &BUBBLES)])
 }
 
 /// Spawns the bubbles over the hotbar, hidden until the local player runs out of breath.
@@ -49,7 +50,7 @@ pub fn spawn_air_bar(
     let row = commands
         .spawn((
             AirBar,
-            Name::new("Air"),
+            Name::new(tr("hud.air")),
             AccessibleLabel::new(air_label(MAX_AIR)),
             Node {
                 position_type: PositionType::Absolute,

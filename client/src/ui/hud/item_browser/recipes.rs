@@ -1,6 +1,7 @@
 //! What the recipe view says: its title, its back button, its tabs, its cards, the station of a
 //! recipe or why it cannot be made now, and what it says when there is no recipe to show.
 
+use crate::i18n::{tr, trf};
 use shared::players::Inventory;
 use shared::world::{
     craftable, fuel_ticks, missing, recipes_for, smelting_inputs, smelting_result, uses_of,
@@ -17,8 +18,8 @@ pub const CRAFTABLE_NOTE: &str = "browser.craftable_note";
 /// The keys of the tooltip of an item of the browser; A removes a bookmarked item from the
 /// bookmarks.
 pub fn item_keys_hint(bookmarked: bool) -> String {
-    let bookmark = if bookmarked { "Unbookmark" } else { "Bookmark" };
-    format!("R Recipes  U Uses  A {bookmark}")
+    let bookmark = if bookmarked { tr("browser.unbookmark") } else { tr("browser.bookmark") };
+    trf("browser.item_keys", &[("bookmark", &bookmark)])
 }
 
 /// What Ctrl+click on a catalog slot does, on the key line of its tooltip.
@@ -39,7 +40,7 @@ pub fn catalog_keys_hint(item: ItemId, bookmarked: bool) -> String {
 pub fn bookmarked_detail(item: ItemId, bookmarked: bool) -> String {
     let detail = category_detail(item);
     if bookmarked {
-        format!("{detail} · bookmarked")
+        trf("browser.bookmarked_detail", &[("detail", &detail)])
     } else {
         detail
     }
@@ -48,8 +49,8 @@ pub fn bookmarked_detail(item: ItemId, bookmarked: bool) -> String {
 /// The title of the browser showing `tab`.
 pub fn view_title(tab: RecipeTab) -> &'static str {
     match tab {
-        RecipeTab::Recipes => "Recipes",
-        RecipeTab::Uses => "Uses",
+        RecipeTab::Recipes => tr("browser.recipes"),
+        RecipeTab::Uses => tr("browser.uses"),
     }
 }
 
@@ -57,7 +58,7 @@ pub fn view_title(tab: RecipeTab) -> &'static str {
 pub fn back_label(history: &[ItemView]) -> String {
     match history.last() {
         Some(view) => format!("<- {}", item_name(view.item)),
-        None => "<- Items".to_string(),
+        None => tr("browser.back_to_items").to_string(),
     }
 }
 
@@ -70,9 +71,9 @@ pub fn tab_label(tab: RecipeTab, count: usize) -> String {
 /// An `x`, not a `×`: the game font has no `×`.
 pub fn station_label(recipe: &RecipeView) -> &'static str {
     if recipe.fits(2) {
-        "Inventory 2x2"
+        tr("browser.grid_inventory")
     } else {
-        "Crafting Table 3x3"
+        tr("browser.grid_table")
     }
 }
 
@@ -88,7 +89,7 @@ pub fn ingredient_name(ingredient: Ingredient) -> String {
 pub fn ingredient_label(ingredient: Ingredient) -> String {
     match ingredient {
         Ingredient::Item(item) => item_name(item),
-        Ingredient::Tag(tag) => format!("Any {}", tag.name()),
+        Ingredient::Tag(tag) => trf("browser.any", &[("tag", &crate::i18n::tag_name(tag))]),
     }
 }
 
@@ -106,10 +107,10 @@ pub fn recipe_problem(
             .into_iter()
             .map(|(ingredient, count)| format!("{count} {}", ingredient_name(ingredient)))
             .collect();
-        return Some(format!("Missing {}", items.join(", ")));
+        return Some(trf("browser.missing", &[("items", &items.join(", "))]));
     }
     if !recipe.fits(grid_size) {
-        return Some("Needs a Crafting Table".to_string());
+        return Some(tr("browser.needs_table").to_string());
     }
     // The chest or the furnace takes the place of the crafting grid in the panel
     if inventory.open_chest.is_some() {
@@ -199,29 +200,29 @@ pub fn cards_of(view: ItemView) -> Vec<BrowserCard> {
 /// The accessible name of a card.
 pub fn card_label(card: &BrowserCard) -> String {
     match card {
-        BrowserCard::Crafting(recipe) => format!("Recipe of {}", item_name(recipe.output.item_id)),
-        BrowserCard::Smelting { output, .. } => format!("Smelting of {}", item_name(*output)),
-        BrowserCard::Fuel { item, .. } => format!("{} as fuel", item_name(*item)),
+        BrowserCard::Crafting(recipe) => trf("browser.recipe_of", &[("item", &item_name(recipe.output.item_id))]),
+        BrowserCard::Smelting { output, .. } => trf("browser.smelting_of", &[("item", &item_name(*output))]),
+        BrowserCard::Fuel { item, .. } => trf("browser.as_fuel", &[("item", &item_name(*item))]),
     }
 }
 
 /// Under a smelting card: where it is made, and how long it takes.
 pub fn smelting_note() -> String {
-    format!("Furnace · {} s", u64::from(COOK_TICKS) / TICKS_PER_SECOND)
+    trf("browser.furnace_time", &[("s", &(u64::from(COOK_TICKS) / TICKS_PER_SECOND))])
 }
 
 /// Under a fuel card: how long one of it burns, `ticks`.
 pub fn fuel_note(ticks: u16) -> String {
-    format!("Fuel · {} s", u64::from(ticks) / TICKS_PER_SECOND)
+    trf("browser.fuel_time", &[("s", &(u64::from(ticks) / TICKS_PER_SECOND))])
 }
 
 /// Beside the fuel of a fuel card: how many items one of it smelts, burning `ticks` long.
 pub fn burns_for(ticks: u16) -> String {
     let items = f32::from(ticks) / f32::from(COOK_TICKS);
     if items == 1.0 {
-        "Burns for 1 item".to_string()
+        tr("browser.burns_one").to_string()
     } else {
-        format!("Burns for {items} items")
+        trf("browser.burns", &[("items", &items)])
     }
 }
 
@@ -229,8 +230,8 @@ pub fn burns_for(ticks: u16) -> String {
 fn uses_sentence(uses: usize) -> String {
     match uses {
         0 => String::new(),
-        1 => " It goes into 1 recipe: see Uses.".to_string(),
-        uses => format!(" It goes into {uses} recipes: see Uses."),
+        1 => tr("browser.uses_one").to_string(),
+        uses => trf("browser.uses_many", &[("uses", &uses)]),
     }
 }
 
@@ -238,17 +239,17 @@ fn uses_sentence(uses: usize) -> String {
 pub fn empty_view_message(view: ItemView) -> String {
     let name = item_name(view.item);
     match view.tab {
-        RecipeTab::Recipes => format!(
-            "{name} is gathered, not crafted.{}",
-            uses_sentence(
+        RecipeTab::Recipes => {
+            let uses = uses_sentence(
                 cards_of(ItemView {
                     tab: RecipeTab::Uses,
                     ..view
                 })
-                .len()
-            )
-        ),
-        RecipeTab::Uses => format!("No recipe uses {name} yet."),
+                .len(),
+            );
+            trf("browser.gathered", &[("name", &name), ("uses", &uses)])
+        }
+        RecipeTab::Uses => trf("browser.no_uses", &[("name", &name)]),
     }
 }
 

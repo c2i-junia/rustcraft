@@ -287,7 +287,7 @@ fn watch_connection(
     if let Some(stopped) = local_server.as_deref_mut().and_then(local_server_stopped) {
         let reason = stopped
             .err()
-            .unwrap_or_else(|| "The world stopped while opening".to_string());
+            .unwrap_or_else(|| crate::i18n::tr("connect.lost_loading.world").to_string());
         warn!("The local server stopped while the world was opening: {reason}");
         let error = Some(ConnectError::WorldFailed(reason));
         end_session(&mut commands, &mut game, &origin, error);

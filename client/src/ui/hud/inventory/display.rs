@@ -1,3 +1,4 @@
+use crate::i18n::{tr, trf};
 use super::gestures::{planned_drag, CellGestures};
 use super::{
     item_name, CHEST_TITLE, CRAFTING_TABLE_TITLE, ENGRAVING_TITLE, FURNACE_TITLE, INVENTORY_TITLE,
@@ -40,14 +41,14 @@ use shared::MAX_INVENTORY_SLOTS;
 /// What a click does on a slot of the hotbar, of the backpack, of the crafting grid, of a chest
 /// or of a furnace (`HINT_GRID`), on a slot of the inventory while a chest is open, or while a
 /// furnace is open when it holds what smelts or burns, and on the result.
-pub const HINT_HOTBAR: &str = "Shift+click: move to the backpack";
-pub const HINT_TO_ARMOUR: &str = "Shift+click: put on";
-pub const HINT_BACKPACK: &str = "Shift+click: move to the hotbar";
-pub const HINT_GRID: &str = "Shift+click: move to the inventory";
-pub const HINT_TO_CHEST: &str = "Shift+click: move to the chest";
-pub const HINT_TO_ENGRAVER: &str = "Shift+click: put in the engraving table";
-pub const HINT_TO_FURNACE: &str = "Shift+click: move to the furnace";
-pub const HINT_RESULT: &str = "Shift+click: craft all  1-9: to the hotbar";
+pub const HINT_HOTBAR: &str = "inventory.hint.hotbar";
+pub const HINT_TO_ARMOUR: &str = "inventory.hint.armour";
+pub const HINT_BACKPACK: &str = "inventory.hint.backpack";
+pub const HINT_GRID: &str = "inventory.hint.grid";
+pub const HINT_TO_CHEST: &str = "inventory.hint.chest";
+pub const HINT_TO_ENGRAVER: &str = "inventory.hint.engraver";
+pub const HINT_TO_FURNACE: &str = "inventory.hint.furnace";
+pub const HINT_RESULT: &str = "inventory.hint.result";
 
 /// The durability bars of the slots, which `show_stack` sizes and colours, and their gems.
 type DurabilityBars<'w, 's> = Query<
@@ -396,9 +397,9 @@ pub fn display_inventory_system(
             && cell.id < MAX_INVENTORY_SLOTS
             && takes_enchantments
         {
-            HINT_TO_ENGRAVER
+            crate::i18n::tr(HINT_TO_ENGRAVER)
         } else if inventory.open_chest.is_some() && cell.id < MAX_INVENTORY_SLOTS {
-            HINT_TO_CHEST
+            crate::i18n::tr(HINT_TO_CHEST)
         } else if inventory.open_furnace.is_some() && cell.id < MAX_INVENTORY_SLOTS {
             // A shift-click leaves what neither smelts nor burns
             match stack {
@@ -406,18 +407,18 @@ pub fn display_inventory_system(
                     if smelting_result(stack.item_id).is_some()
                         || fuel_ticks(stack.item_id).is_some() =>
                 {
-                    HINT_TO_FURNACE
+                    crate::i18n::tr(HINT_TO_FURNACE)
                 }
                 _ => "",
             }
         } else if cell.id < MAX_INVENTORY_SLOTS && stack.is_some_and(|s| can_wear(&s, &inventory)) {
-            HINT_TO_ARMOUR
+            crate::i18n::tr(HINT_TO_ARMOUR)
         } else if cell.id < MAX_HOTBAR_SLOTS {
-            HINT_HOTBAR
+            crate::i18n::tr(HINT_HOTBAR)
         } else if cell.id < MAX_INVENTORY_SLOTS {
-            HINT_BACKPACK
+            crate::i18n::tr(HINT_BACKPACK)
         } else {
-            HINT_GRID
+            crate::i18n::tr(HINT_GRID)
         };
         tooltip.set_if_neq(tooltip_of(stack, hint, is_open, &inventory));
         // The cells of a closed inventory are not shown: no need to update them
@@ -544,11 +545,11 @@ pub fn display_crafting_system(
         inventory.open_furnace,
         inventory.open_table,
     ) {
-        (Some(_), _, _) => CHEST_TITLE,
-        (None, Some(_), _) => FURNACE_TITLE,
-        (None, None, Some(_)) => CRAFTING_TABLE_TITLE,
+        (Some(_), _, _) => crate::i18n::tr(CHEST_TITLE),
+        (None, Some(_), _) => crate::i18n::tr(FURNACE_TITLE),
+        (None, None, Some(_)) => crate::i18n::tr(CRAFTING_TABLE_TITLE),
         (None, None, None) if is_engraving_shown(&inventory) => crate::i18n::tr(ENGRAVING_TITLE),
-        (None, None, None) => INVENTORY_TITLE,
+        (None, None, None) => crate::i18n::tr(INVENTORY_TITLE),
     };
     let customer_of = trade.as_ref().and_then(|trade| trade.0.as_ref());
     let trade_open = customer_of.is_some();
@@ -600,7 +601,7 @@ pub fn display_crafting_system(
         .single()
         .is_ok_and(|visibility| *visibility == Visibility::Visible);
     for (children, mut tooltip) in &mut result {
-        tooltip.set_if_neq(tooltip_of(made, HINT_RESULT, is_open, &inventory));
+        tooltip.set_if_neq(tooltip_of(made, crate::i18n::tr(HINT_RESULT), is_open, &inventory));
         show_stack(
             made,
             TEXT,
@@ -660,22 +661,22 @@ fn notes(stack: &ItemStack) -> String {
 
 /// What a piece of armour of `points` does, in words.
 fn armour_note(points: u32) -> String {
-    format!("Absorbs {} % of a blow", points * ABSORBED_PER_POINT)
+    trf("inventory.absorbs", &[("percent", &(points * ABSORBED_PER_POINT))])
 }
 
 /// The count of a stack in words.
 fn count_detail(nb: u32) -> String {
     match nb {
-        1 => "1 item".to_string(),
-        nb => format!("{nb} items"),
+        1 => tr("inventory.one_item").to_string(),
+        nb => trf("inventory.items", &[("nb", &nb)]),
     }
 }
 
 /// What is left of a tool, in words.
 fn durability_detail(wear: u32, durability: u32) -> String {
-    format!(
-        "Durability: {} / {durability}",
-        durability.saturating_sub(wear)
+    trf(
+        "inventory.durability",
+        &[("left", &durability.saturating_sub(wear)), ("durability", &durability)],
     )
 }
 
@@ -1322,7 +1323,7 @@ mod tests {
             Tooltip {
                 title: "Dirt".into(),
                 detail: "5 items".into(),
-                hint: HINT_BACKPACK.into(),
+                hint: crate::i18n::tr(HINT_BACKPACK).into(),
                 ..default()
             }
         );
@@ -1331,7 +1332,7 @@ mod tests {
             Tooltip {
                 title: "Dirt".into(),
                 detail: "1 item".into(),
-                hint: HINT_HOTBAR.into(),
+                hint: crate::i18n::tr(HINT_HOTBAR).into(),
                 ..default()
             }
         );
@@ -1340,7 +1341,7 @@ mod tests {
             Tooltip {
                 title: "Oak Log".into(),
                 detail: "1 item".into(),
-                hint: HINT_GRID.into(),
+                hint: crate::i18n::tr(HINT_GRID).into(),
                 ..default()
             }
         );
@@ -1349,7 +1350,7 @@ mod tests {
             Tooltip {
                 title: "Oak Planks".into(),
                 detail: "4 items".into(),
-                hint: HINT_RESULT.into(),
+                hint: crate::i18n::tr(HINT_RESULT).into(),
                 ..default()
             }
         );
@@ -1470,13 +1471,13 @@ mod tests {
 
         open_chest(&mut hud, Default::default());
         hud.show_crafting();
-        assert_eq!(hud.world.get::<Text>(title).unwrap().0, CHEST_TITLE);
+        assert_eq!(hud.world.get::<Text>(title).unwrap().0, crate::i18n::tr(CHEST_TITLE));
         assert_eq!(display(&hud, crafting), Display::None);
         assert_eq!(display(&hud, chest), Display::Grid);
 
         hud.world.resource_mut::<Inventory>().open_chest = None;
         hud.show_crafting();
-        assert_eq!(hud.world.get::<Text>(title).unwrap().0, INVENTORY_TITLE);
+        assert_eq!(hud.world.get::<Text>(title).unwrap().0, crate::i18n::tr(INVENTORY_TITLE));
         assert_eq!(display(&hud, crafting), Display::Flex);
         assert_eq!(display(&hud, chest), Display::None);
     }
@@ -1494,9 +1495,9 @@ mod tests {
             .extend([(0, dirt_stack(1)), (MAX_HOTBAR_SLOTS, dirt_stack(1))]);
 
         for (slot, hint) in [
-            (0, HINT_TO_CHEST),
-            (MAX_HOTBAR_SLOTS, HINT_TO_CHEST),
-            (chest_slot, HINT_GRID),
+            (0, crate::i18n::tr(HINT_TO_CHEST)),
+            (MAX_HOTBAR_SLOTS, crate::i18n::tr(HINT_TO_CHEST)),
+            (chest_slot, crate::i18n::tr(HINT_GRID)),
         ] {
             let cell = hud.cell(slot);
             let tooltip = hud.tooltip_of(cell);
@@ -1562,14 +1563,14 @@ mod tests {
 
         open_furnace(&mut hud, Furnace::default());
         hud.show_crafting();
-        assert_eq!(hud.world.get::<Text>(title).unwrap().0, FURNACE_TITLE);
+        assert_eq!(hud.world.get::<Text>(title).unwrap().0, crate::i18n::tr(FURNACE_TITLE));
         assert_eq!(display(&hud, crafting), Display::None);
         assert_eq!(display(&hud, chest), Display::None);
         assert_eq!(display(&hud, furnace), Display::Flex);
 
         hud.world.resource_mut::<Inventory>().open_furnace = None;
         hud.show_crafting();
-        assert_eq!(hud.world.get::<Text>(title).unwrap().0, INVENTORY_TITLE);
+        assert_eq!(hud.world.get::<Text>(title).unwrap().0, crate::i18n::tr(INVENTORY_TITLE));
         assert_eq!(display(&hud, crafting), Display::Flex);
         assert_eq!(display(&hud, furnace), Display::None);
     }
@@ -1600,12 +1601,12 @@ mod tests {
 
         for (slot, hint) in [
             // It smelts, or it burns: the furnace takes it
-            (0, HINT_TO_FURNACE),
-            (MAX_HOTBAR_SLOTS, HINT_TO_FURNACE),
+            (0, crate::i18n::tr(HINT_TO_FURNACE)),
+            (MAX_HOTBAR_SLOTS, crate::i18n::tr(HINT_TO_FURNACE)),
             // Neither: a shift-click leaves it
             (1, ""),
-            (FURNACE_INPUT_SLOT, HINT_GRID),
-            (FURNACE_OUTPUT_SLOT, HINT_GRID),
+            (FURNACE_INPUT_SLOT, crate::i18n::tr(HINT_GRID)),
+            (FURNACE_OUTPUT_SLOT, crate::i18n::tr(HINT_GRID)),
         ] {
             let cell = hud.cell(slot);
             let tooltip = hud.tooltip_of(cell);

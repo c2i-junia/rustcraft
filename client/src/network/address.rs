@@ -36,13 +36,13 @@ impl ServerAddress {
 /// The most characters the address field takes.
 pub const MAX_ADDRESS_LENGTH: usize = 64;
 /// Shown under the address field once it has been typed into and emptied.
-pub const EMPTY_ADDRESS: &str = "Enter an address";
+pub const EMPTY_ADDRESS: &str = "address.empty";
 /// Shown under the address field when the typed text is not `host` or `host:port`.
-pub const INVALID_ADDRESS: &str = "Use host:port, like 10.0.0.2:8000";
+pub const INVALID_ADDRESS: &str = "address.invalid";
 /// Shown under the address field when the port is 0 or above 65535.
-pub const INVALID_PORT: &str = "The port must be 1 to 65535";
+pub const INVALID_PORT: &str = "address.invalid_port";
 /// Shown under the address field for an IPv6 address: the game socket is IPv4 only.
-pub const IPV6_ADDRESS: &str = "IPv6 is not supported yet";
+pub const IPV6_ADDRESS: &str = "address.ipv6";
 
 /// The longest host name DNS allows.
 const MAX_HOST_LENGTH: usize = 253;
@@ -162,22 +162,22 @@ mod tests {
     fn bad_addresses_say_why() {
         let long_label = "x".repeat(64);
         let cases = [
-            ("", EMPTY_ADDRESS),
-            ("   ", EMPTY_ADDRESS),
-            ("a b", INVALID_ADDRESS),
-            ("host:", INVALID_ADDRESS),
-            ("host:x", INVALID_ADDRESS),
-            (":8000", INVALID_ADDRESS),
-            ("-bad.com", INVALID_ADDRESS),
-            ("a..b", INVALID_ADDRESS),
-            (&long_label, INVALID_ADDRESS),
-            ("a_b.com", INVALID_ADDRESS),
-            ("999.1.1.1", INVALID_ADDRESS),
-            ("10.0.0", INVALID_ADDRESS),
-            ("8000", INVALID_ADDRESS),
-            ("1.2.3.4.5", INVALID_ADDRESS),
-            ("host:0", INVALID_PORT),
-            ("host:65536", INVALID_PORT),
+            ("", crate::i18n::tr(EMPTY_ADDRESS)),
+            ("   ", crate::i18n::tr(EMPTY_ADDRESS)),
+            ("a b", crate::i18n::tr(INVALID_ADDRESS)),
+            ("host:", crate::i18n::tr(INVALID_ADDRESS)),
+            ("host:x", crate::i18n::tr(INVALID_ADDRESS)),
+            (":8000", crate::i18n::tr(INVALID_ADDRESS)),
+            ("-bad.com", crate::i18n::tr(INVALID_ADDRESS)),
+            ("a..b", crate::i18n::tr(INVALID_ADDRESS)),
+            (&long_label, crate::i18n::tr(INVALID_ADDRESS)),
+            ("a_b.com", crate::i18n::tr(INVALID_ADDRESS)),
+            ("999.1.1.1", crate::i18n::tr(INVALID_ADDRESS)),
+            ("10.0.0", crate::i18n::tr(INVALID_ADDRESS)),
+            ("8000", crate::i18n::tr(INVALID_ADDRESS)),
+            ("1.2.3.4.5", crate::i18n::tr(INVALID_ADDRESS)),
+            ("host:0", crate::i18n::tr(INVALID_PORT)),
+            ("host:65536", crate::i18n::tr(INVALID_PORT)),
             ("::1", IPV6_ADDRESS),
             ("[::1]:8000", IPV6_ADDRESS),
         ];

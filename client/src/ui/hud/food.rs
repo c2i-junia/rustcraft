@@ -2,6 +2,7 @@
 //! mirroring the hearts and filled from the right, each one full, half or empty. The textures
 //! are Pixel Perfection's `gui/sprites/hud/food_*.png`.
 
+use crate::i18n::{tr, trf};
 use bevy::prelude::*;
 use shared::players::hunger::{drumstick, Drumstick, DRUMSTICKS, MAX_FOOD};
 use shared::players::Player;
@@ -36,7 +37,7 @@ pub struct DrumstickFill {
 /// The drumsticks as the accessibility tree and the tests read them.
 pub fn food_label(food: u8) -> String {
     let drumsticks = food as f32 / 2.0;
-    format!("Food: {drumsticks} of {DRUMSTICKS} drumsticks")
+    trf("hud.food.label", &[("drumsticks", &drumsticks), ("DRUMSTICKS", &DRUMSTICKS)])
 }
 
 /// Spawns the drumsticks over the hotbar, hidden until the local player is known to be in
@@ -54,7 +55,7 @@ pub fn spawn_food_bar(
     let row = commands
         .spawn((
             FoodBar,
-            Name::new("Food"),
+            Name::new(tr("hud.food")),
             AccessibleLabel::new(food_label(MAX_FOOD)),
             Node {
                 position_type: PositionType::Absolute,

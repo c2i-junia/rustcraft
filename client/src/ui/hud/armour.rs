@@ -1,6 +1,7 @@
 //! The armour of the local player in survival: ten shields above the hearts, each one full, half
 //! or empty, hidden while it wears none, and while the inventory is open, as the hearts.
 
+use crate::i18n::{tr, trf};
 use bevy::prelude::*;
 use shared::players::armour::MAX_ARMOUR_POINTS;
 use shared::players::{Inventory, Player};
@@ -36,7 +37,7 @@ pub struct Shield {
 
 /// The shields as the accessibility tree and the tests read them.
 pub fn armour_label(points: u32) -> String {
-    format!("Armour: {points} of {MAX_ARMOUR_POINTS}")
+    trf("hud.armour.label", &[("points", &points), ("MAX_ARMOUR_POINTS", &MAX_ARMOUR_POINTS)])
 }
 
 /// Spawns the shields over the hearts, hidden until the local player wears armour.
@@ -51,7 +52,7 @@ pub fn spawn_armour_bar(
     let row = commands
         .spawn((
             ArmourBar,
-            Name::new("Armour"),
+            Name::new(tr("hud.armour")),
             AccessibleLabel::new(armour_label(0)),
             Node {
                 position_type: PositionType::Absolute,

@@ -1,6 +1,7 @@
 //! The progress of the player in the world, over the pause menu: its achievements, earned
 //! or not, and its statistics.
 
+use crate::i18n::{tr, trf};
 use accesskit::{NodeId, Role};
 use bevy::{
     a11y::AccessibilityNode,
@@ -29,7 +30,7 @@ use crate::ui::widgets::tabs::{spawn_tabs, TabButton, TabChange, Tabs};
 use crate::ui::widgets::{raised_bevel, sunken_bevel};
 use crate::world::MaterialResource;
 
-pub const PROGRESS_TITLE: &str = "Progress";
+pub const PROGRESS_TITLE: &str = "progress.title";
 
 const HINTS: [Hint; 4] = [
     Hint {
@@ -67,8 +68,8 @@ impl ProgressTab {
 
     pub fn label(self) -> &'static str {
         match self {
-            ProgressTab::Achievements => "Achievements",
-            ProgressTab::Statistics => "Statistics",
+            ProgressTab::Achievements => tr("progress.achievements"),
+            ProgressTab::Statistics => tr("progress.statistics"),
         }
     }
 }
@@ -138,7 +139,7 @@ fn spawn_progress(commands: &mut Commands, assets: &AssetServer, opener: Entity)
             ProgressRoot { opener },
             UiDialog,
             AccessibilityNode(accesskit::Node::new(Role::Dialog)),
-            AccessibleLabel::new(PROGRESS_TITLE),
+            AccessibleLabel::new(crate::i18n::tr(PROGRESS_TITLE)),
             Node {
                 width: percent(100),
                 height: percent(100),
@@ -178,10 +179,10 @@ fn spawn_progress(commands: &mut Commands, assets: &AssetServer, opener: Entity)
             ChildOf(root),
         ))
         .id();
-    commands.spawn((text(PROGRESS_TITLE, FONT_XL, TEXT, &font), ChildOf(panel)));
+    commands.spawn((text(crate::i18n::tr(PROGRESS_TITLE), FONT_XL, TEXT, &font), ChildOf(panel)));
     let labels = ProgressTab::ALL.map(ProgressTab::label);
     let tabs = Tabs {
-        label: PROGRESS_TITLE,
+        label: crate::i18n::tr(PROGRESS_TITLE),
         tabs: &labels,
         selected: 0,
     };
@@ -208,7 +209,7 @@ fn spawn_progress(commands: &mut Commands, assets: &AssetServer, opener: Entity)
         Node::default(),
         ChildOf(panel),
         children![(
-            button("Back", ButtonVariant::Default, font.clone()),
+            button(tr("common.back"), ButtonVariant::Default, font.clone()),
             observe(move |_: On<Activate>, mut commands: Commands| {
                 commands.entity(root).insert(CloseProgress);
             }),
@@ -306,7 +307,7 @@ fn spawn_achievements(
 ) {
     let has = |achievement| progress.0.as_ref().is_some_and(|p| p.has(achievement));
     let earned = Achievement::ALL.into_iter().filter(|&a| has(a)).count();
-    let count = format!("{earned} of {} earned", Achievement::ALL.len());
+    let count = trf("progress.count", &[("earned", &earned), ("total", &Achievement::ALL.len())]);
     commands.spawn((text(count, FONT_S, MUTED, font), ChildOf(panel)));
     let parts = spawn_scroll_list(commands, WheelStep::Item);
     commands.entity(parts.frame).insert(ChildOf(panel));
@@ -318,11 +319,11 @@ fn spawn_achievements(
         let has = has(achievement);
         let (title, goal) = (crate::i18n::achievement_title(achievement), crate::i18n::achievement_goal(achievement));
         let (state, title_color) = if has {
-            ("Earned", TEXT)
+            (tr("progress.earned"), TEXT)
         } else {
-            ("Not yet", MUTED)
+            (tr("progress.not_yet"), MUTED)
         };
-        let label = format!("{title}, {state}: {goal}");
+        let label = trf("progress.card", &[("title", &title), ("state", &state), ("goal", &goal)]);
         let card = spawn_list_card(commands, parts.list, &label);
         let icon = commands
             .spawn((
@@ -399,7 +400,7 @@ fn spawn_statistics(
             sunken_bevel(),
             ChildOf(panel),
             children![
-                text(Stats::LABELS[i], FONT_M, MUTED, font),
+                text(crate::i18n::tr_as("stat", Stats::LABELS[i]), FONT_M, MUTED, font),
                 (StatValue(i), text(value, FONT_M, TEXT, font))
             ],
         ));

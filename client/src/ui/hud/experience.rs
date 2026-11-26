@@ -1,6 +1,7 @@
 //! The experience of the local player in survival: a bar right over the hotbar, filled as the
 //! next level nears, and the level over its middle, between the hearts and the drumsticks.
 
+use crate::i18n::{tr, trf};
 use bevy::prelude::*;
 use shared::players::experience::Experience;
 use shared::players::Player;
@@ -33,7 +34,7 @@ pub struct LevelText;
 /// The bar as the accessibility tree and the tests read it.
 pub fn experience_label(experience: &Experience) -> String {
     let percent = (experience.progress() * 100.0) as u32;
-    format!("Level {}, {percent} % of the next", experience.level)
+    trf("hud.experience.label", &[("level", &experience.level), ("percent", &percent)])
 }
 
 /// Spawns the bar over the hotbar, hidden until the local player is known to be in survival.
@@ -47,7 +48,7 @@ pub fn spawn_experience_bar(
     };
     commands.spawn((
         ExperienceBar,
-        Name::new("Experience"),
+        Name::new(tr("hud.experience")),
         AccessibleLabel::new(experience_label(&Experience::default())),
         Node {
             position_type: PositionType::Absolute,

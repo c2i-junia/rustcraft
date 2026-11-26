@@ -312,7 +312,7 @@ fn shift_click_number_keys_and_tooltips_in_the_open_inventory() {
     // The tooltip names the item, its count and what a click does
     h.hover(&L::cell(10));
     let tooltip = L::marker::<TooltipRoot>;
-    for text in ["Dirt", "5 items", HINT_BACKPACK] {
+    for text in ["Dirt", "5 items", crate::i18n::tr(HINT_BACKPACK)] {
         h.wait_for(&L::text(text).within(tooltip()), SCREEN);
     }
 

@@ -135,11 +135,11 @@ impl SkinError {
     /// What the skin screen says of it.
     pub fn message(&self) -> String {
         match self {
-            SkinError::NotPng => "This file is not a PNG image.".to_string(),
+            SkinError::NotPng => crate::i18n::tr("skins.not_png").to_string(),
             SkinError::WrongSize(width, height) => {
-                format!("A skin is 64x64 pixels (or 64x32), not {width}x{height}.")
+                crate::i18n::trf("skins.wrong_size", &[("width", width), ("height", height)])
             }
-            SkinError::Io(error) => format!("The skin could not be copied: {error}"),
+            SkinError::Io(error) => crate::i18n::trf("skins.copy_failed", &[("error", error)]),
         }
     }
 }

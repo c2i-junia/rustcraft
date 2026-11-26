@@ -385,9 +385,9 @@ pub fn spawn_command_completion(
             Pickable::IGNORE,
             ChildOf(panel),
             children![
-                hint("Tab", "complete"),
-                hint("↑↓", "choose"),
-                hint("Esc", "hide")
+                hint("Tab", crate::i18n::tr("chat.complete")),
+                hint("↑↓", crate::i18n::tr("chat.choose")),
+                hint("Esc", crate::i18n::tr("chat.hide"))
             ],
         ))
         .id();
@@ -477,9 +477,11 @@ fn draw_the_suggestions(
     };
 
     // what is wrong, or the usage with the argument being typed in the accent
-    let header = shown.error.as_deref().unwrap_or_default();
+    // the same words as the answers of the server, translated alike
+    let error = shown.error.as_deref().unwrap_or_default();
+    let header = crate::i18n::translate_server_answer(error).unwrap_or_else(|| error.to_string());
     if let Ok(mut text) = texts.get_mut(parts.header) {
-        write(&mut text.0, header);
+        write(&mut text.0, &header);
     }
     if let Ok(mut color) = colors.get_mut(parts.header) {
         color.0 = if shown.error.is_some() { DANGER } else { MUTED };

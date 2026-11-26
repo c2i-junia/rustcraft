@@ -5,6 +5,7 @@
 //! `MenuState::ConnectError`, which `first_menu` opens on a `SessionEnd` with an error. Back
 //! keeps that end, so that the list focuses its card.
 
+use crate::i18n::{tr, trf};
 use bevy::{
     input_focus::{InputFocus, InputFocusVisible},
     prelude::*,
@@ -73,9 +74,9 @@ fn card_hints(retry: bool) -> &'static [Hint] {
 /// The action back to the list the session came from.
 pub fn back_label(origin: &SessionOrigin) -> &'static str {
     if origin.is_world() {
-        "Back to Worlds"
+        tr("connect.back_worlds")
     } else {
-        "Back to Servers"
+        tr("connect.back_servers")
     }
 }
 
@@ -86,79 +87,75 @@ pub fn error_text(error: &ConnectError, origin: &SessionOrigin) -> (String, Stri
     let (title, body) = match error {
         ConnectError::NoAnswer => match origin {
             SessionOrigin::Server { ip, .. } => (
-                format!("Cannot reach \"{name}\""),
+                trf("connect.cannot_reach", &[("name", &name)]),
                 format!(
                     "No answer from {ip}. Check that the server is running and that its port \
                      is open, then try again."
                 ),
             ),
             SessionOrigin::World { .. } => (
-                format!("Cannot open \"{name}\""),
-                "The world did not answer while it was opening. Try again in a moment.".to_string(),
+                trf("connect.cannot_open", &[("name", &name)]),
+                tr("connect.open_timeout").to_string(),
             ),
         },
         ConnectError::Incompatible => (
-            format!("\"{name}\" runs another version"),
-            "This server runs another version of Rustcraft. Join it with the same version as \
-             the server."
-                .to_string(),
+            trf("connect.incompatible", &[("name", &name)]),
+            tr("connect.incompatible.body").to_string(),
         ),
         ConnectError::Full => (
-            format!("\"{name}\" is full"),
-            "The server has no room for another player. Try again later.".to_string(),
+            trf("connect.full", &[("name", &name)]),
+            tr("connect.full.body").to_string(),
         ),
         ConnectError::Refused { name: player } => (
-            format!("\"{name}\" refused you"),
-            format!(
-                "The server closed the connection before letting you in. Another player may \
-                 already be using the name \"{player}\"."
-            ),
+            trf("connect.refused", &[("name", &name)]),
+            trf("connect.refused.body", &[("player", &player)]),
         ),
         ConnectError::InvalidName { .. } => (
-            "Your name is not accepted".to_string(),
-            "Player names have 1 to 32 characters and no control characters. Change yours on \
-             the main menu."
-                .to_string(),
+            tr("connect.invalid_name").to_string(),
+            tr("connect.invalid_name.body").to_string(),
         ),
         ConnectError::LostWhileLoading => (
-            format!("Connection to \"{name}\" lost"),
+            trf("connect.lost", &[("name", &name)]),
             if world {
-                "The world stopped while loading."
+                tr("connect.lost_loading.world")
             } else {
-                "The server stopped answering while the world was loading."
+                tr("connect.lost_loading.server")
             }
             .to_string(),
         ),
         ConnectError::WorldFailed(reason) => (
-            format!("Cannot open \"{name}\""),
-            format!("The world could not be loaded: {reason}"),
+            trf("connect.cannot_open", &[("name", &name)]),
+            trf("connect.load_failed", &[("reason", &reason)]),
         ),
         ConnectError::WorldBusy => (
-            format!("Cannot open \"{name}\""),
-            "The last world is still closing. Try again in a moment.".to_string(),
+            trf("connect.cannot_open", &[("name", &name)]),
+            tr("connect.still_closing").to_string(),
         ),
         ConnectError::NoConnection(reason) => (
-            "Cannot connect".to_string(),
-            format!("Could not open a network connection: {reason}"),
+            tr("connect.cannot_connect").to_string(),
+            trf("connect.no_network", &[("reason", &reason)]),
         ),
         ConnectError::ServerStopped => (
-            format!("\"{name}\" stopped"),
+            trf("connect.stopped", &[("name", &name)]),
             if world {
-                "The world stopped unexpectedly."
+                tr("connect.stopped.world")
             } else {
-                "The server shut down or closed your connection."
+                tr("connect.stopped.server")
             }
             .to_string(),
         ),
         ConnectError::Dismissed(reason) => {
-            (format!("Disconnected from \"{name}\""), reason.clone())
+            // the reason of the server, in the language of the game when it is known
+            let reason =
+                crate::i18n::translate_server_answer(reason).unwrap_or_else(|| reason.clone());
+            (trf("connect.dismissed", &[("name", &name)]), reason)
         }
         ConnectError::ConnectionLost => (
-            format!("Connection to \"{name}\" lost"),
+            trf("connect.lost", &[("name", &name)]),
             if world {
-                "The world stopped answering."
+                tr("connect.lost.world")
             } else {
-                "The server stopped answering. Check your network, then try again."
+                tr("connect.lost.server")
             }
             .to_string(),
         ),
