@@ -895,10 +895,10 @@ mod tests {
             &mut app,
             [
                 message("steve", "hello"),
-                // the pixel font has a few accented letters, `ç` among them, but no `é`
+                // the pixel font and its accents have `ç` and `é`, but no `ã`
                 message("steve", "ça va"),
-                message("steve", "j'ai été"),
-                message("Zoé", "hello"),
+                message("steve", "não sei"),
+                message("João", "hello"),
             ],
         );
         let assets = app.world().resource::<AssetServer>().clone();
@@ -932,7 +932,7 @@ mod tests {
             .add_systems(Update, match_the_field_font);
         let mut text = EditableText::new("ca");
         // typed this frame, applied by Bevy after the style of the field is read
-        text.queue_edit(TextEdit::Insert("é".into()));
+        text.queue_edit(TextEdit::Insert("ã".into()));
         let field = app.world_mut().spawn((ChatInput, text)).id();
         app.update();
         let assets = app.world().resource::<AssetServer>().clone();
@@ -951,7 +951,7 @@ mod tests {
             .add_systems(Update, match_the_field_font);
         let mut text = EditableText::new("ca");
         // what Up puts in the field, applied by Bevy after the style of the field is read
-        set_text(&mut text, "été");
+        set_text(&mut text, "não");
         let field = app.world_mut().spawn((ChatInput, text)).id();
         app.update();
         let assets = app.world().resource::<AssetServer>().clone();

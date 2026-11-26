@@ -332,7 +332,7 @@ fn the_chat_keeps_its_history_with_times_and_scrolls() {
 
     // a letter the pixel font lacks has the text being written drawn in Fira Mono
     assert_eq!(h.field_font(), FONT_PATH);
-    h.type_text("été");
+    h.type_text("não");
     assert_eq!(h.field_font(), MONO_FONT_PATH);
     h.press(KeyCode::Escape);
 }
@@ -535,9 +535,11 @@ fn commands_are_completed_as_they_are_typed() {
     h.frames(10);
     h.snapshot("items");
 
-    // Down chooses the next one, which Tab takes
+    // Down chooses the next ones, past the fence gate and the leaves, and Tab takes the log
     h.type_text("oa");
     assert!(h.suggests("oak_leaves"));
+    h.press(KeyCode::ArrowDown);
+    assert_eq!(h.ghost().as_deref(), Some("k_leaves"));
     h.press(KeyCode::ArrowDown);
     assert_eq!(h.ghost().as_deref(), Some("k_log"));
     h.frames(10);
@@ -547,7 +549,7 @@ fn commands_are_completed_as_they_are_typed() {
     assert_eq!(h.ghost().as_deref(), Some("<count>"));
     h.type_text("5");
     h.press(KeyCode::Enter);
-    h.wait_for(&L::text_containing("Gave 5 OakLog"), SERVER);
+    h.wait_for(&L::text_containing("Gave 5 Oak Log"), SERVER);
 
     // a command recalled shows no suggestions: the arrows walk the sent messages, Escape closes
     h.press(KeyCode::KeyT);

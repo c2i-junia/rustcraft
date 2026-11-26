@@ -23,7 +23,7 @@ use crate::ui::menus::player_name::{
 use crate::ui::menus::skins::{SkinPreview, IMPORT_NOTE, SKINS_TITLE};
 use crate::ui::menus::solo::WORLDS_TITLE;
 use crate::ui::menus::MenuState;
-use crate::ui::menus::{BUTTON_COLUMN_WIDTH, CREDITS_LABEL, QUIT_TITLE};
+use crate::ui::menus::{BUTTON_COLUMN_WIDTH, CREDITS_LABEL, QUIT_TITLE, SKIN_SHIFT_VH};
 use crate::ui::quit::QuittingCard;
 use crate::ui::theme::{ACCENT, RAISE_HOVER};
 use crate::ui::widgets::hints::HintBar;
@@ -80,7 +80,8 @@ fn the_skin_shows_beside_the_buttons_and_fits_every_window() {
             window.contains(preview.min) && window.contains(skin.max),
             "{at}"
         );
-        // beside the column, in the middle of the window, and level with it
+        // beside the column, in the middle of the window, and level with it but for its shift
+        // down
         assert!(
             (top.center().x - width as f32 / 2.0).abs() < 2.0,
             "{top:?} {at}"
@@ -88,7 +89,11 @@ fn the_skin_shows_beside_the_buttons_and_fits_every_window() {
         assert!(top.max.x < preview.min.x, "{top:?} and {preview:?} {at}");
         let skin_middle = (name.min.y + skin.max.y) / 2.0;
         let column_middle = (top.min.y + bottom.max.y) / 2.0;
-        assert!((skin_middle - column_middle).abs() < 2.0, "{at}");
+        let shift = SKIN_SHIFT_VH.y * height as f32 / 100.0;
+        assert!(
+            (skin_middle - column_middle - shift).abs() < 2.0,
+            "{skin_middle} {column_middle} {at}"
+        );
         assert!(
             name.max.y <= preview.min.y && preview.max.y <= skin.min.y,
             "{at}"

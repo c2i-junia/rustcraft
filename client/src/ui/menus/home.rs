@@ -79,7 +79,7 @@ const BUTTON_GAP: f32 = SPACE_S;
 const SIDE_GAP: f32 = SPACE_XXL;
 /// How far the skin, its name and its button are moved from their place in the row, right and
 /// down, in hundredths of the window height.
-const SKIN_SHIFT_VH: Vec2 = Vec2::new(4.0, 4.0);
+pub const SKIN_SHIFT_VH: Vec2 = Vec2::new(4.0, 4.0);
 
 /// Spawns the main menu, the focus on Singleplayer: the logo at the top, under it a column of
 /// wide buttons in the middle of the window, the skin beside it on the right, balanced by as much

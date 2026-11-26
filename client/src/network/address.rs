@@ -178,11 +178,15 @@ mod tests {
             ("1.2.3.4.5", crate::i18n::tr(INVALID_ADDRESS)),
             ("host:0", crate::i18n::tr(INVALID_PORT)),
             ("host:65536", crate::i18n::tr(INVALID_PORT)),
-            ("::1", IPV6_ADDRESS),
-            ("[::1]:8000", IPV6_ADDRESS),
+            ("::1", crate::i18n::tr(IPV6_ADDRESS)),
+            ("[::1]:8000", crate::i18n::tr(IPV6_ADDRESS)),
         ];
         for (typed, said) in cases {
-            assert_eq!(parse_server_address(typed), Err(said), "{typed:?}");
+            assert_eq!(
+                parse_server_address(typed).map_err(crate::i18n::tr),
+                Err(said),
+                "{typed:?}"
+            );
         }
     }
 

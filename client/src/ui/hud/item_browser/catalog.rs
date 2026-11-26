@@ -138,6 +138,11 @@ mod tests {
         assert_eq!(
             found("oak", None),
             [
+                ItemId::OakSlab,
+                ItemId::OakStairs,
+                ItemId::Door,
+                ItemId::OakTrapdoor,
+                ItemId::OakFenceGate,
                 ItemId::OakLog,
                 ItemId::OakPlanks,
                 ItemId::OakLeaves,
@@ -172,7 +177,7 @@ mod tests {
 
     #[test]
     fn a_hash_word_matches_the_category() {
-        assert_eq!(found("#tools", None).len(), 55);
+        assert_eq!(found("#tools", None).len(), 57);
         assert!(found("#tools", None)
             .iter()
             .all(|item| item.category() == Tools));

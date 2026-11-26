@@ -474,7 +474,7 @@ mod tests {
                 "sheep_spawn_egg",
                 "sign",
                 "slate",
-                "smith_spawn_egg"
+                "slate_low_wall"
             ]
         );
         // `stone` is a value, the stone tools start with it, and `cobblestone` contains it
@@ -484,14 +484,28 @@ mod tests {
                 "stone",
                 "stone_axe",
                 "stone_hoe",
+                "stone_low_wall",
                 "stone_pickaxe",
                 "stone_shovel",
+                "stone_slab",
+                "stone_stairs",
                 "stone_sword",
+                "chiseled_limestone",
+                "chiseled_stone",
                 "cobblestone",
+                "cobblestone_low_wall",
+                "cobblestone_slab",
+                "cobblestone_stairs",
                 "hewn_stone",
+                "hewn_stone_low_wall",
                 "hewn_stone_slab",
                 "hewn_stone_stairs",
-                "limestone"
+                "limestone",
+                "limestone_low_wall",
+                "limestone_slab",
+                "limestone_stairs",
+                "polished_limestone",
+                "polished_stone"
             ]
         );
         assert_eq!(complete("/give", &[]).unwrap().suggestions, []);

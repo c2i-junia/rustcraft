@@ -298,9 +298,14 @@ fn holding_c_zooms_and_slows_the_mouse() {
 }
 
 /// Where a player stands at the bottom of a lava lake two blocks deep or more, at the bottom of
-/// a cave of the world of the seed 42, near its spawn.
+/// a cave of the world of the seed 42, near its spawn. That world has no generation settings in
+/// its `world.ron`, so it is generated as a world saved before them: shallow, its lava at 10.
 fn lava_lake_bottom() -> Vec3 {
-    let generator = WorldGenerator::new(42);
+    let generator = WorldGenerator::with(
+        42,
+        &shared::world::WorldGenSettings::legacy(),
+        shared::world::Biomes::vanilla(),
+    );
     let centre = generator
         .spawn_position()
         .as_ivec3()

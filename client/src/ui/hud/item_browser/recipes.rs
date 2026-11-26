@@ -478,8 +478,13 @@ mod tests {
                 },
             ]
         );
+        // charcoal makes torches and black dye, then burns
+        let charcoal = cards(ItemId::Charcoal, RecipeTab::Uses);
+        assert!(
+            matches!(charcoal[1], BrowserCard::Crafting(recipe) if recipe.output.item_id == ItemId::BlackDye)
+        );
         assert_eq!(
-            cards(ItemId::Charcoal, RecipeTab::Uses)[1..],
+            charcoal[2..],
             [BrowserCard::Fuel {
                 item: ItemId::Charcoal,
                 ticks: 1600
@@ -520,7 +525,7 @@ mod tests {
         // Its uses count its smelting and its burning
         assert_eq!(
             empty_view_message(view(ItemId::Cobblestone, RecipeTab::Recipes)),
-            "Cobblestone is gathered, not crafted. It goes into 7 recipes: see Uses."
+            "Cobblestone is gathered, not crafted. It goes into 10 recipes: see Uses."
         );
         assert_eq!(
             empty_view_message(view(ItemId::IronOre, RecipeTab::Recipes)),

@@ -1071,7 +1071,7 @@ mod tests {
         assert_eq!(
             ended(&mut app),
             Some(ConnectError::WorldFailed(
-                "The world stopped while opening".into()
+                crate::i18n::tr("connect.lost_loading.world").into()
             ))
         );
     }

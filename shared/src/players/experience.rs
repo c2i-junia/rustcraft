@@ -119,7 +119,7 @@ impl BlockId {
 /// The hundredths of a point of experience each `result` taken out of a furnace gives.
 pub fn smelting_experience(result: ItemId) -> u32 {
     match result {
-        ItemId::Glass | ItemId::Stone => 10,
+        ItemId::Glass | ItemId::Stone | ItemId::Gloomrock => 10,
         ItemId::Charcoal => 15,
         ItemId::FiredBrick => 30,
         ItemId::CopperIngot | ItemId::TinIngot => 50,

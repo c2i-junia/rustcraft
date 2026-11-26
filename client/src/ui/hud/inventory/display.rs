@@ -2163,10 +2163,10 @@ mod tests {
 
         let mut cells = world.query::<&InventoryCell>();
         // The slots of the inventory, then the 3x3 crafting grid, the slots of a chest, those of
-        // a furnace those of the armour and that of an engraving table
+        // a furnace, those of the armour, that of an engraving table and the two of an anvil
         assert_eq!(
             cells.iter(world).count() as u32,
-            MAX_INVENTORY_SLOTS + 9 + shared::world::CHEST_SLOTS + 3 + 4 + 1
+            MAX_INVENTORY_SLOTS + 9 + shared::world::CHEST_SLOTS + 3 + 4 + 1 + 2
         );
 
         // What the cell of `slot` shows: its count, and the atlas index of its visible icon

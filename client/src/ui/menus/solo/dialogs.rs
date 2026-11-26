@@ -638,7 +638,11 @@ mod tests {
             (io::ErrorKind::Other, "Could not delete the world"),
         ];
         for (kind, message) in cases {
-            assert_eq!(delete_failure(&io::Error::from(kind)), message, "{kind:?}");
+            assert_eq!(
+                crate::i18n::tr(delete_failure(&io::Error::from(kind))),
+                message,
+                "{kind:?}"
+            );
         }
     }
 
@@ -768,7 +772,11 @@ mod tests {
             (io::ErrorKind::Other, "Could not rename the world"),
         ];
         for (kind, message) in cases {
-            assert_eq!(rename_failure(&io::Error::from(kind)), message, "{kind:?}");
+            assert_eq!(
+                crate::i18n::tr(rename_failure(&io::Error::from(kind))),
+                message,
+                "{kind:?}"
+            );
         }
     }
 
@@ -847,7 +855,10 @@ mod tests {
         let changes = &world.resource::<Changes>().0;
         assert_eq!(changes, &[(Some("Survie".to_string()), None)]);
         let error = world.get::<FieldError>(name).unwrap();
-        assert_eq!(error.0.as_deref(), Some("Could not rename the world"));
+        assert_eq!(
+            error.0.as_deref().map(crate::i18n::tr),
+            Some("Could not rename the world")
+        );
         assert!(world.get::<CloseRequest>(root).is_none());
     }
 
@@ -874,7 +885,11 @@ mod tests {
             (io::ErrorKind::Other, "Could not create the world"),
         ];
         for (kind, message) in cases {
-            assert_eq!(create_failure(&io::Error::from(kind)), message, "{kind:?}");
+            assert_eq!(
+                crate::i18n::tr(create_failure(&io::Error::from(kind))),
+                message,
+                "{kind:?}"
+            );
         }
     }
 }
