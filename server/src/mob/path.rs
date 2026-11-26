@@ -9,7 +9,9 @@ use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 
 use bevy::math::IVec3;
-use shared::world::{global_block_to_chunk_pos, BlockHitbox, BlockId, BlockTransparency, ChunkMap};
+use shared::world::{
+    global_block_to_chunk_pos, BlockHitbox, BlockId, BlockTransparency, ChunkMap, Form,
+};
 
 /// The most nodes one search expands.
 pub const MAX_NODES: usize = 400;
@@ -53,14 +55,37 @@ pub fn cell_at(chunks: &ChunkMap, pos: IVec3) -> Cell {
         return Cell::Open;
     };
     match block.id {
-        BlockId::Door | BlockId::DoorTop => Cell::Door { open: false },
-        BlockId::OpenDoor | BlockId::OpenDoorTop => Cell::Door { open: true },
+        id if id.door().is_some() => Cell::Door {
+            open: is_open_door(id),
+        },
         BlockId::Fence => Cell::Tall,
+        // A low wall and a shut gate stand as a fence does
+        id if matches!(
+            id.palette().map(|palette| palette.form),
+            Some(Form::LowWall | Form::FenceGate { open: false })
+        ) =>
+        {
+            Cell::Tall
+        }
         BlockId::Fire | BlockId::Lava => Cell::Hazard,
         id if id.get_visibility() == BlockTransparency::Liquid => Cell::Hazard,
         id if matches!(id.get_hitbox(), BlockHitbox::None) => Cell::Open,
         _ => Cell::Solid,
     }
+}
+
+/// Whether `id` is a half of an open door, of any wood.
+fn is_open_door(id: BlockId) -> bool {
+    matches!(id, BlockId::OpenDoor | BlockId::OpenDoorTop)
+        || matches!(
+            id.palette().map(|palette| palette.form),
+            Some(Form::Door { open: true, .. })
+        )
+}
+
+/// Whether `id` is a half of a shut door, of any wood.
+fn is_shut_door(id: BlockId) -> bool {
+    id.door().is_some() && !is_open_door(id)
 }
 
 /// How a walker goes about.
@@ -105,7 +130,7 @@ pub fn open_doors(chunks: &mut ChunkMap, doors: &[IVec3]) {
         let Some(block) = chunks.get_block(pos).copied() else {
             continue;
         };
-        if !matches!(block.id, BlockId::Door | BlockId::DoorTop) {
+        if !is_shut_door(block.id) {
             continue;
         }
         let Some((opened, step)) = block.id.door() else {
@@ -114,8 +139,7 @@ pub fn open_doors(chunks: &mut ChunkMap, doors: &[IVec3]) {
         chunks.set_block(pos, shared::world::BlockData::new(opened, block.direction));
         let other = pos + step;
         if let Some(half) = chunks.get_block(other).copied() {
-            if let (BlockId::Door | BlockId::DoorTop, Some((opened, _))) = (half.id, half.id.door())
-            {
+            if let (true, Some((opened, _))) = (is_shut_door(half.id), half.id.door()) {
                 chunks.set_block(other, shared::world::BlockData::new(opened, half.direction));
             }
         }
@@ -511,5 +535,36 @@ mod tests {
         assert!(found.reaches);
         let crossed: HashSet<_> = found.cells.iter().filter(|cell| cell.x == 3).collect();
         assert_eq!(crossed, HashSet::from([&feet(3, 5)]));
+    }
+
+    #[test]
+    fn the_doors_of_every_wood_open_and_the_low_walls_and_shut_gates_stand_as_fences() {
+        use shared::world::{BlockData, BlockDirection};
+        let mut chunks = ChunkMap::with_loaded_region(IVec3::splat(-16), IVec3::splat(15));
+        let at = |x| IVec3::new(x, 1, 0);
+        let put = |chunks: &mut ChunkMap, x, id| {
+            chunks.set_block(at(x), BlockData::new(id, BlockDirection::Front))
+        };
+        put(&mut chunks, 0, BlockId::SpruceDoor);
+        put(&mut chunks, 1, BlockId::OpenAcaciaDoorTop);
+        put(&mut chunks, 2, BlockId::StoneLowWall);
+        put(&mut chunks, 3, BlockId::OakFenceGate);
+        put(&mut chunks, 4, BlockId::Door);
+        assert_eq!(cell_at(&chunks, at(0)), Cell::Door { open: false });
+        assert_eq!(cell_at(&chunks, at(1)), Cell::Door { open: true });
+        assert_eq!(cell_at(&chunks, at(2)), Cell::Tall);
+        assert_eq!(cell_at(&chunks, at(3)), Cell::Tall);
+        assert_eq!(cell_at(&chunks, at(4)), Cell::Door { open: false });
+        put(&mut chunks, 0, BlockId::SpruceDoor);
+        chunks.set_block(
+            at(0) + IVec3::Y,
+            BlockData::new(BlockId::SpruceDoorTop, BlockDirection::Front),
+        );
+        open_doors(&mut chunks, &[at(0)]);
+        assert_eq!(chunks.get_block(at(0)).unwrap().id, BlockId::OpenSpruceDoor);
+        assert_eq!(
+            chunks.get_block(at(0) + IVec3::Y).unwrap().id,
+            BlockId::OpenSpruceDoorTop
+        );
     }
 }
