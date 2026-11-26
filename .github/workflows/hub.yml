@@ -69,8 +69,34 @@ jobs:
     - name: Run tests
       run: cargo test --workspace
 
+  admin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: hub/admin
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Bun
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: 1.4.4
+
+    - name: Install dependencies
+      run: bun install --frozen-lockfile
+
+    - name: Type-check the web admin
+      run: bun run check
+
+    - name: Build the web admin
+      run: bun run build
+
   publish:
-    needs: check
+    needs: [check, admin]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 

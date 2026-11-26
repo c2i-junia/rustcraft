@@ -15,3 +15,8 @@ Dockerfile
 hub/secrets/
 hub/*.key
 hub/ip-secret
+
+# The web admin is installed and built in its own stage of hub/Dockerfile
+hub/admin/node_modules/
+hub/admin/build/
+hub/admin/.svelte-kit/

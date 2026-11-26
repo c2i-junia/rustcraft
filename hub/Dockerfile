@@ -1,6 +1,16 @@
 # The hub and its realm agent. The build context is the repository root:
 #   docker build --file hub/Dockerfile --target hub --tag rustcraft-hub .
 #   docker build --file hub/Dockerfile --target realm-agent --tag rustcraft-realm-agent .
+# The web admin (hub/admin), served by the hub under /admin/
+FROM oven/bun:1.4.4 AS admin-ui
+
+WORKDIR /admin
+COPY hub/admin/package.json hub/admin/bun.lock ./
+RUN bun install --frozen-lockfile
+COPY hub/admin ./
+RUN bun run build
+
+
 FROM debian:bookworm-slim AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -49,6 +59,7 @@ ENTRYPOINT ["rustcraft-realm-agent", "--config", "/etc/rustcraft/realm-agent.tom
 FROM gcr.io/distroless/cc-debian12 AS hub
 
 COPY --from=builder /rustcraft-hub /usr/local/bin/rustcraft-hub
+COPY --from=admin-ui /admin/build /usr/share/rustcraft-hub/admin
 
 USER nonroot
 ENTRYPOINT ["rustcraft-hub", "serve"]

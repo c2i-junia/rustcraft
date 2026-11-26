@@ -57,6 +57,8 @@ services:
       HUB_REALM_HOST: play.rustcraft.dev
       HUB_REALM_PROBE_HOST: 172.30.80.1
       HUB_MAX_RUNNING: "3"
+      # The web admin, at https://hub.rustcraft.dev/admin/, built into the image
+      HUB_ADMIN_DIR: /usr/share/rustcraft-hub/admin
     secrets:
       - database_url
       - signing_key
