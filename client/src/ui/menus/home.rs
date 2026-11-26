@@ -76,6 +76,9 @@ pub const BUTTON_COLUMN_WIDTH: f32 = 400.0;
 const BUTTON_GAP: f32 = SPACE_S;
 /// The space between the column and the skin beside it.
 const SIDE_GAP: f32 = SPACE_XXL;
+/// How far the skin, its name and its button are moved from their place in the row, right and
+/// down, in hundredths of the window height.
+const SKIN_SHIFT_VH: Vec2 = Vec2::new(4.0, 4.0);
 
 /// Spawns the main menu, the focus on Singleplayer: the logo at the top, under it a column of
 /// wide buttons in the middle of the window, the skin beside it on the right, balanced by as much
@@ -208,7 +211,8 @@ pub fn home_setup(
                 node.flex_basis = px(0);
             });
     }
-    // the player's name over the model, as a name tag, and the Skin button under it
+    // the player's name over the model, as a name tag, and the Skin button under it, the whole
+    // a little right of and below its place in the row, which keeps the column centred
     let skin = commands
         .spawn((
             Node {
@@ -216,6 +220,8 @@ pub fn home_setup(
                 align_items: AlignItems::Center,
                 row_gap: px(SPACE_S),
                 flex_shrink: 0.0,
+                left: vh(SKIN_SHIFT_VH.x),
+                top: vh(SKIN_SHIFT_VH.y),
                 ..default()
             },
             ChildOf(row),
