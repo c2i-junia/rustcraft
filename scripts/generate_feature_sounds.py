@@ -2,7 +2,8 @@
 """Procedurally generates the sounds of the later features into data/sounds/: the armour, the
 bow and its arrows, the experience, the engraving table, the trade and the villagers' voices,
 the breeding and the taming, a mob falling into water, and the stings of the progress (a depth
-reached, an achievement, a boss, the victory, the credits, a skin imported).
+reached, an achievement, a boss, the victory, the credits, a skin imported), and the critical
+blows and the sweeps of the melee.
 
 Built with the primitives of `generate_sounds.py` (its seed, its loudness and its output), so
 that they sound of a piece with the others; every sound is synthesised here, entirely original
@@ -428,6 +429,23 @@ def build_skin_import(rng):
     return finish(x, -23)
 
 
+def build_critical(rng):
+    """A critical blow: a hard crack on the body, and a bright metallic ring over it."""
+    d = 0.4
+    crack = band(white(rng, d), 1500, 9000) * env(d, 0.0002, 0.006)
+    body = thump(rng, d, 240, 80, 0.035)
+    ring = modes(rng, d, [(1850, 0.12, 1.0), (1850 * 2.41, 0.07, 0.5), (1850 * 3.87, 0.04, 0.3)], 0.01)
+    return finish(outdoors(rng, crack * 0.6 + body * 0.7 + ring * 0.35), -17)
+
+
+def build_sweep(rng):
+    """The sweep of a sword: the blade cutting the air in a wide arc, its swell rising then falling."""
+    d = 0.4
+    swing = whoosh(rng, d, 900, 6000, 0.09, 0.08)
+    edge = band(white(rng, d), 4000, 11000) * env(d, 0.12, 0.04) * 0.3
+    return finish(outdoors(rng, swing + edge), -19)
+
+
 def main():
     write_ogg("armour/leather_on", build_leather_on)
     write_ogg("armour/leather_off", build_leather_off)
@@ -464,6 +482,8 @@ def main():
     write_ogg("ui/victory", build_victory)
     write_ogg("ui/credits", build_credits)
     write_ogg("ui/skin_import", build_skin_import)
+    write_ogg("combat/critical", build_critical)
+    write_ogg("combat/sweep", build_sweep)
 
 
 if __name__ == "__main__":

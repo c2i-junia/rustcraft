@@ -147,6 +147,7 @@ pub fn apply_mob_updates(
                 hurts.write(MobHurt {
                     kind: server.kind,
                     at: server.position,
+                    struck: server.struck,
                 });
             }
             continue;

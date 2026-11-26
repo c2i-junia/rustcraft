@@ -366,7 +366,7 @@ pub fn handle_player_inputs_system(
             changed: &mut world_map.changed_mobs,
             items: dropped_items,
             chunks,
-            waits: &mut world_map.blow_waits,
+            recharges: &mut world_map.recharges,
             feed_waits: &mut world_map.feed_waits,
             trades: &mut world_map.trades,
         };

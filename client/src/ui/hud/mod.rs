@@ -41,6 +41,7 @@ pub mod inventory;
 pub mod item_browser;
 pub mod minimap;
 pub mod progress;
+pub mod recharge;
 pub mod reticle;
 mod ui_mode;
 
@@ -73,7 +74,32 @@ pub fn hud_plugin(app: &mut App) {
         .add_systems(OnEnter(GameState::Game), reset_trade)
         .add_systems(
             OnEnter(GameState::Game),
-            (spawn_reticle, setup_hud, setup_chat).chain(),
+            (
+                spawn_reticle,
+                recharge::spawn_recharge_gauge,
+                setup_hud,
+                setup_chat,
+            )
+                .chain(),
+        )
+        .init_resource::<recharge::LocalRecharge>()
+        .add_systems(
+            OnEnter(GameState::Game),
+            |mut recharge: ResMut<recharge::LocalRecharge>| {
+                *recharge = default();
+            },
+        )
+        .add_systems(
+            Update,
+            (
+                recharge::track_recharge
+                    .after(GameSet::Input)
+                    .before(GameSet::Reconciliation)
+                    .run_if(crate::player::local_player_is_simulated),
+                recharge::update_recharge_gauge.after(GameSet::Reconciliation),
+            )
+                .chain()
+                .run_if(in_state(GameState::Game)),
         )
         .add_systems(
             OnEnter(GameState::Game),

@@ -470,7 +470,7 @@ impl ItemId {
     /// The points of health a blow with the item takes from a mob.
     pub fn attack_damage(&self) -> u32 {
         if *self == Self::Spear {
-            return 4;
+            return 5;
         }
         let Some(tool) = self.tool() else {
             return 1;
@@ -483,7 +483,8 @@ impl ItemId {
         };
         match tool.kind {
             ToolKind::Sword => 4 + tier,
-            ToolKind::Axe => 3 + tier,
+            // Heavy: slower than a sword (`melee::WeaponClass`), but harder
+            ToolKind::Axe => 6 + tier,
             _ => 2 + tier,
         }
     }

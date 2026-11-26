@@ -10,6 +10,7 @@ use crate::player::LocalPlayerHurt;
 use crate::portal::PortalOpened;
 use crate::state::{GameSet, GameState};
 use crate::ui::hud::{depths, progress};
+use shared::players::melee::Strike;
 
 mod blocks;
 mod creatures;
@@ -79,13 +80,23 @@ fn hurt_sounds(mut hurts: MessageReader<LocalPlayerHurt>, mut sounds: MessageWri
     }
 }
 
-/// A blow on a mob, heard where it is, in the voice of its kind.
+/// A blow on a mob, heard where it is, in the voice of its kind; a critical blow rings and a
+/// sweep swishes over it.
 fn mob_hurt_sounds(mut hurts: MessageReader<MobHurt>, mut sounds: MessageWriter<PlaySound>) {
-    for MobHurt { kind, at } in hurts.read() {
+    for MobHurt { kind, at, struck } in hurts.read() {
         sounds.write(PlaySound::at(
             Sound::Creature(*kind, CreatureCall::Hurt),
             *at,
         ));
+        match struck {
+            Some(Strike::Critical) => {
+                sounds.write(PlaySound::at(Sound::CriticalHit, *at));
+            }
+            Some(Strike::Sweep) => {
+                sounds.write(PlaySound::at(Sound::Sweep, *at));
+            }
+            None => {}
+        }
     }
 }
 
@@ -132,6 +143,7 @@ mod tests {
         app.world_mut().write_message(MobHurt {
             kind: MobKind::Gnawer,
             at,
+            struck: None,
         });
         app.update();
         let heard: Vec<_> = app

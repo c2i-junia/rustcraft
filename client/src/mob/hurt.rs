@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 
+use shared::players::melee::Strike;
 use shared::world::MobKind;
 
 use super::Mob;
@@ -18,11 +19,12 @@ const FLASH_KEEP: f32 = 0.2;
 /// The red the materials of a hurt mob glow with, so that a dark one turns red too.
 const FLASH_GLOW: LinearRgba = LinearRgba::rgb(0.35, 0.0, 0.0);
 
-/// A mob of the kind `kind` was hurt, at `at`.
+/// A mob of the kind `kind` was hurt, at `at`, by a critical blow or a sweep if `struck` says so.
 #[derive(Message, Debug, Clone, Copy, PartialEq)]
 pub struct MobHurt {
     pub kind: MobKind,
     pub at: Vec3,
+    pub struck: Option<Strike>,
 }
 
 /// The red copy of each material of the mobs' models, made the first time a mob wearing it is

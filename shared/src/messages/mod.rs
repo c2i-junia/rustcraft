@@ -204,7 +204,9 @@ mod tests {
                 attack_wait: 0,
                 extra_health: 0,
                 arrow: None,
+                route: None,
                 villager: None,
+                struck: None,
             },
         };
         let update = PlayerUpdateEvent {

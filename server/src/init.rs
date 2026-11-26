@@ -290,7 +290,7 @@ fn load_world(
         spawn: spawn_position(world_data.seed.0, &generation),
         places: crate::world::home::Places::load(&world_dir(game_folder_paths, world_name)?),
         home: Default::default(),
-        blow_waits: Default::default(),
+        recharges: Default::default(),
         feed_waits: Default::default(),
         trades: Default::default(),
         portal_shots: Vec::new(),

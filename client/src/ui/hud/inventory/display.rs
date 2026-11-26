@@ -644,8 +644,9 @@ fn can_wear(stack: &ItemStack, inventory: &Inventory) -> bool {
         .is_some_and(|armour| !inventory.inner.contains_key(&armour.piece.slot()))
 }
 
-/// What a piece of armour does, then a line per enchantment of the stack.
+/// What a weapon or a piece of armour does, then a line per enchantment of the stack.
 fn notes(stack: &ItemStack) -> String {
+    let weapon = weapon_notes(stack.item_id);
     let armour = stack.item_id.armour();
     let armour = armour.map(|armour| armour_note(armour.points()));
     let enchantments = stack.enchantments().map(|(enchantment, level)| {
@@ -655,8 +656,41 @@ fn notes(stack: &ItemStack) -> String {
             crate::i18n::enchantment_effect(enchantment, level)
         )
     });
-    let lines: Vec<String> = armour.into_iter().chain(enchantments).collect();
+    let lines: Vec<String> = weapon
+        .into_iter()
+        .chain(armour)
+        .chain(enchantments)
+        .collect();
     lines.join("\n")
+}
+
+/// The blows of a weapon (`melee::WeaponClass`): their damage and their pace, and what the
+/// weapon does besides. None for what is no weapon.
+fn weapon_notes(item: shared::world::ItemId) -> Vec<String> {
+    use shared::players::melee::{Pace, WeaponClass};
+    let class = WeaponClass::of(Some(item));
+    if !matches!(
+        class,
+        WeaponClass::Sword | WeaponClass::Axe | WeaponClass::Spear
+    ) {
+        return Vec::new();
+    }
+    let pace = tr(match class.pace() {
+        Pace::Quick => "inventory.pace.Quick",
+        Pace::Steady => "inventory.pace.Steady",
+        Pace::Slow => "inventory.pace.Slow",
+    });
+    let mut notes = vec![trf(
+        "inventory.blow",
+        &[("damage", &item.attack_damage()), ("pace", &pace)],
+    )];
+    if class.sweeps() {
+        notes.push(tr("inventory.sweep").to_string());
+    }
+    if class == WeaponClass::Spear {
+        notes.push(tr("inventory.long_reach").to_string());
+    }
+    notes
 }
 
 /// What a piece of armour of `points` does, in words.

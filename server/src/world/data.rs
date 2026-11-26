@@ -8,7 +8,7 @@ use bevy_ecs::resource::Resource;
 use super::dropped_items::DroppedItems;
 use super::home::{HomeEvents, Places};
 use crate::mob::boss::Boss;
-use crate::mob::combat::BlowWaits;
+use crate::mob::combat::{BlowWaits, Recharges};
 use crate::mob::villager::Trades;
 use shared::{
     messages::PlayerId,
@@ -48,7 +48,8 @@ pub struct ServerWorldMap {
     pub spawn: Vec3,
     pub places: Places,
     pub home: HomeEvents,
-    pub blow_waits: BlowWaits,
+    /// The recharge of the blows of each player (`mob::combat::interact`).
+    pub recharges: Recharges,
     /// Time left before each player feeds an animal again (`mob::combat::interact`).
     pub feed_waits: BlowWaits,
     /// The trades of the players with the villagers.

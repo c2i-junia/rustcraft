@@ -8,6 +8,7 @@ use shared::{
     players::{
         blocks::{aim, held_item},
         hunger::BLOW_EXHAUSTION,
+        melee::{self, Recharge, Strike, WeaponClass},
         progress::Achievement,
         Player, ViewMode,
     },
@@ -27,8 +28,6 @@ use crate::world::dropped_items::DroppedItems;
 /// How far from its eyes a player reaches a mob, in blocks, and with a spear.
 const REACH: f32 = 3.0;
 const SPEAR_REACH: f32 = 5.0;
-/// Time between two blows while the button is held.
-const BLOW_MS: u64 = 500;
 /// Time between two meals given while the button is held.
 const FEED_MS: u64 = 500;
 /// Upward speed of a mob that takes a blow.
@@ -41,8 +40,12 @@ pub const MOB_INVULNERABILITY_TICKS: u32 = 10;
 /// Ticks a mob hit flees from the player: 5 seconds.
 pub const FLEE_TICKS: u32 = 5 * shared::TICKS_PER_SECOND as u32;
 
-/// Time left before the next blow of each player, while it holds the button.
+/// Time left before each player holding the right button feeds an animal again.
 pub type BlowWaits = HashMap<PlayerId, u64>;
+
+/// The recharge of the blows of each player (`melee::Recharge`): the server counts it from the
+/// inputs, and a blow hurts by it.
+pub type Recharges = HashMap<PlayerId, Recharge>;
 
 /// The mobs, and what their changes touch.
 pub struct MobWorld<'a> {
@@ -50,7 +53,7 @@ pub struct MobWorld<'a> {
     pub changed: &'a mut HashSet<MobId>,
     pub items: &'a mut DroppedItems,
     pub chunks: &'a mut ChunkMap,
-    pub waits: &'a mut BlowWaits,
+    pub recharges: &'a mut Recharges,
     /// Time left before each player holding the right button feeds an animal again.
     pub feed_waits: &'a mut BlowWaits,
     pub trades: &'a mut Trades,
@@ -61,17 +64,17 @@ pub struct MobWorld<'a> {
 pub fn interact(
     player: &mut Player,
     input: &PlayerFrameInput,
-    world: MobWorld,
+    mut world: MobWorld,
     rng: &mut impl Rng,
 ) -> Option<PlayerFrameInput> {
     let left = input.is_pressed(NetworkAction::LeftClick);
     let right = input.is_pressed(NetworkAction::RightClick);
-    let wait = world.waits.entry(player.id).or_default();
-    *wait = if left {
-        wait.saturating_sub(input.delta_ms.min(100))
-    } else {
-        0
-    };
+    // Every input counts toward the recharge, whatever the player aims at
+    let swing = world.recharges.entry(player.id).or_default().step(
+        held_item(player, input),
+        left && !player.is_dead(),
+        input.delta_ms,
+    );
     let feed_wait = world.feed_waits.entry(player.id).or_default();
     *feed_wait = if right {
         feed_wait.saturating_sub(input.delta_ms.min(100))
@@ -148,11 +151,11 @@ pub fn interact(
         }
     }
     let position = mob.position;
+    let mut sweep = None;
     if left {
         rest.inputs.remove(&NetworkAction::LeftClick);
         // A blow on a mob still invulnerable swings for nothing
-        if *wait == 0 && !villager {
-            *wait = BLOW_MS;
+        if let (Some(charge), false) = (swing, villager) {
             if mob.hurt_ticks == 0 {
                 player.exhaust(BLOW_EXHAUSTION);
                 let away = (mob.position - player.position)
@@ -161,9 +164,29 @@ pub fn interact(
                     .unwrap_or_else(|| input.camera.forward().with_y(0.0).normalize_or_zero());
                 let weapon = player.inventory.inner.get(&input.hotbar_slot);
                 let sharpness = weapon.filter(|_| held.is_some());
-                let damage = mob.kind.blow_damage(held)
+                let base = mob.kind.blow_damage(held)
                     + sharpness.map_or(0, |weapon| weapon.bonus_blow_damage());
-                let dies = wound(mob, player.id, damage, away * KNOCK_BACK_SPEED);
+                let critical = melee::is_critical(
+                    charge,
+                    player.on_ground,
+                    -player.velocity.y,
+                    player.is_flying || player.is_swimming,
+                );
+                let sweeps = melee::sweeps(WeaponClass::of(held), charge, player.on_ground);
+                let damage = melee::blow_damage(base, charge, critical);
+                // A hurried blow throws the mob back less far
+                let push = away * KNOCK_BACK_SPEED * (0.5 + 0.5 * charge);
+                let dies = wound(mob, player.id, damage, push);
+                mob.struck = if critical {
+                    Some(Strike::Critical)
+                } else if sweeps {
+                    Some(Strike::Sweep)
+                } else {
+                    None
+                };
+                if sweeps {
+                    sweep = Some(melee::sweep_damage(damage));
+                }
                 world.changed.insert(id);
                 if let Some(item) = held {
                     player
@@ -171,19 +194,80 @@ pub fn interact(
                         .wear_tool(input.hotbar_slot, item.blow_wear());
                 }
                 if dies {
-                    player.beat(mob.kind);
-                    drops.extend(loot(mob, rng));
-                    let points = mob.experience();
-                    world.items.drop_orb(points, position, rng);
-                    // The clients are told by the next broadcast, which no longer finds it
-                    world.mobs.remove(&id);
-                    world.changed.remove(&id);
+                    defeat(player, id, &mut world, rng, &mut drops);
                 }
             }
         }
     }
     drop_loot(world.items, drops, position);
+    if let Some(damage) = sweep {
+        let forward = input.camera.forward().as_vec3();
+        sweep_around(player, id, position, forward, damage, &mut world, rng);
+    }
     Some(rest)
+}
+
+/// The mob `id`, dead of a blow of `player`: the player beat it, its loot goes into `drops` and its
+/// experience is dropped where it was, and it is taken out of the world.
+fn defeat(
+    player: &mut Player,
+    id: MobId,
+    world: &mut MobWorld,
+    rng: &mut impl Rng,
+    drops: &mut Vec<(ItemId, u32)>,
+) {
+    let Some(mob) = world.mobs.remove(&id) else {
+        return;
+    };
+    player.beat(mob.kind);
+    drops.extend(loot(&mob, rng));
+    world.items.drop_orb(mob.experience(), mob.position, rng);
+    // The clients are told by the next broadcast, which no longer finds it
+    world.changed.remove(&id);
+}
+
+/// The sweep of a full blow of a sword of `player` looking along `forward` on the mob `target`,
+/// which was at `at`: the other mobs around it and in front of the player take `damage`. The tamed
+/// animals, the villagers and the projectiles are spared.
+fn sweep_around(
+    player: &mut Player,
+    target: MobId,
+    at: Vec3,
+    forward: Vec3,
+    damage: u32,
+    world: &mut MobWorld,
+    rng: &mut impl Rng,
+) {
+    let swept: Vec<MobId> = world
+        .mobs
+        .iter()
+        .filter(|(&id, mob)| {
+            id != target
+                && mob.hurt_ticks == 0
+                && mob.owner.is_none()
+                && !mob.kind.is_projectile()
+                && !mob.kind.is_villager()
+                && melee::in_sweep(player.position, forward, at, mob.position)
+        })
+        .map(|(&id, _)| id)
+        .collect();
+    for id in swept {
+        let Some(mob) = world.mobs.get_mut(&id) else {
+            continue;
+        };
+        let away = (mob.position - player.position)
+            .with_y(0.0)
+            .normalize_or_zero();
+        let dies = wound(mob, player.id, damage, away * KNOCK_BACK_SPEED * 0.5);
+        mob.struck = Some(Strike::Sweep);
+        world.changed.insert(id);
+        if dies {
+            let position = mob.position;
+            let mut drops = Vec::new();
+            defeat(player, id, world, rng, &mut drops);
+            drop_loot(world.items, drops, position);
+        }
+    }
 }
 
 /// The player `striker` takes `damage` points of health from `mob`, which may be hurt
@@ -193,6 +277,8 @@ pub fn interact(
 pub fn wound(mob: &mut ServerMob, striker: PlayerId, damage: u32, push: Vec3) -> bool {
     mob.damage += damage;
     mob.hurt_ticks = MOB_INVULNERABILITY_TICKS;
+    // A plain blow, unless the striker says otherwise
+    mob.struck = None;
     // A boss is not moved by a blow
     if !mob.kind.is_boss() {
         mob.velocity = push + Vec3::Y * KNOCK_SPEED;
@@ -386,7 +472,7 @@ mod tests {
         items: DroppedItems,
         chunks: ChunkMap,
         changed: HashSet<MobId>,
-        waits: BlowWaits,
+        recharges: Recharges,
         feed_waits: BlowWaits,
         trades: Trades,
         rng: StdRng,
@@ -399,7 +485,7 @@ mod tests {
                 items: DroppedItems::default(),
                 chunks: ChunkMap::with_loaded_region(IVec3::splat(-16), IVec3::splat(15)),
                 changed: HashSet::new(),
-                waits: BlowWaits::new(),
+                recharges: Recharges::new(),
                 feed_waits: BlowWaits::new(),
                 trades: Trades::default(),
                 rng: StdRng::seed_from_u64(1),
@@ -420,7 +506,7 @@ mod tests {
                 changed: &mut self.changed,
                 items: &mut self.items,
                 chunks: &mut self.chunks,
-                waits: &mut self.waits,
+                recharges: &mut self.recharges,
                 feed_waits: &mut self.feed_waits,
                 trades: &mut self.trades,
             };
@@ -448,6 +534,45 @@ mod tests {
                 .map(|i| i.stack.item_id)
                 .collect()
         }
+    }
+
+    #[test]
+    fn a_full_blow_of_a_sword_on_the_ground_sweeps_the_mob_beside_its_target_too() {
+        let mut arena = Arena::with(ServerMob::new(MobKind::Cow, AHEAD));
+        arena
+            .mobs
+            .insert(8, ServerMob::new(MobKind::Pig, AHEAD + Vec3::X * 1.5));
+        let mut player = fighter(1, Some(ItemId::IronSword));
+        player.on_ground = true;
+        arena.tick(&mut player, &NetworkAction::LeftClick, true);
+        let damage = ItemId::IronSword.attack_damage();
+        assert_eq!(arena.mobs[&7].damage, damage);
+        assert_eq!(arena.mobs[&7].struck, Some(Strike::Sweep));
+        assert_eq!(arena.mobs[&8].damage, melee::sweep_damage(damage));
+        assert_eq!(arena.mobs[&8].struck, Some(Strike::Sweep));
+    }
+
+    #[test]
+    fn a_full_blow_while_falling_is_critical_and_a_hurried_one_weak() {
+        let mut arena = Arena::with(ServerMob::new(MobKind::Drowner, AHEAD));
+        let mut player = fighter(1, Some(ItemId::IronAxe));
+        (player.velocity.y, player.on_ground) = (-3.0, false);
+        arena.tick(&mut player, &NetworkAction::LeftClick, true);
+        let damage = ItemId::IronAxe.attack_damage();
+        assert_eq!(arena.mobs[&7].damage, melee::blow_damage(damage, 1.0, true));
+        assert_eq!(arena.mobs[&7].struck, Some(Strike::Critical));
+        // Pressed again as soon as it may be hurt: a hurried blow
+        for _ in 0..MOB_INVULNERABILITY_TICKS {
+            arena.tick(&mut player, &NetworkAction::LeftClick, false);
+        }
+        let before = arena.mobs[&7].damage;
+        arena.tick(&mut player, &NetworkAction::LeftClick, true);
+        let charge = 550.0 / 1000.0;
+        assert_eq!(
+            arena.mobs[&7].damage - before,
+            melee::blow_damage(damage, charge, false)
+        );
+        assert_eq!(arena.mobs[&7].struck, None);
     }
 
     #[test]

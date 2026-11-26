@@ -634,6 +634,21 @@ player as its prey (`hostile::provoke`). A killed mob is removed and drops its l
 (`combat::loot`) as dropped items. The client tints a hurt mob red and plays its hurt sound when
 `ServerMob::damage` rises in a `MobUpdate`.
 
+The blows have a rhythm (`shared/src/players/melee.rs`). Each `WeaponClass` recharges in its own
+time (hand 0.4 s, sword 0.5 s, pickaxe, shovel or hoe 0.65 s, spear 0.75 s, axe 1 s); a
+`Recharge` counts it from the inputs alone: every press of the left button is a swing, whatever
+it meets, and so is a full recharge while it stays down; changing the item held starts it again.
+The server keeps one per player (`ServerWorldMap::recharges`) and is the only judge of the damage:
+`melee::blow_damage` gives a fifth of the weapon's damage to a hurried blow and all of it to a
+full one (0.2 + 0.8 × charge²), half as much again for a critical one (`is_critical`: full, while
+falling, neither flying nor swimming). A full blow of a sword on the ground sweeps (`sweeps`,
+`in_sweep`): the other mobs within 2 blocks of its target and in front of the player take a third
+of its damage, but the tamed animals and the villagers. `ServerMob::struck` tells the clients what
+made the last blow special; `MobHurt` carries it, for the sparks (`mob/strikes.rs`) and the sounds
+(`Sound::CriticalHit`, `Sound::Sweep`). The client counts the same `Recharge` from its own inputs
+for the gauge under the reticle (`ui/hud/recharge.rs`). `WeaponClass::breaks_shields` (the axe) is
+the hook for the shields to come.
+
 ### Hostile mobs
 
 The rules are shared (`shared/src/world/hostiles.rs`): `MobKind::hunt` (sight, forget distance,

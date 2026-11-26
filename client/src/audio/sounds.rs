@@ -340,6 +340,10 @@ pub enum Sound {
     Credits,
     /// A skin dropped on the skins screen is imported.
     SkinImported,
+    /// A critical blow lands: a bright crack.
+    CriticalHit,
+    /// A sword sweeps: the blade cutting the air.
+    Sweep,
 }
 
 impl Sound {
@@ -390,7 +394,7 @@ impl Sound {
 
     /// The sounds of the later features (`scripts/generate_feature_sounds.py`), but those of
     /// the armour put on and off and the voices of the villagers.
-    pub const FEATURES: [Sound; 25] = [
+    pub const FEATURES: [Sound; 27] = [
         Sound::BowLoose,
         Sound::ArmourBreak,
         Sound::BowDraw,
@@ -416,6 +420,8 @@ impl Sound {
         Sound::Victory,
         Sound::Credits,
         Sound::SkinImported,
+        Sound::CriticalHit,
+        Sound::Sweep,
     ];
 
     /// The sounds of the weather, played by `audio::weather`.
@@ -521,6 +527,8 @@ impl Sound {
             Sound::Victory => one("ui/victory"),
             Sound::Credits => one("ui/credits"),
             Sound::SkinImported => one("ui/skin_import"),
+            Sound::CriticalHit => one("combat/critical"),
+            Sound::Sweep => one("combat/sweep"),
             Sound::PortalPass => vec!["sounds/player/pickup.ogg".to_string()],
             Sound::Creature(kind, call) => {
                 let folder = creature_folder(kind);

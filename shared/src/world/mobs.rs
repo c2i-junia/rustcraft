@@ -399,6 +399,10 @@ pub struct ServerMob {
     /// What a villager remembers; none for the other mobs. Saves from before it read none.
     #[serde(default)]
     pub villager: Option<Villager>,
+    /// What made the last blow that hurt the mob special, if anything: the clients show and hear
+    /// it with the hurt (`melee::Strike`).
+    #[serde(default)]
+    pub struck: Option<crate::players::melee::Strike>,
 }
 
 impl ServerMob {
@@ -432,6 +436,7 @@ impl ServerMob {
             arrow: None,
             route: None,
             villager: kind.is_villager().then(Villager::default),
+            struck: None,
         }
     }
 

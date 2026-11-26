@@ -11,6 +11,7 @@ pub mod fire;
 pub mod game_mode;
 pub mod hunger;
 pub mod inventory;
+pub mod melee;
 pub mod movement;
 pub mod progress;
 pub mod simulation;
