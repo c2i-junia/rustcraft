@@ -28,7 +28,6 @@ use crate::ui::menus::solo::{SelectedWorld, WorldCard, WorldDetail, WorldList, W
 use crate::ui::menus::worlds::{
     list_worlds, EMPTY_WORLD_NAME, INVALID_SEED, INVALID_WORLD_NAME, WORLD_EXISTS,
 };
-use crate::ui::menus::ContinueCard;
 use crate::ui::menus::MenuState;
 use crate::ui::theme::RAISE_HOVER;
 use crate::ui::widgets::hints::{HintBar, HINT_BAR_HEIGHT};
@@ -357,21 +356,6 @@ fn the_empty_screen_tabs_past_the_hidden_pane() {
     assert_eq!(h.focus_label().as_deref(), Some("New world"));
     h.press(KeyCode::Tab);
     assert_eq!(h.focus_label().as_deref(), Some("Back"));
-}
-
-#[test]
-#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
-fn the_continue_card_is_the_first_world_of_the_list() {
-    let mut h = main_menu_with(three_worlds());
-    let continue_card = || L::marker::<ContinueCard>();
-    h.wait_for(&L::text("Creative build").within(continue_card()), SCREEN);
-    h.click(&L::text("Singleplayer"));
-    h.wait_for(&card("Creative build"), SCREEN);
-    assert_eq!(card_names(&mut h)[0], "Creative build");
-    delete_through_the_pane(&mut h, "Creative build");
-    h.press(KeyCode::Escape);
-    h.wait_for(&L::text("Survie").within(continue_card()), SCREEN);
-    assert!(h.is_visible(&L::text("played 3 days ago").within(continue_card())));
 }
 
 #[test]
@@ -873,9 +857,6 @@ fn rename_renames_the_folder_and_keeps_the_place_of_the_world() {
         card_names(&mut h),
         ["Creative build", "Base", "Test world 3"]
     );
-    h.press(KeyCode::Escape);
-    h.wait_for(&L::text("Singleplayer"), SCREEN);
-    assert!(h.is_visible(&L::text("Creative build").within(L::marker::<ContinueCard>())));
 }
 
 /// Opens the Rename dialog of `world` from its card and the detail pane, its name ready to

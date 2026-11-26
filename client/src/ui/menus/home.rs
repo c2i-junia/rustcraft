@@ -1,5 +1,6 @@
-//! The main menu: the logo, the buttons to the other screens, the card of the last world played,
-//! the model wearing the chosen skin over the Skin button, the player's name, and a confirmation before quitting.
+//! The main menu: the logo, a column of buttons to the other screens, beside it the model wearing
+//! the chosen skin between the player's name and the Skin button, and a confirmation before
+//! quitting.
 
 use bevy::{
     input::keyboard::KeyboardInput,
@@ -11,31 +12,22 @@ use bevy::{
     ui_widgets::{observe, Activate},
 };
 
-use shared::GameFolderPaths;
-
 use super::background::menu_background;
 use super::player_name::{change_name_on_activate, PlayerNameButton};
-use super::skins::{spawn_home_preview, HomePreview, SKINS_TITLE};
-use super::solo::SelectedWorld;
-use super::worlds::{
-    elapsed_since, last_played_world, played_ago, start_world, thumbnail_color, WorldSummary,
+use super::skins::{
+    spawn_home_preview, HomePreview, HOME_PREVIEW_MAX_WIDTH, HOME_PREVIEW_WIDTH_VH, SKINS_TITLE,
 };
 use super::MenuState;
-use crate::constants::SAVE_PATH;
 use crate::network::leave::QuitRequested;
 use crate::network::CurrentPlayerProfile;
-use crate::state::GameState;
 use crate::ui::assets::{load_font, load_title_image, MONO_FONT_PATH};
 use crate::ui::credits::{spawn_credits, Credits};
 use crate::ui::hud::progress::PlayerProgress;
-use crate::ui::theme::{
-    BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_L, FONT_S, MUTED, PANEL, SPACE_L, SPACE_M, SPACE_S,
-    SPACE_XL, SPACE_XS, SPACE_XXL, TEXT,
-};
+use crate::ui::theme::{FONT_S, MUTED, SPACE_L, SPACE_S, SPACE_XXL};
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::dialog::{spawn_dialog, Dialog, DialogClosed};
 use crate::ui::widgets::focus::{keep_focus_inside, ArrowNav};
-use crate::ui::widgets::hints::{hint_bar, Hint};
+use crate::ui::widgets::hints::{hint_bar, Hint, HINT_BAR_HEIGHT};
 
 /// The buttons of the main menu.
 #[derive(Component, Clone, Copy)]
@@ -48,58 +40,48 @@ pub enum MainMenuButton {
     Quit,
 }
 
-/// The card of the last world played, beside the skin on the main menu: its Play button, and
-/// Ctrl+Enter, play `world`.
-#[derive(Component)]
-pub struct ContinueCard {
-    pub world: String,
-}
-
 /// The title of the confirmation asked before quitting.
 pub const QUIT_TITLE: &str = "Quit Rustcraft?";
 /// The button of the credits.
 pub const CREDITS_LABEL: &str = "Credits";
 
-const TAB_HINT: Hint = Hint {
-    keys: "Tab",
-    action: "Move",
-};
-const ENTER_HINT: Hint = Hint {
-    keys: "Enter",
-    action: "Select",
-};
-const ESC_HINT: Hint = Hint {
-    keys: "Esc",
-    action: "Quit",
-};
-
 /// The key hints of the main menu.
-pub const MAIN_HINTS: [Hint; 3] = [TAB_HINT, ENTER_HINT, ESC_HINT];
-
-/// The key hint of the Continue card, shown only with the card.
-pub const CONTINUE_HINT: Hint = Hint {
-    keys: "Ctrl+Enter",
-    action: "Continue",
-};
+pub const MAIN_HINTS: [Hint; 4] = [
+    Hint {
+        keys: "Tab",
+        action: "Move",
+    },
+    Hint {
+        keys: "↑↓ ←→",
+        action: "Choose",
+    },
+    Hint {
+        keys: "Enter",
+        action: "Select",
+    },
+    Hint {
+        keys: "Esc",
+        action: "Quit",
+    },
+];
 
 /// The size of the title image, shown at its own size: its pixels stay crisp.
 const LOGO_SIZE: Vec2 = Vec2::new(601.0, 94.0);
-/// The transparent columns on the left of the title image, which the logo is moved left by so
-/// that its letters line up with the buttons.
-const LOGO_LEFT_MARGIN: f32 = 5.0;
+/// The space above the logo, in percent of the height of the window.
+const LOGO_TOP_VH: f32 = 9.0;
 
-/// The width of the panel of the Continue card.
-const CARD_WIDTH: f32 = 300.0;
-/// The width of the column of buttons, the widest label with room on each side.
-const BUTTON_COLUMN_WIDTH: f32 = 280.0;
-/// The side of the thumbnail of the Continue card.
-const THUMBNAIL_SIZE: f32 = 48.0;
+/// The width of the column of buttons, and the space between two of its rows.
+pub const BUTTON_COLUMN_WIDTH: f32 = 400.0;
+const BUTTON_GAP: f32 = SPACE_S;
+/// The space between the column and the skin beside it.
+const SIDE_GAP: f32 = SPACE_XXL;
 
-/// Spawns the main menu, the focus on Singleplayer, and the Continue card when a world was played.
+/// Spawns the main menu, the focus on Singleplayer: the logo at the top, under it a column of
+/// wide buttons in the middle of the window, the skin beside it on the right, balanced by as much
+/// room on the left.
 pub fn home_setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    paths: Res<GameFolderPaths>,
     profile: Res<CurrentPlayerProfile>,
     mut preview: HomePreview,
 ) {
@@ -119,8 +101,12 @@ pub fn home_setup(
                 width: percent(100),
                 height: percent(100),
                 flex_direction: FlexDirection::Column,
-                padding: UiRect::all(px(SPACE_XXL)),
-                row_gap: px(SPACE_XXL),
+                align_items: AlignItems::Center,
+                padding: UiRect {
+                    top: vh(LOGO_TOP_VH),
+                    bottom: px(HINT_BAR_HEIGHT),
+                    ..default()
+                },
                 ..default()
             },
             ChildOf(root),
@@ -131,232 +117,156 @@ pub fn home_setup(
         Node {
             width: px(LOGO_SIZE.x),
             height: px(LOGO_SIZE.y),
-            margin: UiRect::left(px(-LOGO_LEFT_MARGIN)),
+            flex_shrink: 0.0,
             ..default()
         },
         ChildOf(content),
     ));
-    // the buttons on the left; on the right the card of the last world, then the skin. The
-    // buttons and the card narrow in the smallest window
-    let row = commands
+    // the buttons and the skin, in the middle of the room under the logo, a little above it
+    let room = commands
         .spawn((
-            ArrowNav,
             Node {
-                column_gap: px(SPACE_L),
-                align_items: AlignItems::FlexStart,
+                flex_grow: 1.0,
+                flex_direction: FlexDirection::Column,
+                justify_content: JustifyContent::Center,
+                padding: UiRect::bottom(vh(10)),
                 ..default()
             },
             ChildOf(content),
         ))
         .id();
+    let row = commands
+        .spawn((
+            ArrowNav,
+            Node {
+                column_gap: px(SIDE_GAP),
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            ChildOf(room),
+        ))
+        .id();
+    // as wide as the skin, so that the column stays in the middle of the window
+    commands.spawn((
+        Node {
+            width: vh(HOME_PREVIEW_WIDTH_VH),
+            max_width: px(HOME_PREVIEW_MAX_WIDTH),
+            ..default()
+        },
+        ChildOf(row),
+    ));
     let column = commands
         .spawn((
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_S),
+                row_gap: px(BUTTON_GAP),
                 width: px(BUTTON_COLUMN_WIDTH),
+                flex_shrink: 0.0,
                 ..default()
             },
             ChildOf(row),
         ))
         .id();
-    let buttons = [
-        (MainMenuButton::Singleplayer, "Singleplayer"),
-        (MainMenuButton::Multiplayer, "Multiplayer"),
-        (MainMenuButton::Settings, "Settings"),
-    ];
-    for (index, (action, label)) in buttons.into_iter().enumerate() {
-        let mut entity = commands.spawn((
-            button(label, ButtonVariant::Default, font.clone()),
-            action,
-            ChildOf(column),
-        ));
-        if index == 0 {
-            entity.insert(AutoFocus);
-        }
-    }
-    commands
+    let wide = |commands: &mut Commands, label: &str, action: MainMenuButton| {
+        commands
+            .spawn((
+                button(label, ButtonVariant::Default, font.clone()),
+                action,
+                ChildOf(column),
+            ))
+            .id()
+    };
+    let singleplayer = wide(&mut commands, "Singleplayer", MainMenuButton::Singleplayer);
+    commands.entity(singleplayer).insert(AutoFocus);
+    wide(&mut commands, "Multiplayer", MainMenuButton::Multiplayer);
+    wide(&mut commands, CREDITS_LABEL, MainMenuButton::Credits);
+    // Settings and Quit, half as wide each, a little apart from the rows above
+    let pair = commands
         .spawn((
-            button(CREDITS_LABEL, ButtonVariant::Ghost, font.clone()),
-            MainMenuButton::Credits,
+            Node {
+                column_gap: px(BUTTON_GAP),
+                margin: UiRect::top(px(SPACE_S)),
+                ..default()
+            },
             ChildOf(column),
         ))
-        .entry::<Node>()
-        .and_modify(|mut node| node.margin = UiRect::top(px(SPACE_XL)));
-    commands.spawn((
-        button("Quit game", ButtonVariant::Ghost, font.clone()),
-        MainMenuButton::Quit,
-        ChildOf(column),
-    ));
-    let last_world = last_played_world(&paths.game_folder_path.join(SAVE_PATH));
-    let hints: &[Hint] = match &last_world {
-        Some(world) => {
-            commands.spawn((continue_card(world, &font), ChildOf(row)));
-            &[TAB_HINT, ENTER_HINT, CONTINUE_HINT, ESC_HINT]
-        }
-        None => &MAIN_HINTS,
-    };
+        .id();
+    for (label, action) in [
+        ("Settings", MainMenuButton::Settings),
+        ("Quit game", MainMenuButton::Quit),
+    ] {
+        commands
+            .spawn((
+                button(label, ButtonVariant::Default, font.clone()),
+                action,
+                ChildOf(pair),
+            ))
+            .entry::<Node>()
+            .and_modify(|mut node| {
+                node.flex_grow = 1.0;
+                node.flex_basis = px(0);
+            });
+    }
+    // the player's name over the model, as a name tag, and the Skin button under it
     let skin = commands
         .spawn((
             Node {
                 flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
                 row_gap: px(SPACE_S),
                 flex_shrink: 0.0,
-                // beside the card, which is pushed to the right itself
-                margin: match &last_world {
-                    Some(_) => UiRect::DEFAULT,
-                    None => UiRect::left(auto()),
-                },
                 ..default()
             },
             ChildOf(row),
         ))
         .id();
-    spawn_home_preview(&mut commands, skin, &asset_server, &mut preview);
     commands.spawn((
-        button(SKINS_TITLE, ButtonVariant::Default, font.clone()),
-        MainMenuButton::Skin,
+        button(&profile.name, ButtonVariant::Ghost, font.clone()),
+        PlayerNameButton,
+        observe(change_name_on_activate),
         ChildOf(skin),
     ));
-    // the version, and under it the player's name, whose text lines up with it
-    let corner = commands
-        .spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                top: px(SPACE_XXL),
-                right: px(SPACE_XXL),
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::FlexEnd,
-                row_gap: px(SPACE_XS),
-                ..default()
-            },
-            ChildOf(root),
-        ))
-        .id();
-    commands.spawn((
-        Text(format!("v{}", env!("CARGO_PKG_VERSION"))),
-        TextFont {
-            font: font.clone().into(),
-            font_size: px(FONT_S).into(),
-            ..default()
-        },
-        TextColor(MUTED),
-        ChildOf(corner),
-    ));
+    spawn_home_preview(&mut commands, skin, &asset_server, &mut preview);
     commands
         .spawn((
-            button(&profile.name, ButtonVariant::Ghost, font.clone()),
-            PlayerNameButton,
-            observe(change_name_on_activate),
-            ChildOf(corner),
+            button(SKINS_TITLE, ButtonVariant::Default, font.clone()),
+            MainMenuButton::Skin,
+            ChildOf(skin),
         ))
         .entry::<Node>()
-        .and_modify(|mut node| node.margin = UiRect::right(px(-SPACE_L - BEVEL_WIDTH)));
-    commands.spawn((hint_bar(hints, font, glyph_font), ChildOf(root)));
-}
-
-/// The Continue card of `world`: its thumbnail, name, day and when it was played, and Play.
-fn continue_card(world: &WorldSummary, font: &Handle<Font>) -> impl Bundle {
-    let text = |content: String, size: f32, color: Color| {
-        (
-            Text::new(content),
-            TextFont {
-                font: font.clone().into(),
-                font_size: px(size).into(),
-                ..default()
-            },
-            TextColor(color),
-            // a long name without spaces breaks rather than leave the panel
-            TextLayout::linebreak(LineBreak::WordOrCharacter),
-        )
-    };
-    let elapsed = elapsed_since(world.played);
-    let mut details = vec![text(world.name.clone(), FONT_L, TEXT)];
-    if let Some(day) = world.day {
-        details.push(text(format!("Day {day}"), FONT_S, TEXT));
-    }
-    details.push(text(played_ago(elapsed), FONT_S, MUTED));
-    let summary = (
+        .and_modify(|mut node| node.align_self = AlignSelf::Stretch);
+    commands.spawn((
+        hint_bar(&MAIN_HINTS, font.clone(), glyph_font),
+        ChildOf(root),
+    ));
+    // the version, at the right end of the bar of the key hints
+    commands.spawn((
         Node {
-            column_gap: px(SPACE_M),
+            position_type: PositionType::Absolute,
+            right: px(SPACE_L),
+            bottom: px(0),
+            height: px(HINT_BAR_HEIGHT),
             align_items: AlignItems::Center,
             ..default()
         },
-        children![
-            (
-                Node {
-                    width: px(THUMBNAIL_SIZE),
-                    height: px(THUMBNAIL_SIZE),
-                    flex_shrink: 0.0,
-                    border: UiRect::all(px(BEVEL_WIDTH)),
-                    ..default()
-                },
-                BackgroundColor(thumbnail_color(world.seed)),
-                BorderColor {
-                    top: BEVEL_LO,
-                    left: BEVEL_LO,
-                    bottom: BEVEL_HI,
-                    right: BEVEL_HI,
-                },
-            ),
-            (
-                Node {
-                    flex_direction: FlexDirection::Column,
-                    ..default()
-                },
-                Children::spawn(SpawnIter(details.into_iter())),
-            ),
-        ],
-    );
-    let panel = (
-        Node {
-            flex_direction: FlexDirection::Column,
-            row_gap: px(SPACE_L),
-            padding: UiRect::all(px(SPACE_L)),
-            border: UiRect::all(px(BEVEL_WIDTH)),
-            ..default()
-        },
-        BackgroundColor(PANEL),
-        BorderColor {
-            top: BEVEL_HI,
-            left: BEVEL_HI,
-            bottom: BEVEL_LO,
-            right: BEVEL_LO,
-        },
-        Children::spawn((
-            Spawn(summary),
-            Spawn((
-                button("Play", ButtonVariant::Primary, font.clone()),
-                observe(play_last_world),
-            )),
-        )),
-    );
-    (
-        ContinueCard {
-            world: world.name.clone(),
-        },
-        Node {
-            width: px(CARD_WIDTH),
-            margin: UiRect::left(auto()),
-            flex_direction: FlexDirection::Column,
-            row_gap: px(SPACE_S),
-            ..default()
-        },
-        children![text("Continue".to_string(), FONT_S, MUTED), panel],
-    )
-}
-
-/// Whether a Control key is held: Ctrl+Enter belongs to the card of the last world, not to the
-/// focused button.
-fn ctrl_held(keys: &ButtonInput<KeyCode>) -> bool {
-    keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight])
+        Pickable::IGNORE,
+        ChildOf(root),
+        children![(
+            Text(format!("v{}", env!("CARGO_PKG_VERSION"))),
+            TextFont {
+                font: font.into(),
+                font_size: px(FONT_S).into(),
+                ..default()
+            },
+            TextColor(MUTED),
+        )],
+    ));
 }
 
 /// Carries out the button of the main menu that was activated.
 pub fn activate_main_menu_button(
     event: On<Activate>,
     buttons: Query<&MainMenuButton>,
-    keys: Res<ButtonInput<KeyCode>>,
     mut menu_state: ResMut<NextState<MenuState>>,
     asset_server: Res<AssetServer>,
     mut focus: ResMut<InputFocus>,
@@ -365,9 +275,6 @@ pub fn activate_main_menu_button(
     let Ok(action) = buttons.get(event.entity) else {
         return;
     };
-    if ctrl_held(&keys) {
-        return;
-    }
     match action {
         MainMenuButton::Singleplayer => menu_state.set(MenuState::Solo),
         MainMenuButton::Multiplayer => menu_state.set(MenuState::Multi),
@@ -405,49 +312,6 @@ fn open_credits(
         );
     keep_focus_inside(commands, root, Some(root));
     focus.set(root, FocusCause::Navigated);
-}
-
-/// The Play button of the Continue card plays the last world.
-fn play_last_world(
-    _: On<Activate>,
-    cards: Query<&ContinueCard>,
-    mut selected: ResMut<SelectedWorld>,
-    mut game: ResMut<NextState<GameState>>,
-    mut menu: ResMut<NextState<MenuState>>,
-    mut commands: Commands,
-) {
-    if let Ok(card) = cards.single() {
-        start_world(
-            &card.world,
-            &mut selected,
-            &mut commands,
-            &mut game,
-            &mut menu,
-        );
-    }
-}
-
-/// Ctrl+Enter plays the last world, wherever the focus is on the main menu.
-pub fn continue_on_ctrl_enter(
-    keys: Res<ButtonInput<KeyCode>>,
-    cards: Query<&ContinueCard>,
-    mut selected: ResMut<SelectedWorld>,
-    mut game: ResMut<NextState<GameState>>,
-    mut menu: ResMut<NextState<MenuState>>,
-    mut commands: Commands,
-) {
-    if !(keys.just_pressed(KeyCode::Enter) && ctrl_held(&keys)) {
-        return;
-    }
-    if let Ok(card) = cards.single() {
-        start_world(
-            &card.world,
-            &mut selected,
-            &mut commands,
-            &mut game,
-            &mut menu,
-        );
-    }
 }
 
 /// Asks "Quit Rustcraft?" when Escape is pressed on the main menu with no dialog open. Opened

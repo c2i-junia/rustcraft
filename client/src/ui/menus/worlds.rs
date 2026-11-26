@@ -31,7 +31,7 @@ pub struct WorldSummary {
     pub day: Option<u64>,
     /// When the world was last saved.
     pub played: SystemTime,
-    /// The bytes of every file of the world's folder, 0 from `last_played_world`.
+    /// The bytes of every file of the world's folder.
     pub size: u64,
 }
 
@@ -40,12 +40,6 @@ pub struct WorldSummary {
 /// and are `None` when it cannot be read. Names that are not UTF-8 are skipped; a missing or
 /// unreadable `saves` gives none. Creates nothing.
 pub fn list_worlds(saves: &Path) -> Vec<WorldSummary> {
-    summaries(saves, true)
-}
-
-/// The worlds of `list_worlds`, whose folders are measured only when `measured`: a world of
-/// thousands of chunk files takes tens of milliseconds to measure.
-fn summaries(saves: &Path, measured: bool) -> Vec<WorldSummary> {
     let Ok(entries) = fs::read_dir(saves) else {
         return Vec::new();
     };
@@ -63,18 +57,13 @@ fn summaries(saves: &Path, measured: bool) -> Vec<WorldSummary> {
                 seed: meta.as_ref().map(|meta| meta.seed.0),
                 day: meta.as_ref().map(|meta| day_of(meta.time)),
                 played,
-                size: if measured { folder_size(&folder) } else { 0 },
+                size: folder_size(&folder),
             })
         })
         .collect();
     // the name breaks a tie, so that the same folder always lists the same way
     worlds.sort_by(|a, b| b.played.cmp(&a.played).then_with(|| a.name.cmp(&b.name)));
     worlds
-}
-
-/// The world whose `world.ron` was modified last: the first of `list_worlds`, without its size.
-pub fn last_played_world(saves: &Path) -> Option<WorldSummary> {
-    summaries(saves, false).into_iter().next()
 }
 
 /// The `world.ron` of the world stored in `folder`, if it can be read as `WorldMeta`.
@@ -426,14 +415,14 @@ mod tests {
     }
 
     #[test]
-    fn the_last_played_world_is_the_newest_world_ron() {
+    fn the_newest_world_ron_lists_first() {
         let saves = tempfile::tempdir().unwrap();
         save_world(saves.path(), "Old", 1, 0, 5 * DAY);
         save_world(saves.path(), "Recent", 2, 0, 2 * HOUR);
         // a newer folder, but not a world
         fs::create_dir(saves.path().join("Newer")).unwrap();
 
-        let world = last_played_world(saves.path()).unwrap();
+        let world = list_worlds(saves.path()).remove(0);
         assert_eq!(world.name, "Recent");
     }
 
@@ -448,7 +437,7 @@ mod tests {
             HOUR,
         );
 
-        let world = last_played_world(saves.path()).unwrap();
+        let world = list_worlds(saves.path()).remove(0);
         assert_eq!(world.seed, Some(7));
         assert_eq!(world.day, Some(4));
     }
@@ -458,7 +447,7 @@ mod tests {
         let saves = tempfile::tempdir().unwrap();
         write_world_ron(saves.path(), "Broken", "", HOUR);
 
-        let world = last_played_world(saves.path()).unwrap();
+        let world = list_worlds(saves.path()).remove(0);
         assert_eq!(world.name, "Broken");
         assert_eq!(world.day, None);
         assert_eq!(world.seed, None);
@@ -467,7 +456,7 @@ mod tests {
     #[test]
     fn no_saves_folder_means_no_world() {
         let folder = tempfile::tempdir().unwrap();
-        assert!(last_played_world(&folder.path().join("saves")).is_none());
+        assert!(list_worlds(&folder.path().join("saves")).is_empty());
     }
 
     #[test]
@@ -495,7 +484,7 @@ mod tests {
             write_world_ron_at(saves.path(), name, "", same);
         }
 
-        assert_eq!(last_played_world(saves.path()).unwrap().name, "Alpha");
+        assert_eq!(list_worlds(saves.path()).remove(0).name, "Alpha");
     }
 
     #[test]
@@ -503,7 +492,7 @@ mod tests {
         let saves = tempfile::tempdir().unwrap();
         write_world_ron_at(saves.path(), "Ahead", "", SystemTime::now() + DAY);
 
-        let world = last_played_world(saves.path()).unwrap();
+        let world = list_worlds(saves.path()).remove(0);
         assert_eq!(played_ago(elapsed_since(world.played)), "played just now");
     }
 

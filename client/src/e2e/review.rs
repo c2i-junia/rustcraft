@@ -43,7 +43,7 @@ use crate::ui::menus::pause::WORLD_SAVED;
 use crate::ui::menus::servers::SERVER_EXISTS;
 use crate::ui::menus::settings::controls::PRESS_A_KEY;
 use crate::ui::menus::worlds::WORLD_EXISTS;
-use crate::ui::menus::{ContinueCard, QUIT_TITLE};
+use crate::ui::menus::QUIT_TITLE;
 use crate::ui::quit::spawn_quitting_card;
 use crate::world::ClientWorldMap;
 use shared::DAY_DURATION_IN_TICKS;
@@ -74,7 +74,7 @@ fn to_discard(_: &ServerAddress) -> std::io::Result<SocketAddr> {
     Ok(DISCARD)
 }
 
-/// The folder of the menus: `Review` for the Continue card, last played, then older worlds, one
+/// The folder of the menus: `Review`, last played, then older worlds, one
 /// with the longest name and one whose `world.ron` cannot be read; and a server of every status
 /// `fixed_status` gives, then one with the longest name and address.
 fn menus_folder() -> GameFolder {
@@ -286,13 +286,13 @@ impl Harness {
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 #[ignore = "review snapshots: UI_SNAPSHOTS=1 cargo test -p client review -- --ignored"]
 fn every_screen_at_three_resolutions() {
-    // The menus, with one client that is resized and a world for the Continue card
+    // The menus, with one client that is resized and its worlds and servers
     let mut h = Harness::start(menus_folder(), Options::default());
     h.world_mut().insert_resource(StatusProbe(fixed_status));
     h.wait_for(&L::text("Singleplayer"), STARTUP);
     for (width, height) in RESOLUTIONS {
         h.resize(width, height);
-        h.wait_for(&L::marker::<ContinueCard>(), SCREEN);
+        h.wait_for(&L::text("Singleplayer"), SCREEN);
         h.settled_snapshot("main");
         h.press(KeyCode::Escape);
         h.wait_for(&L::role(Role::Dialog, QUIT_TITLE), SCREEN);

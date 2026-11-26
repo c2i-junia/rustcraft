@@ -54,6 +54,9 @@ pub const PREVIEW_LAYER: usize = 30;
 const PREVIEW_SIZE: u32 = 240;
 /// The largest size of the preview of the main menu, in pixels.
 const HOME_PREVIEW_SIZE: UVec2 = UVec2::new(300, 400);
+/// The width of the preview of the main menu, in percent of the height of the window, and at most.
+pub const HOME_PREVIEW_WIDTH_VH: f32 = 21.0;
+pub const HOME_PREVIEW_MAX_WIDTH: f32 = HOME_PREVIEW_SIZE.x as f32;
 /// How fast the model of the preview turns, in radians a second: a turn in about 12 s.
 const PREVIEW_TURN_SPEED: f32 = 0.5;
 /// The width of the pane of the preview.
@@ -306,7 +309,8 @@ pub struct HomePreview<'w> {
 }
 
 /// Spawns under `parent` the model wearing the chosen skin, which slowly turns on the main menu:
-/// as wide as 30% of the height of the window and as high as 40%, up to `HOME_PREVIEW_SIZE`.
+/// as wide as `HOME_PREVIEW_WIDTH_VH` percent of the height of the window and a third higher, up
+/// to `HOME_PREVIEW_SIZE`.
 pub fn spawn_home_preview(
     commands: &mut Commands,
     parent: Entity,
@@ -333,9 +337,9 @@ pub fn spawn_home_preview(
         SkinPreview,
         ImageNode::new(picture),
         Node {
-            width: vh(30),
-            height: vh(40),
-            max_width: px(size.x as f32),
+            width: vh(HOME_PREVIEW_WIDTH_VH),
+            height: vh(HOME_PREVIEW_WIDTH_VH * 4.0 / 3.0),
+            max_width: px(HOME_PREVIEW_MAX_WIDTH),
             max_height: px(size.y as f32),
             flex_shrink: 0.0,
             ..default()

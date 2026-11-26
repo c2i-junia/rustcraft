@@ -68,12 +68,6 @@ pub fn menu_plugin(app: &mut App) {
                 .run_if(not(modal_open))
                 .run_if(not(text_field_focused)),
         )
-        .add_systems(
-            Update,
-            continue_on_ctrl_enter
-                .run_if(in_state(MenuState::Main))
-                .run_if(not(modal_open)),
-        )
         .add_observer(activate_main_menu_button)
         .add_systems(
             Update,

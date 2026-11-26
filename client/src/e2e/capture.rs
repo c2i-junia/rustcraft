@@ -209,8 +209,6 @@ impl Harness {
 #[cfg(test)]
 mod tests {
 
-    use std::time::Duration;
-
     use bevy::input_focus::tab_navigation::TabIndex;
     use bevy::prelude::*;
 
@@ -225,10 +223,7 @@ mod tests {
     #[test]
     #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
     fn the_main_menu_matches_its_golden() {
-        // a fixed age, so that the card says the same thing every time
-        let played_ago = Duration::from_secs((3 * 24 + 1) * 60 * 60);
-        let folder = GameFolder::new().with_played_world("Survie", 0, played_ago);
-        let mut h = Harness::start(folder, Options::default());
+        let mut h = Harness::start(GameFolder::new(), Options::default());
         h.wait_for(&L::text("Multiplayer"), STARTUP);
         // the model of the skin faces the player, rather than however far it turned
         let world = h.world_mut();
@@ -256,8 +251,8 @@ mod tests {
         h.wait_for(&L::text("Quit game"), STARTUP);
         h.resize(800, 600);
         let quit = h.center_of(&L::text("Quit game"));
-        // in the column of buttons on the left, inside the window
-        assert!((0.0..400.0).contains(&quit.x), "Quit game is at {quit}");
+        // in the right half of the column in the middle, inside the window
+        assert!((400.0..800.0).contains(&quit.x), "Quit game is at {quit}");
         assert!((0.0..600.0).contains(&quit.y), "Quit game is at {quit}");
         assert_eq!(h.screenshot().dimensions(), (800, 600));
     }
