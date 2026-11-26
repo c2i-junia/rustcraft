@@ -219,6 +219,12 @@ pub fn close_dialog(commands: &mut Commands, root: Entity, restore_focus: bool) 
         });
 }
 
+/// Closes the dialog in `PostUpdate` with `DialogClosed { action: None }`, as Escape does: none
+/// of its actions is taken. For a dialog closed by something else than the player.
+pub fn dismiss_dialog(commands: &mut Commands, root: Entity) {
+    commands.entity(root).insert(CloseRequest::new(None));
+}
+
 /// Gives the dialog `root` a fixed `width`, still at most 90 % of the window: a long body then
 /// wraps on a few lines rather than spreads across the window.
 pub fn set_dialog_width(commands: &mut Commands, root: Entity, width: f32) {

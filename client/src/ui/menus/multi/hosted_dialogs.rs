@@ -146,17 +146,20 @@ pub(super) fn plugin(app: &mut App) {
     app.add_observer(change_member);
 }
 
-/// Spawns a call to the hub with the account's client and session, on the tab's calls.
+/// Spawns a call to the hub with the account's client and session, on the tab's calls, which
+/// the Members dialog `dialog` waits for. Whether it was spawned.
 fn call_hub(
     account: &Account,
     calls: &mut Query<&mut HubCalls>,
+    dialog: Option<Entity>,
     call: impl FnOnce(&HubClient, &str) -> Answer + Send + 'static,
-) {
+) -> bool {
     let (Account::LoggedIn(file), Ok(mut calls)) = (account, calls.single_mut()) else {
-        return;
+        return false;
     };
     let (client, session) = (HubClient::new(&file.hub), file.session.clone());
-    calls.spawn(move || call(&client, &session));
+    calls.spawn(dialog, move || call(&client, &session));
+    true
 }
 
 /// Opens the form of a new world: its name, an optional seed, and the choices of the world.
@@ -312,7 +315,7 @@ fn create_on_submit(
     };
     form.busy = true;
     apply_form_check(&mut commands, form_root, vec![None, None], false);
-    call_hub(&account, &mut calls, move |client, session| {
+    call_hub(&account, &mut calls, None, move |client, session| {
         Answer::Created {
             result: client.create_realm(session, &request),
             form: form_root,
@@ -592,7 +595,7 @@ fn set_members_busy(world: &mut World, dialog: Entity, busy: bool) {
     }
 }
 
-/// Makes the Members dialog `dialog` usable again, once the hub answered its change.
+/// Makes the Members dialog `dialog` usable again, once its call was answered, lost or forgotten.
 pub(super) fn members_idle(commands: &mut Commands, dialog: Entity) {
     commands.queue(move |world: &mut World| set_members_busy(world, dialog, false));
 }
@@ -618,16 +621,17 @@ fn add_member_on_submit(
         return;
     }
     let realm = dialog.realm;
-    commands.queue(move |world: &mut World| set_members_busy(world, root, true));
-    call_hub(&account, &mut calls, move |client, session| {
+    let spawned = call_hub(&account, &mut calls, Some(root), move |client, session| {
         Answer::Changed {
             result: client.set_member(session, realm, &username, MemberRole::Member),
             done: format!("Added {username}."),
             focus: Some(realm),
             field: Some(input),
-            dialog: Some(root),
         }
     });
+    if spawned {
+        commands.queue(move |world: &mut World| set_members_busy(world, root, true));
+    }
 }
 
 /// Carries out a button of a row of the Members dialog.
@@ -653,8 +657,7 @@ fn change_member(
     else {
         return;
     };
-    commands.queue(move |world: &mut World| set_members_busy(world, root, true));
-    call_hub(&account, &mut calls, move |client, session| {
+    let spawned = call_hub(&account, &mut calls, Some(root), move |client, session| {
         let (result, done) = match change {
             MemberChange::Role(role) => (
                 client.set_member(session, realm, &username, role),
@@ -673,9 +676,11 @@ fn change_member(
             done,
             focus: Some(realm),
             field: None,
-            dialog: Some(root),
         }
     });
+    if spawned {
+        commands.queue(move |world: &mut World| set_members_busy(world, root, true));
+    }
 }
 
 /// Empties the field of a player just added.
@@ -727,13 +732,12 @@ pub fn open_stop_dialog(
             if closed.action != Some(1) {
                 return;
             }
-            call_hub(&account, &mut calls, move |client, session| {
+            call_hub(&account, &mut calls, None, move |client, session| {
                 Answer::Changed {
                     result: client.stop_realm(session, id),
                     done: String::new(),
                     focus: Some(id),
                     field: None,
-                    dialog: None,
                 }
             });
         },
@@ -770,13 +774,12 @@ pub fn open_delete_dialog(
                 return;
             }
             let name = name.clone();
-            call_hub(&account, &mut calls, move |client, session| {
+            call_hub(&account, &mut calls, None, move |client, session| {
                 Answer::Changed {
                     result: client.delete_realm(session, id),
                     done: format!("Deleted \"{name}\"."),
                     focus: next,
                     field: None,
-                    dialog: None,
                 }
             });
         },

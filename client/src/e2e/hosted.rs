@@ -519,3 +519,43 @@ fn a_session_the_hub_refuses_at_the_start_of_a_world_offers_no_try_again() {
     h.click(&L::role(Role::Button, "Back to Hosted worlds"));
     h.wait_for(&L::text(LOGGED_OUT), SCREEN);
 }
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_confirmation_open_when_the_account_changes_closes_without_its_action() {
+    let hub = hub_with(
+        vec![list(&[home()])],
+        vec![
+            ("DELETE", realm_path(&home(), ""), vec![Canned::empty(204)]),
+            (
+                "POST",
+                realm_path(&home(), "/stop"),
+                vec![Canned::empty(202)],
+            ),
+        ],
+    );
+    let mut h = hosted_tab(&hub, StatusProbe::default());
+    h.wait_for(&card("Home"), SCREEN);
+    h.click(&pane_button("Delete"));
+    let delete = || dialog("Delete \"Home\"?");
+    h.wait_for(&delete(), SCREEN);
+
+    // another account logs in while the confirmation is open
+    let Account::LoggedIn(mut file) = h.world().resource::<Account>().clone() else {
+        panic!("not logged in");
+    };
+    file.account = Uuid::from_u128(9);
+    file.username = "Alex".into();
+    file.session = "other".into();
+    h.world_mut().insert_resource(Account::LoggedIn(file));
+    h.frames(5);
+    assert!(!h.is_visible(&delete()));
+    h.wait_until("the worlds listed for the new account", SCREEN, |_| {
+        hub.requests()
+            .iter()
+            .any(|request| request.header("authorization") == Some("Bearer other"))
+    });
+    h.frames(10);
+    assert!(requests_to(&hub, "DELETE", &realm_path(&home(), "")).is_empty());
+    assert!(requests_to(&hub, "POST", &realm_path(&home(), "/stop")).is_empty());
+}

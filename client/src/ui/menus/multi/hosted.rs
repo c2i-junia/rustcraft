@@ -51,7 +51,7 @@ use crate::ui::theme::{
     SPACE_S, SPACE_XL, SPACE_XS, TEXT,
 };
 use crate::ui::widgets::button::{button, ButtonVariant};
-use crate::ui::widgets::dialog::close_dialog;
+use crate::ui::widgets::dialog::dismiss_dialog;
 use crate::ui::widgets::focus::ArrowNav;
 use crate::ui::widgets::hints::{Hint, HINT_BAR_HEIGHT};
 use crate::ui::widgets::list::{spawn_list_card, spawn_scroll_list, CardSelected, WheelStep};
@@ -98,9 +98,20 @@ struct HostedParts {
 }
 
 /// The calls to the hub waiting for their answer, on the screen's root: leaving the screen drops
-/// them, and their answers. Each is sent at an instant, and lists the worlds or not.
+/// them, and their answers.
 #[derive(Component, Default)]
-pub struct HubCalls(Vec<(Instant, bool, InFlight<Answer>)>);
+pub struct HubCalls(Vec<Call>);
+
+/// A call to the hub waiting for its answer.
+struct Call {
+    sent: Instant,
+    /// Whether it lists the worlds.
+    listing: bool,
+    /// The Members dialog that waits for it: usable again once it is answered, lost or
+    /// forgotten.
+    dialog: Option<Entity>,
+    answer: InFlight<Answer>,
+}
 
 /// What a call to the hub answered.
 pub enum Answer {
@@ -116,14 +127,12 @@ pub enum Answer {
     },
     /// A change to a world or to its members. Done, `done` is said in a toast (unless empty)
     /// and the worlds are listed again, `focus` selected; failed, the hub's message shows under
-    /// the field `field`, else in a toast. The Members dialog `dialog` it came from is usable
-    /// again.
+    /// the field `field`, else in a toast.
     Changed {
         result: Result<(), HubError>,
         done: String,
         focus: Option<Uuid>,
         field: Option<Entity>,
-        dialog: Option<Entity>,
     },
     /// The call could not start: there was no thread for it.
     Lost,
@@ -142,15 +151,33 @@ impl Answer {
 }
 
 impl HubCalls {
-    /// Runs `call` on a thread; its answer is taken by `take_answers`.
-    pub fn spawn(&mut self, call: impl FnOnce() -> Answer + Send + 'static) {
-        self.0
-            .push((Instant::now(), false, InFlight::spawn(Answer::Lost, call)));
+    /// Runs `call` on a thread, which the Members dialog `dialog` waits for; its answer is
+    /// taken by `take_answers`.
+    pub fn spawn(
+        &mut self,
+        dialog: Option<Entity>,
+        call: impl FnOnce() -> Answer + Send + 'static,
+    ) {
+        self.push(false, dialog, call);
+    }
+
+    fn push(
+        &mut self,
+        listing: bool,
+        dialog: Option<Entity>,
+        call: impl FnOnce() -> Answer + Send + 'static,
+    ) {
+        self.0.push(Call {
+            sent: Instant::now(),
+            listing,
+            dialog,
+            answer: InFlight::spawn(Answer::Lost, call),
+        });
     }
 
     /// Whether the worlds are being listed.
     fn listing(&self) -> bool {
-        self.0.iter().any(|&(_, listing, _)| listing)
+        self.0.iter().any(|call| call.listing)
     }
 }
 
@@ -444,16 +471,13 @@ fn account_id(account: &Account) -> Option<Uuid> {
 /// A listing still waiting for its answer is forgotten: it may be older than a change just made.
 pub fn list_worlds(calls: &mut HubCalls, file: &AccountFile, focus: Option<Uuid>) {
     let (client, session) = (HubClient::new(&file.hub), file.session.clone());
-    calls.0.retain(|&(_, listing, _)| !listing);
-    let call = move || Answer::Listed {
+    calls.0.retain(|call| !call.listing);
+    calls.push(true, None, move || Answer::Listed {
         result: client
             .me(&session)
             .and_then(|me| Ok((me, client.realms(&session)?))),
         focus,
-    };
-    calls
-        .0
-        .push((Instant::now(), true, InFlight::spawn(Answer::Lost, call)));
+    });
 }
 
 /// Lists the worlds again on Refresh or F5, unless they are being listed.
@@ -545,7 +569,8 @@ fn follow_the_account(
     };
     calls.0.clear();
     for dialog in &dialogs {
-        close_dialog(&mut commands, dialog, false);
+        // without an action: a confirmation closed so must not stop or delete anything
+        dismiss_dialog(&mut commands, dialog);
     }
     if let Account::LoggedIn(file) = &*account {
         list_worlds(&mut calls, file, None);
@@ -601,17 +626,22 @@ fn take_answers(
         return;
     };
     let mut answers = Vec::new();
-    calls.0.retain(|(sent, _, call)| match call.take() {
-        Some(answer) => {
-            answers.push(answer);
-            false
+    let mut done = Vec::new();
+    calls.0.retain(|call| {
+        match call.answer.take() {
+            Some(answer) => answers.push(answer),
+            None if call.sent.elapsed() > CALL_DEADLINE => {
+                warn!("A call to the hub never came back, forgetting it");
+            }
+            None => return true,
         }
-        None if sent.elapsed() > CALL_DEADLINE => {
-            warn!("A call to the hub never came back, forgetting it");
-            false
-        }
-        None => true,
+        done.extend(call.dialog);
+        false
     });
+    // before the answers: what the dialog shows of them comes after
+    for dialog in done {
+        hosted_dialogs::members_idle(&mut commands, dialog);
+    }
     if answers.is_empty() {
         return;
     }
@@ -681,12 +711,8 @@ fn take_answers(
                 done,
                 focus,
                 field,
-                dialog,
             } => match result {
                 Ok(()) => {
-                    if let Some(dialog) = dialog {
-                        hosted_dialogs::members_idle(&mut commands, dialog);
-                    }
                     if !done.is_empty() {
                         show_toast(&mut commands, &done, ToastKind::Info, font.clone());
                     }
@@ -695,17 +721,12 @@ fn take_answers(
                     }
                     list_worlds(&mut calls, file, focus.or(reselect));
                 }
-                Err(error) => {
-                    if let Some(dialog) = dialog {
-                        hosted_dialogs::members_idle(&mut commands, dialog);
+                Err(error) => match field {
+                    Some(field) => {
+                        hosted_dialogs::field_error(&mut commands, field, &error, &hub);
                     }
-                    match field {
-                        Some(field) => {
-                            hosted_dialogs::field_error(&mut commands, field, &error, &hub);
-                        }
-                        None => say(&mut commands, &error),
-                    }
-                }
+                    None => say(&mut commands, &error),
+                },
             },
             Answer::Lost => warn!("No thread could call the hub"),
         }

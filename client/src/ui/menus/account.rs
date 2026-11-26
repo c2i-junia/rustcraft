@@ -33,8 +33,8 @@ use crate::ui::theme::{
 };
 use crate::ui::widgets::button::{button, set_label, ButtonVariant};
 use crate::ui::widgets::dialog::{
-    apply_form_check, close_dialog, set_dialog_width, spawn_dialog, spawn_form_dialog,
-    CloseRequest, Dialog, DialogClosed, DialogPanel, DialogSubmit, FormChanged,
+    apply_form_check, close_dialog, dismiss_dialog, set_dialog_width, spawn_dialog,
+    spawn_form_dialog, CloseRequest, Dialog, DialogClosed, DialogPanel, DialogSubmit, FormChanged,
 };
 use crate::ui::widgets::hints::Hint;
 use crate::ui::widgets::tabs::{spawn_tabs, TabChange, Tabs};
@@ -1048,7 +1048,7 @@ pub(crate) fn end_revoked_session(commands: &mut Commands, id: Uuid) {
         let font = world.resource::<AssetServer>().load(FONT_PATH);
         let mut commands = world.commands();
         for dialog in dialogs {
-            close_dialog(&mut commands, dialog, true);
+            dismiss_dialog(&mut commands, dialog);
         }
         show_toast(&mut commands, SESSION_ENDED, ToastKind::Error, font);
         world.flush();

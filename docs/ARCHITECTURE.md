@@ -1325,7 +1325,7 @@ cards and its detail pane again from each answer; one listing at a time, the new
 forgets the one still waiting, and Refresh waits for it. Logged out, it offers the Account
 dialog (`NextDialog`); a session the hub refuses (401) logs the account out through
 `end_revoked_session`, as at start, and the dialogs of the tab (`HostedDialog`) close when the
-account changes. The buttons follow what the player is to the world (`standing`): Join for
+account changes, without their action (`dismiss_dialog`, as Escape). The buttons follow what the player is to the world (`standing`): Join for
 everyone but while the world stops, Members for the owner and the operators (read-only for
 them), Stop and Delete for the owner, after a confirmation; Create a world shows when the
 account has the `host` role and room in its `realm_quota`. The form and the Members dialog wait
