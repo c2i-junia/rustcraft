@@ -392,6 +392,7 @@ changes the published port, for a machine where 8080 is taken.
 cat >> /etc/caddy/Caddyfile <<'CADDY'
 
 hub.rustcraft.dev {
+    header Strict-Transport-Security "max-age=31536000"
     reverse_proxy 127.0.0.1:8080
 }
 CADDY
@@ -401,6 +402,8 @@ curl -fsS https://hub.rustcraft.dev/.well-known/rustcraft-hub
 ```
 
 Caddy gets the certificate of `hub.rustcraft.dev` by itself once the DNS record is there.
+`Strict-Transport-Security` makes browsers that have seen the hub never reach it over plain
+HTTP again, where a network could serve them a fake web admin login.
 
 ### 9. The firewall
 
