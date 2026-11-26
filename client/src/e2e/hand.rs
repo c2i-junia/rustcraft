@@ -3,8 +3,11 @@
 //! person its model holds the item in its right hand. An enchanted item glints in either, and on
 //! the ground.
 
+use std::time::Duration;
+
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
+use bevy::time::TimeUpdateStrategy;
 use shared::players::Player;
 use shared::world::{Enchantment, ItemId, ItemStack};
 
@@ -165,10 +168,17 @@ fn the_player_sees_its_arm_and_the_item_it_holds_and_the_model_holds_it_too() {
     assert!(arm > 2000, "no arm in the corner: {arm}");
     assert!(pickaxe > 1500, "no pickaxe in the hand: {pickaxe}");
 
-    // An empty slot: the hand goes down, and comes up with the arm alone
+    // An empty slot: the hand goes down, and comes up with the arm alone. A clock of 50 ms a
+    // frame, a few frames each way: on a loaded machine, a frame could take the whole way down
+    // and up again
+    h.world_mut()
+        .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+            50,
+        )));
     h.press(KeyCode::Digit3);
     h.wait_until("the hand going down", SCREEN, |w| hand(w).0.lowered > 0.0);
     h.wait_until("the empty hand", SCREEN, |w| holds(w, None));
+    h.world_mut().insert_resource(TimeUpdateStrategy::Automatic);
     h.frames(10);
     h.snapshot("empty_hand");
     let (nothing, arm) = item_and_arm_pixels(&mut h);
