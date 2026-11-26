@@ -21,3 +21,11 @@ codegen-backend = "cranelift"
 
 [profile.dev.package."*"]
 codegen-backend = "llvm"
+
+# The terrain, the biomes and the caves are computed in `shared`, where the tests that generate
+# worlds spend most of their time: built by Cranelift at opt-level 1, a column of terrain took
+# 28 µs, and `shared`'s tests 38 s; 6 s built so. An edit of `shared` builds as fast as before:
+# most of that time goes to the crates that depend on it.
+[profile.dev.package.shared]
+codegen-backend = "llvm"
+opt-level = 3
