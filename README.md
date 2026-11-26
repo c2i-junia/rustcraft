@@ -503,9 +503,9 @@ Feel free to submit issues or open pull requests. If you want to know where to h
 ## Guidelines 
 
 ### Checks
-Run `just check` before committing: it checks the formatting (`cargo fmt`), runs clippy without any warning allowed, and runs the tests. The CI runs the same three steps.
+Run `just check` before committing: it checks the formatting (`cargo fmt`), runs clippy without any warning allowed, and runs the tests (`just test`). The CI runs the same three steps.
 
-While working, `just test-fast` runs the tests without the end-to-end ones of `client/src/e2e/` (see below): about 10 s instead of more than a minute.
+`just test` runs every test, the client's beside the other crates' rather than after them: about 4 minutes on 32 threads. While working, `just test-fast` runs the tests without the end-to-end ones of `client/src/e2e/` (see below): about 10 s.
 
 ### UI screenshots
 On Linux, the tests also draw the UI off screen and compare it with the golden screenshots of `client/tests/golden/`. They draw with lavapipe, the software renderer of Mesa (`vulkan-swrast` on Arch, `mesa-vulkan-drivers` on Ubuntu/Debian and Fedora), so that every machine draws the same pixels.
