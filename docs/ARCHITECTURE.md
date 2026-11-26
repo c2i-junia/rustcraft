@@ -1432,6 +1432,43 @@ The Singleplayer screen manages the folders (`client/src/ui/menus/worlds.rs`): i
 chosen (`NewWorldOptions`), so that the world is listed at once; a rename renames the folder and the name in `world.ron`, keeping its format version and its date; a delete removes
 the folder, after a confirmation.
 
+## Hub
+
+The hub is a service apart (`hub/`, its own Cargo workspace; `hub/README.md` has its routes, options
+and the deployment). It builds from the same toolchain and shares `crates/protocol` with the game, and
+no game crate depends on it: a game talks to it over HTTPS and JSON.
+
+| Part | Files | Role |
+|------|-------|------|
+| The hub | `hub/src` (`accounts`, `sessions`, `certificates`, `admin`, `realms/`, `maintenance`) | axum over Postgres (`hub/migrations`, applied at start). Accounts with Argon2id passwords and recovery codes, bearer sessions, certificates of devices signed with the hub's Ed25519 key, the list of revoked ones, and the hosted worlds. |
+| The realm agent | `hub/realm-agent`, types in `hub/agent-protocol` | The only holder of `docker.sock`. It takes newline-delimited JSON requests (`start`, `stop`, `status`, `archive`, `purge`) on a Unix socket, checks them against the game's names (`allowlist.rs`) and runs one container per world. |
+| In the game | `client/src/account` (`hub.rs` calls, `file.rs` is `account.ron`), `client/src/network/hosted.rs`, `ui/menus/account.rs`, `ui/menus/multi/hosted*.rs`; `server/src/hub.rs` | The Account dialog and the Hosted worlds tab, and the server's side of `--auth hub` and `--realm`. |
+
+Three flows cross the hub:
+
+- **Joining a server with an account.** The client logs in (`POST /v1/sessions`), then a
+  `Renewal` thread asks `POST /v1/certificates` for a certificate of its device key, valid 7 days,
+  and renews it in the background. The server (`--auth hub`) reads the hub's keys (`/.well-known/rustcraft-hub`) at its
+  start and the revoked certificates every hour. A join carries the certificate and a signature
+  of the server's challenge and of the address the player dialed; the server checks them alone.
+  Changing the password, recovering the account or suspending it revokes its certificates.
+- **Starting a hosted world.** `POST /v1/realms/{id}/start`: the hub takes the lowest free slot
+  (at most `--max-running` at a time), renews the world's realm token (only its hash is stored),
+  and asks the agent to start `rustcraft-realm-<uuid>`, which publishes the UDP ports
+  `base_port + 2n` (game) and `+ 1` (status). The client then asks the status port of the
+  world until it answers (`network/hosted.rs`) and connects as to any server. The hub's
+  `realms::monitor` probes it too (`realms::probe`) and moves the world through `starting`,
+  `running`, `stopping`, `stopped` or `failed`, and stops it after 10 minutes without players.
+- **The members of a hosted world.** The server of a world (`--realm <uuid>`, the token in
+  `RUSTCRAFT_REALM_TOKEN`) reads `GET /v1/realms/{id}/config` at its start and every minute: the
+  owner and the members decide its whitelist and its operators, so a world has no `ops.ron`.
+  A refused token (the world was stopped or deleted) ends the server after it saves.
+
+`maintenance` runs the hourly and daily chores (old sign-ups and sessions, names of deleted
+accounts, archiving and purging worlds). The deployment (`hub/compose.yaml`, `hub/deploy`): Compose
+with Postgres, the hub on `127.0.0.1:8080` behind Caddy, the agent with no network, and the worlds on
+a Docker network of their own whose published UDP ports a `DOCKER-USER` rule is the only way in to.
+
 ## End-to-end tests
 
 `main.rs` builds the `App` and hands the wiring of the client to `app::add_client`

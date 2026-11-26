@@ -19,6 +19,8 @@ Minecraft game clone written in Rust, using the Bevy game engine.
 - [Controls](#controls)
 - [Multiplayer](#multiplayer)
     - [Operators, bans and the whitelist](#operators-bans-and-the-whitelist)
+- [Accounts](#accounts)
+- [Hosted worlds](#hosted-worlds)
 - [Saves](#saves)
 - [Command-line options](#command-line-options)
     - [Client](#client)
@@ -189,12 +191,7 @@ The Multiplayer screen lists your servers with their status: players, latency, o
 cannot be joined. An address is a host name or an IPv4 address, with or without a port
 (`play.example.com`, `10.0.0.2:8000`); the port is 8000 when it is left out.
 
-Its Hosted worlds tab lists the worlds the hub hosts for your account (log in from the Account
-dialog first): those you own and those you are a member of, with their state and your role.
-Join starts a stopped world and waits for it, up to a minute, before joining it. The owner adds
-players by their username, makes them operators or members again, removes them, and stops or
-deletes the world; an operator sees the members. An account with the host role creates worlds,
-as many as its quota, with a name, a seed, a world type, a game mode and a difficulty.
+The Hosted worlds tab lists the worlds of the hub, see [Hosted worlds](#hosted-worlds).
 
 A dedicated server (`rustcraft-server --port 8000`) listens for the game on UDP port `port`
 (8000 by default), and answers the status requests of the server list on UDP port `port + 1`.
@@ -269,6 +266,53 @@ A plain name in a list matches the account of that name when it first joins, and
 with its account then.
 
 <br>
+
+# Accounts
+
+An account lives on a hub, `https://hub.rustcraft.dev` by default. It gives you a name no one
+else can use on the servers that ask for accounts, and it is what the worlds of the hub know you
+by. You do not need one to play alone or on a server that takes anyone.
+
+The name button under the version on the main menu opens the Account dialog:
+
+- **Create account**: a username of 3 to 20 characters and a password of at least 10 (typed
+  hidden). The hub then shows a **recovery code, once**: write it down. It is the only way back
+  into the account if you forget the password.
+- **Log in** with them, on this computer or another; a session lasts 90 days after its last use.
+- **Recover account**: your username, the recovery code and a new password. This ends the
+  other sessions of the account and gives you a new recovery code.
+- **Log out**, and **Play offline as...**, which only changes the name you play under without an
+  account.
+
+The game keeps your session in `account.ron` of the game folder, and asks the hub for a
+certificate of your game, good for 7 days, that servers check without calling the hub; it renews
+it in the background. A server that asks for accounts (`--auth hub`) takes you under your
+account's name. The hub keeps your username, a hash of your password and of the recovery code,
+and when you signed up or logged in, with no address (it counts sign-ups per address, but stores
+only a keyed hash). Too many sign-ups or failed logins from one address in a short while are
+refused for a time.
+
+# Hosted worlds
+
+The hub also runs worlds for you, so that you need neither a server of your own nor an open
+port. They are on the Hosted worlds tab of the Multiplayer screen, when you are logged in:
+
+- The list shows the worlds you own and those you are a member of, with their state (stopped,
+  starting, running) and your role. **Join** starts a stopped world, waits for it, up to a minute,
+  and joins it. Any member can start a world.
+- A world has an **owner**, **operators** and **members**. Only they can join; the owner adds
+  players by their username (**Members**), makes them operators or members again and removes
+  them. Operators have the commands of an operator, as on any server. The owner changes the
+  members from the game, not with `/op`, `/ban` or `/whitelist`.
+- **Create a world** (a name, an optional seed, a game mode, a difficulty and a world type) is for
+  accounts that have been given the **host** role, up to their quota of worlds; ask whoever runs the
+  hub. **Stop** has the world save and stop, and **Delete** archives it: it leaves your list, and
+  the hub keeps its files for 30 days before it removes them.
+- A world that nobody plays for 10 minutes stops by itself, after saving, and the hub runs a
+  few at a time (3 on the official one): if they are all taken, starting another says so; try again
+  later.
+
+Whoever runs a hub installs it by the guide in `hub/README.md`.
 
 # Saves
 

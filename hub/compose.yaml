@@ -1,5 +1,6 @@
 # The hub, its database and its realm agent. Secrets are files in secrets/ (see README.md and
-# secrets.example/); the agent reads realm-agent.toml (from realm-agent.example.toml).
+# secrets.example/); the agent reads realm-agent.toml (from realm-agent.example.toml). The
+# worlds' network, `rustcraft-realms`, is made by hand before the first start (README.md, "Deploy").
 #   docker compose up -d --build
 name: rustcraft-hub
 
@@ -41,6 +42,12 @@ services:
       HUB_SIGNING_KEY_FILE: /run/secrets/signing_key
       HUB_IP_SECRET_FILE: /run/secrets/ip_secret
       HUB_TRUSTED_PROXIES: 172.30.80.1/32
+      # Where players join the worlds, and where the hub probes them: the gateway of its own
+      # network, which reaches the ports the worlds publish without going out and back in
+      # through the public address. The agent's base_port and slots are the defaults, 25000 and 20.
+      HUB_REALM_HOST: play.rustcraft.dev
+      HUB_REALM_PROBE_HOST: 172.30.80.1
+      HUB_MAX_RUNNING: "3"
     secrets:
       - database_url
       - signing_key

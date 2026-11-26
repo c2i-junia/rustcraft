@@ -188,7 +188,7 @@ Migrations (`migrations/`) are applied at start. Every option has an environment
 | `--max-running` | `HUB_MAX_RUNNING` | `3` (hosted worlds running at once) |
 | `--agent-socket` | `HUB_AGENT_SOCKET` | `/run/realm-agent/agent.sock` |
 
-## Deploying
+## Deploy
 
 The hub runs with Docker Compose (`hub/compose.yaml`): a `postgres:17` service on an internal
 network with a named volume, the hub, published on `127.0.0.1:8080` only, for Caddy, and the
@@ -201,18 +201,86 @@ capability; it mounts `/var/run/docker.sock` and shares its socket with the hub 
 `agent-socket` volume (`/run/realm-agent/agent.sock`). It runs as root with the group 65532:
 root because the host's `docker.sock` is `root:docker 0660` and the gid of `docker` differs from
 one host to the next (holding that socket is as good as root anyway), and the group 65532 is the
-hub's (`nonroot`), which the agent's socket gets, so that the hub can connect. Its configuration
-is `hub/realm-agent.toml` (git-ignored), mounted as a Compose config:
+hub's (`nonroot`), which the agent's socket gets, so that the hub can connect.
+
+The steps below are those of the production machine: Debian 13, Docker with Compose, 4 cores,
+7.8 GB of memory and no swap, UFW allowing only 22, 80 and 443, and Caddy from apt serving
+`rustcraft.dev` from `/etc/caddy/Caddyfile`. Run them as root, in order.
+
+### 1. DNS
+
+Four records, on Cloudflare, all **DNS only** (grey cloud):
+
+| Name | Type | Value |
+|---|---|---|
+| `hub.rustcraft.dev` | A, AAAA | the machine's IPv4 and IPv6 addresses |
+| `play.rustcraft.dev` | A, AAAA | the same |
+
+`play` cannot be proxied: the worlds speak UDP, which Cloudflare's proxy does not carry. `hub`
+could be, as Caddy serves it like the site, but then every request would reach Caddy from a
+Cloudflare address, and the hub's limits per address (sign-ups, failed logins) would need
+Caddy to be told Cloudflare's ranges (`trusted_proxies` in its `servers` options) to see the
+player's. DNS only keeps Cloudflare out of the authentication path, and the client's address is
+the one Caddy sees. (Caddy sets `X-Forwarded-For` itself, discarding any the client sent, as no proxy
+is trusted on the way; the hub believes the last address of it.)
+
+### 2. Get the code
 
 ```sh
-cp realm-agent.example.toml realm-agent.toml   # set image and public_host
-docker pull ghcr.io/c2i-junia/rustcraft/rustcraft-server:latest
+git clone --branch feat/hub https://github.com/c2i-junia/rustcraft /srv/rustcraft-hub
+cd /srv/rustcraft-hub
 ```
 
-On the server, from `hub/`, build the image, then create the secrets
-(`secrets.example/README.txt` lists them):
+### 3. The image of the worlds
+
+The agent never pulls an image: it runs the one named in its configuration, which must be on the
+machine. Build the game's server from this checkout (the first build is long, about the time of
+a release build of the game with 4 cores; nothing else needs to run meanwhile):
 
 ```sh
+cd /srv/rustcraft-hub
+docker build -t rustcraft-server:hub .
+```
+
+### 4. The worlds' network
+
+Worlds run on a Docker network of their own, where containers cannot talk to one another
+(`enable_icc=false`): a world reaches the internet, but not the other worlds, and the hub's
+containers are on other networks.
+Compose does not make it (nothing it starts is on it), so it is made once. Check that the
+subnets are free first (`docker network ls`, `ip route`); the hub's own is `172.30.80.0/24`.
+
+```sh
+docker network create --driver bridge --ipv6 \
+    --subnet 172.30.81.0/24 --subnet fd30:80:81::/64 \
+    --opt com.docker.network.bridge.enable_icc=false \
+    rustcraft-realms
+```
+
+### 5. The agent's configuration
+
+`realm-agent.toml` (git-ignored, mounted by Compose) starts from the example. The edits: the
+image of step 3, the network of step 4 and one CPU per world. Three worlds run at once
+(`HUB_MAX_RUNNING`, in `compose.yaml`), each with 1.5 GiB of memory (no swap, so 4.5 GiB at most)
+and 1 CPU (3 of the 4), which leaves 3 GiB and a core for Postgres, the hub, Caddy and the
+machine. `public_host`, `base_port` and `slots` are already those of the hub's
+`HUB_REALM_HOST` (`play.rustcraft.dev`), `--realm-base-port` and `--realm-slots`.
+
+```sh
+cd /srv/rustcraft-hub/hub
+cp realm-agent.example.toml realm-agent.toml
+sed -i -e 's|^image = .*|image = "rustcraft-server:hub"|' \
+       -e 's|^cpus = .*|cpus = 1.0|' \
+       -e 's|^network = .*|network = "rustcraft-realms"|' realm-agent.toml
+grep -E '^(image|public_host|memory|cpus|network|base_port|slots) ' realm-agent.toml
+```
+
+### 6. The secrets
+
+`secrets.example/README.txt` lists them. Build the hub image first, which makes the signing key:
+
+```sh
+cd /srv/rustcraft-hub/hub
 docker compose build hub
 mkdir secrets && cd secrets
 openssl rand -hex 24 > db_password
@@ -225,48 +293,179 @@ cd .. && chmod 700 secrets && chmod 444 secrets/*
 
 Compose mounts each secret file as it is: its `uid`, `gid` and `mode` options are ignored outside
 Swarm, so the hub (uid 65532) can read a file only if it is world-readable. The `0700` folder
-keeps the other users of the machine away from the files; do not loosen it. Back up
-`signing.key`: a hub with another key has to be announced again to every game server.
+keeps the other users of the machine away from the files; do not loosen it. **Copy
+`secrets/signing.key` somewhere safe, off the machine**: a hub with another key has to be
+announced again to every game server.
 
-Then start it:
+### 7. Start it
 
 ```sh
-docker compose up -d
-curl http://127.0.0.1:8080/.well-known/rustcraft-hub
+cd /srv/rustcraft-hub/hub
+docker compose up -d --build
+docker compose ps
+docker compose logs realm-agent hub | tail
+curl -fsS http://127.0.0.1:8080/healthz
+curl -fsS http://127.0.0.1:8080/.well-known/rustcraft-hub
 ```
 
-Behind Docker's port publishing the hub does not see Caddy as `127.0.0.1`: every connection
-comes from the gateway of the Compose network the port is published on. `compose.yaml` therefore
-pins that network to `172.30.80.0/24` and sets `HUB_TRUSTED_PROXIES: 172.30.80.1/32`; change both
+`realm-agent` logs "the realm agent is up"; the three services are `running` and `db` `healthy`.
+Behind Docker's port publishing the hub does not see Caddy as `127.0.0.1`: every connection comes
+from the gateway of the Compose network the port is published on. `compose.yaml` therefore pins
+that network to `172.30.80.0/24` and sets `HUB_TRUSTED_PROXIES: 172.30.80.1/32`; change both
 together if the subnet clashes with yours. Without this every player would share one sign-up
-limit. To check, post two sign-ups with different `X-Forwarded-For` headers and look at
-`select encode(ip_key, 'hex') from signups` in the database: the keys must differ.
+limit. The same gateway is `HUB_REALM_PROBE_HOST`, where the hub probes the worlds. `HUB_PORT`
+changes the published port, for a machine where 8080 is taken.
 
-`HUB_PUBLIC_URL`, `HUB_NAME` and `HUB_TRUSTED_RANGES` are set in the `environment` of `hub` in
-`compose.yaml`. To update, `git pull` and `docker compose up -d --build`; migrations are applied
-at start. `HUB_PORT` changes the published port, for a machine where 8080 is taken.
+### 8. Caddy
 
-Caddy (on the host) terminates TLS:
+```sh
+cat >> /etc/caddy/Caddyfile <<'CADDY'
 
-```
 hub.rustcraft.dev {
     reverse_proxy 127.0.0.1:8080
 }
+CADDY
+caddy validate --config /etc/caddy/Caddyfile
+systemctl reload caddy
+curl -fsS https://hub.rustcraft.dev/.well-known/rustcraft-hub
 ```
 
-Administration runs in a one-off container with the same secrets:
+Caddy gets the certificate of `hub.rustcraft.dev` by itself once the DNS record is there.
+
+### 9. The firewall
+
+UFW does not see the ports Docker publishes: Docker's NAT rules take the packets before UFW's, so
+a published port is open to the internet whatever UFW says. Only the worlds' ports must be
+(UDP 25000 to 25039: slot `n` has the game on `25000 + 2n` and its status on the next one).
+`deploy/rustcraft-docker-firewall.sh` puts the rest of the policy in Docker's `DOCKER-USER`
+chain, for IPv4 and IPv6: for what comes in on the WAN interface, it lets through the replies
+of connections (`ESTABLISHED,RELATED`, so the containers' own traffic out and back works),
+the UDP packets that were addressed to a port from 25000 to 25039, and drops every other new
+connection to a container. The ports are matched with `--ctorigdstport`, the destination before
+NAT: in `DOCKER-USER` a `--dport` rule would see the container's port (8000, 8001), not the
+published one. The systemd unit makes the rules again at each boot and each time Docker
+restarts. (Between Docker starting and the unit running, a moment, the rules are not yet
+there.)
 
 ```sh
+cd /srv/rustcraft-hub/hub
+ip -br link show eth0            # the WAN interface; if it is not eth0, `systemctl edit` the unit
+install -m 755 deploy/rustcraft-docker-firewall.sh /usr/local/sbin/
+install -m 644 deploy/rustcraft-docker-firewall.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now rustcraft-docker-firewall.service
+iptables -S DOCKER-USER; iptables -S RUSTCRAFT-WAN
+ip6tables -S DOCKER-USER; ip6tables -S RUSTCRAFT-WAN
+```
+
+`DOCKER-USER` must start with `-A DOCKER-USER -i eth0 -j RUSTCRAFT-WAN`. If `ip6tables` has no
+`DOCKER-USER` chain, Docker does not forward IPv6 to containers; step 11 tells whether IPv6
+works for the worlds.
+
+### 10. The first accounts
+
+There is no sign-up on the command line: make the account in the game (Account dialog, from the
+name button of the main menu, with `--hub` left to its default), keep its recovery code, then
+give it its roles. Administration runs in a one-off container with the same secrets:
+
+```sh
+cd /srv/rustcraft-hub/hub
 docker compose run --rm --entrypoint rustcraft-hub hub admin users
-docker compose run --rm --entrypoint rustcraft-hub hub admin grant <user> host
+docker compose run --rm --entrypoint rustcraft-hub hub admin grant <username> admin
+docker compose run --rm --entrypoint rustcraft-hub hub admin grant <username> host --realms 2
 ```
 
-Backup (nightly, from cron) and restore:
+The other commands are in "Certificates and administration".
+
+### 11. Smoke checks
+
+From your own computer, not the machine:
 
 ```sh
-docker compose exec -T db pg_dump -U hub -Fc hub > hub-$(date +%F).dump
-docker compose exec -T db pg_restore -U hub -d hub --clean --if-exists < hub-2026-11-25.dump
+curl -fsS https://hub.rustcraft.dev/.well-known/rustcraft-hub      # the hub's document
+curl -m 5 http://<ipv4 of the machine>:8080/healthz                 # must time out or be refused
 ```
+
+Then, as the account of step 10, create a world in the Hosted worlds tab and join it: the first
+start can take a minute, and the tab says when the world is `running`. Meanwhile, on the machine:
+
+```sh
+docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}'   # rustcraft-realm-<uuid>, 25000-25001/udp
+cd /srv/rustcraft-hub/hub
+deploy/probe-status.sh 172.30.80.1 25001     # the way the hub probes: 0 of 10 players
+```
+
+and from your computer (copy `deploy/probe-status.sh` there), over both address families; the
+world is in slot 0, so on 25000 and 25001, if it is the first:
+
+```sh
+probe-status.sh play.rustcraft.dev 25001
+probe-status.sh <ipv6 of the machine> 25001
+```
+
+Each answers with its players and fails after 3 s without a reply. If IPv4 answers and IPv6
+does not, either Docker does not forward IPv6 to the world (`ip6tables -t nat -S DOCKER` shows
+a rule for it when it does; the network of step 4 needs `--ipv6`), in which case the packets
+reach Docker's userland proxy through UFW: `ufw allow 25000:25039/udp` lets them in. Last, the
+network of the worlds:
+
+```sh
+docker network inspect rustcraft-realms --format '{{.Options}}'   # map[com.docker.network.bridge.enable_icc:false]
+```
+
+### 12. Backups
+
+A nightly dump of the database, kept 14 days (it holds password hashes: the folder is private),
+and the signing key, copied once as step 6 says:
+
+```sh
+install -d -m 700 /var/backups/rustcraft-hub
+cat > /etc/cron.d/rustcraft-hub-backup <<'CRON'
+17 3 * * * root umask 077 && cd /srv/rustcraft-hub/hub && docker compose exec -T db pg_dump -U hub -Fc hub > /var/backups/rustcraft-hub/hub-$(date +\%F).dump && find /var/backups/rustcraft-hub -name 'hub-*.dump' -mtime +14 -delete
+CRON
+```
+
+To restore one, with the hub stopped (`docker compose stop hub`):
+
+```sh
+docker compose exec -T db pg_restore -U hub -d hub --clean --if-exists < /var/backups/rustcraft-hub/hub-2026-11-25.dump
+docker compose start hub
+```
+
+The worlds themselves are in Docker volumes (`rustcraft-realm-<uuid>`, archived ones suffixed
+`-archived-<date>`), which the hub's dump does not hold: copy them with `docker run --rm -v
+<volume>:/data:ro -v "$PWD:/out" debian:bookworm-slim tar czf /out/<volume>.tar.gz -C /data .`.
+
+### Update and roll back
+
+```sh
+cd /srv/rustcraft-hub
+git fetch && git log --oneline HEAD..origin/feat/hub          # what comes
+docker compose -f hub/compose.yaml exec -T db pg_dump -U hub -Fc hub > ~/hub-before-update.dump
+git rev-parse HEAD > ~/hub-before-update.sha
+git pull --ff-only
+docker build -t rustcraft-server:hub .        # only when the game's server changed
+cd hub && docker compose up -d --build
+```
+
+Migrations are applied at start. The worlds take their image at each start: a running world keeps
+the old one until it stops (10 minutes at 0 players, or from the game), and the next start runs
+the new one.
+
+To roll back, check out the previous commit and rebuild both images:
+
+```sh
+cd /srv/rustcraft-hub && git checkout "$(cat ~/hub-before-update.sha)"
+docker build -t rustcraft-server:hub .
+cd hub && docker compose up -d --build
+```
+
+A migration is not undone by this. If the update applied one the old hub cannot work with, also
+restore the dump taken before the update (as in step 12; the accounts made since are lost), and
+`git checkout feat/hub` again once fixed.
+
+`HUB_PUBLIC_URL`, `HUB_NAME` and `HUB_TRUSTED_RANGES` are set in the `environment` of `hub` in
+`compose.yaml`.
 
 ## Testing
 

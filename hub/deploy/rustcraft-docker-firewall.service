@@ -1,0 +1,20 @@
+# Restricts what the internet reaches of Docker's published ports (see the script). Installed by
+# hub/README.md, "Deploy".
+[Unit]
+Description=Rustcraft: only the worlds' UDP ports are open to the internet in DOCKER-USER
+Documentation=https://github.com/c2i-junia/rustcraft/blob/main/hub/README.md
+After=docker.service network-online.target
+Requires=docker.service
+# Docker restarting rebuilds its rules, so the ones here are made again
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# The network interface of the internet; change it with `systemctl edit` on another machine
+Environment=WAN_IFACE=eth0
+Environment=WORLD_PORTS=25000:25039
+ExecStart=/usr/local/sbin/rustcraft-docker-firewall.sh
+
+[Install]
+WantedBy=multi-user.target

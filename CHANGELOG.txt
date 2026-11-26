@@ -13,6 +13,7 @@ Date: 11.10.2026
     - A server started with --realm is a hosted world of the hub: its members, and so its whitelist and operators, come from the hub, which also removes the players that are no longer members; /op, /ban and the other list commands send to the Hosted worlds tab of the game.
     - The name button of the main menu opens an Account dialog: log in to or create an account of the hub (the password is hidden as it is typed), recover it with its recovery code, shown once when an account is made, or log out. The game keeps the session in account.ron and a certificate for joining servers up to date in the background.
     - The Multiplayer screen has a Hosted worlds tab: the worlds the hub hosts for your account, which Join starts when they are stopped; their owner manages the members, stops and deletes them, and an account with the host role creates new ones.
+    - Hosted worlds: the Rustcraft hub (hub.rustcraft.dev) keeps accounts and runs worlds for them in Docker containers, started when a member joins and stopped, after saving, when no one has played for 10 minutes. Whoever runs a hub deploys it with the guide in hub/README.md.
     - A client that connects to a server without joining it within 5 seconds is disconnected.
     - A Docker image of the dedicated server (rustcraft-server) is published for each release, to run a world in a container with a read-only root filesystem.
     - Block changes are now sent to the players as small updates instead of whole chunks.
