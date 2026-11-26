@@ -326,9 +326,9 @@ mod tests {
         }
     }
 
-    /// The realm agent's copy of the world settings it puts on a server's command line.
+    /// The hub's copy of the world settings a hosted world may have.
     mod agent_allowlist {
-        include!("../../hub/realm-agent/src/allowlist.rs");
+        include!("../../hub/agent-protocol/src/allowlist.rs");
     }
 
     #[test]

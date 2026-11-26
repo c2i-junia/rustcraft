@@ -1,12 +1,12 @@
 //! The periodic tasks: forgetting old sign-ups, expired sessions and the names of deleted
-//! accounts.
+//! accounts, and archiving and purging hosted worlds.
 
 use std::time::{Duration, Instant};
 
 use sqlx::PgConnection;
 use time::OffsetDateTime;
 
-use crate::{ratelimit::purge_signups, sessions, AppState};
+use crate::{ratelimit::purge_signups, realms, sessions, AppState};
 
 /// How long a deleted account keeps its name.
 pub const DELETED_NAME_HOLD: time::Duration = time::Duration::days(30);
@@ -35,6 +35,7 @@ async fn hourly(state: &AppState) -> Result<(), sqlx::Error> {
     let sessions = sessions::purge_expired(&mut conn).await?;
     state.logins.prune(Instant::now());
     state.certificates.prune(Instant::now());
+    state.realms.starts.prune(Instant::now());
     tracing::info!(
         signups,
         sessions,
@@ -47,7 +48,7 @@ async fn daily(state: &AppState) -> Result<(), sqlx::Error> {
     let mut conn = state.db.acquire().await?;
     let names = purge_deleted_accounts(&mut conn, OffsetDateTime::now_utc()).await?;
     tracing::info!(names, "freed the names of deleted accounts");
-    Ok(())
+    realms::daily(state).await
 }
 
 /// Runs the purges every hour and every day, the first ones at once.

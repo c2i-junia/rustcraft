@@ -27,6 +27,7 @@ pub async fn run(db: &PgPool, command: AdminCommand) -> anyhow::Result<String> {
         AdminCommand::Suspend { user, reason } => suspend(db, &user, &reason).await,
         AdminCommand::Unsuspend { user } => unsuspend(db, &user).await,
         AdminCommand::ResetPassword { user } => reset_password(db, &user).await,
+        AdminCommand::Realms => realms(db).await,
     }
 }
 
@@ -92,15 +93,20 @@ pub async fn users(db: &PgPool) -> anyhow::Result<String> {
             ]
         })
         .collect();
-    let header = ["NAME", "ROLES", "QUOTA", "STATUS", "CREATED"].map(str::to_owned);
-    let mut widths = [0; 5];
-    for row in std::iter::once(&header).chain(&rows) {
+    table(["NAME", "ROLES", "QUOTA", "STATUS", "CREATED"], &rows)
+}
+
+/// The rows under `header`, in columns as wide as their widest cell.
+fn table<const N: usize>(header: [&str; N], rows: &[[String; N]]) -> anyhow::Result<String> {
+    let header = header.map(str::to_owned);
+    let mut widths = [0; N];
+    for row in std::iter::once(&header).chain(rows) {
         for (width, cell) in widths.iter_mut().zip(row) {
             *width = (*width).max(cell.chars().count());
         }
     }
     let mut table = String::new();
-    for row in std::iter::once(&header).chain(&rows) {
+    for row in std::iter::once(&header).chain(rows) {
         let line: Vec<String> = row
             .iter()
             .zip(widths)
@@ -109,6 +115,56 @@ pub async fn users(db: &PgPool) -> anyhow::Result<String> {
         writeln!(table, "{}", line.join("  ").trim_end())?;
     }
     Ok(table.trim_end().to_owned())
+}
+
+#[derive(sqlx::FromRow)]
+struct RealmRow {
+    id: Uuid,
+    name: String,
+    owner: String,
+    state: String,
+    slot: Option<i16>,
+    players: i32,
+    last_played_at: Option<OffsetDateTime>,
+}
+
+/// A table of the hosted worlds, oldest first, archived ones included.
+pub async fn realms(db: &PgPool) -> anyhow::Result<String> {
+    let rows: Vec<RealmRow> = sqlx::query_as(
+        "SELECT r.id, r.name, a.username::text AS owner, r.state, r.slot, r.players, \
+             r.last_played_at \
+         FROM realms r JOIN accounts a ON a.id = r.owner_id ORDER BY r.created_at, r.id",
+    )
+    .fetch_all(db)
+    .await?;
+    let rows: Vec<[String; 7]> = rows
+        .into_iter()
+        .map(|row| {
+            [
+                row.id.to_string(),
+                row.name,
+                row.owner,
+                row.state,
+                row.slot.map_or("-".to_owned(), |slot| slot.to_string()),
+                row.players.to_string(),
+                row.last_played_at.map_or("-".to_owned(), |at| {
+                    format!("{} {:02}:{:02}", at.date(), at.hour(), at.minute())
+                }),
+            ]
+        })
+        .collect();
+    table(
+        [
+            "ID",
+            "NAME",
+            "OWNER",
+            "STATE",
+            "SLOT",
+            "PLAYERS",
+            "LAST PLAYED",
+        ],
+        &rows,
+    )
 }
 
 /// Gives `role`; for `host`, also sets the quota of worlds (1 unless `realms` says otherwise).

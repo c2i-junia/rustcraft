@@ -9,6 +9,7 @@ pub mod error;
 pub mod maintenance;
 pub mod password;
 pub mod ratelimit;
+pub mod realms;
 pub mod routes;
 pub mod sessions;
 
@@ -42,6 +43,7 @@ pub struct AppState {
     pub logins: Arc<LoginLimiter>,
     pub signups: Arc<SignupGate>,
     pub certificates: Arc<CertificateLimiter>,
+    pub realms: Arc<realms::Hosting>,
 }
 
 /// Connects to the database and applies the migrations.

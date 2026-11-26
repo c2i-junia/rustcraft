@@ -5,9 +5,30 @@
 //! its slot, its token and the settings of a new world); the image, the limits, the ports and
 //! the security options come from the agent's own configuration.
 
+pub mod allowlist;
+
 use rustcraft_protocol::api::RealmSettings;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use allowlist::{DIFFICULTIES, GAME_MODES, WORLD_TYPES};
+
+/// Checks the settings of a new world against the names the game's server takes, the way the
+/// hub checks them when the world is created and the agent before they reach a command line.
+pub fn check_settings(settings: &RealmSettings) -> Result<(), String> {
+    if settings.seed.is_some_and(|seed| seed > u64::from(u32::MAX)) {
+        return Err("the seed is beyond 4294967295".into());
+    }
+    let allowed = |value: &Option<String>, names: &[&str], what: &str| match value {
+        Some(value) if !names.contains(&value.as_str()) => {
+            Err(format!("{what} must be one of {}", names.join(", ")))
+        }
+        _ => Ok(()),
+    };
+    allowed(&settings.world_type, &WORLD_TYPES, "the world type")?;
+    allowed(&settings.game_mode, &GAME_MODES, "the game mode")?;
+    allowed(&settings.difficulty, &DIFFICULTIES, "the difficulty")
+}
 
 /// A request to the agent, tagged by `request`: `{"request":"stop","realm":"<uuid>"}`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

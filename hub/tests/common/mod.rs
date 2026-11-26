@@ -6,10 +6,11 @@
 #![allow(dead_code)]
 
 use std::{
+    collections::HashMap,
     net::SocketAddr,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 
@@ -21,16 +22,127 @@ use axum::{
 };
 use ed25519_dalek::SigningKey;
 use rand::rngs::OsRng;
-use rustcraft_hub::{migrate, router, AppState};
+use rustcraft_agent_protocol::{RealmState, Request as AgentRequest, Response as AgentResponse};
+use rustcraft_hub::{
+    migrate,
+    realms::{
+        agent::{AgentFuture, RealmAgent},
+        probe::{ProbeFuture, StatusProbe},
+        Hosting,
+    },
+    router, AppState,
+};
 use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
     Connection, PgConnection,
 };
 use tower::ServiceExt;
+use uuid::Uuid;
+
+/// The host the test hub gives for its worlds.
+pub const REALM_HOST: &str = "play.example";
+/// The game port of slot 0 of the test hub.
+pub const BASE_PORT: u16 = 25000;
+/// The slots of the test hub, and how many worlds it runs at once.
+pub const SLOTS: u16 = 4;
+pub const MAX_RUNNING: u16 = 3;
+
+/// An agent that keeps the containers in a map and records the requests.
+#[derive(Default)]
+pub struct FakeAgent {
+    pub requests: Mutex<Vec<AgentRequest>>,
+    pub containers: Mutex<HashMap<Uuid, RealmState>>,
+    /// The answer to every `start`, instead of starting.
+    pub start_answer: Mutex<Option<AgentResponse>>,
+    /// The answer to every `stop`, instead of stopping.
+    pub stop_answer: Mutex<Option<AgentResponse>>,
+}
+
+impl FakeAgent {
+    pub fn requests(&self) -> Vec<AgentRequest> {
+        self.requests.lock().unwrap().clone()
+    }
+
+    pub fn container(&self, realm: Uuid) -> RealmState {
+        let containers = self.containers.lock().unwrap();
+        containers
+            .get(&realm)
+            .copied()
+            .unwrap_or(RealmState::Absent)
+    }
+
+    pub fn set_container(&self, realm: Uuid, state: RealmState) {
+        self.containers.lock().unwrap().insert(realm, state);
+    }
+}
+
+impl RealmAgent for FakeAgent {
+    fn call(&self, request: AgentRequest) -> AgentFuture<'_> {
+        self.requests.lock().unwrap().push(request.clone());
+        let mut containers = self.containers.lock().unwrap();
+        let response = match request {
+            AgentRequest::Start { realm, .. } => match self.start_answer.lock().unwrap().clone() {
+                Some(answer) => answer,
+                None => {
+                    containers.insert(realm, RealmState::Running);
+                    AgentResponse::Done
+                }
+            },
+            AgentRequest::Stop { realm } => match self.stop_answer.lock().unwrap().clone() {
+                Some(answer) => answer,
+                None => {
+                    containers.remove(&realm);
+                    AgentResponse::Done
+                }
+            },
+            AgentRequest::Archive { realm } => {
+                containers.remove(&realm);
+                AgentResponse::Done
+            }
+            AgentRequest::Status { realm } => AgentResponse::Status {
+                state: containers
+                    .get(&realm)
+                    .copied()
+                    .unwrap_or(RealmState::Absent),
+            },
+            AgentRequest::Purge => AgentResponse::Purged {
+                volumes: Vec::new(),
+            },
+        };
+        Box::pin(async move { Ok(response) })
+    }
+}
+
+/// Worlds that answer on their status port, with their players, by status port.
+#[derive(Default)]
+pub struct FakeProbe {
+    pub players: Mutex<HashMap<u16, u32>>,
+}
+
+impl FakeProbe {
+    /// Makes the world of `slot` answer with `players`, or stop answering.
+    pub fn answer(&self, slot: u16, players: Option<u32>) {
+        let port = BASE_PORT + 2 * slot + 1;
+        let mut answers = self.players.lock().unwrap();
+        match players {
+            Some(players) => answers.insert(port, players),
+            None => answers.remove(&port),
+        };
+    }
+}
+
+impl StatusProbe for FakeProbe {
+    fn players(&self, port: u16) -> ProbeFuture<'_> {
+        let players = self.players.lock().unwrap().get(&port).copied();
+        Box::pin(async move { players })
+    }
+}
 
 pub struct TestHub {
     pub app: Router,
     pub state: AppState,
+    pub agent: Arc<FakeAgent>,
+    pub probe: Arc<FakeProbe>,
     admin_options: PgConnectOptions,
     database: String,
 }
@@ -60,6 +172,17 @@ impl TestHub {
             .await
             .unwrap();
         migrate(&db).await.unwrap();
+        let agent = Arc::new(FakeAgent::default());
+        let probe = Arc::new(FakeProbe::default());
+        let realms = Hosting::new(
+            agent.clone(),
+            probe.clone(),
+            REALM_HOST.into(),
+            BASE_PORT,
+            SLOTS,
+            MAX_RUNNING,
+        )
+        .unwrap();
         let state = AppState {
             db,
             name: "Test hub".into(),
@@ -75,10 +198,13 @@ impl TestHub {
             logins: Default::default(),
             signups: Default::default(),
             certificates: Default::default(),
+            realms: Arc::new(realms),
         };
         Self {
             app: router(state.clone()),
             state,
+            agent,
+            probe,
             admin_options,
             database,
         }
@@ -86,6 +212,15 @@ impl TestHub {
 
     pub async fn get(&self, path: &str) -> Response<Body> {
         let request = Request::get(path).body(Body::empty()).unwrap();
+        self.app.clone().oneshot(request).await.unwrap()
+    }
+
+    /// A GET with this `Authorization` header.
+    pub async fn get_with(&self, path: &str, authorization: &str) -> Response<Body> {
+        let request = Request::get(path)
+            .header(header::AUTHORIZATION, authorization)
+            .body(Body::empty())
+            .unwrap();
         self.app.clone().oneshot(request).await.unwrap()
     }
 

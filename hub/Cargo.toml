@@ -19,6 +19,7 @@ hex = "0.4"
 hmac = "0.12"
 ipnet = "2"
 rand = "0.8"
+rustcraft-agent-protocol = { path = "agent-protocol" }
 rustcraft-protocol = { path = "../crates/protocol" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

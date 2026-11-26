@@ -65,6 +65,8 @@ pub enum AdminCommand {
     Unsuspend { user: String },
     /// Sets a generated password, prints it once, and ends the sessions.
     ResetPassword { user: String },
+    /// Lists the hosted worlds.
+    Realms,
 }
 
 /// A role of the `account_roles` table.
@@ -126,6 +128,25 @@ pub struct ServeArgs {
         default_value = "127.0.0.1/32,::1/128"
     )]
     pub trusted_proxies: Vec<IpNet>,
+    /// The host players join the hosted worlds at, which the hub also probes them at.
+    #[arg(long, env = "HUB_REALM_HOST", default_value = "play.rustcraft.dev")]
+    pub realm_host: String,
+    /// The game port of slot 0; slot n is at `base + 2n`. As the agent's `base_port`.
+    #[arg(long, env = "HUB_REALM_BASE_PORT", default_value_t = 25000)]
+    pub realm_base_port: u16,
+    /// The number of slots of hosted worlds. As the agent's `slots`.
+    #[arg(long, env = "HUB_REALM_SLOTS", default_value_t = 20)]
+    pub realm_slots: u16,
+    /// The most hosted worlds that run at once.
+    #[arg(long, env = "HUB_MAX_RUNNING", default_value_t = 3)]
+    pub max_running: u16,
+    /// The Unix socket of the realm agent.
+    #[arg(
+        long,
+        env = "HUB_AGENT_SOCKET",
+        default_value = "/run/realm-agent/agent.sock"
+    )]
+    pub agent_socket: PathBuf,
 }
 
 /// Reads a one-line secret file, without the trailing whitespace.

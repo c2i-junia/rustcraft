@@ -22,6 +22,7 @@ use crate::{
     error::AppError,
     password::{check_password, check_username, new_recovery_code, normalize_recovery_code},
     ratelimit::{check_signup, ip_key, record_signup, ClientIp},
+    realms::{self, MARK_ARCHIVED},
     routes::ApiJson,
     sessions::{self, revoke_access, Session},
     AppState,
@@ -429,8 +430,9 @@ async fn change_password(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Marks the account deleted and removes its ways in. The row stays, and the name with it,
-/// until [`crate::maintenance::purge_deleted_accounts`] frees the name 30 days later.
+/// Marks the account deleted and removes its ways in, archives the worlds it owns and takes it
+/// out of the others. The row stays, and the name with it, until
+/// [`crate::maintenance::purge_deleted_accounts`] frees the name 30 days later.
 async fn delete_account(
     State(state): State<AppState>,
     ClientIp(ip): ClientIp,
@@ -462,6 +464,16 @@ async fn delete_account(
         .execute(&mut *tx)
         .await?;
     revoke_access(&mut tx, account.id, None).await?;
+    let archived: Vec<Uuid> = sqlx::query_scalar(&format!(
+        "{MARK_ARCHIVED} WHERE owner_id = $1 AND state <> 'archived' RETURNING id"
+    ))
+    .bind(account.id)
+    .fetch_all(&mut *tx)
+    .await?;
+    sqlx::query("DELETE FROM realm_members WHERE account_id = $1")
+        .bind(account.id)
+        .execute(&mut *tx)
+        .await?;
     audit::record(
         &mut tx,
         audit::SELF,
@@ -471,5 +483,6 @@ async fn delete_account(
     )
     .await?;
     tx.commit().await?;
+    realms::archive_volumes(state, archived);
     Ok(StatusCode::NO_CONTENT)
 }

@@ -19,6 +19,7 @@ max_render_distance = 12
 max_players = 10
 
 # Slot n publishes UDP base_port + 2n (game) and base_port + 2n + 1 (status), on IPv4 and IPv6.
+# Both must be the hub's --realm-base-port and --realm-slots.
 base_port = 25000
 slots = 20
 

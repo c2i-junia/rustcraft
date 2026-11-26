@@ -38,7 +38,7 @@ async fn healthz_answers_while_the_database_does() {
 }
 
 #[tokio::test]
-async fn the_migration_creates_the_account_tables() {
+async fn the_migrations_create_the_tables_of_the_spec() {
     let hub = TestHub::start().await;
     let tables: Vec<String> = sqlx::query_scalar(
         "SELECT table_name::text FROM information_schema.tables \
@@ -56,6 +56,8 @@ async fn the_migration_creates_the_account_tables() {
             "audit_log",
             "certificates",
             "password_credentials",
+            "realm_members",
+            "realms",
             "sessions",
             "signups"
         ]

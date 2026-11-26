@@ -2,15 +2,14 @@
 
 The hub is the central service of Rustcraft, served at `https://hub.rustcraft.dev` and
 replaceable by any other. It keeps the players' accounts, signs the short-lived certificates
-that let a game server recognise a player without calling the hub, and (in later versions) starts
-hosted worlds. It is a separate Cargo project: its own workspace and `Cargo.lock`, excluded
+that let a game server recognise a player without calling the hub, and starts hosted worlds. It is a separate Cargo project: its own workspace and `Cargo.lock`, excluded
 from the game's workspace, but it builds with the repository's nightly toolchain and
 `.cargo/config.toml`, and it uses the `crates/protocol` crate shared with the game.
 
 So far it serves the `/.well-known/rustcraft-hub` document, `/healthz`, the accounts (sign-up,
 login and logout, recovery codes, `GET /v1/me`, password change and account deletion), device
-certificates, the list of revoked ones and public profiles. Its realm agent runs hosted worlds
-in Docker containers, which the hub does not drive yet.
+certificates, the list of revoked ones, public profiles and hosted worlds, which its realm agent
+runs in Docker containers.
 The design, with the routes and their limits, is in
 `docs/superpowers/specs/2026-11-25-hub-design.md`.
 
@@ -52,7 +51,41 @@ rustcraft-hub admin revoke <user> <host|admin>       # a host's quota is kept
 rustcraft-hub admin suspend <user> --reason "<text>"
 rustcraft-hub admin unsuspend <user>
 rustcraft-hub admin reset-password <user>            # prints a 16-character password
+rustcraft-hub admin realms                           # id, name, owner, state, slot, players, last played
 ```
+
+## Hosted worlds
+
+- An account with the `host` role creates worlds (`POST /v1/realms`, `{name, settings}`) while it
+  owns fewer than its quota, archived ones not counted. A name has 1 to 32 characters and no
+  control character; the settings (`seed` up to 4294967295, `world_type`, `game_mode`,
+  `difficulty`, all optional) are checked against the names of the game's server
+  (`agent-protocol/src/allowlist.rs`, shared with the agent; no `single-biome`).
+- A world is seen by its owner and its members only (`GET /v1/realms`); to anyone else every
+  route of the world answers 404. The owner adds members by username, as `member` or
+  `operator` (`PUT /v1/realms/{id}/members/{username}`), removes them, stops the world
+  (`POST …/stop`, 202: it is `stopping` until its server has saved) and archives it
+  (`DELETE /v1/realms/{id}`). Any member starts it.
+- `POST /v1/realms/{id}/start` takes the lowest free slot, at most `--max-running` worlds at once
+  (503 `no_free_slot` beyond), at most 10 starts of a world an hour (429), issues a new realm
+  token (32 random bytes, base64url; the hub keeps its SHA-256) and asks the agent to start the
+  container with it. It answers `{state: "starting", host: --realm-host, port}`, the port of
+  slot `n` being `--realm-base-port + 2n`. A world starting or running already gets its address
+  again.
+- The world's server reads `GET /v1/realms/{id}/config` with `Authorization: Realm <token>`: the
+  owner and the members with their roles. A wrong token, a stopped or archived world and an
+  unknown one all get 401. A stop ends the token.
+- The monitor probes each starting world's status port every 5 s: the world is `running` when
+  it answers, `failed` (and stopped) after 60 s without an answer or when its container ends. It
+  looks at each running world every 30 s: 10 minutes at 0 players (or without an answer) stop
+  it, and a container that ended makes it `stopped` (exit code 0) or `failed`. A world the agent
+  did not stop stays `stopping` and is stopped again. When the hub starts, it takes the agent's
+  view of the worlds it thought had a container.
+- An archived world leaves the lists at once and its token ends; the agent then moves its volume
+  aside, and the world keeps its slot until it has. Deleting an account archives the worlds it
+  owns and takes it out of the others. Every day the hub archives again what the agent did not,
+  and asks it to purge the archives older than its `archive_days`.
+- The hub probes the worlds at `--realm-host`, on the status port of their slot, over UDP.
 
 ## Realm agent
 
@@ -60,7 +93,8 @@ Hosted worlds run in Docker containers, which only the realm agent (`realm-agent
 `rustcraft-realm-agent`) creates: it is the one service with `docker.sock`, and the hub asks it
 over a Unix socket (mode 0660), so that a hub taken over can start, stop and archive worlds but
 not run a container of its choosing. Its configuration (`--config`, `realm-agent.example.toml`)
-fixes the image, the limits, the ports and the hub of the worlds; a request names only the world
+fixes the image, the limits, the ports and the hub of the worlds (its `base_port` and `slots` must
+be the hub's `--realm-base-port` and `--realm-slots`); a request names only the world
 (a UUID), its slot (below `slots`), its token and the settings of a new world, which are checked
 against the game's names before they reach a command line.
 
@@ -142,6 +176,11 @@ Migrations (`migrations/`) are applied at start. Every option has an environment
 | `--name` | `HUB_NAME` | `Rustcraft` |
 | `--trusted-proxies` | `HUB_TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` (peers whose `X-Forwarded-For` is believed) |
 | `--trusted-ranges` | `HUB_TRUSTED_RANGES` | (none; comma-separated CIDRs allowed 60 sign-ups an hour per address) |
+| `--realm-host` | `HUB_REALM_HOST` | `play.rustcraft.dev` (where players join hosted worlds, and the hub probes them) |
+| `--realm-base-port` | `HUB_REALM_BASE_PORT` | `25000` (the agent's `base_port`) |
+| `--realm-slots` | `HUB_REALM_SLOTS` | `20` (the agent's `slots`) |
+| `--max-running` | `HUB_MAX_RUNNING` | `3` (hosted worlds running at once) |
+| `--agent-socket` | `HUB_AGENT_SOCKET` | `/run/realm-agent/agent.sock` |
 
 ## Deploying
 

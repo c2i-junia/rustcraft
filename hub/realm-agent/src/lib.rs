@@ -2,7 +2,6 @@
 //! containers it specifies itself, on the requests of the hub over a Unix socket.
 
 pub mod agent;
-pub mod allowlist;
 pub mod config;
 pub mod socket;
 pub mod spec;

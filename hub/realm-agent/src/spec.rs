@@ -4,11 +4,11 @@
 use std::collections::HashMap;
 
 use bollard::models::{ContainerCreateBody, HostConfig, HostConfigLogConfig, PortBinding};
+use rustcraft_agent_protocol::check_settings;
 use rustcraft_protocol::api::RealmSettings;
 use time::{Date, PrimitiveDateTime, Time};
 use uuid::Uuid;
 
-use crate::allowlist::{DIFFICULTIES, GAME_MODES, WORLD_TYPES};
 use crate::config::Config;
 
 const PREFIX: &str = "rustcraft-realm-";
@@ -103,18 +103,7 @@ pub fn check_start(
     if !(16..=128).contains(&token.len()) || !token.bytes().all(token_chars) {
         return Err("the token is not 16 to 128 characters of base64url".into());
     }
-    if settings.seed.is_some_and(|seed| seed > u64::from(u32::MAX)) {
-        return Err("the seed is beyond 4294967295".into());
-    }
-    let allowed = |value: &Option<String>, names: &[&str], what: &str| match value {
-        Some(value) if !names.contains(&value.as_str()) => {
-            Err(format!("{what} must be one of {}", names.join(", ")))
-        }
-        _ => Ok(()),
-    };
-    allowed(&settings.world_type, &WORLD_TYPES, "the world type")?;
-    allowed(&settings.game_mode, &GAME_MODES, "the game mode")?;
-    allowed(&settings.difficulty, &DIFFICULTIES, "the difficulty")
+    check_settings(settings)
 }
 
 /// The container of a world, once `check_start` has passed.

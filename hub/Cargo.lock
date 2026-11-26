@@ -1603,6 +1603,7 @@ dependencies = [
  "http-body-util",
  "ipnet",
  "rand",
+ "rustcraft-agent-protocol",
  "rustcraft-protocol",
  "serde",
  "serde_json",

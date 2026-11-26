@@ -264,6 +264,41 @@ impl CertificateLimiter {
     }
 }
 
+/// Starts per hosted world: 10 an hour, in memory.
+pub struct RealmStartLimiter {
+    starts: Mutex<SlidingWindow<Uuid>>,
+}
+
+impl Default for RealmStartLimiter {
+    fn default() -> Self {
+        Self {
+            starts: Mutex::new(SlidingWindow::new(10, Duration::from_secs(60 * 60))),
+        }
+    }
+}
+
+impl RealmStartLimiter {
+    /// Counts a start of `realm` at `now`, or refuses it once it was started 10 times in the
+    /// last hour.
+    pub fn start(&self, realm: Uuid, now: Instant) -> Result<(), AppError> {
+        let mut starts = self.starts.lock().unwrap();
+        if let Some(wait) = starts.retry_after(&realm, now) {
+            return Err(AppError::new(
+                ErrorCode::RateLimited,
+                "This world was started too often. Try again later.",
+            )
+            .retry_after(wait.as_secs_f64().ceil().max(1.0) as u64));
+        }
+        starts.record(realm, now);
+        Ok(())
+    }
+
+    /// Forgets the worlds not started in the last hour.
+    pub fn prune(&self, now: Instant) {
+        self.starts.lock().unwrap().prune(now);
+    }
+}
+
 struct Failures {
     per_name: SlidingWindow<(String, IpAddr)>,
     per_address: SlidingWindow<IpAddr>,
@@ -489,6 +524,23 @@ mod tests {
         assert!(window.hits.contains_key("a"));
         window.prune(at(70));
         assert!(window.hits.is_empty());
+    }
+
+    #[test]
+    fn a_world_is_started_at_most_ten_times_an_hour() {
+        let limiter = RealmStartLimiter::default();
+        let now = Instant::now();
+        let realm = Uuid::from_u128(1);
+        for _ in 0..10 {
+            limiter.start(realm, now).unwrap();
+        }
+        let error = limiter.start(realm, now).err().unwrap();
+        assert_eq!(error.code, ErrorCode::RateLimited);
+        assert_eq!(error.retry_after, Some(3600));
+        assert!(limiter.start(Uuid::from_u128(2), now).is_ok());
+        assert!(limiter
+            .start(realm, now + Duration::from_secs(3600))
+            .is_ok());
     }
 
     #[test]
