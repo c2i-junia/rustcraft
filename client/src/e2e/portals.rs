@@ -277,14 +277,20 @@ fn the_view_through_a_portal_is_the_other_side() {
     assert!(blue.z > blue.x + 40.0, "not blue: {blue}");
 }
 
-/// With every quality of the shaders, the view through a portal looks as the world seen
-/// straight: the far pillar of sand through the blue portal is as bright and as warm as the
-/// near one, at the same depth, and the sky seen through the blue portal is the sky seen beside
-/// it. Each picture is kept with `UI_SNAPSHOTS=1`.
-#[test]
-#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
-fn the_view_through_a_portal_looks_as_the_world_with_every_shader() {
-    let mut h = enter_world(GameFolder::new().with_world("Portals"), "Portals");
+/// With `quality` of the shaders, the view through a portal looks as the world seen straight:
+/// the far pillar of sand through the blue portal is as bright and as warm as the near one, at
+/// the same depth, and the sky seen through the blue portal is the sky seen beside it. The
+/// picture is kept with `UI_SNAPSHOTS=1`. A test per quality, so that they run side by side.
+fn the_view_through_a_portal_looks_as_the_world_with(quality: ShaderQuality) {
+    let mut h = enter_world_with(
+        GameFolder::new().with_world("Portals"),
+        "Portals",
+        Options {
+            width: 640,
+            height: 360,
+            ..Options::default()
+        },
+    );
     let scene = build_scene(&mut h);
     let feet = scene.feet.as_vec3();
     let far_sand = feet + Vec3::new(12.5, 3.4, -17.0);
@@ -297,34 +303,62 @@ fn the_view_through_a_portal_looks_as_the_world_with_every_shader() {
         0.0,
     ));
     let wall_edge = feet + Vec3::new(-2.0, 2.0, -7.0);
-    for quality in ShaderQuality::ALL {
-        // Each time: on a slow machine, the five pictures take longer than the day
-        h.set_time("day");
-        h.world_mut().resource_mut::<GraphicsSettings>().shaders = quality;
-        // The effects inserted, the exposure settled and TAA's history filled
-        h.frames(40);
-        let shot = h.screenshot();
-        keep(
-            &shot,
-            "the_view_through_a_portal_looks_as_the_world_with_every_shader",
-            &format!("{quality:?}").to_lowercase(),
-        );
-        let through = mean_color(&shot, on_screen(&mut h, far_sand - THROUGH));
-        let straight = mean_color(&shot, on_screen(&mut h, near_sand));
-        assert!(
-            (through - straight).abs().max_element() < 10.0,
-            "{quality:?}: sand through the portal {through}, seen straight {straight}"
-        );
-        let corner = on_screen(&mut h, corner);
-        let beside = Vec2::new(on_screen(&mut h, wall_edge).x - 8.0, corner.y);
-        let (through, straight) = (mean_color(&shot, corner), mean_color(&shot, beside));
-        // The portal cameras draw the haze of the rays of light too (`volumetric_fog.rs`): the
-        // sky through the portal is as hazed as the sky seen straight
-        assert!(
-            (through - straight).abs().max_element() < 4.0,
-            "{quality:?}: sky through the portal {through}, seen straight {straight}"
-        );
-    }
+    // In the day, however long the scene took to build
+    h.set_time("day");
+    h.world_mut().resource_mut::<GraphicsSettings>().shaders = quality;
+    // The effects inserted, the exposure settled and TAA's history filled
+    h.frames(40);
+    let shot = h.screenshot();
+    keep(
+        &shot,
+        "the_view_through_a_portal_looks_as_the_world_with_every_shader",
+        &format!("{quality:?}").to_lowercase(),
+    );
+    let through = mean_color(&shot, on_screen(&mut h, far_sand - THROUGH));
+    let straight = mean_color(&shot, on_screen(&mut h, near_sand));
+    assert!(
+        (through - straight).abs().max_element() < 10.0,
+        "{quality:?}: sand through the portal {through}, seen straight {straight}"
+    );
+    let corner = on_screen(&mut h, corner);
+    let beside = Vec2::new(on_screen(&mut h, wall_edge).x - 8.0, corner.y);
+    let (through, straight) = (mean_color(&shot, corner), mean_color(&shot, beside));
+    // The portal cameras draw the haze of the rays of light too (`volumetric_fog.rs`): the
+    // sky through the portal is as hazed as the sky seen straight
+    assert!(
+        (through - straight).abs().max_element() < 4.0,
+        "{quality:?}: sky through the portal {through}, seen straight {straight}"
+    );
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_view_through_a_portal_looks_as_the_world_without_shaders() {
+    the_view_through_a_portal_looks_as_the_world_with(ShaderQuality::Off);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_view_through_a_portal_looks_as_the_world_with_low_shaders() {
+    the_view_through_a_portal_looks_as_the_world_with(ShaderQuality::Low);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_view_through_a_portal_looks_as_the_world_with_medium_shaders() {
+    the_view_through_a_portal_looks_as_the_world_with(ShaderQuality::Medium);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_view_through_a_portal_looks_as_the_world_with_high_shaders() {
+    the_view_through_a_portal_looks_as_the_world_with(ShaderQuality::High);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_view_through_a_portal_looks_as_the_world_with_ultra_shaders() {
+    the_view_through_a_portal_looks_as_the_world_with(ShaderQuality::Ultra);
 }
 
 const THROUGH_WALL: &str = "a_pair_through_a_thin_wall_shows_one_view";
