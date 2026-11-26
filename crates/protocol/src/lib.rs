@@ -29,8 +29,12 @@ pub fn hub_host(url: &str) -> &str {
 
 /// Checks the URL of a hub for `--hub`: `https://`, or `http://` to this computer only
 /// (`localhost`, `127.x.x.x`, `[::1]`), as the secrets of an account must not cross a network
-/// in clear.
+/// in clear. A user name in the URL (`http://localhost@hub.example`) is refused: it would hide
+/// the host.
 pub fn check_hub_url(url: &str) -> Result<String, String> {
+    if hub_host(url).contains('@') {
+        return Err(format!("{url}: the URL of a hub has no user name (@)"));
+    }
     if let Some(rest) = url.strip_prefix("https://") {
         if !rest.is_empty() {
             return Ok(url.to_string());
@@ -132,6 +136,9 @@ mod tests {
         assert!(check_hub_url("http://10.0.0.2").is_err());
         assert!(check_hub_url("hub.example").is_err());
         assert!(check_hub_url("https://").is_err());
+        assert!(check_hub_url("http://localhost:80@evil.example").is_err());
+        assert!(check_hub_url("http://127.0.0.1@evil.example/").is_err());
+        assert!(check_hub_url("https://user@hub.example").is_err());
         assert_eq!(hub_host("https://hub.example:8443/x"), "hub.example:8443");
         assert_eq!(hub_base("https://hub.example/"), "https://hub.example");
     }
