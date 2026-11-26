@@ -8,8 +8,12 @@
 # destination the packet had before Docker's NAT (`--ctorigdstport`).
 #
 # The rules are in a chain of their own, which DOCKER-USER jumps to for what comes in on the WAN
-# interface, so that running this again changes nothing. Packets that leave through the WAN and
-# their replies, and the traffic between containers and the host, never match it.
+# interface, so that running this again changes nothing. The jump catches every new connection
+# forwarded from the WAN, to any container Docker runs, not only to the worlds: what is not a
+# world's port is dropped. Packets that leave through the WAN, their replies, and the traffic
+# between containers and the host, never match it.
+#
+# `rustcraft-docker-firewall.sh remove` takes the jump and the chain away again.
 #
 # Environment: WAN_IFACE (default eth0), WORLD_PORTS (default 25000:25039: the agent's base_port
 # to base_port + 2 * slots - 1).
@@ -18,6 +22,13 @@ set -euo pipefail
 wan=${WAN_IFACE:-eth0}
 ports=${WORLD_PORTS:-25000:25039}
 chain=RUSTCRAFT-WAN
+
+remove() {
+    local ipt=$1
+    "$ipt" -n -L DOCKER-USER >/dev/null 2>&1 || return 0
+    while "$ipt" -D DOCKER-USER -i "$wan" -j "$chain" 2>/dev/null; do :; done
+    "$ipt" -F "$chain" 2>/dev/null && "$ipt" -X "$chain" || true
+}
 
 apply() {
     local ipt=$1
@@ -39,5 +50,7 @@ apply() {
         "$ipt" -I DOCKER-USER 1 -i "$wan" -j "$chain"
 }
 
-apply iptables
-apply ip6tables
+action=apply
+if [ "${1:-}" = remove ]; then action=remove; fi
+$action iptables
+$action ip6tables

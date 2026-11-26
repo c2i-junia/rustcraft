@@ -226,10 +226,29 @@ is trusted on the way; the hub believes the last address of it.)
 
 ### 2. Get the code
 
+Either from the public repository, once the branch is published there:
+
 ```sh
 git clone --branch feat/hub https://github.com/c2i-junia/rustcraft /srv/rustcraft-hub
-cd /srv/rustcraft-hub
 ```
+
+or, while it is only on a local checkout, by pushing it over SSH into a repository that updates
+its working tree. On the machine:
+
+```sh
+git init /srv/rustcraft-hub
+git -C /srv/rustcraft-hub config receive.denyCurrentBranch updateInstead
+```
+
+then, from the local checkout, and on the machine again:
+
+```sh
+git push root@<machine>:/srv/rustcraft-hub feat/hub     # locally
+git -C /srv/rustcraft-hub checkout feat/hub             # on the machine
+```
+
+The rest runs in `/srv/rustcraft-hub`. Updating is another `git push` (the working tree
+follows it as long as nothing is edited on the machine) or a `git pull`.
 
 ### 3. The image of the worlds
 
@@ -249,6 +268,23 @@ Worlds run on a Docker network of their own, where containers cannot talk to one
 containers are on other networks.
 Compose does not make it (nothing it starts is on it), so it is made once. Check that the
 subnets are free first (`docker network ls`, `ip route`); the hub's own is `172.30.80.0/24`.
+
+An IPv6 network makes Docker set `net.ipv6.conf.all.forwarding=1`, and a kernel that forwards
+ignores router advertisements on an interface whose `accept_ra` is 1: the machine would lose its
+IPv6 default route and, with it, its IPv6 address's way out. Look first:
+
+```sh
+ip -6 route show default                 # `proto ra` means it is learnt from advertisements
+sysctl net.ipv6.conf.eth0.accept_ra      # replace eth0 by the WAN interface
+```
+
+When the route is `proto ra` and `accept_ra` is 1 (with `proto static` nothing changes), keep
+the advertisements before creating the network:
+
+```sh
+echo 'net.ipv6.conf.eth0.accept_ra = 2' > /etc/sysctl.d/60-rustcraft-accept-ra.conf
+sysctl --system
+```
 
 ```sh
 docker network create --driver bridge --ipv6 \
@@ -282,13 +318,14 @@ grep -E '^(image|public_host|memory|cpus|network|base_port|slots) ' realm-agent.
 ```sh
 cd /srv/rustcraft-hub/hub
 docker compose build hub
-mkdir secrets && cd secrets
+umask 077
+mkdir secrets && chmod 700 secrets && cd secrets
 openssl rand -hex 24 > db_password
 printf 'postgres://hub:%s@db:5432/hub\n' "$(cat db_password)" > database_url
 openssl rand -hex 32 > ip-secret
 docker run --rm --user "$(id -u)" --entrypoint rustcraft-hub -v "$PWD:/out" \
     rustcraft-hub generate-key /out/signing.key
-cd .. && chmod 700 secrets && chmod 444 secrets/*
+cd .. && chmod 444 secrets/*
 ```
 
 Compose mounts each secret file as it is: its `uid`, `gid` and `mode` options are ignored outside
@@ -358,7 +395,8 @@ iptables -S DOCKER-USER; iptables -S RUSTCRAFT-WAN
 ip6tables -S DOCKER-USER; ip6tables -S RUSTCRAFT-WAN
 ```
 
-`DOCKER-USER` must start with `-A DOCKER-USER -i eth0 -j RUSTCRAFT-WAN`. If `ip6tables` has no
+To remove the rules, `systemctl disable --now rustcraft-docker-firewall.service` (its stop
+undoes the jump and empties the chain); `systemctl enable --now` puts them back. `DOCKER-USER` must start with `-A DOCKER-USER -i eth0 -j RUSTCRAFT-WAN`. If `ip6tables` has no
 `DOCKER-USER` chain, Docker does not forward IPv6 to containers; step 11 tells whether IPv6
 works for the worlds.
 
@@ -403,11 +441,13 @@ probe-status.sh play.rustcraft.dev 25001
 probe-status.sh <ipv6 of the machine> 25001
 ```
 
-Each answers with its players and fails after 3 s without a reply. If IPv4 answers and IPv6
+Each answers with its players and fails after 3 s without a reply (the script needs `python3`:
+`apt install python3` if the machine or your computer has none). If IPv4 answers and IPv6
 does not, either Docker does not forward IPv6 to the world (`ip6tables -t nat -S DOCKER` shows
 a rule for it when it does; the network of step 4 needs `--ipv6`), in which case the packets
-reach Docker's userland proxy through UFW: `ufw allow 25000:25039/udp` lets them in. Last, the
-network of the worlds:
+reach Docker's userland proxy through UFW: `ufw allow 25000:25039/udp` lets them in. Or the
+machine lost its IPv6 route, which Docker's forwarding makes it ignore when it is learnt from
+router advertisements: see `accept_ra` in step 4. Last, the network of the worlds:
 
 ```sh
 docker network inspect rustcraft-realms --format '{{.Options}}'   # map[com.docker.network.bridge.enable_icc:false]
@@ -421,13 +461,15 @@ and the signing key, copied once as step 6 says:
 ```sh
 install -d -m 700 /var/backups/rustcraft-hub
 cat > /etc/cron.d/rustcraft-hub-backup <<'CRON'
-17 3 * * * root umask 077 && cd /srv/rustcraft-hub/hub && docker compose exec -T db pg_dump -U hub -Fc hub > /var/backups/rustcraft-hub/hub-$(date +\%F).dump && find /var/backups/rustcraft-hub -name 'hub-*.dump' -mtime +14 -delete
+17 3 * * * root umask 077 && cd /srv/rustcraft-hub/hub && d=/var/backups/rustcraft-hub/hub-$(date +\%F).dump && docker compose exec -T db pg_dump -U hub -Fc hub > $d.part && mv $d.part $d && find /var/backups/rustcraft-hub -name 'hub-*.dump' -mtime +14 -delete
 CRON
 ```
 
-To restore one, with the hub stopped (`docker compose stop hub`):
+To restore one, with the hub stopped:
 
 ```sh
+cd /srv/rustcraft-hub/hub
+docker compose stop hub
 docker compose exec -T db pg_restore -U hub -d hub --clean --if-exists < /var/backups/rustcraft-hub/hub-2026-11-25.dump
 docker compose start hub
 ```
@@ -440,11 +482,18 @@ The worlds themselves are in Docker volumes (`rustcraft-realm-<uuid>`, archived 
 
 ```sh
 cd /srv/rustcraft-hub
-git fetch && git log --oneline HEAD..origin/feat/hub          # what comes
 docker compose -f hub/compose.yaml exec -T db pg_dump -U hub -Fc hub > ~/hub-before-update.dump
 git rev-parse HEAD > ~/hub-before-update.sha
-git pull --ff-only
-docker build -t rustcraft-server:hub .        # only when the game's server changed
+git pull --ff-only origin feat/hub            # or, from the local checkout: git push root@<machine>:/srv/rustcraft-hub feat/hub
+cd hub && docker compose run --rm --entrypoint rustcraft-hub hub admin realms   # which worlds run
+```
+
+Building the game image takes most of the memory of a machine with no swap, and a world may be
+started meanwhile, so do it only when the update changes the game's server and no world is
+running (the Dockerfile has no knob to cap the build's parallelism):
+
+```sh
+cd /srv/rustcraft-hub && docker build -t rustcraft-server:hub .
 cd hub && docker compose up -d --build
 ```
 
@@ -462,7 +511,8 @@ cd hub && docker compose up -d --build
 
 A migration is not undone by this. If the update applied one the old hub cannot work with, also
 restore the dump taken before the update (as in step 12; the accounts made since are lost), and
-`git checkout feat/hub` again once fixed.
+`git checkout feat/hub` again once fixed (with a push as in step 2, `git checkout feat/hub`
+follows the branch back).
 
 `HUB_PUBLIC_URL`, `HUB_NAME` and `HUB_TRUSTED_RANGES` are set in the `environment` of `hub` in
 `compose.yaml`.

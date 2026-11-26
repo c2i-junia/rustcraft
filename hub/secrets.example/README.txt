@@ -6,5 +6,5 @@ The files `compose.yaml` expects in `hub/secrets/` (git-ignored). Never commit r
   signing.key    the hub's Ed25519 seed in hex: `rustcraft-hub generate-key signing.key`
   ip-secret      at least 32 random characters keying the sign-up address hashes
 
-README.md, "Deploying", gives the commands that create them. Back up signing.key: losing it
+README.md, "Deploy", gives the commands that create them. Back up signing.key: losing it
 means every game server must be told the hub's new key.

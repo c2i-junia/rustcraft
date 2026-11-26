@@ -18,7 +18,7 @@ try:
     reply = sock.recv(64)
 except socket.timeout:
     sys.exit(f"no answer from {host} port {port}")
-if len(reply) != 32 or reply[:4] != b"RCST" or reply[5] != 1 or reply[6:14] != b"\x07" * 8:
+if len(reply) != 32 or reply[:4] != b"RCST" or reply[4] != 1 or reply[5] != 1 or reply[6:14] != b"\x07" * 8:
     sys.exit(f"not a status reply: {reply!r}")
 players = int.from_bytes(reply[22:26], "little")
 maximum = int.from_bytes(reply[26:30], "little")
