@@ -10,6 +10,8 @@ mod dropped_items;
 #[cfg(test)]
 mod e2e;
 mod game;
+#[cfg(feature = "hot")]
+mod hot;
 mod i18n;
 mod input;
 mod mob;
@@ -121,6 +123,8 @@ fn main() {
             hub: args.hub,
         },
     );
+    #[cfg(feature = "hot")]
+    app.add_plugins(hot::hot_plugin);
     app.run();
 }
 
@@ -160,6 +164,9 @@ fn engine_plugins() -> PluginGroupBuilder {
         .set(LogPlugin {
             // The warnings come from screens without tab groups, see the redesign lots
             filter: format!("{},bevy_input_focus::tab_navigation=error", DEFAULT_FILTER),
+            // the systems a hot patch reached, to warn of those it could not
+            #[cfg(feature = "hot")]
+            custom_layer: hot::patched_systems_layer,
             ..default()
         })
         .set(WindowPlugin {
