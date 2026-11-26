@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { Button } from '@ui-sdk/svelte/button';
@@ -38,16 +39,22 @@
 	let missing = $state(false);
 	let error = $state<string | null>(null);
 
+	// An action can finish after this page has gone (a question stays open in the layout): its
+	// reload must then not run, nor read the state of the page.
+	let alive = true;
+	onDestroy(() => (alive = false));
+
 	async function load() {
+		if (!alive) return;
 		const wanted = id;
 		try {
 			const next = await api.account(wanted);
-			if (wanted !== id) return;
+			if (!alive || wanted !== id) return;
 			account = next;
 			quota = next.realm_quota;
 			error = null;
 		} catch (failure) {
-			if (wanted !== id) return;
+			if (!alive || wanted !== id) return;
 			if (failure instanceof ApiError && failure.status === 404) missing = true;
 			else error = messageOf(failure);
 		}

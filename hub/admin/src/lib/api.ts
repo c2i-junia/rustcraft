@@ -5,6 +5,8 @@
 import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
 import { page } from '$app/state';
+import { ask } from './confirm.ts';
+import { temporary } from './temporary.svelte.ts';
 
 export type Status = 'active' | 'suspended' | 'deleted';
 export type Role = 'admin' | 'host';
@@ -92,6 +94,15 @@ export class ApiError extends Error {
 	}
 }
 
+const REQUEST_TIMEOUT_MS = 30_000;
+
+/** A request that got no answer: timed out, or the hub could not be reached. */
+function failed(error: unknown): ApiError {
+	if (error instanceof DOMException && (error.name === 'TimeoutError' || error.name === 'AbortError'))
+		return new ApiError(0, 'timeout', 'The hub did not answer within 30 seconds. Try again.');
+	return new ApiError(0, 'network', 'The hub cannot be reached. Check your connection.');
+}
+
 type Query = Record<string, string | number | null | undefined>;
 
 async function request<T>(method: string, path: string, body?: unknown, query?: Query): Promise<T> {
@@ -107,6 +118,9 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
 	const headers: Record<string, string> = { 'X-Rustcraft-Admin': '1', Accept: 'application/json' };
 	if (body !== undefined) headers['Content-Type'] = 'application/json';
 
+	// Every request ends, answered or not: a pending action (a reset holds navigation) must not
+	// wait forever on a hub that hangs.
+	const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
 	let response: Response;
 	try {
 		response = await fetch(url, {
@@ -114,15 +128,21 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
 			credentials: 'same-origin',
 			cache: 'no-store',
 			headers,
-			body: body === undefined ? undefined : JSON.stringify(body)
+			body: body === undefined ? undefined : JSON.stringify(body),
+			signal
 		});
-	} catch {
-		throw new ApiError(0, 'network', 'The hub cannot be reached. Check your connection.');
+	} catch (error) {
+		throw failed(error);
 	}
 
 	if (response.ok) {
 		if (response.status === 204 || response.status === 202) return undefined as T;
-		const text = await response.text();
+		let text: string;
+		try {
+			text = await response.text();
+		} catch (error) {
+			throw failed(error);
+		}
 		return (text ? JSON.parse(text) : undefined) as T;
 	}
 
@@ -146,8 +166,12 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
 	throw failure;
 }
 
-/** Back to the login page, which comes back here after. */
+/** Back to the login page, which comes back here after. The session is gone, so nothing of it
+ * stays: no pending reset holds the way, no question stays open, no temporary password is left. */
 export function toLogin() {
+	temporary.resetting = false;
+	temporary.value = null;
+	ask.controller.close();
 	const login = resolve('/login');
 	if (page.url.pathname === login) return;
 	const back = page.url.pathname + page.url.search;

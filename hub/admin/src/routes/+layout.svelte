@@ -52,8 +52,9 @@
 	});
 
 	// Leaving while the hub resets a password would lose the only copy of the new one.
+	// The login page always passes: it is where a lost session leads.
 	beforeNavigate((navigation) => {
-		if (temporary.resetting) navigation.cancel();
+		if (temporary.resetting && navigation.to?.route.id !== '/login') navigation.cancel();
 	});
 
 	/** Leaves only once the hub has ended the session: a failed logout must not look done. */
@@ -69,6 +70,8 @@
 		}
 		session.me = null;
 		failure = null;
+		temporary.value = null;
+		temporary.resetting = false;
 		await goto(resolve('/login'), { replace: true });
 	}
 </script>
@@ -132,7 +135,7 @@
 {/if}
 
 <ConfirmHost />
-<TemporaryPassword />
+{#if !onLogin}<TemporaryPassword />{/if}
 
 <ToastRegion side="bottom" align="end">
 	{#snippet children()}
