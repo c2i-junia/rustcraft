@@ -272,6 +272,18 @@ cd /srv/rustcraft-hub
 docker build -t rustcraft-server:hub .
 ```
 
+A machine with 8 GB of memory and no swap cannot build it: one rustc takes 5 GB and is killed.
+Build the images on another machine from the same commit, then copy them over SSH. In step 7,
+run `docker compose up -d` without `--build`:
+
+```sh
+# on the build machine, in the checkout
+docker build -t rustcraft-server:hub .
+(cd hub && docker compose build hub realm-agent)
+docker save rustcraft-server:hub rustcraft-hub rustcraft-realm-agent | gzip -1 \
+  | ssh root@vps 'gunzip | docker load'
+```
+
 ### 4. The worlds' network
 
 Worlds run on a Docker network of their own, where containers cannot talk to one another
