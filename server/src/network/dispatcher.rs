@@ -150,7 +150,11 @@ pub fn register_systems(app: &mut App) {
             pickup_dropped_items_system,
             world::depths::announce_depths_system,
             world::progress::progress_system,
-            world::home::home_system,
+            (
+                world::home::home_system,
+                world::cartography::cartography_system,
+            )
+                .chain(),
             // Fires, lava, plants, cisterns and campfires; before the flow, which washes the
             // fires away and fills what they burnt
             world::ticks::block_ticks_system,
@@ -444,6 +448,16 @@ fn handle_client_messages_system(
                 ClientToServerMessage::WriteSign { at, lines } => {
                     crate::world::home::write_sign_lines(&mut world_map, client_id, at, lines);
                 }
+                ClientToServerMessage::PlaceMarker { at, name, color } => {
+                    if let Some(player) = world_map.players.get_mut(&client_id) {
+                        player.waypoints.mark(&name, color, at);
+                    }
+                }
+                ClientToServerMessage::RemoveMarker(index) => {
+                    if let Some(player) = world_map.players.get_mut(&client_id) {
+                        player.waypoints.unmark(usize::from(index));
+                    }
+                }
             }
         }
         if dropped_inputs > 0 {
@@ -485,6 +499,8 @@ fn message_kind(message: &ClientToServerMessage) -> &'static str {
         ClientToServerMessage::EndTrade => "EndTrade",
         ClientToServerMessage::FirstStep(_) => "FirstStep",
         ClientToServerMessage::WriteSign { .. } => "WriteSign",
+        ClientToServerMessage::PlaceMarker { .. } => "PlaceMarker",
+        ClientToServerMessage::RemoveMarker(_) => "RemoveMarker",
     }
 }
 

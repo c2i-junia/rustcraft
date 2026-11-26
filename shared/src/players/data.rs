@@ -22,7 +22,10 @@ use super::riding::Riding;
 use super::skin::PlayerSkin;
 use crate::{
     messages::PlayerId,
-    world::{depths::DepthTier, ItemId, ItemStack, ItemType, MobKind, Passer, PortalRest},
+    world::{
+        cartography::Waypoints, depths::DepthTier, ItemId, ItemStack, ItemType, MobKind, Passer,
+        PortalRest,
+    },
     HOTBAR_SLOTS, MAX_INVENTORY_SLOTS,
 };
 
@@ -265,6 +268,10 @@ pub struct Player {
     /// before it have none.
     #[serde(default = "Progress::of_an_old_save")]
     pub progress: Progress,
+    /// Where the player died, what it found and the places it named (`cartography`). Saves
+    /// from before them have none.
+    #[serde(default)]
+    pub waypoints: Waypoints,
     pub inventory: Inventory,
     pub height: f32,
     pub width: f32,
@@ -464,6 +471,7 @@ impl Player {
         self.exhaust(DAMAGE_EXHAUSTION);
         if self.is_dead() {
             self.progress.stats.deaths += 1;
+            self.waypoints.last_death = Some(self.position.floor().as_ivec3());
             let thrown_by = self.last_mob_hit.map(|(kind, _)| kind);
             self.death_cause = Some(DeathCause::of(source, thrown_by));
         }
@@ -554,6 +562,7 @@ impl Player {
             experience: Experience::default(),
             depths_reached: Vec::new(),
             progress: Progress::default(),
+            waypoints: Waypoints::default(),
             inventory: Inventory::new(),
             height: PLAYER_HEIGHT,
             width: PLAYER_WIDTH,

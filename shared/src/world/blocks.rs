@@ -321,6 +321,8 @@ pub enum BlockId {
     GreenConcretePowder,
     RedConcretePowder,
     BlackConcretePowder,
+    /// A board of planks that shows the paper map put on it (`cartography`).
+    MapFrame,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -544,7 +546,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 280] = [
+    pub const ALL: [BlockId; 281] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -825,6 +827,7 @@ impl BlockId {
         BlockId::GreenConcretePowder,
         BlockId::RedConcretePowder,
         BlockId::BlackConcretePowder,
+        BlockId::MapFrame,
     ];
 
     pub fn is_stairs(&self) -> bool {
@@ -1146,6 +1149,7 @@ impl BlockId {
             Self::RipePotatoes => 1,
             Self::Bedroll => 4,
             Self::Barrel => 10,
+            Self::MapFrame => 6,
             Self::RainCistern => 10,
             Self::FullRainCistern => 10,
             Self::Campfire => 8,
@@ -1238,6 +1242,7 @@ impl BlockId {
                     | Self::Campfire
                     | Self::UnlitCampfire
                     | Self::Sign
+                    | Self::MapFrame
             ),
             ToolKind::Shovel => matches!(
                 *self,
@@ -1432,6 +1437,7 @@ impl BlockId {
             BlockId::RipePotatoes => (2..=4).map(|nb| (1, ItemId::Potato, nb)).collect(),
             BlockId::Bedroll => vec![(1, ItemId::Bedroll, 1)],
             BlockId::Barrel => vec![(1, ItemId::Barrel, 1)],
+            BlockId::MapFrame => vec![(1, ItemId::MapFrame, 1)],
             BlockId::RainCistern => vec![(1, ItemId::RainCistern, 1)],
             BlockId::FullRainCistern => vec![(1, ItemId::RainCistern, 1)],
             BlockId::Campfire => vec![(1, ItemId::Campfire, 1)],
@@ -1460,6 +1466,7 @@ impl BlockId {
                 | Self::Chest
                 | Self::Barrel
                 | Self::Sign
+                | Self::MapFrame
                 | Self::Bedroll
                 | Self::RipeBerryBush
         ) || self.form().is_some_and(Form::opens)
@@ -1588,7 +1595,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 280] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 281] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 3] = [BlockId::Bedrock, BlockId::Water, BlockId::Lava];
@@ -1708,6 +1715,7 @@ mod tests {
             | BlockId::Gloomrock
             | BlockId::CobbledGloomrock
             | BlockId::Anvil
+            | BlockId::MapFrame
             | crate::new_palette_blocks!() => {}
         }
     }
@@ -2045,6 +2053,7 @@ mod tests {
                 BlockId::GreenConcretePowder => 277,
                 BlockId::RedConcretePowder => 278,
                 BlockId::BlackConcretePowder => 279,
+                BlockId::MapFrame => 280,
             };
             assert_eq!(encoded(&id), varint(expected), "{id:?}: {ENCODING_WARNING}");
         }

@@ -13,6 +13,7 @@ use crate::portal::shot::ShotFired;
 use crate::ui::credits::CreditsDue;
 use crate::ui::hud::boss::NearBoss;
 use crate::ui::hud::depths::DepthReached;
+use crate::ui::hud::minimap::cartography::Cartography;
 use crate::ui::hud::progress::Earn;
 use crate::ui::hud::sign::SignToEdit;
 use crate::ui::hud::TradeUpdated;
@@ -200,6 +201,21 @@ pub fn update_world_from_network(
             }
             ServerToClientMessage::EditSign { at, lines } => {
                 commands.insert_resource(SignToEdit(Some((at, lines))));
+            }
+            ServerToClientMessage::Waypoints(view) => {
+                commands.queue(move |world: &mut World| {
+                    world.resource_mut::<Cartography>().set_waypoints(view);
+                });
+            }
+            ServerToClientMessage::PaperMap { id, map } => {
+                commands.queue(move |world: &mut World| {
+                    world.resource_mut::<Cartography>().receive_map(id, map);
+                });
+            }
+            ServerToClientMessage::FramedMaps(frames) => {
+                commands.queue(move |world: &mut World| {
+                    world.resource_mut::<Cartography>().set_frames(frames);
+                });
             }
             // The levels ease towards it
             ServerToClientMessage::WeatherSet(kind) => {

@@ -28,6 +28,9 @@ pub struct Places {
     pub signs: HashMap<IVec3, String>,
     /// The bedroll of each player, by name.
     pub bedrolls: HashMap<String, IVec3>,
+    /// The paper map each frame of a map holds (`cartography`).
+    #[serde(default)]
+    pub frames: HashMap<IVec3, shared::world::cartography::MapId>,
 }
 
 impl Places {
@@ -44,7 +47,7 @@ impl Places {
         })
     }
 
-    fn save(&self, dir: Option<&Path>) {
+    pub fn save(&self, dir: Option<&Path>) {
         let Some(dir) = dir else {
             return;
         };
@@ -68,6 +71,10 @@ impl Places {
 pub struct HomeEvents {
     pub read: Vec<(PlayerId, IVec3)>,
     pub slept: Vec<(PlayerId, IVec3)>,
+    /// The frames of maps clicked, and the hotbar slots of the empty maps used
+    /// (`cartography`).
+    pub framed: Vec<(PlayerId, IVec3)>,
+    pub drawn: Vec<(PlayerId, u32)>,
     sleeping: HashSet<PlayerId>,
 }
 

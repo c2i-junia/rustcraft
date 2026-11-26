@@ -946,6 +946,29 @@ when it changes to the players near, and plays the boss music (`ui/hud/boss.rs`)
 leaves her to `boss_system`, which drops her loot; gone any other way, she sleeps anew. Beaten: `boss_defeated` in `world.ron`, the lava is obsidian, and `Victory` shows
 the credits (`ui/credits.rs`, read from `data/credits.txt`; `spawn_credits` serves any screen).
 
+### Maps and waypoints
+
+`world/cartography.rs` (shared) holds what the maps know: `Surface`, the top block of a column as
+the minimap scans it (`scan_cell`), the paper maps (`PaperMap`, a square of 128 × 128 blocks on a
+grid centred on the origin, `paper_map_centre`, with a `Surface` per column seen) and the
+`Waypoints` of a player, kept in its save: its last death (set by `Player::hurt`), the places it
+found (`find`, one of a kind within 48 blocks) and its markers (`mark`, at most 64, names of 24
+characters). Paper (three reeds), the empty map (eight paper around coal or charcoal), the compass
+(four iron ingots around a copper ingot) and the frame of a map (eight sticks around leather) are
+crafted (`MAP_RECIPES`); a map drawn and an empty map make a copy, the map staying in its cell
+(`copies_a_map`, `craft_result`, `take_one_from_each_cell`). A filled map is `ItemType::Map { id }`.
+
+The simulation does not draw: a right click with an empty map, or on a frame of a map, is told
+to the server (`BlockInteractions::drawn_maps`, `frames`), which `world/cartography.rs` (server)
+acts upon after the signs and bedrolls: it gives the map an id, fills it around its user, and puts
+a map in a frame or takes it back; a broken frame drops its map. Every 5 ticks the map in the hand
+of each player fills within 40 blocks; every 20 ticks the village, dungeons and lair of the
+regions of the players are looked at (`LoadedGenerator`), and those near enough are found. Every
+10 ticks each player is sent the maps it carries or may see in a frame whose revision changed
+(`PaperMap`), when they change its waypoints with its home (`Waypoints`), and the frames
+(`FramedMaps`). The maps are kept in `maps/<id>.map` of the world (bincode and lz4), written with
+the world; the frames in `places.ron` with the signs.
+
 ### The progress of a player
 
 `players/progress.rs` (shared) is what a player achieved in a world, `Player::progress`, kept in its
@@ -1454,6 +1477,17 @@ block) and moves it, so that dragging, the wheel (around the cursor) and `=` / `
 again; the arrow and the dots are its children, placed in percent of it. It follows the player
 until dragged, and Space centres it again. It joins `Overlays`, so the HUD hides under it, and
 closes on `M` or Escape.
+
+The waypoints and the paper maps (`ui/hud/minimap/cartography.rs`) come from the server
+(`Cartography`, filled by `network/world.rs`). The waypoints are marks over the minimap (home and
+the last death held at its edge) and on the world map with their names: home (the bedroll, or the
+spawn of the world), the last death, the villages, dungeons and lair found, and the markers named
+by the player. A click on the world map that ends no drag (`WorldMap::dragged`) opens the editor of
+a marker, a name and one of `MARKER_COLORS`, sent as `PlaceMarker`; a right click on a marker sends
+`RemoveMarker`. Each paper map received is drawn into an image of 128 × 128 (`paper_pixels`: the
+minimap's colours on paper), shown at the bottom right while it is in the selected slot, with the
+arrow of the player, and on the front of the frames of maps as an unlit quad. The compass
+(`player/compass.rs`, `HomeNeedle`) points home as the depths compass points to the lair.
 
 The chat (`ui/hud/chat.rs`) is a log of the last 100 messages with their times, over the field
 to write in, at the bottom-left above the hotbar; closed, the recent lines stay over the game

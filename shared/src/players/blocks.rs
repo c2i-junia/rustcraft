@@ -145,6 +145,10 @@ pub struct BlockInteractions {
     /// The signs a player reads, and the bedrolls it lies on.
     pub signs: Vec<IVec3>,
     pub bedrolls: Vec<IVec3>,
+    /// The frames of maps the player clicked, to put the held map on or take the one there.
+    pub frames: Vec<IVec3>,
+    /// The hotbar slots of the empty maps the player used, which the server draws.
+    pub drawn_maps: Vec<u32>,
     /// What the player placed, from its hand.
     pub placed: Vec<ItemId>,
     /// The shots of the portal gun, which the server tells the other players of.
@@ -190,6 +194,7 @@ pub fn simulate_player_block_interactions(
     let mut dropped = Vec::new();
     let mut placed = Vec::new();
     let (mut signs, mut bedrolls) = (Vec::new(), Vec::new());
+    let (mut frames, mut drawn_maps) = (Vec::new(), Vec::new());
     // Both count the time the button is held, so that a block takes as long to break, and
     // blocks are placed as often, at any frame rate.
     let hits = mining_hits(player, action);
@@ -214,6 +219,7 @@ pub fn simulate_player_block_interactions(
                     &mut dropped,
                     &mut signs,
                     &mut bedrolls,
+                    &mut frames,
                 ) =>
             {
                 player.place_wait_ms = UNTIL_RELEASED_MS;
@@ -249,6 +255,12 @@ pub fn simulate_player_block_interactions(
                     "drink milk",
                     drink_milk(player, action).map(|()| player.place_wait_ms = UNTIL_RELEASED_MS),
                 ),
+                // The server draws it, as it gives it an id
+                Some(ItemId::EmptyMap) => {
+                    drawn_maps.push(action.hotbar_slot);
+                    player.place_wait_ms = UNTIL_RELEASED_MS;
+                    continue;
+                }
                 Some(ItemId::FlintAndSteel) => (
                     "light a fire",
                     light_fire(player, world_map, action)
@@ -288,6 +300,8 @@ pub fn simulate_player_block_interactions(
         dropped,
         signs,
         bedrolls,
+        frames,
+        drawn_maps,
         placed,
         shots: Vec::new(),
     }
@@ -535,6 +549,7 @@ fn use_block(
     dropped: &mut Vec<ItemStack>,
     signs: &mut Vec<IVec3>,
     bedrolls: &mut Vec<IVec3>,
+    frames: &mut Vec<IVec3>,
 ) -> bool {
     if action.is_pressed(NetworkAction::SneakOrFlyDown) {
         return false;
@@ -577,6 +592,7 @@ fn use_block(
     match (block.id, held) {
         (BlockId::Sign, _) => signs.push(pos),
         (BlockId::Bedroll, _) => bedrolls.push(pos),
+        (BlockId::MapFrame, _) => frames.push(pos),
         (BlockId::RipeBerryBush, _) => {
             become_block(world_map, pos, BlockId::BerryBush);
             give(player, ItemId::Berries, 2);
@@ -757,7 +773,7 @@ fn place_block(
             };
             toward
         }
-        BlockId::Furnace | BlockId::Door | BlockId::Bedroll | BlockId::Sign => {
+        BlockId::Furnace | BlockId::Door | BlockId::Bedroll | BlockId::Sign | BlockId::MapFrame => {
             facing(&action.camera)
         }
         id if id.form().is_some_and(Form::faces_placer) => facing(&action.camera),

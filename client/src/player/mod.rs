@@ -28,6 +28,7 @@ pub fn player_plugin(app: &mut App) {
     hurt_plugin(app);
     app.init_resource::<compass::LairPlace>()
         .init_resource::<compass::CompassNeedle>()
+        .init_resource::<compass::HomeNeedle>()
         .init_resource::<hand::ViewModelMaterials>()
         .insert_resource(ViewMode::FirstPerson)
         .insert_resource(Inventory::new())

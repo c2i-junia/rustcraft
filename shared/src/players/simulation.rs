@@ -32,6 +32,9 @@ pub struct ActionsOutcome {
     /// The signs the player reads, and the bedrolls it lies on.
     pub signs: Vec<IVec3>,
     pub bedrolls: Vec<IVec3>,
+    /// The frames of maps the player clicked, and the slots of the empty maps it used.
+    pub frames: Vec<IVec3>,
+    pub drawn_maps: Vec<u32>,
     /// What the player placed, from its hand.
     pub placed: Vec<ItemId>,
     /// How many blocks the player fell, when it landed.
@@ -74,6 +77,8 @@ pub fn simulate_player_actions(
             .collect(),
         signs: interactions.signs,
         bedrolls: interactions.bedrolls,
+        frames: interactions.frames,
+        drawn_maps: interactions.drawn_maps,
         placed: interactions.placed,
         thrown: inventory
             .iter()

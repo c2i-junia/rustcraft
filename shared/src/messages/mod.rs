@@ -5,6 +5,7 @@ pub mod player;
 mod world;
 
 use crate::players::progress::{Achievement, FirstStep, Progress};
+use crate::world::cartography::{MapId, PaperMap, WaypointsView};
 use crate::world::{
     depths::DepthTier, MobId, MobKind, Portal, PortalColor, TradeView, WeatherKind,
 };
@@ -45,6 +46,14 @@ pub enum ClientToServerMessage {
         at: IVec3,
         lines: [String; SIGN_LINES],
     },
+    /// Names the place `at` on the world map (`cartography::Waypoints::mark`).
+    PlaceMarker {
+        at: IVec3,
+        name: String,
+        color: u8,
+    },
+    /// Takes away the marker of this index.
+    RemoveMarker(u16),
 }
 
 /// The lines of a sign.
@@ -121,6 +130,15 @@ pub enum ServerToClientMessage {
         at: IVec3,
         lines: [String; SIGN_LINES],
     },
+    /// The waypoints of the player, sent when they change.
+    Waypoints(WaypointsView),
+    /// The cells of a paper map the player holds or may see in a frame, sent when they change.
+    PaperMap {
+        id: MapId,
+        map: PaperMap,
+    },
+    /// Every frame of a map of the world that holds one, and the id of its map.
+    FramedMaps(Vec<(IVec3, MapId)>),
 }
 
 /// What the bar of a boss shows.
@@ -178,6 +196,15 @@ mod tests {
                 },
                 10,
             ),
+            (
+                ClientToServerMessage::PlaceMarker {
+                    at: IVec3::ZERO,
+                    name: String::new(),
+                    color: 0,
+                },
+                11,
+            ),
+            (ClientToServerMessage::RemoveMarker(0), 12),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");
         }
@@ -331,6 +358,15 @@ mod tests {
                 },
                 22,
             ),
+            (ServerToClientMessage::Waypoints(Default::default()), 23),
+            (
+                ServerToClientMessage::PaperMap {
+                    id: 0,
+                    map: PaperMap::new(Default::default()),
+                },
+                24,
+            ),
+            (ServerToClientMessage::FramedMaps(vec![]), 25),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");
         }

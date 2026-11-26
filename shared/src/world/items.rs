@@ -412,11 +412,22 @@ pub enum ItemId {
     Mace,
     /// Drunk, it takes every status effect away (`players::effects`).
     MilkBucket,
+    // The maps: see `cartography`
+    /// Made from reeds, for the maps.
+    Paper,
+    /// Drawn at once where it is used: it becomes a `FilledMap`.
+    EmptyMap,
+    /// A paper map, of `ItemType::Map`: shown while it is held, it fills as its holder walks.
+    FilledMap,
+    /// Its needle points to the bedroll of its holder, or to the spawn of the world.
+    Compass,
+    /// Shows the paper map put on it.
+    MapFrame,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 367] = [
+    pub const ALL: [ItemId; 372] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -784,6 +795,11 @@ impl ItemId {
         Self::ThrowingAxe,
         Self::Mace,
         Self::MilkBucket,
+        Self::Paper,
+        Self::EmptyMap,
+        Self::FilledMap,
+        Self::Compass,
+        Self::MapFrame,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -823,7 +839,10 @@ impl ItemId {
             | Self::PortalGun
             | Self::Saddle
             | Self::Boat
-            | Self::MilkBucket => 1,
+            | Self::MilkBucket
+            // each map is its own, and a compass is one
+            | Self::FilledMap
+            | Self::Compass => 1,
             Self::ThrowingAxe => 16,
             _ if self.durability().is_some() => 1,
             _ => 64,
@@ -1098,6 +1117,7 @@ impl ItemId {
             | Self::Carrot
             | Self::Potato
             | Self::BakedPotato
+            | Self::Paper
             | crate::dye_items!() => ItemCategory::Materials,
             Self::CraftingTable
             | Self::EngravingTable
@@ -1107,7 +1127,8 @@ impl ItemId {
             | Self::Bedroll
             | Self::Barrel
             | Self::RainCistern
-            | Self::Campfire => ItemCategory::Stations,
+            | Self::Campfire
+            | Self::MapFrame => ItemCategory::Stations,
             Self::WoodenPickaxe
             | Self::WoodenAxe
             | Self::WoodenShovel
@@ -1170,7 +1191,10 @@ impl ItemId {
             | Self::Bolt
             | Self::ThrowingAxe
             | Self::Mace
-            | Self::MilkBucket => ItemCategory::Tools,
+            | Self::MilkBucket
+            | Self::EmptyMap
+            | Self::FilledMap
+            | Self::Compass => ItemCategory::Tools,
             Self::FoxSpawnEgg
             | Self::SheepSpawnEgg
             | Self::CowSpawnEgg
@@ -1352,11 +1376,17 @@ impl ItemId {
             | Self::BakedPotato
             | Self::Saddle
             | Self::Boat
+            | Self::Paper
+            | Self::EmptyMap
+            | Self::Compass
             | crate::dye_items!()
             | Self::Bolt
             | Self::ThrowingAxe
             | Self::MilkBucket => ItemType::Generic,
             Self::Shield | Self::Crossbow | Self::Mace => ItemType::Tool { wear: 0 },
+            // the server gives each its id as it is drawn (`cartography`)
+            Self::FilledMap => ItemType::Map { id: 0 },
+            Self::MapFrame => ItemType::Block(BlockId::MapFrame),
 
             Self::WoodenPickaxe
             | Self::WoodenAxe
@@ -1549,6 +1579,10 @@ pub enum ItemType {
         enchantments: Enchantments,
         repairs: u8,
         name: ItemName,
+    },
+    /// A paper map, and the id the server keeps its cells by (`cartography`).
+    Map {
+        id: super::cartography::MapId,
     },
 }
 
@@ -1942,6 +1976,11 @@ mod tests {
             (ItemId::ThrowingAxe, 364),
             (ItemId::Mace, 365),
             (ItemId::MilkBucket, 366),
+            (ItemId::Paper, 367),
+            (ItemId::EmptyMap, 368),
+            (ItemId::FilledMap, 369),
+            (ItemId::Compass, 370),
+            (ItemId::MapFrame, 371),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -2152,7 +2191,13 @@ mod tests {
                 | ItemId::Bolt
                 | ItemId::ThrowingAxe
                 | ItemId::Mace
-                | ItemId::MilkBucket => {}
+                | ItemId::MilkBucket
+
+                | ItemId::Paper
+                | ItemId::EmptyMap
+                | ItemId::FilledMap
+                | ItemId::Compass
+                | ItemId::MapFrame => {}
             }
         }
         for (id, expected) in table {
@@ -2382,6 +2427,8 @@ mod tests {
             ItemId::ThrowingAxe,
             ItemId::Mace,
             ItemId::MilkBucket,
+            ItemId::FilledMap,
+            ItemId::Compass,
         ];
         let others = ItemId::ALL
             .iter()
@@ -2566,6 +2613,9 @@ mod tests {
                     | ItemId::ThrowingAxe
                     | ItemId::Mace
                     | ItemId::MilkBucket
+                    | ItemId::EmptyMap
+                    | ItemId::FilledMap
+                    | ItemId::Compass
             );
             assert_eq!(
                 item.category() == ItemCategory::Tools,

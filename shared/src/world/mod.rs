@@ -1,6 +1,7 @@
 pub mod anvil;
 pub mod biome;
 pub mod blocks;
+pub mod cartography;
 pub mod chunk;
 pub mod chunk_map;
 pub mod container;

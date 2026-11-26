@@ -133,7 +133,8 @@ impl SoundMaterial {
             | BlockId::Barrel
             | BlockId::Campfire
             | BlockId::UnlitCampfire
-            | BlockId::Sign => Self::Wood,
+            | BlockId::Sign
+            | BlockId::MapFrame => Self::Wood,
             BlockId::OakLeaves
             | BlockId::SpruceLeaves
             | BlockId::JungleLeaves

@@ -5,6 +5,9 @@ Date: 11.10.2026
   Changes: 
     - A wider, colourful palette: slabs, stairs, doors, trapdoors and fence gates of each of the five woods; slabs, stairs and low walls (which join like fences) of stone, cobblestone, hewn stone, limestone, slate, bricks, gloomrock and cobbled gloomrock; polished and chiseled stone, limestone, slate and gloomrock.
     - Sixteen dyes, from flowers, berries, cocoa beans (brown), coal, limestone, copper ore and a smelted cactus, mixed into the others. They colour wool, glass and panes, terracotta (clay and a fired brick) and concrete powder, which hardens into concrete where water touches it.
+    - Waypoints on the minimap and the world map: your bedroll (or the spawn of the world), where you last died, and the villages, dungeons and the lair of the Ember Mother once you went near them. A click on the world map names a place there, in one of eight colours; a right click on a marker takes it away. They are kept with your player on the server.
+    - Paper maps: three reeds make paper, eight paper around coal or charcoal an empty map. Used, it is drawn over a square of 128 blocks around where you stand, which fills as you walk with it in hand and shows at the bottom right of the screen. An empty map and a drawn one make a copy at the crafting table, for a friend. A frame of a map (sticks and leather) shows the map put on it.
+    - A compass (four iron ingots around a copper ingot) points to your bedroll, or to the spawn of the world, in the hand and in the slots.
     - Placing a sign opens an editor of its four lines, and a right click on a sign edits it again. The /sign command still writes on the sign aimed at.
     - The wooden slab and stairs of older worlds become those of oak; the bricks block is now called Bricks.
     - Updated the game engine to Bevy 0.19.

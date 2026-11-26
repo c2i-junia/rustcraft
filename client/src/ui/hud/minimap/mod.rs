@@ -21,6 +21,7 @@ use crate::ui::widgets::raised_bevel;
 use crate::world::{BlockChanged, ChunkLoadEvent, ClientWorldMap};
 use shared::CHUNK_SIZE;
 
+pub mod cartography;
 pub mod colors;
 pub mod compose;
 #[cfg(test)]
@@ -75,6 +76,7 @@ impl MinimapImage {
 }
 
 pub fn minimap_plugin(app: &mut App) {
+    cartography::cartography_plugin(app);
     app.add_systems(
         OnEnter(GameState::Game),
         (

@@ -63,6 +63,11 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
    and the trapdoors of oak, spruce, jungle and acacia (blocks/<Wood>Trapdoor.png). The willow door
    and trapdoor are recoloured from the oak ones, and the polished and chiseled rocks and the icons
    of the slabs, stairs, low walls, gates and panes drawn, by scripts/generate_palette.py.
+-> The maps, from Pixel Perfection CE (https://github.com/Athemis/PixelPerfectionCE, CC BY-SA
+   4.0): the paper (items/Paper.png), the empty map (items/EmptyMap.png), the compass and its
+   pictures (items/Compass.png, items/Compass_Draw1..16.png, every other compass_NN of the pack);
+   the map drawn (items/FilledMap.png) is its filled_map under its filled_map_markings tinted
+   brown, the front of the frame of a map (blocks/MapFrame.png) its item_frame over our oak planks.
 -> The spawn eggs (items/*SpawnEgg.png) are our own,
    drawn by scripts/generate_spawn_eggs.py.
 -> The coin (items/Coin.png) and the directions (hud/directions.png) are our own,

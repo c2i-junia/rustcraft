@@ -16,9 +16,10 @@ use crate::{
         Inventory, Player,
     },
     world::{
-        fuel_ticks, grid_slot, lacking_cells, match_recipe, plan_fill, recipes, smelting_result,
-        BlockId, ChunkMap, Container, CraftingGrid, Enchantment, FillPlan, ForgeRefusal, Furnace,
-        ItemId, ItemName, ItemStack, ItemType, RecipeView, CHEST_SLOTS, CRAFTING_GRID_SIZE, CRAFTING_GRID_START,
+        copies_a_map, fuel_ticks, grid_slot, lacking_cells, match_recipe, plan_fill, recipes,
+        smelting_result, BlockId, ChunkMap, Container, CraftingGrid, Enchantment, FillPlan,
+        ForgeRefusal, Furnace, ItemId, ItemName, ItemStack, ItemType, RecipeView, CHEST_SLOTS,
+        CRAFTING_GRID_SIZE, CRAFTING_GRID_START,
     },
     HALF_BLOCK, HOTBAR_SLOTS, MAX_INVENTORY_ACTIONS_PER_INPUT, MAX_INVENTORY_SLOTS,
 };
@@ -1118,7 +1119,15 @@ pub fn craft_result(inventory: &Inventory, size: u32) -> Option<ItemStack> {
     if beyond_the_grid {
         return None;
     }
-    match_recipe(&inventory.crafting_grid())
+    let mut result = match_recipe(&inventory.crafting_grid())?;
+    // A copy of a paper map is the same map
+    if result.item_id == ItemId::FilledMap {
+        let copied = grid_slots(CRAFTING_GRID_SIZE)
+            .filter_map(|slot| inventory.inner.get(&slot))
+            .find(|stack| stack.item_id == ItemId::FilledMap)?;
+        result.item_type = copied.item_type;
+    }
+    Some(result)
 }
 
 fn take_craft_result(
@@ -1205,8 +1214,16 @@ fn craft_to_hotbar(
 
 /// What a craft takes from the grid: one item of each cell.
 fn take_one_from_each_cell(inventory: &mut Inventory) {
+    // A copy of a map leaves the map copied in its cell
+    let copy = copies_a_map(&inventory.crafting_grid());
     for slot in grid_slots(CRAFTING_GRID_SIZE) {
-        inventory.remove_item_from_stack(slot, 1);
+        let copied = inventory
+            .inner
+            .get(&slot)
+            .is_some_and(|stack| stack.item_id == ItemId::FilledMap);
+        if !(copy && copied) {
+            inventory.remove_item_from_stack(slot, 1);
+        }
     }
 }
 

@@ -248,6 +248,20 @@ items/Crossbow_Draw2 (`crossbow_pulling_2`), items/Crossbow_Draw3 (`crossbow_arr
 items/MilkBucket (`milk_bucket`), hud/effect_poison, hud/effect_slowness, hud/effect_weakness,
 hud/effect_regeneration (`mob_effect/`), hud/effect_burn (`mob_effect/fire_resistance`).
 
+## Added after the audit, from Pixel Perfection CE (21)
+
+The maps, from the `master` branch of Pixel Perfection CE (CC BY-SA 4.0): the paper, the empty
+map, the compass and its sixteen pictures (every other one of the pack's 32, `compass_16` ahead).
+Two are put together from two of its files, and so are under its license: the map drawn
+(`filled_map` under `filled_map_markings`, tinted brown) and the front of the frame of a map
+(`item_frame`, the item, over our `blocks/OakPlanks`).
+
+blocks/MapFrame, items/Compass, items/Compass_Draw1, items/Compass_Draw10, items/Compass_Draw11,
+items/Compass_Draw12, items/Compass_Draw13, items/Compass_Draw14, items/Compass_Draw15,
+items/Compass_Draw16, items/Compass_Draw2, items/Compass_Draw3, items/Compass_Draw4,
+items/Compass_Draw5, items/Compass_Draw6, items/Compass_Draw7, items/Compass_Draw8,
+items/Compass_Draw9, items/EmptyMap, items/FilledMap, items/Paper
+
 ## To do before the release
 
 1. Read XSSheep's page, and settle the 79 files of B and C with Nova_Wostra or with XSSheep's originals.

@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, PI, TAU};
 
-use super::compass::CompassNeedle;
+use super::compass::{CompassNeedle, HomeNeedle};
 use bevy::{
     asset::AssetId,
     camera::visibility::RenderLayers,
@@ -529,7 +529,12 @@ pub fn spawn_view_model(
 pub fn move_the_hand(
     time: Res<Time>,
     player: Query<(&Player, &PlayerAnimation, &HeldItem), With<CurrentPlayerMarker>>,
-    (inventory, hotbar, needle): (Res<Inventory>, Query<&Hotbar>, Res<CompassNeedle>),
+    (inventory, hotbar, needle, home): (
+        Res<Inventory>,
+        Query<&Hotbar>,
+        Res<CompassNeedle>,
+        Res<HomeNeedle>,
+    ),
     mut last_stack: Local<Option<(u32, Option<ItemStack>)>>,
     mouse: Res<ButtonInput<MouseButton>>,
     ui_mode: Res<UIMode>,
@@ -580,6 +585,7 @@ pub fn move_the_hand(
         };
         let draw = match motion.shown {
             Some(ItemId::DepthsCompass) => Some(needle.0),
+            Some(ItemId::Compass) => Some(home.0),
             _ => draw,
         };
         *transform = view_model_transform(offset);

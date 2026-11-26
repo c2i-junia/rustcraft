@@ -6,6 +6,7 @@ use bevy::math::{IVec3, Vec3};
 use bevy_ecs::resource::Resource;
 use uuid::Uuid;
 
+use super::cartography::PaperMaps;
 use super::dropped_items::DroppedItems;
 use super::home::{HomeEvents, Places};
 use crate::mob::boss::Boss;
@@ -66,6 +67,8 @@ pub struct ServerWorldMap {
     pub game_mode: GameMode,
     /// The Ember Mother and her fight.
     pub boss: Boss,
+    /// The paper maps, and what the players were sent of them and of their waypoints.
+    pub paper_maps: PaperMaps,
 }
 
 /// What one client has received of the world.

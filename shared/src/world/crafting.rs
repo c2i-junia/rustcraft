@@ -424,7 +424,29 @@ fn palette_recipes() -> Vec<Recipe> {
     recipes
 }
 
-/// Every recipe: those of `RECIPES`, then those of the palette. Made once.
+/// The recipes of the maps (`cartography`): paper from reeds, the empty map, its copy, the
+/// compass and the frame of a map.
+#[rustfmt::skip]
+const MAP_RECIPES: &[Recipe] = &[
+    Recipe { width: 3, cells: &[item(ItemId::Reed), item(ItemId::Reed), item(ItemId::Reed)], output: ItemId::Paper, nb: 3, shapeless: false },
+    Recipe { width: 3, cells: &[PAPER, PAPER, PAPER, PAPER, COAL, PAPER, PAPER, PAPER, PAPER], output: ItemId::EmptyMap, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &[PAPER, PAPER, PAPER, PAPER, CHARCOAL, PAPER, PAPER, PAPER, PAPER], output: ItemId::EmptyMap, nb: 1, shapeless: false },
+    // A copy: the map drawn stays in the grid (`inventory::take_craft_result`)
+    Recipe { width: 2, cells: &[item(ItemId::FilledMap), item(ItemId::EmptyMap)], output: ItemId::FilledMap, nb: 1, shapeless: true },
+    Recipe { width: 3, cells: &[None, IRON, None, IRON, item(ItemId::CopperIngot), IRON, None, IRON, None], output: ItemId::Compass, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &[STICK, STICK, STICK, STICK, LEATHER, STICK, STICK, STICK, STICK], output: ItemId::MapFrame, nb: 1, shapeless: false },
+];
+
+const PAPER: Option<Ingredient> = item(ItemId::Paper);
+
+/// Whether the grid makes a copy of a paper map, which keeps the map in its cell.
+pub fn copies_a_map(grid: &CraftingGrid) -> bool {
+    grid.iter().flatten().any(|&cell| cell == ItemId::FilledMap)
+        && match_recipe(grid).is_some_and(|result| result.item_id == ItemId::FilledMap)
+}
+
+/// Every recipe: those of `RECIPES`, then those of the palette, then those of the maps. Made
+/// once.
 fn all_recipes() -> &'static [Recipe] {
     static ALL: OnceLock<Vec<Recipe>> = OnceLock::new();
     ALL.get_or_init(|| {
@@ -432,6 +454,7 @@ fn all_recipes() -> &'static [Recipe] {
             .iter()
             .copied()
             .chain(palette_recipes())
+            .chain(MAP_RECIPES.iter().copied())
             .collect()
     })
 }
@@ -725,6 +748,26 @@ mod tests {
 
     fn grid(cells: [Option<ItemId>; 9]) -> CraftingGrid {
         cells
+    }
+
+    #[test]
+    fn a_map_is_copied_with_an_empty_one_and_reeds_make_paper() {
+        let (m, e) = (Some(ItemId::FilledMap), Some(ItemId::EmptyMap));
+        let copy = grid([e, None, None, None, m, None, None, None, None]);
+        assert_eq!(
+            match_recipe(&copy).map(|r| r.item_id),
+            Some(ItemId::FilledMap)
+        );
+        assert!(copies_a_map(&copy));
+        assert!(!copies_a_map(&grid([
+            e, None, None, None, None, None, None, None, None
+        ])));
+        let r = Some(ItemId::Reed);
+        let paper = grid([r, r, r, None, None, None, None, None, None]);
+        assert_eq!(
+            match_recipe(&paper).map(|r| (r.item_id, r.nb)),
+            Some((ItemId::Paper, 3))
+        );
     }
 
     fn made(item_id: ItemId, nb: u32) -> Option<ItemStack> {

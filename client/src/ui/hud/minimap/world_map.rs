@@ -53,10 +53,18 @@ const FIRST_SCALE: usize = 1;
 const REDRAW_EVERY: Duration = Duration::from_millis(250);
 
 /// The key hints of the world map.
-pub const WORLD_MAP_HINTS: [Hint; 4] = [
+pub const WORLD_MAP_HINTS: [Hint; 6] = [
     Hint {
         keys: "Drag",
         action: "Move",
+    },
+    Hint {
+        keys: "LMB",
+        action: "Mark",
+    },
+    Hint {
+        keys: "RMB",
+        action: "Remove",
     },
     Hint {
         keys: "Wheel",
@@ -111,6 +119,9 @@ pub struct WorldMap {
     pub size: UVec2,
     /// The revision of the surface drawn, and when.
     drawn: Option<(u64, Duration)>,
+    /// Whether the map was dragged since the button was pressed: the click that ends a drag
+    /// names no place (`cartography::mark_on_click`).
+    pub dragged: bool,
 }
 
 impl WorldMap {
@@ -148,6 +159,7 @@ pub fn start_world_map(mut images: ResMut<Assets<Image>>, mut commands: Commands
         corner: IVec2::ZERO,
         size: UVec2::ZERO,
         drawn: None,
+        dragged: false,
     });
 }
 
@@ -160,11 +172,16 @@ pub fn toggle_world_map(
     roots: Query<Entity, With<WorldMapRoot>>,
     map: Option<ResMut<WorldMap>>,
     assets: Res<AssetServer>,
+    naming: Query<(), With<super::cartography::MarkerEditor>>,
     mut commands: Commands,
 ) {
     let Some(mut map) = map else {
         return;
     };
+    // Escape closes the editor of a marker first
+    if !naming.is_empty() {
+        return;
+    }
     let key = is_action_just_pressed(GameAction::OpenMap, &keyboard_input, &key_map);
     if let Ok(root) = roots.single() {
         if key || is_action_just_pressed(GameAction::Escape, &keyboard_input, &key_map) {
@@ -214,6 +231,12 @@ pub fn spawn_world_map(commands: &mut Commands, assets: &AssetServer, map: &Worl
             ChildOf(root),
         ))
         .observe(drag_world_map)
+        .observe(|_: On<Pointer<Press>>, map: Option<ResMut<WorldMap>>| {
+            if let Some(mut map) = map {
+                map.dragged = false;
+            }
+        })
+        .observe(super::cartography::mark_on_click)
         .observe(zoom_world_map_with_the_wheel)
         .id();
     let picture = commands
@@ -321,6 +344,7 @@ fn drag_world_map(
     if drag.button != PointerButton::Primary {
         return;
     }
+    map.dragged = true;
     let focus = map.focus.unwrap_or(player.translation.xz());
     let moved = drag.delta / ui_scale.0 / map.block_px();
     map.focus = Some(keep_on_the_world(focus - moved, &map));
@@ -394,7 +418,7 @@ pub fn zoom_focus(focus: Vec2, anchor: Vec2, from: f32, to: f32) -> Vec2 {
 
 /// The size of the view in logical px, as laid out, or before the layout of the frame the map
 /// opens in, the window less the hint bar.
-fn view_size(view: Option<&ComputedNode>, window: Option<&Window>, ui_scale: &UiScale) -> Vec2 {
+pub fn view_size(view: Option<&ComputedNode>, window: Option<&Window>, ui_scale: &UiScale) -> Vec2 {
     view.map(|view| view.size() * view.inverse_scale_factor())
         .filter(|size| size.cmpgt(Vec2::ZERO).all())
         .or_else(|| window.map(|window| window.size() / ui_scale.0 - Vec2::Y * HINT_BAR_HEIGHT))

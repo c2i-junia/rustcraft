@@ -5,29 +5,15 @@ use std::collections::BTreeSet;
 
 use bevy::platform::collections::{HashMap, HashSet};
 use bevy::prelude::*;
-use shared::world::{BlockId, BlockTransparency, Chunk, ChunkMap};
+pub use shared::world::cartography::{scan_cell, Surface, MAX_WATER_DEPTH};
+use shared::world::{Chunk, ChunkMap};
 use shared::CHUNK_SIZE;
-
-/// The deepest water the map tells apart, in blocks: deeper water looks the same.
-pub const MAX_WATER_DEPTH: u8 = 16;
 
 /// The columns of chunks scanned in a frame at most, so that entering a world, which brings
 /// hundreds of chunks at once, never makes a frame stutter.
 pub const COLUMNS_PER_FRAME: usize = 8;
 
 const TILE_CELLS: usize = (CHUNK_SIZE * CHUNK_SIZE) as usize;
-
-/// What the map shows of a column of the world.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Surface {
-    /// The top block seen from above. Under water, the floor of the water, or water when the
-    /// floor is deeper than `MAX_WATER_DEPTH` or not loaded.
-    pub block: BlockId,
-    /// The height of that block, or of the surface of the water over it.
-    pub y: i32,
-    /// The blocks of water over the floor, up to `MAX_WATER_DEPTH`; 0 out of the water.
-    pub water_depth: u8,
-}
 
 /// The surface of a column of chunks.
 struct ColumnTile {
@@ -52,11 +38,6 @@ pub struct MinimapSurface {
     pub near_revision: u64,
 }
 
-/// Whether the map sees through a block, to the block under it.
-fn seen_through(block: BlockId) -> bool {
-    block == BlockId::Glass || block.get_visibility() == BlockTransparency::Decoration
-}
-
 /// The column of chunks of a position, and the index of its cell in the tile.
 fn split(x: i32, z: i32) -> (IVec2, usize) {
     let column = IVec2::new(x.div_euclid(CHUNK_SIZE), z.div_euclid(CHUNK_SIZE));
@@ -79,48 +60,6 @@ fn column_chunks<'a>(
         // map tells below
         .filter(|(_, chunk)| chunk.uniform() != Some(None))
         .collect()
-}
-
-/// What the map shows at `x`, `z`, looking down through `chunks`, the chunks of its column
-/// (`column_chunks`).
-fn scan_cell(chunks: &[(i32, &Chunk)], x: i32, z: i32) -> Option<Surface> {
-    let local = IVec2::new(x.rem_euclid(CHUNK_SIZE), z.rem_euclid(CHUNK_SIZE));
-    let mut water_top: Option<i32> = None;
-    let water = |floor: BlockId, top: i32, depth: i32| Surface {
-        block: floor,
-        y: top,
-        water_depth: depth.min(i32::from(MAX_WATER_DEPTH)) as u8,
-    };
-    for &(chunk_y, chunk) in chunks {
-        for local_y in (0..CHUNK_SIZE).rev() {
-            let y = chunk_y * CHUNK_SIZE + local_y;
-            if let Some(top) = water_top {
-                if top - y >= i32::from(MAX_WATER_DEPTH) {
-                    return Some(water(BlockId::Water, top, top - y));
-                }
-            }
-            let Some(block) = chunk.get(IVec3::new(local.x, local_y, local.y)) else {
-                continue;
-            };
-            if seen_through(block.id) {
-                continue;
-            }
-            if block.id == BlockId::Water {
-                water_top.get_or_insert(y);
-                continue;
-            }
-            return Some(match water_top {
-                Some(top) => water(block.id, top, top - y),
-                None => Surface {
-                    block: block.id,
-                    y,
-                    water_depth: 0,
-                },
-            });
-        }
-    }
-    // Water over chunks that are not loaded: as deep as the map tells
-    water_top.map(|top| water(BlockId::Water, top, i32::from(MAX_WATER_DEPTH)))
 }
 
 impl MinimapSurface {
@@ -253,7 +192,7 @@ impl MinimapSurface {
 
 #[cfg(test)]
 mod tests {
-    use shared::world::{BlockData, BlockDirection, Chunk};
+    use shared::world::{BlockData, BlockDirection, BlockId, Chunk};
 
     use super::*;
 

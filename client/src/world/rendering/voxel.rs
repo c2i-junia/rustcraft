@@ -246,6 +246,16 @@ impl VoxelShape {
                 shape.faces[BOTTOM].texture = "HewnStone".into();
                 shape
             }
+            // A board of planks, its frame and the leather under the map on the front only
+            BlockId::MapFrame => {
+                let mut shape = Self::full_cube(block);
+                for (index, face) in shape.faces.iter_mut().enumerate() {
+                    if index != BOTTOM + 1 {
+                        face.texture = "OakPlanks".into();
+                    }
+                }
+                shape
+            }
             // As the model of the texture pack: its opening, or its fire, on the front only
             BlockId::Furnace | BlockId::LitFurnace => {
                 let mut shape = Self::full_cube(block);

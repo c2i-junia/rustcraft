@@ -380,6 +380,10 @@ pub fn handle_player_inputs_system(
             .extend(outcome.signs.iter().map(|&pos| (ev.client_id, pos)));
         home.slept
             .extend(outcome.bedrolls.iter().map(|&pos| (ev.client_id, pos)));
+        home.framed
+            .extend(outcome.frames.iter().map(|&pos| (ev.client_id, pos)));
+        home.drawn
+            .extend(outcome.drawn_maps.iter().map(|&slot| (ev.client_id, slot)));
         if !outcome.bedrolls.is_empty() {
             player.earn(Achievement::Bed);
         }

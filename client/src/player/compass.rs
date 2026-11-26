@@ -9,6 +9,7 @@ use bevy::prelude::*;
 use shared::world::ItemId;
 
 use crate::camera::CameraController;
+use crate::ui::hud::minimap::cartography::Cartography;
 use crate::world::MaterialResource;
 
 /// The pictures of the needle, `DepthsCompass_Draw1` (ahead) to this one, clockwise.
@@ -32,6 +33,17 @@ impl Default for CompassNeedle {
     }
 }
 
+/// The picture of the needle of the compass of the moment, which points home: to the bedroll of
+/// the player, or to the spawn of the world (`cartography::WaypointsView::home`).
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HomeNeedle(pub u8);
+
+impl Default for HomeNeedle {
+    fn default() -> Self {
+        Self(1)
+    }
+}
+
 /// The picture of a needle from `eye` that looks toward `forward`, `elapsed` seconds into the
 /// game.
 fn needle(lair: Option<Vec3>, eye: Vec3, forward: Vec3, elapsed: f32) -> u8 {
@@ -50,6 +62,7 @@ pub fn turn_the_needle(
     camera: Query<&GlobalTransform, With<CameraController>>,
     time: Res<Time>,
     mut shown: ResMut<CompassNeedle>,
+    (cartography, mut home_shown): (Option<Res<Cartography>>, ResMut<HomeNeedle>),
 ) {
     if let Ok(camera) = camera.single() {
         let up = camera.up().as_vec3();
@@ -58,6 +71,12 @@ pub fn turn_the_needle(
         let forward = if forward.y < -0.99 { up } else { forward };
         let turned = needle(lair.0, camera.translation(), forward, time.elapsed_secs());
         shown.set_if_neq(CompassNeedle(turned));
+        let home = cartography
+            .as_ref()
+            .and_then(|cartography| cartography.waypoints.as_ref())
+            .map(|view| view.home.as_vec3() + Vec3::new(0.5, 0.0, 0.5));
+        let turned = needle(home, camera.translation(), forward, time.elapsed_secs());
+        home_shown.set_if_neq(HomeNeedle(turned));
     }
 }
 
@@ -66,17 +85,19 @@ pub fn turn_the_needle(
 pub struct SlotPictures<'w> {
     materials: Res<'w, MaterialResource>,
     needle: Option<Res<'w, CompassNeedle>>,
+    home: Option<Res<'w, HomeNeedle>>,
 }
 
 impl SlotPictures<'_> {
     pub fn sprite(&self, item: ItemId) -> Option<TextureAtlas> {
         let atlas = self.materials.items.as_ref()?;
-        let turned = self
-            .needle
-            .as_ref()
-            .filter(|_| item == ItemId::DepthsCompass);
+        let turned = match item {
+            ItemId::DepthsCompass => self.needle.as_ref().map(|needle| needle.0),
+            ItemId::Compass => self.home.as_ref().map(|needle| needle.0),
+            _ => None,
+        };
         match turned {
-            Some(needle) => atlas.sprite(&format!("{item:?}_Draw{}", needle.0)),
+            Some(needle) => atlas.sprite(&format!("{item:?}_Draw{needle}")),
             None => atlas.sprite(&format!("{item:?}")),
         }
     }
