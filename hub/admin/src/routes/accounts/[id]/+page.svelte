@@ -212,6 +212,15 @@
 				try {
 					const { password } = await api.resetPassword(id);
 					temporary.value = { username, password };
+				} catch (failure) {
+					// No answer is not a refusal: the hub may have reset it before the answer was lost.
+					if (failure instanceof ApiError && failure.status === 0)
+						throw new ApiError(
+							0,
+							failure.code,
+							'The hub did not answer. The password may have been reset anyway; resetting again gives a new one.'
+						);
+					throw failure;
 				} finally {
 					temporary.resetting = false;
 				}
@@ -359,7 +368,7 @@
 				<header><h2 id="security-title">Access</h2></header>
 				<dl class="facts">
 					<dt>Live sessions</dt>
-					<dd>{account.sessions.length}</dd>
+					<dd>{account.sessions_total}</dd>
 					<dt>Certificates</dt>
 					<dd>{plural(account.active_certificates, 'active certificate')}</dd>
 					<dt>Worlds</dt>
@@ -396,7 +405,7 @@
 		<section class="card flush">
 			<Tabs defaultValue="sessions">
 				<TabsList aria-label="Details of the account">
-					<TabsTab value="sessions">Sessions <span class="count">{account.sessions.length}</span></TabsTab>
+					<TabsTab value="sessions">Sessions <span class="count">{account.sessions_total}</span></TabsTab>
 					<TabsTab value="worlds">Worlds <span class="count">{account.realms.length}</span></TabsTab>
 					<TabsTab value="audit">Audit log <span class="count">{account.audit.length}</span></TabsTab>
 				</TabsList>
@@ -404,6 +413,11 @@
 					{#if account.sessions.length === 0}
 						<p class="empty">No live session.</p>
 					{:else}
+						{#if account.sessions.length < account.sessions_total}
+							<p class="capped">
+								The {account.sessions.length} most recently used of {account.sessions_total} live sessions.
+							</p>
+						{/if}
 						<div class="table-wrap">
 							<table aria-label="Live sessions">
 								<thead>
@@ -543,6 +557,11 @@
 </div>
 
 <style>
+	.capped {
+		padding: 12px 16px 0;
+		color: var(--muted);
+		font-size: 0.875rem;
+	}
 	.refresh-error {
 		flex-direction: row;
 		flex-wrap: wrap;

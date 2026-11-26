@@ -75,7 +75,9 @@ export interface AuditItem {
 
 export interface AccountDetail extends AccountItem {
 	deleted_at: number | null;
+	/** The 100 most recently used live sessions at most; `sessions_total` counts them all. */
 	sessions: SessionItem[];
+	sessions_total: number;
 	active_certificates: number;
 	realms: RealmItem[];
 	audit: AuditItem[];
