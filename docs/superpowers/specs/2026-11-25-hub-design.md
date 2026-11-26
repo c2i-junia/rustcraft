@@ -28,6 +28,7 @@ by hand stay `--auth offline` by default (today's behaviour).
 | Servers started by hand | `--auth offline` by default. |
 | Version of a hosted world | The hub's configured image at each start: a world is upgraded at its next start. |
 | Mods in hosted worlds | None in v1. |
+| IP versions | Game servers and hosted worlds are IPv4 only in v1 (the server binds `0.0.0.0`, the game resolves IPv4 addresses only). Dual-stack is future work. |
 
 ## Repository layout
 
@@ -202,7 +203,7 @@ password), `realms`, `users`.
   security options from its own config file, never from the request.
 - **Container:** image from the agent config; memory 1.5 GB, 1.5 CPUs, 256 pids (config);
   `--max-render-distance 12`, `--max-players 10`; slot `n` publishes UDP `25000 + 2n` and
-  `25001 + 2n` (game, status) on IPv4 and IPv6; 20 slots; read-only root filesystem, the
+  `25001 + 2n` (game, status), reached over IPv4 only in v1; 20 slots; read-only root filesystem, the
   world on volume `rustcraft-realm-<uuid>` at `/data`; `cap_drop ALL`,
   `no-new-privileges`, non-root user; stop with SIGTERM and 30 s grace; at most 3 running
   worlds (hub config).

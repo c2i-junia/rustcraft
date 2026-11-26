@@ -198,6 +198,9 @@ A dedicated server (`rustcraft-server --port 8000`) listens for the game on UDP 
 Open both in a firewall or a router: a server whose status port cannot be reached, or an older
 server that has none, shows as "Offline" in the list, and can still be joined.
 
+Servers, hosted worlds included, listen on IPv4 only, and the game joins them over IPv4 only:
+IPv6 is for a later version.
+
 Stopping a dedicated server with Ctrl-C or SIGTERM (what `docker stop` sends) saves the world and
 the connected players, then exits. A second signal while it saves exits at once, with status 130.
 
@@ -263,7 +266,9 @@ is moved there). `/op`, `/ban`, `/whitelist add` and the like find the account o
 the players online, or ask the hub for it (`GET /v1/profiles?name=`) and answer when the hub has;
 `--op <name>` asks it before the server starts, which fails when the hub does not know the name.
 A plain name in a list matches the account of that name when it first joins, and is rewritten
-with its account then.
+with its account then. `/deop`, `/pardon` and `/whitelist remove` take first an entry of the name
+as the list holds it, the name the account had when it was last seen on the server, which the hub
+may have given to another account since; they ask the hub only when no entry has that name.
 
 <br>
 

@@ -4,10 +4,18 @@
 #   docker compose up -d --build
 name: rustcraft-hub
 
+# The logs of each service: 3 files of 10 MB at most, as those of the worlds.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
 services:
   db:
     image: postgres:17
     restart: unless-stopped
+    logging: *logging
     environment:
       POSTGRES_USER: hub
       POSTGRES_DB: hub
@@ -31,6 +39,7 @@ services:
       target: hub
     image: rustcraft-hub
     restart: unless-stopped
+    logging: *logging
     depends_on:
       db:
         condition: service_healthy
@@ -75,6 +84,7 @@ services:
       target: realm-agent
     image: rustcraft-realm-agent
     restart: unless-stopped
+    logging: *logging
     configs:
       - source: realm_agent
         target: /etc/rustcraft/realm-agent.toml

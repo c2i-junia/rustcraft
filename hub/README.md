@@ -40,8 +40,14 @@ The design, with the routes and their limits, is in
   expired; `GET /v1/profiles?name=` gives `{id, username}` of an active account.
 - A suspended account gets 403 `forbidden` with the reason, at login (once the password is right)
   and on any route; suspending, like a password change, ends its sessions and revokes its
-  certificates.
-- Admin commands take the database options of `serve` and write `audit_log` rows as `admin-cli`:
+  certificates. A game server in hub mode reads the revoked certificates every hour: it then
+  refuses the account and dismisses it if it is playing. A hosted world reads its members every
+  minute, of active accounts only: a suspended member leaves its whitelist. A suspended owner's
+  worlds stay as they are, and their members can still start and play them; the owner, whose
+  certificates are revoked, cannot join them, nor manage them, until unsuspended.
+- Admin commands take the database options of `serve` and write `audit_log` rows as `admin-cli`.
+  Like `serve`, they apply the migrations of their build when they connect: on an update or a
+  roll back, the admin command of the new or old image migrates the database as the hub would.
 
 ```sh
 rustcraft-hub admin users
@@ -122,7 +128,9 @@ A world's container runs the configured image as user 10001 with a read-only roo
 `memory` (1536m, no swap), `cpus` (1.5) and `pids` (256), on the Docker network `network`
 (`bridge`; never `host`, `none` or `container:…`), its logs rotated (json-file, 3 files of
 10 MB). Slot `n` publishes UDP `base_port + 2n` (game) and the next port (status) on
-`0.0.0.0` and `::`, to the server's 8000 and 8001. The command is `--world world --port 8000
+`0.0.0.0` and `::`, to the server's 8000 and 8001. The worlds are IPv4 only for now (the game's
+server listens on IPv4, and the game joins over IPv4): on a network without IPv6, the binding on
+`::` is Docker's userland proxy, which the host's firewall closes. The command is `--world world --port 8000
 --auth hub --hub <hub_url> --public-address <public_host>:<game port> --realm <uuid>
 --max-render-distance 12 --max-players 10` and the settings, with the token in
 `RUSTCRAFT_REALM_TOKEN`.
@@ -216,6 +224,9 @@ Four records, on Cloudflare, all **DNS only** (grey cloud):
 | `hub.rustcraft.dev` | A, AAAA | the machine's IPv4 and IPv6 addresses |
 | `play.rustcraft.dev` | A, AAAA | the same |
 
+Hosted worlds and game servers are IPv4 only for now (dual-stack is future work): the game
+resolves `play` to its IPv4 address alone, and its AAAA record is unused until then.
+
 `play` cannot be proxied: the worlds speak UDP, which Cloudflare's proxy does not carry. `hub`
 could be, as Caddy serves it like the site, but then every request would reach Caddy from a
 Cloudflare address, and the hub's limits per address (sign-ups, failed logins) would need
@@ -267,31 +278,19 @@ Worlds run on a Docker network of their own, where containers cannot talk to one
 (`enable_icc=false`): a world reaches the internet, but not the other worlds, and the hub's
 containers are on other networks.
 Compose does not make it (nothing it starts is on it), so it is made once. Check that the
-subnets are free first (`docker network ls`, `ip route`); the hub's own is `172.30.80.0/24`.
-
-An IPv6 network makes Docker set `net.ipv6.conf.all.forwarding=1`, and a kernel that forwards
-ignores router advertisements on an interface whose `accept_ra` is 1: the machine would lose its
-IPv6 default route and, with it, its IPv6 address's way out. Look first:
+subnet is free first (`docker network ls`, `ip route`); the hub's own is `172.30.80.0/24`. The
+network is IPv4 only, as the worlds are for now.
 
 ```sh
-ip -6 route show default                 # `proto ra` means it is learnt from advertisements
-sysctl net.ipv6.conf.eth0.accept_ra      # replace eth0 by the WAN interface
-```
-
-When the route is `proto ra` and `accept_ra` is 1 (with `proto static` nothing changes), keep
-the advertisements before creating the network:
-
-```sh
-echo 'net.ipv6.conf.eth0.accept_ra = 2' > /etc/sysctl.d/60-rustcraft-accept-ra.conf
-sysctl --system
-```
-
-```sh
-docker network create --driver bridge --ipv6 \
-    --subnet 172.30.81.0/24 --subnet fd30:80:81::/64 \
+docker network create --driver bridge \
+    --subnet 172.30.81.0/24 \
     --opt com.docker.network.bridge.enable_icc=false \
     rustcraft-realms
 ```
+
+A `rustcraft-realms` made with `--ipv6` by an earlier version of this guide is made again IPv4
+only, while no world runs: `docker network rm rustcraft-realms`, then the command above. The
+`accept_ra` file that version wrote (`/etc/sysctl.d/60-rustcraft-accept-ra.conf`) can stay.
 
 ### 5. The agent's configuration
 
@@ -375,14 +374,16 @@ UFW does not see the ports Docker publishes: Docker's NAT rules take the packets
 a published port is open to the internet whatever UFW says. Only the worlds' ports must be
 (UDP 25000 to 25039: slot `n` has the game on `25000 + 2n` and its status on the next one).
 `deploy/rustcraft-docker-firewall.sh` puts the rest of the policy in Docker's `DOCKER-USER`
-chain, for IPv4 and IPv6: for what comes in on the WAN interface, it lets through the replies
+chain: for what comes in on the WAN interface, it lets through the replies
 of connections (`ESTABLISHED,RELATED`, so the containers' own traffic out and back works),
 the UDP packets that were addressed to a port from 25000 to 25039, and drops every other new
 connection to a container. The ports are matched with `--ctorigdstport`, the destination before
 NAT: in `DOCKER-USER` a `--dport` rule would see the container's port (8000, 8001), not the
 published one. The systemd unit makes the rules again at each boot and each time Docker
 restarts. (Between Docker starting and the unit running, a moment, the rules are not yet
-there.)
+there.) It writes the same rules for IPv6, where they guard a Docker network with IPv6 if one is
+ever made; the worlds' network has none, and IPv6 packets to the worlds' ports reach Docker's
+userland proxy through the host's `INPUT` chain, where UFW refuses them.
 
 ```sh
 cd /srv/rustcraft-hub/hub
@@ -395,10 +396,11 @@ iptables -S DOCKER-USER; iptables -S RUSTCRAFT-WAN
 ip6tables -S DOCKER-USER; ip6tables -S RUSTCRAFT-WAN
 ```
 
-To remove the rules, `systemctl disable --now rustcraft-docker-firewall.service` (its stop
-undoes the jump and empties the chain); `systemctl enable --now` puts them back. `DOCKER-USER` must start with `-A DOCKER-USER -i eth0 -j RUSTCRAFT-WAN`. If `ip6tables` has no
-`DOCKER-USER` chain, Docker does not forward IPv6 to containers; step 11 tells whether IPv6
-works for the worlds.
+`DOCKER-USER` must start with `-A DOCKER-USER -i eth0 -j RUSTCRAFT-WAN`; `ip6tables` may have no
+`DOCKER-USER` chain, which the script says and skips.
+
+To remove the rules, `systemctl disable --now rustcraft-docker-firewall.service`: its stop
+undoes the jump and empties the chain. `systemctl enable --now` puts them back.
 
 ### 10. The first accounts
 
@@ -425,29 +427,27 @@ curl -m 5 http://<ipv4 of the machine>:8080/healthz                 # must time 
 ```
 
 Then, as the account of step 10, create a world in the Hosted worlds tab and join it: the first
-start can take a minute, and the tab says when the world is `running`. Meanwhile, on the machine:
+start can take a minute, and the tab says when the world is `running`. **Do not announce hosted
+worlds before a world has reached `running` in the tab**: a world the hub cannot probe is
+`failed` after 60 s. Meanwhile, on the machine, probe the world from inside the hub's container
+(its network namespace, the way the hub does it: to the gateway of its network), and the world
+is in slot 0, so on 25000 and 25001, if it is the first:
 
 ```sh
 docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}'   # rustcraft-realm-<uuid>, 25000-25001/udp
 cd /srv/rustcraft-hub/hub
-deploy/probe-status.sh 172.30.80.1 25001     # the way the hub probes: 0 of 10 players
+nsenter -n -t "$(docker inspect -f '{{.State.Pid}}' "$(docker compose ps -q hub)")" \
+    deploy/probe-status.sh 172.30.80.1 25001     # 0 of 10 players
 ```
 
-and from your computer (copy `deploy/probe-status.sh` there), over both address families; the
-world is in slot 0, so on 25000 and 25001, if it is the first:
+and from your computer (copy `deploy/probe-status.sh` there), the way the players reach it:
 
 ```sh
 probe-status.sh play.rustcraft.dev 25001
-probe-status.sh <ipv6 of the machine> 25001
 ```
 
 Each answers with its players and fails after 3 s without a reply (the script needs `python3`:
-`apt install python3` if the machine or your computer has none). If IPv4 answers and IPv6
-does not, either Docker does not forward IPv6 to the world (`ip6tables -t nat -S DOCKER` shows
-a rule for it when it does; the network of step 4 needs `--ipv6`), in which case the packets
-reach Docker's userland proxy through UFW: `ufw allow 25000:25039/udp` lets them in. Or the
-machine lost its IPv6 route, which Docker's forwarding makes it ignore when it is learnt from
-router advertisements: see `accept_ra` in step 4. Last, the network of the worlds:
+`apt install python3` if the machine or your computer has none). Last, the network of the worlds:
 
 ```sh
 docker network inspect rustcraft-realms --format '{{.Options}}'   # map[com.docker.network.bridge.enable_icc:false]
@@ -456,12 +456,13 @@ docker network inspect rustcraft-realms --format '{{.Options}}'   # map[com.dock
 ### 12. Backups
 
 A nightly dump of the database, kept 14 days (it holds password hashes: the folder is private),
-and the signing key, copied once as step 6 says:
+and the signing key, copied once as step 6 says. A dump cut short stays as a `.part` file,
+removed in its turn after 14 days:
 
 ```sh
 install -d -m 700 /var/backups/rustcraft-hub
 cat > /etc/cron.d/rustcraft-hub-backup <<'CRON'
-17 3 * * * root umask 077 && cd /srv/rustcraft-hub/hub && d=/var/backups/rustcraft-hub/hub-$(date +\%F).dump && docker compose exec -T db pg_dump -U hub -Fc hub > $d.part && mv $d.part $d && find /var/backups/rustcraft-hub -name 'hub-*.dump' -mtime +14 -delete
+17 3 * * * root umask 077 && cd /srv/rustcraft-hub/hub && d=/var/backups/rustcraft-hub/hub-$(date +\%F).dump && docker compose exec -T db pg_dump -U hub -Fc hub > $d.part && mv $d.part $d && find /var/backups/rustcraft-hub \( -name 'hub-*.dump' -o -name 'hub-*.dump.part' \) -mtime +14 -delete
 CRON
 ```
 
