@@ -30,6 +30,7 @@ use shared::{
 
 use super::breeding::{FOLLOW_START, FOLLOW_STOP, FOLLOW_TELEPORT};
 use super::float::{climb_out, float, is_afloat, swim_ashore, swim_speed};
+use super::path::Pathing;
 use crate::world::data::ServerWorldMap;
 
 /// A walking mob this close to its target, on the horizontal plane, has arrived.
@@ -124,7 +125,7 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time
         difficulty,
         ..
     } = world_map.as_mut();
-    step_mobs(
+    let doors = step_mobs(
         mobs,
         chunks,
         players,
@@ -133,6 +134,7 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time
         delta,
         &mut rand::thread_rng(),
     );
+    super::path::open_doors(chunks, &doors);
     let births = super::breeding::breed(
         mobs,
         changed_mobs,
@@ -145,7 +147,8 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time
 
 /// One step of every mob but the projectiles, which `cinder::cinder_system` and `arrow::arrow_system` fly. Those that
 /// moved or changed what they do are added to `changed`; what the hostiles threw is added to
-/// the mobs after them.
+/// the mobs after them. The walking hostiles share one budget of path search (`path::Pathing`).
+/// Returns the doors the hostiles open, which the caller opens.
 fn step_mobs(
     mobs: &mut HashMap<MobId, ServerMob>,
     chunks: &ChunkMap,
@@ -154,8 +157,9 @@ fn step_mobs(
     difficulty: Difficulty,
     delta: f32,
     rng: &mut impl Rng,
-) {
+) -> Vec<IVec3> {
     let mut thrown = Vec::new();
+    let mut pathing = Pathing::default();
     for (id, mob) in mobs.iter_mut() {
         if mob.kind.is_projectile() || mob.kind.is_boss() {
             continue;
@@ -172,7 +176,15 @@ fn step_mobs(
         }
         mob.attack_wait = mob.attack_wait.saturating_sub(1);
         let before = (mob.position, mob.rotation, mob.action);
-        thrown.extend(step_mob(mob, chunks, players, difficulty, delta, rng));
+        thrown.extend(step_mob(
+            mob,
+            chunks,
+            players,
+            difficulty,
+            delta,
+            rng,
+            &mut pathing,
+        ));
         if before != (mob.position, mob.rotation, mob.action) {
             changed.insert(*id);
         }
@@ -180,6 +192,7 @@ fn step_mobs(
     for mob in thrown {
         super::add_mob(mobs, changed, mob);
     }
+    pathing.doors
 }
 
 /// Gravity or flotation, then what the mob does. A mob whose centre went into an open portal comes out of
@@ -193,6 +206,7 @@ fn step_mob(
     difficulty: Difficulty,
     delta: f32,
     rng: &mut impl Rng,
+    pathing: &mut Pathing,
 ) -> Option<ServerMob> {
     let start = mob.position;
     mob.portal_rest = chunks.portals().still_resting(mob.position, passer(mob));
@@ -217,7 +231,7 @@ fn step_mob(
             return None;
         }
     }
-    let thrown = act(mob, chunks, players, difficulty, delta, rng);
+    let thrown = act(mob, chunks, players, difficulty, delta, rng, pathing);
     pass_through_portal(mob, chunks, start);
     thrown
 }
@@ -319,9 +333,10 @@ fn act(
     difficulty: Difficulty,
     delta: f32,
     rng: &mut impl Rng,
+    pathing: &mut Pathing,
 ) -> Option<ServerMob> {
     if mob.kind.is_hostile() {
-        return super::hostile::act(mob, chunks, players, difficulty, delta, rng);
+        return super::hostile::act(mob, chunks, players, difficulty, delta, rng, pathing);
     }
     if mob.kind.is_villager() {
         super::villager::act(mob, chunks, players, delta, rng);
@@ -589,7 +604,8 @@ pub(super) fn passer(mob: &ServerMob) -> Passer {
 
 /// Whether `mob` would be inside a block at `position`. The wall cells of the open portals that
 /// let it in from where it is do not count (`Portals::passable_cells`), as for a player; nor do
-/// the doors for a villager, who walks through them.
+/// the doors for a villager, who walks through them, nor the open doors for a hostile that opens
+/// them (`hostile::opens_doors`).
 pub(super) fn collides_at(mob: &ServerMob, chunks: &ChunkMap, position: Vec3) -> bool {
     let passable = chunks.portals().passable_cells(mob.position, passer(mob));
     chunks.check_collision_box_except(
@@ -600,6 +616,10 @@ pub(super) fn collides_at(mob: &ServerMob, chunks: &ChunkMap, position: Vec3) ->
                     && chunks
                         .get_block(cell)
                         .is_some_and(|block| super::villager::is_door(block.id))
+                || super::hostile::opens_doors(mob.kind)
+                    && chunks.get_block(cell).is_some_and(|block| {
+                        matches!(block.id, BlockId::OpenDoor | BlockId::OpenDoorTop)
+                    })
         },
     )
 }

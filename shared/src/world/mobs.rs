@@ -308,6 +308,18 @@ pub enum MobAction {
     Burrow,
 }
 
+/// The way a walking hostile follows to its prey (`server::mob::path`): the cells its feet go
+/// through, the next one to reach, the cell of the prey's feet it was found for, whether it
+/// gets there, and the ticks left before it is looked for again. Neither saved nor sent.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Route {
+    pub cells: Vec<IVec3>,
+    pub next: usize,
+    pub goal: IVec3,
+    pub reaches: bool,
+    pub wait: u32,
+}
+
 /// What the server knows of an arrow, beside its place and its velocity.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ArrowFlight {
@@ -381,6 +393,9 @@ pub struct ServerMob {
     /// The flight of an arrow. Neither saved nor sent.
     #[serde(skip)]
     pub arrow: Option<ArrowFlight>,
+    /// The way a walking hostile follows to its prey. Neither saved nor sent.
+    #[serde(skip)]
+    pub route: Option<Route>,
     /// What a villager remembers; none for the other mobs. Saves from before it read none.
     #[serde(default)]
     pub villager: Option<Villager>,
@@ -415,6 +430,7 @@ impl ServerMob {
             attack_wait: 0,
             extra_health: 0,
             arrow: None,
+            route: None,
             villager: kind.is_villager().then(Villager::default),
         }
     }

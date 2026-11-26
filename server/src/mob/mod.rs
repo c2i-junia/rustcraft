@@ -7,6 +7,7 @@ pub mod combat;
 mod float;
 pub mod guards;
 pub mod hostile;
+pub mod path;
 pub mod spawning;
 pub mod villager;
 

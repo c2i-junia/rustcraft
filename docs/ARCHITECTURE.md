@@ -655,8 +655,15 @@ and go.
 
 A hostile (`mob/hostile.rs`, `act`) keeps its prey until it is out of the forget distance,
 dead or in creative, else finds the nearest prey within its sight and in sight, then acts by
-kind: the Gnawer and the Stumpling walk straight at it and strike in reach (the Stumpling flees
-fire and lava within 6 blocks); the Bramble never moves and bites who comes within 2.5 blocks;
+kind: the Gnawer and the Stumpling walk to it along the way they find (`hostile::chase`,
+`mob/path.rs`) and strike in reach (the Stumpling flees fire and lava within 6 blocks). Their
+way is an A* over the cells their feet may stand in: round walls, up a step of one block, down
+a drop of 3 blocks plus one per point of health left beyond the first (6 at most), never into
+water, lava or fire. A search expands at most 400 nodes within 24 blocks, all of one tick 1600
+(`path::Pathing`), so that those over budget keep their way, or walk straight, one tick more;
+it runs again every 20 ticks, when the prey moved 2 blocks or the mob strayed 3 blocks from it.
+Short of the prey it leads to the nearest cell met. The Stumpling opens the closed doors of
+its way (`path::open_doors`, once all mobs stepped) and walks through open doors; the Bramble never moves and bites who comes within 2.5 blocks;
 the Roller winds up 20 ticks, then rolls at 7 blocks/s until it hits the player (4 damage, a
 knock back of 8) or a block (stunned 40 ticks); the Drowner swims in 3D, never leaves the water
 to chase, and its grab drags the player down (`Player::drag`, part of the `MovementState`); the
@@ -1321,8 +1328,12 @@ the integrated server, on wall-clock time. How to write one is in the README.
   filled from a stack, which is dropped.
 - A player who dies loses its inventory for good unless it comes back
   for it within the 5 minutes its items lie there, which count on even where no player is.
-- The hostiles walk straight at their prey and find no way round a wall or down a ledge; the
-  spawning ignores the game mode, so hostiles still spawn around a creative player, though
+- The Gnawer and the Stumpling find their way to their prey (`mob::path`, an A* of at most 400
+  nodes within 24 blocks, looked for again every second or when the prey moves 2 blocks, 1600
+  nodes a tick for all), but a prey farther round than that is walked at straight, toward the
+  nearest cell met. The Roller still rolls straight, the Drowner keeps to the water, and the
+  flyers fly straight. A Stumpling opens doors and leaves them open; no hostile breaks a block.
+  The spawning ignores the game mode, so hostiles still spawn around a creative player, though
   they leave it alone.
 - Nothing proves who a player is: a server knows its operators, bans and whitelist by name
   only, and a player may join under the name of an operator.

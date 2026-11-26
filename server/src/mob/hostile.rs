@@ -5,7 +5,9 @@
 //! first (`stumpling`), and sinks into the ground at dawn (`burrow`). The Drowner swims at its
 //! prey in water and drags it down, and walks back to the water from land (`swim`). The
 //! Cinderling hovers at a distance and throws embers (`hover_and_throw`, `cinder::ember`). The
-//! Gust Owl circles high over its prey and dives at it (`circle_and_dive`).
+//! Gust Owl circles high over its prey and dives at it (`circle_and_dive`). The Gnawer and the
+//! Stumpling find their way to their prey on foot (`chase`, `path::find_path`): round a wall,
+//! up a step, down a ledge, and for the Stumpling through a door, which it opens.
 
 use std::collections::HashMap;
 use std::ops::RangeInclusive;
@@ -15,17 +17,21 @@ use bevy::math::{bounding::Aabb3d, bounding::IntersectsVolume, ops::atan2, IVec3
 use rand::Rng;
 use shared::{
     messages::PlayerId,
-    players::{game_mode::DamageSource, Player},
+    players::{
+        game_mode::{DamageSource, SAFE_FALL_DISTANCE},
+        Player,
+    },
     world::{
         depths::strengthened,
         hostiles::{distance_to_box, is_prey, line_of_sight, Difficulty, Hunt, Strike},
-        BlockHitbox, BlockId, BlockTransparency, ChunkMap, MobAction, MobKind, MobTarget,
+        BlockHitbox, BlockId, BlockTransparency, ChunkMap, MobAction, MobKind, MobTarget, Route,
         ServerMob,
     },
 };
 
-use super::behavior::{flee, is_in_water, may_move_to, rest, walk, walk_speed, wander};
+use super::behavior::{flee, is_in_water, jump, may_move_to, rest, walk, walk_speed, wander};
 use super::float::{climb_out, is_afloat, swim_speed};
+use super::path::{cell_at, find_path, Cell, Pathing, Walker, MAX_DROP, MAX_NODES};
 
 /// How long a strike shows (`MobAction::Attack`), in ticks: the client plays the Attack clip
 /// once each time the action starts.
@@ -60,6 +66,16 @@ pub const DIVE_BAND: RangeInclusive<f32> = 6.0..=10.0;
 /// How fast a Gust Owl dives, in blocks/s, and for how long at most, in ticks.
 pub const DIVE_SPEED: f32 = 10.0;
 pub const DIVE_TICKS: u32 = 40;
+/// How often a walking hostile looks for its way again, in ticks, and how far its prey moves
+/// before it looks at once, in blocks along an axis.
+pub const REPLAN_TICKS: u32 = 20;
+const REPLAN_MOVE: i32 = 2;
+/// How near the centre of a cell of its way a hostile goes before it heads for the next one,
+/// in blocks, and how far from it it gives the way up and looks for another.
+const WAYPOINT_REACHED: f32 = 0.3;
+const WAYPOINT_LOST: f32 = 3.0;
+/// How near a closed door of its way a hostile that opens doors opens it, in blocks.
+const DOOR_REACH: f32 = 1.6;
 
 /// How fast a hostile of `kind` moves by its own velocity at most, in blocks per second: a
 /// faster one was thrown (`behavior::is_flung`). The Roller's roll moves it without a
@@ -88,6 +104,7 @@ pub fn act(
     difficulty: Difficulty,
     delta: f32,
     rng: &mut impl Rng,
+    pathing: &mut Pathing,
 ) -> Option<ServerMob> {
     let (Some(hunt), Some(mut strike)) = (mob.kind.hunt(), mob.kind.strike()) else {
         return None;
@@ -103,10 +120,22 @@ pub fn act(
     }
     match mob.kind {
         MobKind::Roller => roll(mob, chunks, players, prey, (hunt, strike), delta),
-        MobKind::Stumpling => stumpling(mob, chunks, players, prey, (hunt, strike), delta, rng),
+        MobKind::Stumpling => {
+            let hunting = (hunt, strike);
+            stumpling(mob, chunks, players, prey, hunting, delta, rng, pathing)
+        }
         MobKind::Drowner => swim(mob, chunks, players, prey, (hunt, strike), delta, rng),
         MobKind::GustOwl => circle_and_dive(mob, chunks, players, prey, (hunt, strike), delta),
-        _ => melee(mob, chunks, players, prey, (hunt, strike), delta, rng),
+        _ => melee(
+            mob,
+            chunks,
+            players,
+            prey,
+            (hunt, strike),
+            delta,
+            rng,
+            pathing,
+        ),
     }
     None
 }
@@ -293,6 +322,7 @@ fn stumpling(
     (hunt, strike): (Hunt, Strike),
     delta: f32,
     rng: &mut impl Rng,
+    pathing: &mut Pathing,
 ) {
     if let Some(fire) = nearest_fire(chunks, mob.position) {
         mob.action = MobAction::Flee;
@@ -302,7 +332,16 @@ fn stumpling(
     if mob.action == MobAction::Flee {
         (mob.action, mob.action_ticks) = (MobAction::Idle, 0);
     }
-    melee(mob, chunks, players, prey, (hunt, strike), delta, rng)
+    melee(
+        mob,
+        chunks,
+        players,
+        prey,
+        (hunt, strike),
+        delta,
+        rng,
+        pathing,
+    )
 }
 
 /// Half the size of the box of `player`.
@@ -397,8 +436,8 @@ fn stand(mob: &mut ServerMob) {
     mob.velocity.z = 0.0;
 }
 
-/// A hostile that strikes in reach: it walks at its prey at its hunting speed, if it walks,
-/// strikes it when its centre is within reach of the prey's box and its cooldown is over, shows
+/// A hostile that strikes in reach: it walks to its prey at its hunting speed, if it walks,
+/// along the way it finds (`chase`), strikes it when its centre is within reach of the prey's box and its cooldown is over, shows
 /// the strike for `ATTACK_SHOW_TICKS`, and waits facing the prey while it is in reach. Without
 /// a prey it wanders as an animal, or stands.
 fn melee(
@@ -409,8 +448,10 @@ fn melee(
     (hunt, strike): (Hunt, Strike),
     delta: f32,
     rng: &mut impl Rng,
+    pathing: &mut Pathing,
 ) {
     let Some(player) = prey.and_then(|id| players.get_mut(&id)) else {
+        mob.route = None;
         if matches!(mob.action, MobAction::Chase | MobAction::Attack) {
             rest(mob, rng);
         }
@@ -427,10 +468,123 @@ fn melee(
         return stand(mob);
     }
     mob.action = MobAction::Chase;
-    let towards = (player.position - mob.position)
+    chase(mob, chunks, player, hunt.speed, delta, pathing);
+}
+
+/// Whether a hostile of `kind` opens the doors in its way, and walks through the open ones:
+/// the Stumpling, which has arms. The Gnawer is too small, the Drowner keeps to the water.
+pub fn opens_doors(kind: MobKind) -> bool {
+    kind == MobKind::Stumpling
+}
+
+/// How `mob` walks (`path::Walker`): as many cells tall as its box, and dropping down no more
+/// than a fall that would leave a player of its health alive, from `SAFE_FALL_DISTANCE` when
+/// nearly dead to `MAX_DROP`.
+fn walker(mob: &ServerMob) -> Walker {
+    let health = mob.max_health().saturating_sub(mob.damage).max(1) as i32;
+    let safe = SAFE_FALL_DISTANCE as i32;
+    Walker {
+        clearance: (mob.height - 0.01).ceil().max(1.0) as i32,
+        max_drop: (safe + health - 1).clamp(safe, MAX_DROP),
+        opens_doors: opens_doors(mob.kind),
+    }
+}
+
+/// The cell of the feet of a box `height` tall centred on `position`.
+fn feet_cell(position: Vec3, height: f32) -> IVec3 {
+    (position - Vec3::Y * (height / 2.0 - 0.05))
+        .floor()
+        .as_ivec3()
+}
+
+/// The middle of the floor of `cell`.
+fn floor_centre(cell: IVec3) -> Vec3 {
+    cell.as_vec3() + Vec3::new(0.5, 0.0, 0.5)
+}
+
+/// One step of `mob` on foot toward `player` at `speed`, along its way (`Route`). It looks for
+/// its way again (`path::find_path`, within what is left of the tick's budget) while it stands
+/// on the ground and it has none, every `REPLAN_TICKS`, once its prey moved more than
+/// `REPLAN_MOVE` blocks from the goal of its way, or once it strayed `WAYPOINT_LOST` from it.
+/// It heads for the centre of the next cell of its way, jumps when that cell is a step higher
+/// and the step is in its way, and opens the closed doors of it within `DOOR_REACH` if it opens
+/// doors. Without a way, or at its end, it walks straight at its prey.
+fn chase(
+    mob: &mut ServerMob,
+    chunks: &ChunkMap,
+    player: &Player,
+    speed: f32,
+    delta: f32,
+    pathing: &mut Pathing,
+) {
+    let goal = feet_cell(player.position, player.height);
+    let start = feet_cell(mob.position, mob.height);
+    let lost = mob.route.as_ref().is_some_and(|route| {
+        route.cells.get(route.next).is_some_and(|cell| {
+            (floor_centre(*cell) - mob.position).with_y(0.0).length() > WAYPOINT_LOST
+        })
+    });
+    let stale = mob.route.as_ref().is_none_or(|route| {
+        route.wait == 0 || lost || (route.goal - goal).abs().max_element() > REPLAN_MOVE
+    });
+    if let Some(route) = &mut mob.route {
+        route.wait = route.wait.saturating_sub(1);
+    }
+    if stale && mob.on_ground && pathing.nodes_left > 0 {
+        let nodes = MAX_NODES.min(pathing.nodes_left);
+        let (found, expanded) =
+            find_path(start, goal, walker(mob), nodes, |pos| cell_at(chunks, pos));
+        pathing.nodes_left -= expanded.min(pathing.nodes_left);
+        let (cells, reaches) =
+            found.map_or((Vec::new(), false), |found| (found.cells, found.reaches));
+        mob.route = Some(Route {
+            cells,
+            next: 0,
+            goal,
+            reaches,
+            wait: REPLAN_TICKS,
+        });
+    }
+    let mut waypoint = None;
+    if let Some(route) = &mut mob.route {
+        while let Some(cell) = route.cells.get(route.next) {
+            if (floor_centre(*cell) - mob.position).with_y(0.0).length() > WAYPOINT_REACHED {
+                waypoint = Some(*cell);
+                break;
+            }
+            route.next += 1;
+        }
+    }
+    let Some(cell) = waypoint else {
+        let towards = (player.position - mob.position)
+            .with_y(0.0)
+            .normalize_or_zero();
+        return walk(mob, chunks, towards, speed, delta);
+    };
+    let towards = (floor_centre(cell) - mob.position)
         .with_y(0.0)
         .normalize_or_zero();
-    walk(mob, chunks, towards, hunt.speed, delta);
+    if opens_doors(mob.kind) {
+        let clearance = walker(mob).clearance;
+        for up in 0..clearance {
+            let door = cell + IVec3::Y * up;
+            let near = (floor_centre(door) - mob.position).with_y(0.0).length() <= DOOR_REACH;
+            if near && cell_at(chunks, door) == (Cell::Door { open: false }) {
+                pathing.doors.push(door);
+            }
+        }
+    }
+    let blocked = !may_move_to(
+        mob,
+        chunks,
+        mob.position + towards * (speed * delta).max(0.1),
+    );
+    if cell.y > start.y && mob.on_ground && blocked {
+        jump(mob);
+        mob.rotation = Quat::from_rotation_y(atan2(towards.x, towards.z));
+        return;
+    }
+    walk(mob, chunks, towards, speed, delta);
 }
 
 /// The Drowner. In water (`behavior::is_in_water`, where it floats) it swims straight at its
@@ -686,6 +840,27 @@ mod tests {
         // 2.8 blocks a second
         let ran = mob(&w).position.x - 0.5;
         assert!((2.6..=3.0).contains(&ran), "{ran}");
+    }
+
+    #[test]
+    fn a_gnawer_finds_its_way_round_a_wall_to_its_prey() {
+        let mut w = with(
+            mob_at(MobKind::Gnawer, 0.5, 0.5),
+            vec![player_at(1, 6.5, 0.5)],
+        );
+        w.resource_mut::<ServerWorldMap>().chunks.fill_box(
+            IVec3::new(3, 1, -4),
+            IVec3::new(3, 2, 4),
+            BlockId::Stone,
+        );
+        w.resource_mut::<ServerWorldMap>()
+            .mobs
+            .get_mut(&0)
+            .unwrap()
+            .target = MobTarget::Player(1);
+        let full = player(&w, 1).health;
+        run(&mut w, 200);
+        assert!(player(&w, 1).health < full, "{:?}", mob(&w).position);
     }
 
     #[test]
