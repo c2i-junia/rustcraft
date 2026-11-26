@@ -50,6 +50,9 @@ default = ["dev"]
 # Links Bevy dynamically to speed up debug builds, and reloads the assets and the shaders when their
 # files are saved while the game runs. Release builds disable it with `--no-default-features`.
 dev = ["bevy/dynamic_linking", "bevy/file_watcher", "bevy/embedded_watcher"]
+# Hot patching of the systems under `dx serve --hot-patch` (`just hot`, docs/HOT_RELOAD.md). Off by
+# default: normal builds are unchanged.
+hot = ["bevy/hotpatching"]
 
 [lints]
 workspace = true
