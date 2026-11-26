@@ -205,6 +205,19 @@ fn run(
     // A solo world keeps no lists: its player is an operator
     if !is_solo {
         let permissions = Permissions::load(&game_folder_paths.game_folder_path)?;
+        if matches!(config_auth, ServerAuth::Hub(_)) {
+            let unbound: Vec<String> = permissions
+                .unbound_names()
+                .iter()
+                .map(|(file, name)| format!("{name} ({file})"))
+                .collect();
+            if !unbound.is_empty() {
+                warn!(
+                    "These names have no account: each is bound to the first account named so that joins: {}",
+                    unbound.join(", ")
+                );
+            }
+        }
         app.insert_resource(permissions);
     }
 

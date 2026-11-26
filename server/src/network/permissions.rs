@@ -246,11 +246,32 @@ pub enum Admin {
 }
 
 /// What an `Admin` command did: the answer to its author, and the player to dismiss, by name,
-/// with the message the player is shown.
+/// with the message the player is shown. A player banned by account is found by `account`
+/// instead of by name: the name of a connected player is the one of its certificate, which may
+/// be old.
 #[derive(Debug, PartialEq)]
 pub struct AdminOutcome {
     pub answer: String,
     pub dismiss: Option<(String, String)>,
+    pub account: Option<Uuid>,
+}
+
+impl Admin {
+    /// This command for the player `name`, as the hub spells it.
+    pub fn with_name(self, name: String) -> Self {
+        match self {
+            Self::Op(_) => Self::Op(name),
+            Self::Deop(_) => Self::Deop(name),
+            Self::Kick { reason, .. } => Self::Kick { name, reason },
+            Self::Ban { reason, .. } => Self::Ban { name, reason },
+            Self::Pardon(_) => Self::Pardon(name),
+            Self::Whitelist(WhitelistAction::Add(_)) => Self::Whitelist(WhitelistAction::Add(name)),
+            Self::Whitelist(WhitelistAction::Remove(_)) => {
+                Self::Whitelist(WhitelistAction::Remove(name))
+            }
+            other => other,
+        }
+    }
 }
 
 /// The lists of a server, and the folder they are saved in (`None` for a solo world).
@@ -371,6 +392,25 @@ impl Permissions {
         }
     }
 
+    /// The names that the lists hold without an account, on a server in hub mode: they stay
+    /// names until the account that has one joins.
+    pub fn unbound_names(&self) -> Vec<(&'static str, &str)> {
+        fn named<'a>(file: &'static str, entry: &'a Entry) -> Option<(&'static str, &'a str)> {
+            entry.id.is_none().then_some((file, entry.name.as_str()))
+        }
+        let ops = self.ops.iter().filter_map(|e| named(OPS_FILE, e));
+        let banned = self
+            .banned
+            .iter()
+            .filter_map(|b| named(BANNED_FILE, &b.player));
+        let listed = self
+            .whitelist
+            .players
+            .iter()
+            .filter_map(|e| named(WHITELIST_FILE, e));
+        ops.chain(banned).chain(listed).collect()
+    }
+
     /// The name of `admin` that must be resolved to an account before it runs, on a server in
     /// hub mode: of a player to make an operator, ban or whitelist, or one to remove that no
     /// entry names, which may have been renamed since.
@@ -422,6 +462,7 @@ impl Permissions {
         let answer = |answer: String| AdminOutcome {
             answer,
             dismiss: None,
+            account: None,
         };
         let (outcome, changed) = match admin {
             Admin::Op(name) => {
@@ -452,6 +493,7 @@ impl Permissions {
                     let outcome = AdminOutcome {
                         answer: format!("Kicked {name}"),
                         dismiss: Some((name, message)),
+                        account: None,
                     };
                     (outcome, None)
                 } else {
@@ -467,13 +509,15 @@ impl Permissions {
                     },
                     reason: reason.clone(),
                 });
-                let dismiss = online(&name).then(|| {
+                // A banned account is looked for among the connected players by its id
+                let dismiss = (account.is_some() || online(&name)).then(|| {
                     let message = with_reason("You are banned from this server", &reason);
                     (name.clone(), message)
                 });
                 let outcome = AdminOutcome {
                     answer: format!("Banned {name}"),
                     dismiss,
+                    account,
                 };
                 (outcome, Some(BANNED_FILE))
             }
@@ -514,6 +558,7 @@ impl Permissions {
         let answer = |answer: &str| AdminOutcome {
             answer: answer.to_string(),
             dismiss: None,
+            account: None,
         };
         let list = &mut self.whitelist;
         match action {
@@ -910,6 +955,36 @@ mod tests {
             ops,
             "[\n    (\n        id: \"00000000-0000-0000-0000-000000000001\",\n        name: \"Alex\",\n    ),\n]"
         );
+    }
+
+    #[test]
+    fn the_names_without_an_account_are_listed_by_file() {
+        let mut permissions = Permissions::default();
+        permissions.apply(Admin::Op("Alex".into()), nobody_online, account(1));
+        permissions.apply(Admin::Op("carol".into()), nobody_online, None);
+        let ban = Admin::Ban {
+            name: "eve".into(),
+            reason: None,
+        };
+        permissions.apply(ban, nobody_online, None);
+        assert_eq!(
+            permissions.unbound_names(),
+            [(OPS_FILE, "carol"), (BANNED_FILE, "eve")]
+        );
+    }
+
+    #[test]
+    fn a_ban_by_account_dismisses_by_account_and_takes_the_name_of_the_hub() {
+        let mut permissions = Permissions::default();
+        let ban = Admin::Ban {
+            name: "bob".into(),
+            reason: None,
+        };
+        let outcome = permissions.apply(ban.with_name("Bob".into()), nobody_online, account(1));
+        assert_eq!(outcome.account, account(1));
+        assert!(outcome.dismiss.is_some());
+        assert_eq!(outcome.answer, "Banned Bob");
+        assert_eq!(permissions.banned[0].player.name, "Bob");
     }
 
     #[test]

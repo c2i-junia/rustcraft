@@ -79,7 +79,10 @@ pub(super) fn run_admin(
         let dismissed = lobby
             .players
             .iter()
-            .filter(|(_, p)| same_name(&p.name, &name))
+            .filter(|(_, p)| match outcome.account {
+                Some(account) => p.account == Some(account),
+                None => same_name(&p.name, &name),
+            })
             .map(|(id, _)| *id)
             .collect::<Vec<_>>();
         for id in dismissed {
@@ -348,7 +351,7 @@ pub(super) fn chat_message(
                             )
                         } else {
                             access.lookups.start(hub, client_id, admin, &name);
-                            String::new()
+                            format!("Asking the hub for {name}…")
                         }
                     }
                 }

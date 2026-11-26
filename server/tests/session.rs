@@ -3633,9 +3633,21 @@ fn hub_profile(_hub: &str, name: &str) -> Result<Option<Profile>, String> {
             username: "Bob".into(),
         })),
         "Unreachable" => Err("down".into()),
+        "Slow" => {
+            // the first question is the slowest
+            if SLOW_ASKED.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                thread::sleep(Duration::from_millis(400));
+            }
+            Ok(Some(Profile {
+                id: account(0x510),
+                username: "Slow".into(),
+            }))
+        }
         _ => Ok(None),
     }
 }
+
+static SLOW_ASKED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 const BOB: Uuid = account(0xb0b);
 
@@ -3852,4 +3864,32 @@ fn a_player_of_a_hub_is_saved_under_its_account_and_finds_its_old_file() {
         thread::sleep(PUMP_INTERVAL);
     }
     assert!(!old_file.exists());
+}
+
+#[test]
+fn a_player_banned_through_the_hub_is_dismissed_whatever_its_name_online() {
+    let hub = TestHub::new();
+    let ops = format!("[{}]", account_entry(ALEX, "Alex"));
+    let server = hub.start_with_files(&[(server::OPS_FILE, ops)]);
+    let mut alex = hub.join(&server, &hub.certificate_of(ALEX, "Alex"));
+    // the name of its certificate is not the one the hub gives it now
+    let mut bob = hub.join(&server, &hub.certificate_of(BOB, "Robert"));
+    alex.send(chat_message("/ban Bob"));
+    command_answer(&mut alex, "Asking the hub for Bob…");
+    command_answer(&mut alex, "Banned Bob");
+    assert_eq!(dismissed(&mut bob), "You are banned from this server.");
+}
+
+#[test]
+fn the_commands_of_a_player_run_in_the_order_it_typed_them_whatever_the_hub_speed() {
+    let hub = TestHub::new();
+    let ops = format!("[{}]", account_entry(ALEX, "Alex"));
+    let server = hub.start_with_files(&[(server::OPS_FILE, ops)]);
+    let mut alex = hub.join(&server, &hub.certificate_of(ALEX, "Alex"));
+    alex.send(chat_message("/ban Slow"));
+    alex.send(chat_message("/pardon Slow"));
+    command_answer(&mut alex, "Banned Slow");
+    command_answer(&mut alex, "Pardoned Slow");
+    let banned = std::fs::read_to_string(server.tmp.path().join(server::BANNED_FILE)).unwrap();
+    assert!(!banned.contains("Slow"), "{banned}");
 }

@@ -26,8 +26,8 @@ pub type ProfileLookup = fn(hub: &str, name: &str) -> Result<Option<Profile>, St
 
 static LOOKUP: Mutex<ProfileLookup> = Mutex::new(fetch_profile);
 
-/// Replaces the question to the hub of the servers started after it, for the tests: they have
-/// no hub to ask.
+// For the tests only: they have no hub to ask. The servers started after it use `lookup`.
+#[doc(hidden)]
 pub fn set_profile_lookup(lookup: ProfileLookup) {
     *LOOKUP.lock().unwrap_or_else(PoisonError::into_inner) = lookup;
 }
@@ -92,8 +92,16 @@ pub fn finish_lookups_system(
     mut server: ResMut<RenetServer>,
     lobby: Res<ServerLobby>,
 ) {
-    let mut waiting = Vec::new();
+    let mut waiting: Vec<Pending> = Vec::new();
     for pending in std::mem::take(&mut lookups.pending) {
+        // The commands of a player run in the order it typed them, whatever the hub's speed
+        if waiting
+            .iter()
+            .any(|earlier| earlier.author == pending.author)
+        {
+            waiting.push(pending);
+            continue;
+        }
         let received = pending
             .answer
             .lock()
@@ -112,7 +120,7 @@ pub fn finish_lookups_system(
                 &mut server,
                 &lobby,
                 (&mut permissions, &mut dismissals),
-                pending.admin,
+                pending.admin.with_name(profile.username),
                 Some(profile.id),
             ),
             Ok(None) => format!("The hub does not know a player named {}", pending.name),
