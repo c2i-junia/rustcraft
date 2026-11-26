@@ -348,7 +348,7 @@ fn watch_connection(
     let running = local_server.is_some_and(|local_server| local_server.0.is_some());
     if dropped && reconnect_to_world(&origin, watch.step, running) {
         if let Some(addr) = target.address {
-            match open_connection(addr, profile.id) {
+            match open_connection(addr, profile.id_in(Some(&*origin))) {
                 Ok((client, transport)) => {
                     info!("The world is still starting, connecting to it again");
                     commands.insert_resource(client);

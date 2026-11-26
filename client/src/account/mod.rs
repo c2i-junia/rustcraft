@@ -20,6 +20,7 @@ use uuid::Uuid;
 use crate::constants::ACCOUNT_PATH;
 use crate::network::status::InFlight;
 use crate::network::{hash_string_to_u64, CurrentPlayerProfile};
+use crate::ui::menus::account::end_revoked_session;
 use crate::ui::menus::player_name::load_player_name;
 
 use file::{unix_now, AccountFile};
@@ -152,8 +153,10 @@ impl Renewal {
 
 /// Asks the hub for a certificate when the account has none or half of its life has passed,
 /// at start and every RENEWAL_CHECK_EVERY, and keeps it in `account.ron`. The old certificate
-/// stays when the hub cannot be reached or refuses.
+/// stays when the hub cannot be reached or refuses, except that a session the hub no longer
+/// knows (401) logs the player out.
 fn renew_certificate(
+    mut commands: Commands,
     time: Res<Time>,
     mut renewal: ResMut<Renewal>,
     mut account: ResMut<Account>,
@@ -162,7 +165,13 @@ fn renew_certificate(
     if let Some((sent, request)) = &renewal.in_flight {
         if let Some(answer) = request.take() {
             renewal.in_flight = None;
-            keep_certificate(&mut account, &paths, answer);
+            match answer {
+                (id, Err(e)) if e.is_unauthorized() => {
+                    warn!("The hub no longer knows the session, logging out: {e}");
+                    end_revoked_session(&mut commands, id);
+                }
+                answer => keep_certificate(&mut account, &paths, answer),
+            }
         } else if sent.elapsed() > RENEWAL_DEADLINE {
             warn!("The request for a certificate never came back, forgetting it");
             renewal.in_flight = None;

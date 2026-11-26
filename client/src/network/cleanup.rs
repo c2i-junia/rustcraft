@@ -1,7 +1,7 @@
 use crate::network::leave::{Quitting, STOP_TIMEOUT};
 use crate::network::{
-    open_connection, CurrentPlayerProfile, LocalServerAddress, LocalServerHandle,
-    SendGameMessageExtension, TargetServer, TargetServerState,
+    hash_string_to_u64, open_connection, CurrentPlayerProfile, LocalServerAddress,
+    LocalServerHandle, SendGameMessageExtension, TargetServer, TargetServerState,
 };
 use bevy::prelude::*;
 use bevy_renet::netcode::NetcodeClientTransport;
@@ -235,7 +235,8 @@ pub fn finish_stopping_local_server(
             else {
                 return;
             };
-            match open_connection(*addr, profile.id) {
+            // the server of a solo world, which the player joins by the id of its name
+            match open_connection(*addr, hash_string_to_u64(&profile.name)) {
                 Ok((client, transport)) => {
                     info!("Connecting again to the local server left running, to stop it");
                     commands.insert_resource(client);

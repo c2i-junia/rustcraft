@@ -287,8 +287,11 @@ The name button under the version on the main menu opens the Account dialog:
 The game keeps your session in `account.ron` of the game folder, and asks the hub for a
 certificate of your game, good for 7 days, that servers check without calling the hub; it renews
 it in the background. A server that asks for accounts (`--auth hub`) takes you under your
-account's name. The hub keeps your username, a hash of your password and of the recovery code,
-and when you signed up or logged in, with no address (it counts sign-ups per address, but stores
+account's name. A server that takes anyone (`--auth offline`) knows you by your account while you
+are logged in and by your name while you are not: there you are two players, each with its own
+inventory and position. Your solo worlds know you by the name you play under (the account's
+while logged in), never by the account. The hub keeps your username, a hash of your password and
+of the recovery code, and when you signed up or logged in, with no address (it counts sign-ups per address, but stores
 only a keyed hash). Too many sign-ups or failed logins from one address in a short while are
 refused for a time.
 

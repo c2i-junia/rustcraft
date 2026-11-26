@@ -6,19 +6,25 @@ use bevy::prelude::*;
 use bevy::text::EditableText;
 use bevy::ui::InteractionDisabled;
 
-use super::harness::{Harness, Options, SCREEN, STARTUP};
+use super::game::slot;
+use super::harness::{Harness, Options, SCREEN, SERVER, STARTUP};
 use super::helpers::ctrl;
 use super::locator::Locator as L;
 use super::seed::GameFolder;
-use crate::account::file::AccountFile;
+use crate::account::file::{unix_now, AccountFile};
 use crate::account::test_hub::{Canned, TestHub};
 use crate::account::Account;
 use crate::constants::{ACCOUNT_PATH, PLAYER_NAME_PATH};
-use crate::network::CurrentPlayerProfile;
+use crate::network::{hash_string_to_u64, CurrentPlayerProfile};
+use crate::player::CurrentPlayerMarker;
+use crate::state::GameState;
 use crate::ui::menus::account::{ACCOUNT_TITLE, RECOVERY_CODE_TITLE, RECOVER_TITLE};
 use crate::ui::menus::player_name::PLAYER_NAME_TITLE;
 use crate::ui::menus::skins::SkinPreviewModel;
 use rustcraft_protocol::api::AccountSummary;
+use rustcraft_protocol::identity::player_id;
+use shared::players::Player;
+use shared::world::ItemId;
 use uuid::Uuid;
 
 const SESSION: &str = r#"{"account":{"id":"00000000-0000-0000-0000-000000000001","username":"Steve"},"session":"tok"}"#;
@@ -385,4 +391,50 @@ fn a_session_the_hub_no_longer_knows_logs_out() {
     assert!(!h.folder().join(ACCOUNT_PATH).exists());
     h.frames(3);
     assert!(!h.is_visible(&dialog(ACCOUNT_TITLE)));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_logged_in_player_is_in_its_solo_worlds_the_player_of_its_name() {
+    let hub = "http://127.0.0.1:1";
+    let folder = logged_in_folder(hub).with_world("Kept").with_items(
+        "Kept",
+        "Steve",
+        &[(0, ItemId::Stick, 5)],
+    );
+    let mut h = client(folder, hub);
+    assert_eq!(
+        h.world().resource::<CurrentPlayerProfile>().id,
+        player_id(&Uuid::from_u128(1))
+    );
+    h.click(&L::text("Singleplayer"));
+    h.play_world("Kept");
+    h.wait_for_game_state(GameState::Game, SERVER);
+    h.wait_until("the player of the name Steve", SERVER, |w| {
+        w.try_query_filtered::<&Player, With<CurrentPlayerMarker>>()
+            .and_then(|mut players| players.single(w).ok().map(|player| player.id))
+            == Some(hash_string_to_u64("Steve"))
+    });
+    h.wait_until("the inventory saved before the log-in", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::Stick, 5))
+    });
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_session_the_hub_no_longer_knows_at_renewal_logs_out() {
+    let hub = TestHub::start(vec![Canned::error(401, "unauthorized", "Log in again.")]);
+    let folder = logged_in_folder(&hub.url);
+    let path = folder.path().join(ACCOUNT_PATH);
+    let mut file = AccountFile::load(&path).unwrap().unwrap();
+    // a certificate past half of its life, which the game renews at start
+    file.expires_at = Some(unix_now() + 60);
+    file.save(&path).unwrap();
+    let mut h = client(folder, &hub.url);
+
+    h.wait_for(&L::text("Your session ended. Log in again."), SCREEN);
+    assert_eq!(hub.requests()[0].path, "/v1/certificates");
+    assert_eq!(account(&h), Account::LoggedOut);
+    assert!(!h.folder().join(ACCOUNT_PATH).exists());
+    h.wait_for(&L::role(Role::Button, "Alex"), SCREEN);
 }

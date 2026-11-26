@@ -12,7 +12,11 @@ use super::{
     mesh::{copies, copy_offset, orb_class, orb_size, ItemLook, ItemLooks, OrbLook},
     DroppedItemEntities, DroppedItemRoot, DroppedItemSpin, FlyingTo, ItemPickedUp,
 };
-use crate::{network::CurrentPlayerProfile, state::GameState, world::MaterialResource};
+use crate::{
+    network::{session::SessionOrigin, CurrentPlayerProfile},
+    state::GameState,
+    world::MaterialResource,
+};
 
 /// How long an item picked up or merged takes to fly to its target, in seconds.
 const FLIGHT_SECONDS: f32 = 0.15;
@@ -32,7 +36,7 @@ pub(super) fn apply_dropped_items_updates(
     images: Res<Assets<Image>>,
     mut roots: Query<(&mut DroppedItemRoot, &mut Transform)>,
     players: Query<(Entity, &Player)>,
-    profile: Res<CurrentPlayerProfile>,
+    (profile, origin): (Res<CurrentPlayerProfile>, Option<Res<SessionOrigin>>),
     mut picked_up: MessageWriter<ItemPickedUp>,
 ) {
     for update in updates.read() {
@@ -92,7 +96,7 @@ pub(super) fn apply_dropped_items_updates(
             let target = match removal {
                 ItemRemoval::Gone => None,
                 ItemRemoval::PickedUp(player_id) => {
-                    if *player_id == profile.id {
+                    if *player_id == profile.id_in(origin.as_deref()) {
                         let orb = roots.get(entity).is_ok_and(|(root, _)| root.orb);
                         picked_up.write(ItemPickedUp { orb });
                     }

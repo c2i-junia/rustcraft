@@ -76,6 +76,16 @@ impl CurrentPlayerProfile {
             name: format!("Player-{id}"),
         }
     }
+
+    /// The id the player connects with: in a solo world always the hash of its name, as before
+    /// the accounts, so that logging in leaves it the player of its worlds; on a server the
+    /// account's id when logged in, which a server of the hub checks before the handshake.
+    pub(crate) fn id_in(&self, origin: Option<&SessionOrigin>) -> PlayerId {
+        match origin {
+            Some(origin) if origin.is_world() => hash_string_to_u64(&self.name),
+            _ => self.id,
+        }
+    }
 }
 
 /// The id of a player is the hash of its name, and its save file is named after it. Rust does
@@ -479,7 +489,7 @@ pub fn init_server_connection(
         return;
     }
     let connection = match target.address {
-        Some(addr) => open_connection(addr, current_player_id.id),
+        Some(addr) => open_connection(addr, current_player_id.id_in(origin.as_deref())),
         None => Err("no server to connect to".to_string()),
     };
     let (client, transport) = match connection {

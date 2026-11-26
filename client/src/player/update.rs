@@ -2,8 +2,8 @@ use super::{body_transform, PlayerBody};
 use crate::{
     camera::CameraController,
     network::{
-        buffered_client::PlayerTickInputsBuffer, CurrentPlayerProfile, TargetServer,
-        TargetServerState, UnacknowledgedInputs,
+        buffered_client::PlayerTickInputsBuffer, session::SessionOrigin, CurrentPlayerProfile,
+        TargetServer, TargetServerState, UnacknowledgedInputs,
     },
     player::{
         armour::Worn,
@@ -43,7 +43,7 @@ pub fn spawn_players_system(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
-    player_profile: Res<CurrentPlayerProfile>,
+    (player_profile, origin): (Res<CurrentPlayerProfile>, Option<Res<SessionOrigin>>),
     mut ev_spawn: MessageReader<PlayerSpawnEvent>,
     mut target_server: ResMut<TargetServer>,
     players: Query<&Player>,
@@ -65,7 +65,7 @@ pub fn spawn_players_system(
         known.push(event.id);
         info!("Spawning new player object: {}", event.id);
 
-        let is_current_player = event.id == player_profile.id;
+        let is_current_player = event.id == player_profile.id_in(origin.as_deref());
         let player = Player {
             id: event.id,
             name: event.name.clone(),
