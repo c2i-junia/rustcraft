@@ -328,6 +328,20 @@ impl Harness {
                 }
             },
         );
+        // The caret of a text field shows without blinking: it blinks on the real time, which a
+        // loaded machine stretches between two frames, and a golden would catch it hidden
+        app.add_systems(
+            PostUpdate,
+            (|mut fields: Query<
+                &mut bevy::text::EditableText,
+                Added<bevy::text::EditableText>,
+            >| {
+                for mut field in &mut fields {
+                    field.cursor_blink_period = Duration::from_secs(60 * 60 * 24);
+                }
+            })
+            .before(bevy::ui::UiSystems::PostLayout),
+        );
         app.init_resource::<ExitLatch>();
         app.add_systems(Last, latch_exit);
         app.insert_resource(watchdog.frames());
