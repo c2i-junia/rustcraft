@@ -50,6 +50,14 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
 -> The texture of the vine (blocks/Vine.png).
 -> The texture of the cocoa pod (blocks/Cocoa.png), the pack's block/cocoa_stage2.png, whose
    faces are cut following its model, and the icon of the cocoa beans (items/CocoaBeans.png).
+-> The palette, from Pixel Perfection CE (https://github.com/Athemis/PixelPerfectionCE, CC BY-SA
+   4.0), the edition whose license is verified: the wool, stained glass, terracotta, concrete and
+   concrete powder of each colour (blocks/<Colour>Wool.png, ...StainedGlass, ...Terracotta,
+   ...Concrete, ...ConcretePowder, blocks/Terracotta.png), the dyes (items/<Colour>Dye.png), the
+   doors of spruce, jungle and acacia (blocks/<Wood>Door.png, <Wood>DoorTop.png, items/<Wood>Door.png)
+   and the trapdoors of oak, spruce, jungle and acacia (blocks/<Wood>Trapdoor.png). The willow door
+   and trapdoor are recoloured from the oak ones, and the polished and chiseled rocks and the icons
+   of the slabs, stairs, low walls, gates and panes drawn, by scripts/generate_palette.py.
 -> The spawn eggs (items/*SpawnEgg.png) are our own,
    drawn by scripts/generate_spawn_eggs.py.
 -> The coin (items/Coin.png) and the directions (hud/directions.png) are our own,

@@ -291,10 +291,15 @@ pub fn flow_step(world_map: &ChunkMap, pos: IVec3, liquid: Liquid) -> Option<Flo
     }
 }
 
-/// What the lava at `pos` hardens into, if water touches it on one of its six sides: a source
-/// into obsidian, flowing lava into cobblestone.
+/// What the lava or the concrete powder at `pos` hardens into, if water touches it on one of
+/// its six sides: a source into obsidian, flowing lava into cobblestone, a powder into the
+/// concrete of its colour.
 pub fn harden(world_map: &ChunkMap, pos: IVec3) -> Option<BlockData> {
-    let lava = world_map.get_block(pos).filter(|block| LAVA.is(block))?;
+    let block = world_map.get_block(pos)?;
+    let concrete = block.id.hardened();
+    if concrete.is_none() && !LAVA.is(block) {
+        return None;
+    }
     let touches_water = SIX_OFFSETS.iter().any(|offset| {
         world_map
             .get_block(pos + *offset)
@@ -303,6 +308,10 @@ pub fn harden(world_map: &ChunkMap, pos: IVec3) -> Option<BlockData> {
     if !touches_water {
         return None;
     }
+    if let Some(concrete) = concrete {
+        return Some(BlockData::new(concrete, block.direction));
+    }
+    let lava = block;
     let id = if lava.level == SOURCE_LEVEL {
         BlockId::Obsidian
     } else {

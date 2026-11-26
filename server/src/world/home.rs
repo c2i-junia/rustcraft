@@ -5,7 +5,9 @@ use bevy::prelude::*;
 use bevy_renet::RenetServer;
 use serde::{Deserialize, Serialize};
 use shared::{
-    messages::{FullChatMessage, PlayerId, ServerToClientMessage},
+    messages::{
+        FullChatMessage, PlayerId, ServerToClientMessage, SIGN_LINES, SIGN_LINE_LENGTH,
+    },
     players::{blocks::aim, Player},
     world::BlockId,
     DAY_DURATION_IN_TICKS,
@@ -19,7 +21,7 @@ use crate::init::{ServerLobby, ServerTime};
 use crate::network::{commands::SERVER_AUTHOR, extensions::SendGameMessageExtension};
 
 const PLACES_FILE: &str = "places.ron";
-const MAX_SIGN_LENGTH: usize = 120;
+const MAX_SIGN_LENGTH: usize = SIGN_LINES * SIGN_LINE_LENGTH;
 
 #[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
 pub struct Places {
@@ -108,6 +110,76 @@ pub fn write_sign(world_map: &mut ServerWorldMap, id: PlayerId, text: &str) -> S
     "Written on the sign".to_string()
 }
 
+/// Writes `lines` on the sign at `at`, which the player `id` wrote in the editor: it must still be
+/// a sign, within its reach. Control characters are left out, and each line cut to
+/// `SIGN_LINE_LENGTH`; a sign without a word is empty again.
+pub fn write_sign_lines(
+    world_map: &mut ServerWorldMap,
+    id: PlayerId,
+    at: IVec3,
+    lines: [String; SIGN_LINES],
+) {
+    let Some(player) = world_map.players.get(&id) else {
+        return;
+    };
+    let reach = shared::players::blocks::INTERACTION_DISTANCE + 2.0;
+    let is_sign = world_map.chunks.get_block(at).map(|b| b.id) == Some(BlockId::Sign);
+    if !is_sign || (at.as_vec3() + Vec3::splat(0.5)).distance(player.position) > reach {
+        return;
+    }
+    let text = sign_text(&lines);
+    if text.is_empty() {
+        world_map.places.signs.remove(&at);
+    } else {
+        world_map.places.signs.insert(at, text);
+    }
+    world_map.places.save(world_map.saved.as_deref());
+}
+
+/// The text kept for `lines`: each cleaned and cut, joined by line breaks, without the empty
+/// lines at the end.
+fn sign_text(lines: &[String; SIGN_LINES]) -> String {
+    let lines: Vec<String> = lines
+        .iter()
+        .map(|line| {
+            let kept: String = line
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(SIGN_LINE_LENGTH)
+                .collect();
+            kept.trim_end().to_string()
+        })
+        .collect();
+    lines.join("\n").trim_end_matches('\n').to_string()
+}
+
+/// The lines of the text of a sign, as the editor shows them: a text written by `/sign` on one
+/// line is wrapped between its words.
+pub fn sign_lines(text: &str) -> [String; SIGN_LINES] {
+    let mut lines: Vec<String> = Vec::new();
+    for paragraph in text.split('\n') {
+        let mut line = String::new();
+        for word in paragraph.split(' ') {
+            let length = line.chars().count();
+            if length > 0 && length + 1 + word.chars().count() > SIGN_LINE_LENGTH {
+                lines.push(std::mem::take(&mut line));
+            }
+            if !line.is_empty() {
+                line.push(' ');
+            }
+            line.push_str(word);
+            // a word longer than a line is cut
+            while line.chars().count() > SIGN_LINE_LENGTH {
+                let rest: String = line.chars().skip(SIGN_LINE_LENGTH).collect();
+                lines.push(line.chars().take(SIGN_LINE_LENGTH).collect());
+                line = rest;
+            }
+        }
+        lines.push(line);
+    }
+    std::array::from_fn(|index| lines.get(index).cloned().unwrap_or_default())
+}
+
 pub fn home_system(
     mut world_map: ResMut<ServerWorldMap>,
     mut time: ResMut<ServerTime>,
@@ -116,12 +188,11 @@ pub fn home_system(
 ) {
     let world_map = world_map.as_mut();
     let mut notices = Vec::new();
-    for (id, pos) in std::mem::take(&mut world_map.home.read) {
-        let text = world_map.places.signs.get(&pos).cloned();
-        notices.push((
-            id,
-            text.unwrap_or_else(|| "An empty sign: /sign <text> writes on it".into()),
-        ));
+    // A sign placed or clicked opens its editor, which shows what it says
+    for (id, at) in std::mem::take(&mut world_map.home.read) {
+        let text = world_map.places.signs.get(&at).cloned().unwrap_or_default();
+        let lines = sign_lines(&text);
+        server.send_game_message(id, ServerToClientMessage::EditSign { at, lines });
     }
     let night = is_night(time.0);
     for (id, pos) in std::mem::take(&mut world_map.home.slept) {
@@ -185,6 +256,34 @@ fn is_night(tick: u64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_lines_of_a_sign_are_kept_cut_and_given_back() {
+        let lines = [
+            "Home".to_string(),
+            "of the\tbuilder".to_string(),
+            "x".repeat(40),
+            String::new(),
+        ];
+        let text = sign_text(&lines);
+        assert_eq!(text, format!("Home\nof thebuilder\n{}", "x".repeat(30)));
+        assert_eq!(
+            sign_lines(&text),
+            [
+                "Home".to_string(),
+                "of thebuilder".to_string(),
+                "x".repeat(30),
+                String::new()
+            ]
+        );
+        assert_eq!(sign_text(&Default::default()), "");
+        // a text of `/sign`, on one line, is wrapped between its words
+        let long = "The way to the mine goes down past the old well and the lake";
+        let wrapped = sign_lines(long);
+        assert_eq!(wrapped[0], "The way to the mine goes down");
+        assert_eq!(wrapped[1], "past the old well and the lake");
+        assert!(wrapped.iter().all(|line| line.chars().count() <= SIGN_LINE_LENGTH));
+    }
     use crate::init::LobbyPlayer;
     use bevy::ecs::system::RunSystemOnce;
     use bevy_renet::renet::ConnectionConfig;

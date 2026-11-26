@@ -63,7 +63,7 @@ pub struct BlockTextures {
 }
 
 /// The most block textures a texture pack may have: the length of the table in `chunk.wgsl`.
-pub const MAX_TILES: usize = 256;
+pub const MAX_TILES: usize = 512;
 
 /// How an animated texture, a vertical strip of square frames, plays: read from the file
 /// `<texture>.anim.ron` next to it, like the `.mcmeta` of a Minecraft texture.
@@ -112,7 +112,9 @@ impl WetSurface {
             "Glass" | "CampfireFlame" | "Wool" | "Lantern" | "Ice" | "Snow" | "Torch" | "Water"
             | "Lava" | "Fire" => Self::Dry,
             _ if name.starts_with("DestroyStage") => Self::Dry,
+            _ if name.ends_with("Wool") || name.ends_with("StainedGlass") => Self::Dry,
             "Sand" => Self::Porous,
+            _ if name.ends_with("ConcretePowder") => Self::Porous,
             "Grass" | "GrassTop" | "GrassSideOverlay" | "Moss" => Self::Grass,
             "Dirt" | "Clay" | "TilledSoil" | "RammedEarth" => Self::Soil,
             "Reed" | "BerryBush" | "RipeBerryBush" | "RyeSprout" | "YoungRye" | "RipeRye"

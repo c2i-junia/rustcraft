@@ -422,20 +422,18 @@ mod tests {
             if recipe.ingredients()[0] == (Ingredient::Tag(ItemTag::Planks), 3)));
         assert_eq!(cards(ItemId::Chest, RecipeTab::Recipes).len(), 1);
         assert_eq!(cards(ItemId::Stick, RecipeTab::Recipes).len(), 1);
-        // The uses of any planks are the recipes of planks, then its burning
+        // The uses of any planks are the recipes of planks, then those of the species (its
+        // slab, stairs, door, trapdoor and fence gate), then its burning
         for species in ItemTag::Planks.members() {
             let uses = cards(*species, RecipeTab::Uses);
-            assert_eq!(uses.len(), 14 + 1, "{species:?}");
+            assert_eq!(uses.len(), 12 + 5 + 1, "{species:?}");
+            assert_eq!(uses[..12], cards(ItemId::OakPlanks, RecipeTab::Uses)[..12]);
             assert_eq!(
-                uses,
-                cards(ItemId::OakPlanks, RecipeTab::Uses)[..14]
-                    .iter()
-                    .copied()
-                    .chain([BrowserCard::Fuel {
-                        item: *species,
-                        ticks: 300
-                    }])
-                    .collect::<Vec<_>>()
+                uses[17],
+                BrowserCard::Fuel {
+                    item: *species,
+                    ticks: 300
+                }
             );
         }
     }

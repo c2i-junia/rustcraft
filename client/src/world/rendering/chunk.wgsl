@@ -56,7 +56,7 @@
 // twentieths of a second, and whether a frame fades into the next in the lowest bit of `w`,
 // with how its surface takes the rain over it (`WetSurface`). Keep the length in sync with
 // `MAX_TILES`.
-@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> block_textures: array<vec4<u32>, 256>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> block_textures: array<vec4<u32>, 512>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(101) var block_layers: texture_2d_array<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(102) var block_sampler: sampler;
 // The climate of the columns around the player, wrapped around (`climate.rs`): their place on

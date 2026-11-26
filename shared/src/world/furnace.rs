@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::world::{ItemId, ItemStack};
+use crate::world::{BlockId, Form, ItemId, ItemStack, ItemType};
 
 /// Ticks to smelt one item: 10 seconds, as in Minecraft.
 pub const COOK_TICKS: u16 = 200;
@@ -60,6 +60,7 @@ pub fn smelting_result(item: ItemId) -> Option<ItemId> {
         ItemId::RawChicken => Some(ItemId::RoastChicken),
         ItemId::RawRabbit => Some(ItemId::RoastRabbit),
         ItemId::Potato => Some(ItemId::BakedPotato),
+        ItemId::Cactus => Some(ItemId::GreenDye),
         _ => None,
     }
 }
@@ -96,8 +97,29 @@ pub fn fuel_ticks(item: ItemId) -> Option<u16> {
         | ItemId::WoodenSword => Some(200),
         ItemId::Stick => Some(100),
         ItemId::LavaBucket => Some(20000),
-        _ => None,
+        // The wooden blocks of the palette, as Minecraft's: a slab burns half as long
+        _ => match item.get_default_type() {
+            ItemType::Block(block) => match block.palette() {
+                Some(palette) if fire_wood(palette.base) => {
+                    Some(if palette.form == Form::Slab { 150 } else { 300 })
+                }
+                _ => None,
+            },
+            _ => None,
+        },
     }
+}
+
+/// Whether `block` is planks, which the wooden blocks of the palette are made of.
+fn fire_wood(block: BlockId) -> bool {
+    matches!(
+        block,
+        BlockId::OakPlanks
+            | BlockId::SprucePlanks
+            | BlockId::JunglePlanks
+            | BlockId::WillowPlanks
+            | BlockId::AcaciaPlanks
+    )
 }
 
 /// What stays in the fuel slot once one `item` is burnt, for a fuel held in a container: the

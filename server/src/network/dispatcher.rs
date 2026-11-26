@@ -440,6 +440,9 @@ fn handle_client_messages_system(
                 ClientToServerMessage::EndTrade => {
                     world_map.trades.end(client_id);
                 }
+                ClientToServerMessage::WriteSign { at, lines } => {
+                    crate::world::home::write_sign_lines(&mut world_map, client_id, at, lines);
+                }
             }
         }
         if dropped_inputs > 0 {
@@ -480,6 +483,7 @@ fn message_kind(message: &ClientToServerMessage) -> &'static str {
         ClientToServerMessage::Trade { .. } => "Trade",
         ClientToServerMessage::EndTrade => "EndTrade",
         ClientToServerMessage::FirstStep(_) => "FirstStep",
+        ClientToServerMessage::WriteSign { .. } => "WriteSign",
     }
 }
 

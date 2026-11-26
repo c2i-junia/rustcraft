@@ -34,8 +34,8 @@ pub fn flammability(block: BlockId) -> Option<Flammability> {
         | BlockId::JunglePlanks
         | BlockId::WillowPlanks
         | BlockId::AcaciaPlanks
-        | BlockId::WoodenSlab
-        | BlockId::WoodenStairs
+        | BlockId::OakSlab
+        | BlockId::OakStairs
         | BlockId::Fence
         | BlockId::CraftingTable => (5, 20),
         BlockId::OakLog
@@ -58,7 +58,8 @@ pub fn flammability(block: BlockId) -> Option<Flammability> {
         | BlockId::Poppy
         | BlockId::Heather => (60, 100),
         BlockId::Vine => (15, 100),
-        _ => return None,
+        // the blocks of the palette burn as what they are made of: wood and wool
+        _ => return flammability(block.palette()?.base),
     };
     Some(Flammability { catch, burn })
 }
@@ -202,7 +203,7 @@ mod tests {
             BlockId::AcaciaLog,
             BlockId::WillowPlanks,
             BlockId::WillowLeaves,
-            BlockId::WoodenStairs,
+            BlockId::OakStairs,
             BlockId::Thatch,
             BlockId::Wool,
             BlockId::Heather,

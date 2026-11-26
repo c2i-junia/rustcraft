@@ -40,7 +40,17 @@ pub enum ClientToServerMessage {
     EndTrade,
     /// The player did this first step, or left it: its hint never shows again.
     FirstStep(FirstStep),
+    /// The player wrote these lines on the sign at `at`, in the editor `EditSign` opened.
+    WriteSign {
+        at: IVec3,
+        lines: [String; SIGN_LINES],
+    },
 }
+
+/// The lines of a sign.
+pub const SIGN_LINES: usize = 4;
+/// The most characters a line of a sign holds.
+pub const SIGN_LINE_LENGTH: usize = 30;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ServerToClientMessage {
@@ -105,6 +115,12 @@ pub enum ServerToClientMessage {
         server_key: [u8; 32],
         hub: Option<String>,
     },
+    /// The player of this client placed the sign at `at`, or clicked it: the client opens the
+    /// editor of its lines, which holds what it says.
+    EditSign {
+        at: IVec3,
+        lines: [String; SIGN_LINES],
+    },
 }
 
 /// What the bar of a boss shows.
@@ -155,6 +171,13 @@ mod tests {
             (ClientToServerMessage::Trade { mob: 0, offer: 0 }, 7),
             (ClientToServerMessage::EndTrade, 8),
             (ClientToServerMessage::FirstStep(FirstStep::Move), 9),
+            (
+                ClientToServerMessage::WriteSign {
+                    at: IVec3::ZERO,
+                    lines: Default::default(),
+                },
+                10,
+            ),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");
         }
@@ -296,6 +319,13 @@ mod tests {
                     hub: None,
                 },
                 21,
+            ),
+            (
+                ServerToClientMessage::EditSign {
+                    at: IVec3::ZERO,
+                    lines: Default::default(),
+                },
+                22,
             ),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");

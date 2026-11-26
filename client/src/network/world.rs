@@ -14,6 +14,7 @@ use crate::ui::credits::CreditsDue;
 use crate::ui::hud::boss::NearBoss;
 use crate::ui::hud::depths::DepthReached;
 use crate::ui::hud::progress::Earn;
+use crate::ui::hud::sign::SignToEdit;
 use crate::ui::hud::TradeUpdated;
 use shared::players::blocks::PortalShot;
 use shared::world::SIX_OFFSETS;
@@ -196,6 +197,9 @@ pub fn update_world_from_network(
             }
             ServerToClientMessage::TradeUpdate(update) => {
                 commands.write_message(TradeUpdated(update));
+            }
+            ServerToClientMessage::EditSign { at, lines } => {
+                commands.insert_resource(SignToEdit(Some((at, lines))));
             }
             // The levels ease towards it
             ServerToClientMessage::WeatherSet(kind) => {

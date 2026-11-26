@@ -3,6 +3,10 @@ Version: Unreleased
 Date: 11.10.2026
 
   Changes: 
+    - A wider, colourful palette: slabs, stairs, doors, trapdoors and fence gates of each of the five woods; slabs, stairs and low walls (which join like fences) of stone, cobblestone, hewn stone, limestone, slate, bricks, gloomrock and cobbled gloomrock; polished and chiseled stone, limestone, slate and gloomrock.
+    - Sixteen dyes, from flowers, berries, cocoa beans (brown), coal, limestone, copper ore and a smelted cactus, mixed into the others. They colour wool, glass and panes, terracotta (clay and a fired brick) and concrete powder, which hardens into concrete where water touches it.
+    - Placing a sign opens an editor of its four lines, and a right click on a sign edits it again. The /sign command still writes on the sign aimed at.
+    - The wooden slab and stairs of older worlds become those of oak; the bricks block is now called Bricks.
     - Updated the game engine to Bevy 0.19.
     - New save layout: one folder per world, with world.ron for the metadata, one file per chunk and one file per player. Worlds from older versions are converted on first load, the old file is kept as world.ron.legacy.
     - The world and the connected players are saved automatically every 60 seconds.

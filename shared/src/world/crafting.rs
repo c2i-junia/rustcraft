@@ -1,8 +1,10 @@
 //! The recipes, and what the crafting grid makes.
 
+use std::sync::OnceLock;
+
 use crate::{
     players::Inventory,
-    world::{ItemId, ItemStack},
+    world::{palette::WOOLS, DyeColor, ItemId, ItemStack, Rock, Wood},
     MAX_INVENTORY_SLOTS,
 };
 
@@ -26,6 +28,8 @@ pub enum ItemTag {
     Planks,
     /// The broken rocks: cobblestone, and the gloomrock of the depths.
     Cobble,
+    /// The wool of every colour, which a dye colours again.
+    Wool,
 }
 
 impl ItemTag {
@@ -41,6 +45,7 @@ impl ItemTag {
                 ItemId::AcaciaPlanks,
             ],
             Self::Cobble => &[ItemId::Cobblestone, ItemId::CobbledGloomrock],
+            Self::Wool => &WOOLS,
         }
     }
 
@@ -49,6 +54,7 @@ impl ItemTag {
         match self {
             Self::Planks => "Planks",
             Self::Cobble => "Cobble",
+            Self::Wool => "Wool",
         }
     }
 }
@@ -78,6 +84,7 @@ impl Ingredient {
 /// A shaped recipe: its cells, row after row, must match the filled part of the grid exactly,
 /// wherever that part sits in the grid, or match it mirrored left to right. A shapeless one only
 /// needs its ingredients in the grid, one per cell, anywhere.
+#[derive(Clone, Copy)]
 struct Recipe {
     width: usize,
     cells: &'static [Option<Ingredient>],
@@ -137,6 +144,7 @@ const fn boots(m: Option<Ingredient>) -> [Option<Ingredient>; 6] {
     [m, None, m, m, None, m]
 }
 const GLASS: Option<Ingredient> = item(ItemId::Glass);
+const WOOL: Option<Ingredient> = Some(Ingredient::Tag(ItemTag::Wool));
 
 #[rustfmt::skip]
 const RECIPES: &[Recipe] = &[
@@ -217,7 +225,6 @@ const RECIPES: &[Recipe] = &[
     Recipe { width: 1, cells: &[item(ItemId::TinBlock)], output: ItemId::TinIngot, nb: 9, shapeless: false },
     Recipe { width: 3, cells: &[item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot)], output: ItemId::BronzeBlock, nb: 1, shapeless: false },
     Recipe { width: 1, cells: &[item(ItemId::BronzeBlock)], output: ItemId::BronzeIngot, nb: 9, shapeless: false },
-    Recipe { width: 3, cells: &[PLANKS; 3], output: ItemId::WoodenSlab, nb: 6, shapeless: false },
     Recipe { width: 3, cells: &[item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::HewnStone)], output: ItemId::HewnStoneSlab, nb: 6, shapeless: false },
     Recipe { width: 3, cells: &[item(ItemId::BrickWall), item(ItemId::BrickWall), item(ItemId::BrickWall)], output: ItemId::BrickSlab, nb: 6, shapeless: false },
     Recipe { width: 3, cells: &[None, item(ItemId::IronIngot), None, item(ItemId::IronIngot), item(ItemId::Torch), item(ItemId::IronIngot), None, item(ItemId::IronIngot), None], output: ItemId::Lantern, nb: 1, shapeless: false },
@@ -226,10 +233,8 @@ const RECIPES: &[Recipe] = &[
     Recipe { width: 1, cells: &shovel(BRONZE), output: ItemId::BronzeShovel, nb: 1, shapeless: false },
     Recipe { width: 2, cells: &hoe(BRONZE), output: ItemId::BronzeHoe, nb: 1, shapeless: false },
     Recipe { width: 1, cells: &sword(BRONZE), output: ItemId::BronzeSword, nb: 1, shapeless: false },
-    Recipe { width: 2, cells: &[PLANKS, None, PLANKS, PLANKS, PLANKS, PLANKS], output: ItemId::WoodenStairs, nb: 4, shapeless: false },
     Recipe { width: 2, cells: &[item(ItemId::HewnStone), None, item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::HewnStone)], output: ItemId::HewnStoneStairs, nb: 4, shapeless: false },
     Recipe { width: 2, cells: &[item(ItemId::BrickWall), None, item(ItemId::BrickWall), item(ItemId::BrickWall), item(ItemId::BrickWall), item(ItemId::BrickWall)], output: ItemId::BrickStairs, nb: 4, shapeless: false },
-    Recipe { width: 2, cells: &[PLANKS, PLANKS, PLANKS, PLANKS, PLANKS, PLANKS], output: ItemId::Door, nb: 1, shapeless: false },
     Recipe { width: 3, cells: &[STICK, item(ItemId::Rope), STICK, STICK, STICK, STICK, None, item(ItemId::Rope), None], output: ItemId::Ladder, nb: 3, shapeless: false },
     Recipe { width: 3, cells: &[STICK, PLANKS, STICK, STICK, PLANKS, STICK], output: ItemId::Fence, nb: 3, shapeless: false },
     Recipe { width: 3, cells: &[item(ItemId::Glass), item(ItemId::Glass), item(ItemId::Glass)], output: ItemId::GlassPane, nb: 8, shapeless: false },
@@ -316,6 +321,108 @@ const RECIPES: &[Recipe] = &[
     Recipe { width: 3, cells: &[None, item(ItemId::GoldIngot), None, item(ItemId::GoldIngot), item(ItemId::Diamond), item(ItemId::GoldIngot), None, item(ItemId::GoldIngot), None], output: ItemId::DepthsCompass, nb: 1, shapeless: false },
 ];
 
+/// The dyes a plant, a fuel or an ore gives, and how many: the green one is smelted from a
+/// cactus (`furnace::smelting_result`).
+const DYE_SOURCES: [(ItemId, ItemId, u32); 9] = [
+    (ItemId::Poppy, ItemId::RedDye, 2),
+    (ItemId::Berries, ItemId::RedDye, 1),
+    (ItemId::Dandelion, ItemId::YellowDye, 2),
+    (ItemId::CocoaBeans, ItemId::BrownDye, 1),
+    (ItemId::Heather, ItemId::MagentaDye, 2),
+    (ItemId::Coal, ItemId::BlackDye, 1),
+    (ItemId::Charcoal, ItemId::BlackDye, 1),
+    (ItemId::Limestone, ItemId::WhiteDye, 2),
+    // its azurite
+    (ItemId::CopperOre, ItemId::BlueDye, 2),
+];
+
+/// The dyes mixed from two others, two at a time.
+const DYE_MIXES: [(ItemId, ItemId, ItemId); 9] = [
+    (ItemId::RedDye, ItemId::YellowDye, ItemId::OrangeDye),
+    (ItemId::RedDye, ItemId::WhiteDye, ItemId::PinkDye),
+    (ItemId::GreenDye, ItemId::WhiteDye, ItemId::LimeDye),
+    (ItemId::BlueDye, ItemId::WhiteDye, ItemId::LightBlueDye),
+    (ItemId::BlueDye, ItemId::GreenDye, ItemId::CyanDye),
+    (ItemId::RedDye, ItemId::BlueDye, ItemId::PurpleDye),
+    (ItemId::PurpleDye, ItemId::PinkDye, ItemId::MagentaDye),
+    (ItemId::BlackDye, ItemId::WhiteDye, ItemId::GrayDye),
+    (ItemId::GrayDye, ItemId::WhiteDye, ItemId::LightGrayDye),
+];
+
+/// The recipes of the palette (`palette`), which follow those of `RECIPES`: the slabs, stairs,
+/// doors, trapdoors and fence gates of each wood from its own planks, the slabs, stairs and low
+/// walls of each rock, its polished and chiseled blocks, the dyes and what they colour.
+fn palette_recipes() -> Vec<Recipe> {
+    let mut recipes = Vec::new();
+    let mut add = |width, cells: Vec<Option<Ingredient>>, output, nb, shapeless| {
+        recipes.push(Recipe {
+            width,
+            cells: Vec::leak(cells),
+            output,
+            nb,
+            shapeless,
+        })
+    };
+    for wood in Wood::ALL {
+        let p = item(wood.planks());
+        add(3, vec![p; 3], wood.slab(), 6, false);
+        add(2, vec![p, None, p, p, p, p], wood.stairs(), 4, false);
+        add(2, vec![p; 6], wood.door(), 1, false);
+        add(3, vec![p; 6], wood.trapdoor(), 2, false);
+        add(3, vec![p, STICK, p, p, STICK, p], wood.fence_gate(), 1, false);
+    }
+    for rock in Rock::ALL {
+        let m = item(rock.material());
+        // the slabs and the stairs of hewn stone and of bricks are in `RECIPES`
+        if !matches!(rock, Rock::HewnStone | Rock::Brick) {
+            add(3, vec![m; 3], rock.slab(), 6, false);
+            add(2, vec![m, None, m, m, m, m], rock.stairs(), 4, false);
+        }
+        add(3, vec![m; 6], rock.low_wall(), 6, false);
+        if let Some((polished, chiseled)) = rock.polished_and_chiseled() {
+            add(2, vec![m; 4], polished, 4, false);
+            add(1, vec![item(rock.slab()); 2], chiseled, 1, false);
+        }
+    }
+    for (source, dye, nb) in DYE_SOURCES {
+        add(1, vec![item(source)], dye, nb, false);
+    }
+    for (a, b, dye) in DYE_MIXES {
+        add(2, vec![item(a), item(b)], dye, 2, true);
+    }
+    // eight blocks around a dye
+    let ring = |block: ItemId, dye: ItemId| {
+        let mut cells = vec![item(block); 9];
+        cells[4] = item(dye);
+        cells
+    };
+    for color in DyeColor::ALL {
+        let dye = color.dye();
+        add(2, vec![item(dye), WOOL], color.wool(), 1, true);
+        add(3, ring(ItemId::Glass, dye), color.stained_glass(), 8, false);
+        add(3, vec![item(color.stained_glass()); 3], color.stained_glass_pane(), 8, false);
+        add(3, ring(ItemId::Terracotta, dye), color.terracotta(), 8, false);
+        let mut powder = vec![item(dye)];
+        powder.extend([item(ItemId::Sand); 4]);
+        powder.extend([item(ItemId::Gravel); 4]);
+        add(3, powder, color.concrete_powder(), 8, true);
+    }
+    add(2, vec![item(ItemId::Clay), item(ItemId::FiredBrick)], ItemId::Terracotta, 2, true);
+    recipes
+}
+
+/// Every recipe: those of `RECIPES`, then those of the palette. Made once.
+fn all_recipes() -> &'static [Recipe] {
+    static ALL: OnceLock<Vec<Recipe>> = OnceLock::new();
+    ALL.get_or_init(|| {
+        RECIPES
+            .iter()
+            .copied()
+            .chain(palette_recipes())
+            .collect()
+    })
+}
+
 /// What the grid makes, if it matches a recipe.
 pub fn match_recipe(grid: &CraftingGrid) -> Option<ItemStack> {
     let size = CRAFTING_GRID_SIZE as usize;
@@ -347,7 +454,7 @@ pub fn match_recipe(grid: &CraftingGrid) -> Option<ItemStack> {
         })
     };
     let filled: Vec<ItemId> = grid.iter().flatten().copied().collect();
-    let recipe = RECIPES.iter().find(|recipe| {
+    let recipe = all_recipes().iter().find(|recipe| {
         if recipe.shapeless {
             return matches_shapeless(recipe, &filled);
         }
@@ -414,7 +521,7 @@ impl RecipeView {
 
 /// Every recipe, in the order of the table.
 pub fn recipes() -> impl Iterator<Item = RecipeView> {
-    RECIPES
+    all_recipes()
         .iter()
         .enumerate()
         .map(|(index, recipe)| RecipeView {
@@ -969,7 +1076,7 @@ mod tests {
     #[test]
     fn every_recipe_is_listed_with_its_index_and_size() {
         let all: Vec<RecipeView> = recipes().collect();
-        assert_eq!(all.len(), 109);
+        assert_eq!(all.len(), 109 - 3 + 152);
         for (position, recipe) in all.iter().enumerate() {
             assert_eq!(recipe.index as usize, position);
             assert_eq!(recipe.cells.len(), recipe.width * recipe.height);
@@ -988,22 +1095,109 @@ mod tests {
     fn recipes_for_and_uses_of_find_the_recipes_of_an_item() {
         let counts = |item| (recipes_for(item).count(), uses_of(item).count());
         assert_eq!(counts(ItemId::WoodenPickaxe), (1, 0));
-        assert_eq!(counts(ItemId::Stick), (1, 44));
-        assert_eq!(counts(ItemId::OakPlanks), (1, 15));
-        assert_eq!(counts(ItemId::SprucePlanks), (1, 15));
-        assert_eq!(counts(ItemId::JunglePlanks), (1, 15));
-        // the same recipes for each species
+        assert_eq!(counts(ItemId::Stick), (1, 49));
+        // the recipes of any planks, then the slab, stairs, door, trapdoor and gate of the species
+        assert_eq!(counts(ItemId::OakPlanks), (1, 12 + 5));
+        assert_eq!(counts(ItemId::SprucePlanks), (1, 12 + 5));
+        assert_eq!(counts(ItemId::JunglePlanks), (1, 12 + 5));
         let uses = |item| uses_of(item).map(|r| r.index).collect::<Vec<_>>();
-        assert_eq!(uses(ItemId::OakPlanks), uses(ItemId::SprucePlanks));
-        assert_eq!(uses(ItemId::OakPlanks), uses(ItemId::JunglePlanks));
-        assert_eq!(counts(ItemId::Cobblestone), (0, 6));
+        assert_eq!(uses(ItemId::OakPlanks)[..12], uses(ItemId::SprucePlanks)[..12]);
+        assert_eq!(uses(ItemId::OakPlanks)[..12], uses(ItemId::JunglePlanks)[..12]);
+        assert_ne!(uses(ItemId::OakPlanks)[12..], uses(ItemId::SprucePlanks)[12..]);
+        // the tools, the furnace, and the slab, stairs and low wall
+        assert_eq!(counts(ItemId::Cobblestone), (0, 6 + 3));
         assert_eq!(counts(ItemId::IronIngot), (1, 16));
         assert_eq!(counts(ItemId::Torch), (2, 1));
         assert_eq!(counts(ItemId::Bedrock), (0, 0));
         assert!(recipes_for(ItemId::Chest).all(|r| r.output.item_id == ItemId::Chest));
         assert!(uses_of(ItemId::Stick)
             .all(|r| r.cells.contains(&Some(Ingredient::Item(ItemId::Stick)))));
-        assert!(uses_of(ItemId::SprucePlanks).all(|r| r.cells.contains(&Some(PLANKS))));
+    }
+
+    /// What the grid holding `cells`, row after row in a grid `width` wide, makes.
+    fn made_of(width: usize, cells: &[Option<ItemId>]) -> Option<ItemStack> {
+        let mut grid = [None; 9];
+        for (index, cell) in cells.iter().enumerate() {
+            grid[index / width * 3 + index % width] = *cell;
+        }
+        match_recipe(&grid)
+    }
+
+    #[test]
+    fn each_wood_makes_its_own_slabs_stairs_doors_trapdoors_and_gates() {
+        for wood in Wood::ALL {
+            let p = Some(wood.planks());
+            let s = Some(ItemId::Stick);
+            assert_eq!(made_of(3, &[p, p, p]), made(wood.slab(), 6), "{wood:?}");
+            assert_eq!(made_of(2, &[p, None, p, p, p, p]), made(wood.stairs(), 4));
+            assert_eq!(made_of(2, &[p; 6]), made(wood.door(), 1));
+            assert_eq!(made_of(3, &[p; 6]), made(wood.trapdoor(), 2));
+            assert_eq!(made_of(3, &[p, s, p, p, s, p]), made(wood.fence_gate(), 1));
+        }
+        // the oak ones are those there were before
+        assert_eq!(Wood::Oak.slab(), ItemId::OakSlab);
+        assert_eq!(Wood::Oak.door(), ItemId::Door);
+        // a slab of spruce takes spruce only
+        let (oak, spruce) = (Some(ItemId::OakPlanks), Some(ItemId::SprucePlanks));
+        assert_eq!(made_of(3, &[oak, spruce, oak]), None);
+    }
+
+    #[test]
+    fn each_rock_makes_slabs_stairs_low_walls_and_its_polished_and_chiseled_blocks() {
+        for rock in Rock::ALL {
+            let m = Some(rock.material());
+            assert_eq!(made_of(3, &[m, m, m]), made(rock.slab(), 6), "{rock:?}");
+            assert_eq!(made_of(2, &[m, None, m, m, m, m]), made(rock.stairs(), 4));
+            assert_eq!(made_of(3, &[m; 6]), made(rock.low_wall(), 6));
+            if let Some((polished, chiseled)) = rock.polished_and_chiseled() {
+                assert_eq!(made_of(2, &[m; 4]), made(polished, 4));
+                let slab = Some(rock.slab());
+                assert_eq!(made_of(1, &[slab, slab]), made(chiseled, 1));
+            }
+        }
+        assert!(Rock::Gloomrock.polished_and_chiseled().is_some());
+    }
+
+    #[test]
+    fn plants_give_dyes_which_mix_and_colour_wool_glass_terracotta_and_concrete() {
+        let one = |item| made_of(1, &[Some(item)]);
+        assert_eq!(one(ItemId::Poppy), made(ItemId::RedDye, 2));
+        assert_eq!(one(ItemId::Dandelion), made(ItemId::YellowDye, 2));
+        // the cocoa beans, of no use before
+        assert_eq!(one(ItemId::CocoaBeans), made(ItemId::BrownDye, 1));
+        let mix = |a, b| made_of(2, &[Some(b), Some(a)]);
+        assert_eq!(mix(ItemId::RedDye, ItemId::YellowDye), made(ItemId::OrangeDye, 2));
+        assert_eq!(mix(ItemId::BlueDye, ItemId::GreenDye), made(ItemId::CyanDye, 2));
+        // every dye is made
+        for color in DyeColor::ALL {
+            assert!(recipes_for(color.dye()).next().is_some()
+                || crate::world::furnace::smelting_inputs(color.dye()).next().is_some(),
+                "{color:?}");
+        }
+        for color in DyeColor::ALL {
+            let dye = Some(color.dye());
+            // any wool, of any colour, takes the dye
+            for wool in [ItemId::Wool, ItemId::RedWool, ItemId::BlackWool] {
+                assert_eq!(made_of(2, &[Some(wool), dye]), made(color.wool(), 1), "{color:?}");
+            }
+            let glass = Some(ItemId::Glass);
+            let ring = [glass, glass, glass, glass, dye, glass, glass, glass, glass];
+            assert_eq!(made_of(3, &ring), made(color.stained_glass(), 8));
+            let stained = Some(color.stained_glass());
+            assert_eq!(made_of(3, &[stained; 3]), made(color.stained_glass_pane(), 8));
+            let t = Some(ItemId::Terracotta);
+            assert_eq!(
+                made_of(3, &[t, t, t, t, dye, t, t, t, t]),
+                made(color.terracotta(), 8)
+            );
+            let (sand, gravel) = (Some(ItemId::Sand), Some(ItemId::Gravel));
+            assert_eq!(
+                made_of(3, &[sand, gravel, sand, gravel, dye, gravel, sand, gravel, sand]),
+                made(color.concrete_powder(), 8)
+            );
+        }
+        let (clay, brick) = (Some(ItemId::Clay), Some(ItemId::FiredBrick));
+        assert_eq!(made_of(2, &[brick, clay]), made(ItemId::Terracotta, 2));
     }
 
     /// The first recipe making `item`.
@@ -1165,9 +1359,6 @@ mod tests {
                 ItemId::WoodenShovel,
                 ItemId::WoodenHoe,
                 ItemId::WoodenSword,
-                ItemId::WoodenSlab,
-                ItemId::WoodenStairs,
-                ItemId::Door,
                 ItemId::Fence,
                 ItemId::Barrel,
                 ItemId::Sign,

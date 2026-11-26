@@ -44,6 +44,7 @@ pub mod mount;
 pub mod progress;
 pub mod recharge;
 pub mod reticle;
+pub mod sign;
 mod ui_mode;
 
 pub use inventory::*;
@@ -294,4 +295,5 @@ pub fn hud_plugin(app: &mut App) {
     chat_completion_plugin(app);
     minimap_plugin(app);
     item_browser::item_browser_plugin(app);
+    sign::sign_plugin(app);
 }

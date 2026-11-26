@@ -126,6 +126,7 @@ pub fn smelting_experience(result: ItemId) -> u32 {
         ItemId::IronIngot => 70,
         ItemId::GoldIngot | ItemId::Diamond => 100,
         ItemId::RoastMushroom | ItemId::BakedPotato => 25,
+        ItemId::GreenDye => 20,
         ItemId::RoastMutton
         | ItemId::RoastPork
         | ItemId::RoastBeef
@@ -164,7 +165,7 @@ mod tests {
     fn everything_smelted_gives_some_experience() {
         for item in ItemId::ALL {
             if let Some(result) = smelting_result(item) {
-                assert!(smelting_experience(result) > 0, "{result:?}");
+                assert!(smelting_experience(result) > 0, "{item:?} -> {result:?}");
             }
         }
     }

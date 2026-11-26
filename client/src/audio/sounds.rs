@@ -122,8 +122,8 @@ impl SoundMaterial {
             | BlockId::WillowPlanks
             | BlockId::AcaciaLog
             | BlockId::AcaciaPlanks
-            | BlockId::WoodenSlab
-            | BlockId::WoodenStairs
+            | BlockId::OakSlab
+            | BlockId::OakStairs
             | BlockId::Door
             | BlockId::DoorTop
             | BlockId::OpenDoor
@@ -143,6 +143,8 @@ impl SoundMaterial {
             BlockId::Snow => Self::Snow,
             BlockId::Glass | BlockId::Ice | BlockId::GlassPane => Self::Glass,
             BlockId::Water | BlockId::Lava | BlockId::Fire => return None,
+            // as the block they are made of
+            shared::new_palette_blocks!() => return Self::of(block.palette()?.base),
         })
     }
 

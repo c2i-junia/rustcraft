@@ -311,7 +311,7 @@ impl ChunkMap {
             !ignored(pos)
                 && self
                     .get_block(pos)
-                    .is_some_and(|block| block.id == BlockId::Fence)
+                    .is_some_and(|block| block.id.is_tall())
                 && hitbox.min.y <= pos.y as f32 + FENCE.max.y
         });
         fence

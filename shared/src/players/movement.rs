@@ -2644,7 +2644,7 @@ mod tests {
     #[test]
     fn a_player_steps_up_stairs_and_is_stopped_by_a_fence() {
         use crate::world::{BlockData, BlockDirection};
-        for (id, height) in [(BlockId::WoodenStairs, 1.0), (BlockId::WoodenSlab, 0.5)] {
+        for (id, height) in [(BlockId::OakStairs, 1.0), (BlockId::OakSlab, 0.5)] {
             let mut world = flat_world();
             let mut player = standing_player();
             let front = player.position.floor().as_ivec3().with_y(FLOOR_TOP as i32);

@@ -105,7 +105,7 @@ pub fn cell(c: char) -> Cell {
         'd' => block(Role::DoorTop),
         'E' => block(Role::Fence),
         'h' => fixed(BlockId::HewnStone),
-        'f' => fixed(BlockId::WoodenSlab),
+        'f' => fixed(BlockId::OakSlab),
         'w' => fixed(BlockId::Water),
         'o' => fixed(BlockId::TilledSoil),
         'y' => fixed(BlockId::RipeRye),

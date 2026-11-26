@@ -2,9 +2,9 @@ use crate::constants::{GRASS_COLOR, WATER_COLOR};
 use bevy::math::bounding::Aabb3d;
 use bevy::math::{IVec3, Vec3};
 use shared::world::blocks::{
-    BEDROLL, CAMPFIRE, DOOR, HANGING_LANTERN, LANTERN, OPEN_DOOR, SIGN, SLAB, STAIR_BACK,
+    BEDROLL, CAMPFIRE, DOOR, HANGING_LANTERN, LANTERN, OPEN_DOOR, SIGN, SLAB, STAIR_BACK, TRAPDOOR,
 };
-use shared::world::{BlockData, BlockId, VINE_GAP};
+use shared::world::{BlockData, BlockId, Form, Palette, VINE_GAP};
 
 /// Specifies which position in the voxel this face occupies
 ///
@@ -193,6 +193,11 @@ const BOTTOM: usize = 1;
 impl VoxelShape {
     /// Creates a VoxelShape based on the given BlockData
     pub fn create_from_block(block: &BlockData) -> VoxelShape {
+        if let Some(palette) = block.id.palette() {
+            if palette.form != Form::Cube {
+                return Self::of_palette(block.id, palette);
+            }
+        }
         match block.id {
             BlockId::Grass => {
                 // As the model of the texture pack: the top is grey and tinted, the sides are
@@ -294,18 +299,6 @@ impl VoxelShape {
             | BlockId::Reed
             | BlockId::Heather
             | BlockId::Mushroom => Self::flora(block).swaying(Sway::Top),
-            id if id.is_stairs() => {
-                let texture = match id {
-                    BlockId::WoodenStairs => "WoodenSlab",
-                    BlockId::HewnStoneStairs => "HewnStone",
-                    _ => "BrickWall",
-                };
-                Self::boxes(texture, &[SLAB, STAIR_BACK])
-            }
-            BlockId::Door => Self::boxed(block, DOOR),
-            BlockId::DoorTop => Self::boxed(block, DOOR),
-            BlockId::OpenDoor => Self::boxes("Door", &[OPEN_DOOR]),
-            BlockId::OpenDoorTop => Self::boxes("DoorTop", &[OPEN_DOOR]),
             BlockId::Ladder => Self::plate(block),
             BlockId::Fence => Self::arms(
                 "OakPlanks",
@@ -313,7 +306,6 @@ impl VoxelShape {
                 10.,
                 &[(7., 9., 6., 9.), (7., 9., 12., 15.)],
             ),
-            BlockId::GlassPane => Self::arms("Glass", 7., 9., &[(7., 9., 0., 16.)]),
             BlockId::HangingLantern => Self::boxes("Lantern", &[HANGING_LANTERN]),
             BlockId::Bedroll => Self::boxed(block, BEDROLL),
             BlockId::Sign => {
@@ -347,9 +339,6 @@ impl VoxelShape {
                 shape
             }
             BlockId::Torch => Self::torch(block),
-            BlockId::WoodenSlab | BlockId::HewnStoneSlab | BlockId::BrickSlab => {
-                Self::boxed(block, SLAB)
-            }
             BlockId::Lantern => Self::boxed(block, LANTERN),
             // Its flames, unlike the plants, are not stirred by the wind
             BlockId::Fire => Self::flora(block),
@@ -362,6 +351,52 @@ impl VoxelShape {
             // Its texture is grey too. Lava's is orange: it stays a plain cube
             BlockId::Water => Self::full_cube(block).tinted(FaceColor::Water),
             _ => Self::full_cube(block),
+        }
+    }
+
+    /// A block of the palette that is not a whole block: a slab, a stair or a low wall shows the
+    /// texture of the block it is made of, a door or a trapdoor its own, open or shut, a fence
+    /// gate its planks, and a pane its glass.
+    fn of_palette(id: BlockId, palette: Palette) -> VoxelShape {
+        let base = format!("{:?}", palette.base);
+        let name = format!("{id:?}");
+        // an open door or trapdoor shows the texture of the shut one
+        let own = name.strip_prefix("Open").unwrap_or(&name);
+        let of = |a: [f32; 3], b: [f32; 3]| Aabb3d {
+            min: (Vec3::from(a) / 16.).to_vec3a(),
+            max: (Vec3::from(b) / 16.).to_vec3a(),
+        };
+        match palette.form {
+            Form::Slab => Self::boxes(&base, &[SLAB]),
+            Form::Stairs => Self::boxes(&base, &[SLAB, STAIR_BACK]),
+            Form::LowWall => Self::arms(&base, 4., 12., &[(5., 11., 0., 14.)]),
+            Form::Door { open: false, .. } => Self::boxes(own, &[DOOR]),
+            Form::Door { open: true, .. } => Self::boxes(own, &[OPEN_DOOR]),
+            Form::Trapdoor { open: false } => Self::boxes(own, &[TRAPDOOR]),
+            Form::Trapdoor { open: true } => Self::boxes(own, &[DOOR]),
+            Form::FenceGate { open } => {
+                // two posts, and between them two rails, swung back toward +Z once open
+                let mut parts = vec![
+                    of([0., 5., 7.], [2., 16., 9.]),
+                    of([14., 5., 7.], [16., 16., 9.]),
+                ];
+                for (low, high) in [(6., 9.), (12., 15.)] {
+                    if open {
+                        parts.push(of([0., low, 9.], [2., high, 15.]));
+                        parts.push(of([14., low, 9.], [16., high, 15.]));
+                    } else {
+                        parts.push(of([2., low, 7.], [14., high, 9.]));
+                    }
+                }
+                Self::boxes(&base, &parts)
+            }
+            Form::Pane => {
+                // its glass: the pane of plain glass shows the glass, a stained one its own
+                let glass = name.strip_suffix("Pane").unwrap_or(&name);
+                let glass = if id == BlockId::GlassPane { "Glass" } else { glass };
+                Self::arms(glass, 7., 9., &[(7., 9., 0., 16.)])
+            }
+            Form::Cube => Self::full_cube(&BlockData::new(id, shared::world::BlockDirection::Front)),
         }
     }
 
@@ -609,9 +644,9 @@ impl VoxelShape {
 
     /// The side the face `face_index` of `arms` reaches to, `None` for a face of the post.
     pub fn arm_side(id: BlockId, face_index: usize) -> Option<IVec3> {
-        let per_side = match id {
-            BlockId::Fence => 12,
-            BlockId::GlassPane => 6,
+        let per_side = match (id, id.form()) {
+            (BlockId::Fence, _) => 12,
+            (_, Some(Form::Pane | Form::LowWall)) => 6,
             _ => return None,
         };
         let sides = [IVec3::NEG_Z, IVec3::Z, IVec3::NEG_X, IVec3::X];

@@ -10,7 +10,7 @@ use crate::{
         global_block_to_chunk_pos,
         liquid::{is_source, Liquid, LAVA, WATER},
         raycast, BlockData, BlockDirection, BlockId, BlockTransparency, ChunkMap, Container,
-        FaceDirectionExt, Furnace, ItemId, ItemStack, ItemType, MobKind, PortalColor,
+        FaceDirectionExt, Form, Furnace, ItemId, ItemStack, ItemType, MobKind, PortalColor,
         RaycastResponse, ServerMob, Tool, ToolKind,
     },
     HALF_BLOCK, MAX_INVENTORY_SLOTS,
@@ -248,9 +248,11 @@ pub fn simulate_player_block_interactions(
                 ),
                 held => (
                     "place a block",
-                    place_block(player, world_map, action).map(|mob| {
+                    place_block(player, world_map, action).map(|(mob, sign)| {
                         placed.extend(held);
                         spawned.extend(mob);
+                        // A sign just placed is written on at once
+                        signs.extend(sign);
                         player.place_wait_ms = PLACE_REPEAT_MS
                     }),
                 ),
@@ -560,6 +562,10 @@ fn use_block(
         }
         return true;
     }
+    if let Some(turned) = block.id.toggled() {
+        become_block(world_map, pos, turned);
+        return true;
+    }
     match (block.id, held) {
         (BlockId::Sign, _) => signs.push(pos),
         (BlockId::Bedroll, _) => bedrolls.push(pos),
@@ -678,13 +684,14 @@ fn cell_against_aimed_face(
     Ok((target, position))
 }
 
-/// Places the block held in the selected hotbar slot against the aimed face. A spawn egg makes
-/// its mob appear there instead, standing on the bottom of the cell, and is returned.
+/// Places the block held in the selected hotbar slot against the aimed face, and returns where
+/// it placed a sign. A spawn egg makes its mob appear there instead, standing on the bottom of the
+/// cell, and is returned.
 fn place_block(
     player: &mut Player,
     world_map: &mut ChunkMap,
     action: &PlayerFrameInput,
-) -> Result<Option<SpawnedMob>, Refused> {
+) -> Result<(Option<SpawnedMob>, Option<IVec3>), Refused> {
     let (target, position) = cell_against_aimed_face(player, world_map, action)?;
     let refused = |reason| Err(Refused::at(position, reason));
     let slot = action.hotbar_slot;
@@ -697,10 +704,11 @@ fn place_block(
     if let Some(kind) = item.item_id.spawned_mob() {
         player.inventory.remove_item_from_stack(slot, 1);
         let cell = position.as_vec3();
-        return Ok(Some(SpawnedMob {
+        let mob = SpawnedMob {
             kind,
             position: ServerMob::standing_at(kind, cell.x + 0.5, cell.y, cell.z + 0.5),
-        }));
+        };
+        return Ok((Some(mob), None));
     }
     if block_overlaps_player(position, player) {
         return refused(Refusal::InsidePlayer);
@@ -715,14 +723,14 @@ fn place_block(
             return refused(Refusal::NoSoil(block_id));
         }
     }
-    if block_id == BlockId::Door {
+    if let Some(top) = block_id.door_top() {
         let above = position + IVec3::Y;
         if world_map.get_block(above).is_some()
             || !world_map.is_chunk_loaded(global_block_to_chunk_pos(&above))
         {
             return refused(Refusal::Occupied);
         }
-        let top = BlockData::new(BlockId::DoorTop, facing(&action.camera));
+        let top = BlockData::new(top, facing(&action.camera));
         world_map.set_block(above, top);
     }
     // A lantern placed under a block hangs from it
@@ -744,7 +752,7 @@ fn place_block(
         BlockId::Furnace | BlockId::Door | BlockId::Bedroll | BlockId::Sign => {
             facing(&action.camera)
         }
-        id if id.is_stairs() => facing(&action.camera),
+        id if id.form().is_some_and(Form::faces_placer) => facing(&action.camera),
         _ => BlockDirection::Front,
     };
 
@@ -756,7 +764,7 @@ fn place_block(
     if block_id == BlockId::Furnace {
         world_map.insert_furnace(position, Furnace::default());
     }
-    Ok(None)
+    Ok((None, (block_id == BlockId::Sign).then_some(position)))
 }
 
 /// Eats one of the food held in the selected hotbar slot, which gives food and saturation. It is

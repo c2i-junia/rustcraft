@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::{GameElementId, ItemId, Tool, ToolKind};
+use super::{palette::Form, GameElementId, ItemId, Tool, ToolKind};
 use bevy::math::{bounding::Aabb3d, IVec3, Vec3A};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -87,11 +87,14 @@ pub enum BlockId {
     Reed,
     Heather,
     Mushroom,
-    WoodenSlab,
+    /// The slab of oak, once the only wooden slab.
+    #[serde(alias = "WoodenSlab")]
+    OakSlab,
     HewnStoneSlab,
     BrickSlab,
     Lantern,
-    WoodenStairs,
+    #[serde(alias = "WoodenStairs")]
+    OakStairs,
     HewnStoneStairs,
     BrickStairs,
     Door,
@@ -149,6 +152,175 @@ pub enum BlockId {
     CobbledGloomrock,
     /// Repairs, merges and renames what wears, for levels of experience: see `players::anvil`.
     Anvil,
+    // The palette: see `palette`
+    SpruceSlab,
+    JungleSlab,
+    WillowSlab,
+    AcaciaSlab,
+    SpruceStairs,
+    JungleStairs,
+    WillowStairs,
+    AcaciaStairs,
+    SpruceDoor,
+    SpruceDoorTop,
+    OpenSpruceDoor,
+    OpenSpruceDoorTop,
+    JungleDoor,
+    JungleDoorTop,
+    OpenJungleDoor,
+    OpenJungleDoorTop,
+    WillowDoor,
+    WillowDoorTop,
+    OpenWillowDoor,
+    OpenWillowDoorTop,
+    AcaciaDoor,
+    AcaciaDoorTop,
+    OpenAcaciaDoor,
+    OpenAcaciaDoorTop,
+    OakTrapdoor,
+    OpenOakTrapdoor,
+    SpruceTrapdoor,
+    OpenSpruceTrapdoor,
+    JungleTrapdoor,
+    OpenJungleTrapdoor,
+    WillowTrapdoor,
+    OpenWillowTrapdoor,
+    AcaciaTrapdoor,
+    OpenAcaciaTrapdoor,
+    OakFenceGate,
+    OpenOakFenceGate,
+    SpruceFenceGate,
+    OpenSpruceFenceGate,
+    JungleFenceGate,
+    OpenJungleFenceGate,
+    WillowFenceGate,
+    OpenWillowFenceGate,
+    AcaciaFenceGate,
+    OpenAcaciaFenceGate,
+    StoneSlab,
+    CobblestoneSlab,
+    LimestoneSlab,
+    SlateSlab,
+    GloomrockSlab,
+    CobbledGloomrockSlab,
+    StoneStairs,
+    CobblestoneStairs,
+    LimestoneStairs,
+    SlateStairs,
+    GloomrockStairs,
+    CobbledGloomrockStairs,
+    StoneLowWall,
+    CobblestoneLowWall,
+    HewnStoneLowWall,
+    LimestoneLowWall,
+    SlateLowWall,
+    BrickLowWall,
+    GloomrockLowWall,
+    CobbledGloomrockLowWall,
+    PolishedStone,
+    PolishedLimestone,
+    PolishedSlate,
+    PolishedGloomrock,
+    ChiseledStone,
+    ChiseledLimestone,
+    ChiseledSlate,
+    ChiseledGloomrock,
+    OrangeWool,
+    MagentaWool,
+    LightBlueWool,
+    YellowWool,
+    LimeWool,
+    PinkWool,
+    GrayWool,
+    LightGrayWool,
+    CyanWool,
+    PurpleWool,
+    BlueWool,
+    BrownWool,
+    GreenWool,
+    RedWool,
+    BlackWool,
+    WhiteStainedGlass,
+    OrangeStainedGlass,
+    MagentaStainedGlass,
+    LightBlueStainedGlass,
+    YellowStainedGlass,
+    LimeStainedGlass,
+    PinkStainedGlass,
+    GrayStainedGlass,
+    LightGrayStainedGlass,
+    CyanStainedGlass,
+    PurpleStainedGlass,
+    BlueStainedGlass,
+    BrownStainedGlass,
+    GreenStainedGlass,
+    RedStainedGlass,
+    BlackStainedGlass,
+    WhiteStainedGlassPane,
+    OrangeStainedGlassPane,
+    MagentaStainedGlassPane,
+    LightBlueStainedGlassPane,
+    YellowStainedGlassPane,
+    LimeStainedGlassPane,
+    PinkStainedGlassPane,
+    GrayStainedGlassPane,
+    LightGrayStainedGlassPane,
+    CyanStainedGlassPane,
+    PurpleStainedGlassPane,
+    BlueStainedGlassPane,
+    BrownStainedGlassPane,
+    GreenStainedGlassPane,
+    RedStainedGlassPane,
+    BlackStainedGlassPane,
+    Terracotta,
+    WhiteTerracotta,
+    OrangeTerracotta,
+    MagentaTerracotta,
+    LightBlueTerracotta,
+    YellowTerracotta,
+    LimeTerracotta,
+    PinkTerracotta,
+    GrayTerracotta,
+    LightGrayTerracotta,
+    CyanTerracotta,
+    PurpleTerracotta,
+    BlueTerracotta,
+    BrownTerracotta,
+    GreenTerracotta,
+    RedTerracotta,
+    BlackTerracotta,
+    WhiteConcrete,
+    OrangeConcrete,
+    MagentaConcrete,
+    LightBlueConcrete,
+    YellowConcrete,
+    LimeConcrete,
+    PinkConcrete,
+    GrayConcrete,
+    LightGrayConcrete,
+    CyanConcrete,
+    PurpleConcrete,
+    BlueConcrete,
+    BrownConcrete,
+    GreenConcrete,
+    RedConcrete,
+    BlackConcrete,
+    WhiteConcretePowder,
+    OrangeConcretePowder,
+    MagentaConcretePowder,
+    LightBlueConcretePowder,
+    YellowConcretePowder,
+    LimeConcretePowder,
+    PinkConcretePowder,
+    GrayConcretePowder,
+    LightGrayConcretePowder,
+    CyanConcretePowder,
+    PurpleConcretePowder,
+    BlueConcretePowder,
+    BrownConcretePowder,
+    GreenConcretePowder,
+    RedConcretePowder,
+    BlackConcretePowder,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -237,6 +409,16 @@ pub const OPEN_DOOR: Aabb3d = Aabb3d {
 pub const FENCE: Aabb3d = Aabb3d {
     min: Vec3A::ZERO,
     max: Vec3A::new(1.0, 1.5, 1.0),
+};
+/// A shut trapdoor lies on the floor of its cell; an open one stands on its front, as a shut door.
+pub const TRAPDOOR: Aabb3d = Aabb3d {
+    min: Vec3A::ZERO,
+    max: Vec3A::new(1.0, 3.0 / 16.0, 1.0),
+};
+/// A shut fence gate, across the middle of its cell: as high as a fence, see `FENCE`.
+pub const FENCE_GATE: Aabb3d = Aabb3d {
+    min: Vec3A::new(0.0, 0.0, 6.0 / 16.0),
+    max: Vec3A::new(1.0, 1.5, 10.0 / 16.0),
 };
 pub const LADDER: Aabb3d = Aabb3d {
     min: Vec3A::ZERO,
@@ -362,7 +544,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 112] = [
+    pub const ALL: [BlockId; 280] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -425,11 +607,11 @@ impl BlockId {
         BlockId::Reed,
         BlockId::Heather,
         BlockId::Mushroom,
-        BlockId::WoodenSlab,
+        BlockId::OakSlab,
         BlockId::HewnStoneSlab,
         BlockId::BrickSlab,
         BlockId::Lantern,
-        BlockId::WoodenStairs,
+        BlockId::OakStairs,
         BlockId::HewnStoneStairs,
         BlockId::BrickStairs,
         BlockId::Door,
@@ -475,29 +657,206 @@ impl BlockId {
         BlockId::Gloomrock,
         BlockId::CobbledGloomrock,
         BlockId::Anvil,
+        BlockId::SpruceSlab,
+        BlockId::JungleSlab,
+        BlockId::WillowSlab,
+        BlockId::AcaciaSlab,
+        BlockId::SpruceStairs,
+        BlockId::JungleStairs,
+        BlockId::WillowStairs,
+        BlockId::AcaciaStairs,
+        BlockId::SpruceDoor,
+        BlockId::SpruceDoorTop,
+        BlockId::OpenSpruceDoor,
+        BlockId::OpenSpruceDoorTop,
+        BlockId::JungleDoor,
+        BlockId::JungleDoorTop,
+        BlockId::OpenJungleDoor,
+        BlockId::OpenJungleDoorTop,
+        BlockId::WillowDoor,
+        BlockId::WillowDoorTop,
+        BlockId::OpenWillowDoor,
+        BlockId::OpenWillowDoorTop,
+        BlockId::AcaciaDoor,
+        BlockId::AcaciaDoorTop,
+        BlockId::OpenAcaciaDoor,
+        BlockId::OpenAcaciaDoorTop,
+        BlockId::OakTrapdoor,
+        BlockId::OpenOakTrapdoor,
+        BlockId::SpruceTrapdoor,
+        BlockId::OpenSpruceTrapdoor,
+        BlockId::JungleTrapdoor,
+        BlockId::OpenJungleTrapdoor,
+        BlockId::WillowTrapdoor,
+        BlockId::OpenWillowTrapdoor,
+        BlockId::AcaciaTrapdoor,
+        BlockId::OpenAcaciaTrapdoor,
+        BlockId::OakFenceGate,
+        BlockId::OpenOakFenceGate,
+        BlockId::SpruceFenceGate,
+        BlockId::OpenSpruceFenceGate,
+        BlockId::JungleFenceGate,
+        BlockId::OpenJungleFenceGate,
+        BlockId::WillowFenceGate,
+        BlockId::OpenWillowFenceGate,
+        BlockId::AcaciaFenceGate,
+        BlockId::OpenAcaciaFenceGate,
+        BlockId::StoneSlab,
+        BlockId::CobblestoneSlab,
+        BlockId::LimestoneSlab,
+        BlockId::SlateSlab,
+        BlockId::GloomrockSlab,
+        BlockId::CobbledGloomrockSlab,
+        BlockId::StoneStairs,
+        BlockId::CobblestoneStairs,
+        BlockId::LimestoneStairs,
+        BlockId::SlateStairs,
+        BlockId::GloomrockStairs,
+        BlockId::CobbledGloomrockStairs,
+        BlockId::StoneLowWall,
+        BlockId::CobblestoneLowWall,
+        BlockId::HewnStoneLowWall,
+        BlockId::LimestoneLowWall,
+        BlockId::SlateLowWall,
+        BlockId::BrickLowWall,
+        BlockId::GloomrockLowWall,
+        BlockId::CobbledGloomrockLowWall,
+        BlockId::PolishedStone,
+        BlockId::PolishedLimestone,
+        BlockId::PolishedSlate,
+        BlockId::PolishedGloomrock,
+        BlockId::ChiseledStone,
+        BlockId::ChiseledLimestone,
+        BlockId::ChiseledSlate,
+        BlockId::ChiseledGloomrock,
+        BlockId::OrangeWool,
+        BlockId::MagentaWool,
+        BlockId::LightBlueWool,
+        BlockId::YellowWool,
+        BlockId::LimeWool,
+        BlockId::PinkWool,
+        BlockId::GrayWool,
+        BlockId::LightGrayWool,
+        BlockId::CyanWool,
+        BlockId::PurpleWool,
+        BlockId::BlueWool,
+        BlockId::BrownWool,
+        BlockId::GreenWool,
+        BlockId::RedWool,
+        BlockId::BlackWool,
+        BlockId::WhiteStainedGlass,
+        BlockId::OrangeStainedGlass,
+        BlockId::MagentaStainedGlass,
+        BlockId::LightBlueStainedGlass,
+        BlockId::YellowStainedGlass,
+        BlockId::LimeStainedGlass,
+        BlockId::PinkStainedGlass,
+        BlockId::GrayStainedGlass,
+        BlockId::LightGrayStainedGlass,
+        BlockId::CyanStainedGlass,
+        BlockId::PurpleStainedGlass,
+        BlockId::BlueStainedGlass,
+        BlockId::BrownStainedGlass,
+        BlockId::GreenStainedGlass,
+        BlockId::RedStainedGlass,
+        BlockId::BlackStainedGlass,
+        BlockId::WhiteStainedGlassPane,
+        BlockId::OrangeStainedGlassPane,
+        BlockId::MagentaStainedGlassPane,
+        BlockId::LightBlueStainedGlassPane,
+        BlockId::YellowStainedGlassPane,
+        BlockId::LimeStainedGlassPane,
+        BlockId::PinkStainedGlassPane,
+        BlockId::GrayStainedGlassPane,
+        BlockId::LightGrayStainedGlassPane,
+        BlockId::CyanStainedGlassPane,
+        BlockId::PurpleStainedGlassPane,
+        BlockId::BlueStainedGlassPane,
+        BlockId::BrownStainedGlassPane,
+        BlockId::GreenStainedGlassPane,
+        BlockId::RedStainedGlassPane,
+        BlockId::BlackStainedGlassPane,
+        BlockId::Terracotta,
+        BlockId::WhiteTerracotta,
+        BlockId::OrangeTerracotta,
+        BlockId::MagentaTerracotta,
+        BlockId::LightBlueTerracotta,
+        BlockId::YellowTerracotta,
+        BlockId::LimeTerracotta,
+        BlockId::PinkTerracotta,
+        BlockId::GrayTerracotta,
+        BlockId::LightGrayTerracotta,
+        BlockId::CyanTerracotta,
+        BlockId::PurpleTerracotta,
+        BlockId::BlueTerracotta,
+        BlockId::BrownTerracotta,
+        BlockId::GreenTerracotta,
+        BlockId::RedTerracotta,
+        BlockId::BlackTerracotta,
+        BlockId::WhiteConcrete,
+        BlockId::OrangeConcrete,
+        BlockId::MagentaConcrete,
+        BlockId::LightBlueConcrete,
+        BlockId::YellowConcrete,
+        BlockId::LimeConcrete,
+        BlockId::PinkConcrete,
+        BlockId::GrayConcrete,
+        BlockId::LightGrayConcrete,
+        BlockId::CyanConcrete,
+        BlockId::PurpleConcrete,
+        BlockId::BlueConcrete,
+        BlockId::BrownConcrete,
+        BlockId::GreenConcrete,
+        BlockId::RedConcrete,
+        BlockId::BlackConcrete,
+        BlockId::WhiteConcretePowder,
+        BlockId::OrangeConcretePowder,
+        BlockId::MagentaConcretePowder,
+        BlockId::LightBlueConcretePowder,
+        BlockId::YellowConcretePowder,
+        BlockId::LimeConcretePowder,
+        BlockId::PinkConcretePowder,
+        BlockId::GrayConcretePowder,
+        BlockId::LightGrayConcretePowder,
+        BlockId::CyanConcretePowder,
+        BlockId::PurpleConcretePowder,
+        BlockId::BlueConcretePowder,
+        BlockId::BrownConcretePowder,
+        BlockId::GreenConcretePowder,
+        BlockId::RedConcretePowder,
+        BlockId::BlackConcretePowder,
     ];
 
     pub fn is_stairs(&self) -> bool {
-        matches!(
-            *self,
-            Self::WoodenStairs | Self::HewnStoneStairs | Self::BrickStairs
-        )
+        self.form() == Some(Form::Stairs)
+    }
+
+    /// The form of a block of the palette.
+    pub fn form(&self) -> Option<Form> {
+        self.palette().map(|palette| palette.form)
+    }
+
+    /// Whether the cell below reaches into the lowest cells, as a fence does: see
+    /// `ChunkMap::check_collision_box`.
+    pub fn is_tall(&self) -> bool {
+        *self == Self::Fence
+            || matches!(
+                self.form(),
+                Some(Form::LowWall | Form::FenceGate { open: false })
+            )
+    }
+
+    /// Whether this is a glass, plain or stained, which a pane reaches out to.
+    pub fn is_glass(&self) -> bool {
+        *self == Self::Glass
+            || self
+                .palette()
+                .is_some_and(|palette| palette.form == Form::Cube && palette.base == Self::Glass)
     }
 
     /// Whether this block holds a `Container`.
     pub fn is_container(&self) -> bool {
         matches!(*self, Self::Chest | Self::Barrel)
-    }
-
-    /// For a half of a door: the same half once opened or shut, and the step to the other half.
-    pub fn door(&self) -> Option<(BlockId, IVec3)> {
-        match *self {
-            Self::Door => Some((Self::OpenDoor, IVec3::Y)),
-            Self::DoorTop => Some((Self::OpenDoorTop, IVec3::NEG_Y)),
-            Self::OpenDoor => Some((Self::Door, IVec3::Y)),
-            Self::OpenDoorTop => Some((Self::DoorTop, IVec3::NEG_Y)),
-            _ => None,
-        }
     }
 
     /// The sapling the leaves sometimes drop.
@@ -526,11 +885,18 @@ impl BlockId {
         }
     }
 
-    /// The other blocks a fence or a pane reaches out to.
+    /// The other blocks a fence, a low wall or a pane reaches out to: the whole blocks, and
+    /// those of its kind. Fences and low walls reach out to fence gates.
     pub fn connects_to(&self, other: BlockId) -> bool {
-        other == *self
-            || other.get_visibility() == BlockTransparency::Solid
-            || other == Self::Glass && *self == Self::GlassPane
+        if other == *self || other.get_visibility() == BlockTransparency::Solid {
+            return true;
+        }
+        let gate = matches!(other.form(), Some(Form::FenceGate { .. }));
+        match self.form() {
+            Some(Form::LowWall) => gate || other.form() == Some(Form::LowWall),
+            Some(Form::Pane) => other.form() == Some(Form::Pane) || other.is_glass(),
+            _ => *self == Self::Fence && gate,
+        }
     }
 
     fn low_box(&self) -> Aabb3d {
@@ -542,6 +908,20 @@ impl BlockId {
     }
 
     pub fn get_hitbox(&self) -> BlockHitbox {
+        if let Some(palette) = self.palette() {
+            return match palette.form {
+                Form::Slab | Form::Stairs => BlockHitbox::Aabb(SLAB),
+                Form::LowWall => BlockHitbox::Aabb(FENCE),
+                Form::Door { open: false, .. } | Form::Trapdoor { open: true } => {
+                    BlockHitbox::Aabb(DOOR)
+                }
+                Form::Door { open: true, .. } => BlockHitbox::Aabb(OPEN_DOOR),
+                Form::Trapdoor { open: false } => BlockHitbox::Aabb(TRAPDOOR),
+                Form::FenceGate { open: false } => BlockHitbox::Aabb(FENCE_GATE),
+                Form::FenceGate { open: true } => BlockHitbox::None,
+                Form::Pane | Form::Cube => palette.base.get_hitbox(),
+            };
+        }
         match *self {
             Self::Water
             | Self::Lava
@@ -575,10 +955,10 @@ impl BlockId {
             | Self::Ladder
             | Self::Sign
             | Self::Fire => BlockHitbox::None,
-            Self::WoodenSlab | Self::HewnStoneSlab | Self::BrickSlab => BlockHitbox::Aabb(SLAB),
+            Self::OakSlab | Self::HewnStoneSlab | Self::BrickSlab => BlockHitbox::Aabb(SLAB),
             Self::Lantern => BlockHitbox::Aabb(LANTERN),
             Self::Cocoa => BlockHitbox::Aabb(COCOA_POD),
-            Self::WoodenStairs
+            Self::OakStairs
             | Self::HewnStoneStairs
             | Self::BrickStairs
             | Self::Bedroll
@@ -594,6 +974,18 @@ impl BlockId {
     }
 
     pub fn get_ray_hitbox(&self) -> BlockHitbox {
+        if let Some(palette) = self.palette() {
+            return match palette.form {
+                // a gate is aimed at open or shut, below the height it blocks
+                Form::FenceGate { .. } => BlockHitbox::Aabb(Aabb3d {
+                    max: FENCE_GATE.max.with_y(1.0),
+                    ..FENCE_GATE
+                }),
+                Form::Stairs | Form::LowWall | Form::Pane => BlockHitbox::FullBlock,
+                Form::Cube => palette.base.get_ray_hitbox(),
+                _ => self.get_hitbox(),
+            };
+        }
         match *self {
             Self::Water | Self::Lava => BlockHitbox::None,
             Self::TallGrass
@@ -635,7 +1027,7 @@ impl BlockId {
                 Vec3A::new(0.5, 0.5, VINE_GAP / 2.0),
             )),
             Self::Cocoa => BlockHitbox::Aabb(COCOA_POD),
-            Self::WoodenSlab | Self::HewnStoneSlab | Self::BrickSlab => BlockHitbox::Aabb(SLAB),
+            Self::OakSlab | Self::HewnStoneSlab | Self::BrickSlab => BlockHitbox::Aabb(SLAB),
             Self::Lantern => BlockHitbox::Aabb(LANTERN),
             Self::Bedroll | Self::Campfire | Self::UnlitCampfire => {
                 BlockHitbox::Aabb(self.low_box())
@@ -717,11 +1109,11 @@ impl BlockId {
             Self::Reed => 1,
             Self::Heather => 1,
             Self::Mushroom => 1,
-            Self::WoodenSlab => 8,
+            Self::OakSlab => 8,
             Self::HewnStoneSlab => 10,
             Self::BrickSlab => 10,
             Self::Lantern => 4,
-            Self::WoodenStairs => 8,
+            Self::OakStairs => 8,
             Self::HewnStoneStairs => 8,
             Self::BrickStairs => 8,
             Self::Door => 8,
@@ -766,12 +1158,19 @@ impl BlockId {
             Self::EmberHeart => 10,
             Self::Obsidian => return Some(250),
             Self::Bedrock | Self::Water | Self::Lava => return None,
+            // as the block they are made of
+            crate::new_palette_blocks!() => {
+                return self.palette().and_then(|palette| palette.base.get_break_time())
+            }
         };
         Some(2 * steps)
     }
 
     /// Whether a tool of `kind` breaks this block faster than a hand, at its speed.
     pub fn is_mined_faster_by(&self, kind: ToolKind) -> bool {
+        if let Some(palette) = self.palette() {
+            return palette.base.is_mined_faster_by(kind);
+        }
         match kind {
             ToolKind::Pickaxe => matches!(
                 *self,
@@ -827,8 +1226,8 @@ impl BlockId {
                     | Self::WillowPlanks
                     | Self::AcaciaLog
                     | Self::AcaciaPlanks
-                    | Self::WoodenSlab
-                    | Self::WoodenStairs
+                    | Self::OakSlab
+                    | Self::OakStairs
                     | Self::Door
                     | Self::DoorTop
                     | Self::OpenDoor
@@ -895,7 +1294,7 @@ impl BlockId {
             }
             Self::GoldOre | Self::DiamondOre | Self::GoldBlock | Self::DiamondBlock => 2,
             Self::Obsidian => 3,
-            _ => return None,
+            _ => return self.palette().and_then(|palette| palette.base.get_required_tool()),
         };
         Some(RequiredTool {
             kind: ToolKind::Pickaxe,
@@ -996,11 +1395,11 @@ impl BlockId {
             BlockId::Reed => vec![(1, ItemId::Fiber, 1)],
             BlockId::Heather => vec![(1, ItemId::Heather, 1)],
             BlockId::Mushroom => vec![(1, ItemId::Mushroom, 1)],
-            BlockId::WoodenSlab => vec![(1, ItemId::WoodenSlab, 1)],
+            BlockId::OakSlab => vec![(1, ItemId::OakSlab, 1)],
             BlockId::HewnStoneSlab => vec![(1, ItemId::HewnStoneSlab, 1)],
             BlockId::BrickSlab => vec![(1, ItemId::BrickSlab, 1)],
             BlockId::Lantern => vec![(1, ItemId::Lantern, 1)],
-            BlockId::WoodenStairs => vec![(1, ItemId::WoodenStairs, 1)],
+            BlockId::OakStairs => vec![(1, ItemId::OakStairs, 1)],
             BlockId::HewnStoneStairs => vec![(1, ItemId::HewnStoneStairs, 1)],
             BlockId::BrickStairs => vec![(1, ItemId::BrickStairs, 1)],
             BlockId::Door => vec![(1, ItemId::Door, 1)],
@@ -1042,7 +1441,11 @@ impl BlockId {
             BlockId::EmberHeart => vec![(1, ItemId::EmberHeart, 1)],
             BlockId::EngravingTable => vec![(1, ItemId::EngravingTable, 1)],
             BlockId::Anvil => vec![(1, ItemId::Anvil, 1)],
-            _ => vec![],
+            // The other blocks of the palette drop their item, but glass, which breaks
+            _ => match self.palette() {
+                Some(palette) if palette.base != BlockId::Glass => vec![(1, palette.item, 1)],
+                _ => vec![],
+            },
         }
     }
 
@@ -1059,7 +1462,7 @@ impl BlockId {
                 | Self::Sign
                 | Self::Bedroll
                 | Self::RipeBerryBush
-        ) || self.door().is_some()
+        ) || self.form().is_some_and(Form::opens)
             || self.is_furnace()
     }
 
@@ -1074,6 +1477,12 @@ impl BlockId {
     }
 
     pub fn get_visibility(&self) -> BlockTransparency {
+        if let Some(palette) = self.palette() {
+            return match palette.form {
+                Form::Cube => palette.base.get_visibility(),
+                _ => BlockTransparency::Decoration,
+            };
+        }
         match *self {
             Self::Dandelion
             | Self::Poppy
@@ -1085,11 +1494,11 @@ impl BlockId {
             | Self::Reed
             | Self::Heather
             | Self::Mushroom
-            | Self::WoodenSlab
+            | Self::OakSlab
             | Self::HewnStoneSlab
             | Self::BrickSlab
             | Self::Lantern
-            | Self::WoodenStairs
+            | Self::OakStairs
             | Self::HewnStoneStairs
             | Self::BrickStairs
             | Self::Door
@@ -1141,7 +1550,7 @@ impl BlockId {
         match self.get_visibility() {
             BlockTransparency::Solid => None,
             BlockTransparency::Decoration => Some(0),
-            BlockTransparency::Transparent if *self == Self::Glass => Some(0),
+            BlockTransparency::Transparent if self.is_glass() => Some(0),
             BlockTransparency::Transparent | BlockTransparency::Liquid => Some(1),
         }
     }
@@ -1179,7 +1588,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 112] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 280] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 3] = [BlockId::Bedrock, BlockId::Water, BlockId::Lava];
@@ -1249,11 +1658,11 @@ mod tests {
             | BlockId::Reed
             | BlockId::Heather
             | BlockId::Mushroom
-            | BlockId::WoodenSlab
+            | BlockId::OakSlab
             | BlockId::HewnStoneSlab
             | BlockId::BrickSlab
             | BlockId::Lantern
-            | BlockId::WoodenStairs
+            | BlockId::OakStairs
             | BlockId::HewnStoneStairs
             | BlockId::BrickStairs
             | BlockId::Door
@@ -1298,7 +1707,8 @@ mod tests {
             | BlockId::EngravingTable
             | BlockId::Gloomrock
             | BlockId::CobbledGloomrock
-            | BlockId::Anvil => {}
+            | BlockId::Anvil
+            | crate::new_palette_blocks!() => {}
         }
     }
 
@@ -1342,10 +1752,19 @@ mod tests {
         bincode::options().serialize(value).unwrap()
     }
 
+    /// The bytes of `value` as bincode's variable length encoding writes it: one byte below 251,
+    /// else the marker 251 and two bytes.
+    fn varint(value: u16) -> Vec<u8> {
+        match u8::try_from(value) {
+            Ok(byte) if byte < 251 => vec![byte],
+            _ => [vec![251], value.to_le_bytes().to_vec()].concat(),
+        }
+    }
+
     #[test]
     fn block_encoding_is_pinned() {
         for id in ALL_BLOCKS {
-            let expected: u8 = match id {
+            let expected: u16 = match id {
                 BlockId::Dirt => 0,
                 BlockId::Debug => 1,
                 BlockId::Grass => 2,
@@ -1408,11 +1827,11 @@ mod tests {
                 BlockId::Reed => 59,
                 BlockId::Heather => 60,
                 BlockId::Mushroom => 61,
-                BlockId::WoodenSlab => 62,
+                BlockId::OakSlab => 62,
                 BlockId::HewnStoneSlab => 63,
                 BlockId::BrickSlab => 64,
                 BlockId::Lantern => 65,
-                BlockId::WoodenStairs => 66,
+                BlockId::OakStairs => 66,
                 BlockId::HewnStoneStairs => 67,
                 BlockId::BrickStairs => 68,
                 BlockId::Door => 69,
@@ -1458,8 +1877,176 @@ mod tests {
                 BlockId::Gloomrock => 109,
                 BlockId::CobbledGloomrock => 110,
                 BlockId::Anvil => 111,
+                BlockId::SpruceSlab => 112,
+                BlockId::JungleSlab => 113,
+                BlockId::WillowSlab => 114,
+                BlockId::AcaciaSlab => 115,
+                BlockId::SpruceStairs => 116,
+                BlockId::JungleStairs => 117,
+                BlockId::WillowStairs => 118,
+                BlockId::AcaciaStairs => 119,
+                BlockId::SpruceDoor => 120,
+                BlockId::SpruceDoorTop => 121,
+                BlockId::OpenSpruceDoor => 122,
+                BlockId::OpenSpruceDoorTop => 123,
+                BlockId::JungleDoor => 124,
+                BlockId::JungleDoorTop => 125,
+                BlockId::OpenJungleDoor => 126,
+                BlockId::OpenJungleDoorTop => 127,
+                BlockId::WillowDoor => 128,
+                BlockId::WillowDoorTop => 129,
+                BlockId::OpenWillowDoor => 130,
+                BlockId::OpenWillowDoorTop => 131,
+                BlockId::AcaciaDoor => 132,
+                BlockId::AcaciaDoorTop => 133,
+                BlockId::OpenAcaciaDoor => 134,
+                BlockId::OpenAcaciaDoorTop => 135,
+                BlockId::OakTrapdoor => 136,
+                BlockId::OpenOakTrapdoor => 137,
+                BlockId::SpruceTrapdoor => 138,
+                BlockId::OpenSpruceTrapdoor => 139,
+                BlockId::JungleTrapdoor => 140,
+                BlockId::OpenJungleTrapdoor => 141,
+                BlockId::WillowTrapdoor => 142,
+                BlockId::OpenWillowTrapdoor => 143,
+                BlockId::AcaciaTrapdoor => 144,
+                BlockId::OpenAcaciaTrapdoor => 145,
+                BlockId::OakFenceGate => 146,
+                BlockId::OpenOakFenceGate => 147,
+                BlockId::SpruceFenceGate => 148,
+                BlockId::OpenSpruceFenceGate => 149,
+                BlockId::JungleFenceGate => 150,
+                BlockId::OpenJungleFenceGate => 151,
+                BlockId::WillowFenceGate => 152,
+                BlockId::OpenWillowFenceGate => 153,
+                BlockId::AcaciaFenceGate => 154,
+                BlockId::OpenAcaciaFenceGate => 155,
+                BlockId::StoneSlab => 156,
+                BlockId::CobblestoneSlab => 157,
+                BlockId::LimestoneSlab => 158,
+                BlockId::SlateSlab => 159,
+                BlockId::GloomrockSlab => 160,
+                BlockId::CobbledGloomrockSlab => 161,
+                BlockId::StoneStairs => 162,
+                BlockId::CobblestoneStairs => 163,
+                BlockId::LimestoneStairs => 164,
+                BlockId::SlateStairs => 165,
+                BlockId::GloomrockStairs => 166,
+                BlockId::CobbledGloomrockStairs => 167,
+                BlockId::StoneLowWall => 168,
+                BlockId::CobblestoneLowWall => 169,
+                BlockId::HewnStoneLowWall => 170,
+                BlockId::LimestoneLowWall => 171,
+                BlockId::SlateLowWall => 172,
+                BlockId::BrickLowWall => 173,
+                BlockId::GloomrockLowWall => 174,
+                BlockId::CobbledGloomrockLowWall => 175,
+                BlockId::PolishedStone => 176,
+                BlockId::PolishedLimestone => 177,
+                BlockId::PolishedSlate => 178,
+                BlockId::PolishedGloomrock => 179,
+                BlockId::ChiseledStone => 180,
+                BlockId::ChiseledLimestone => 181,
+                BlockId::ChiseledSlate => 182,
+                BlockId::ChiseledGloomrock => 183,
+                BlockId::OrangeWool => 184,
+                BlockId::MagentaWool => 185,
+                BlockId::LightBlueWool => 186,
+                BlockId::YellowWool => 187,
+                BlockId::LimeWool => 188,
+                BlockId::PinkWool => 189,
+                BlockId::GrayWool => 190,
+                BlockId::LightGrayWool => 191,
+                BlockId::CyanWool => 192,
+                BlockId::PurpleWool => 193,
+                BlockId::BlueWool => 194,
+                BlockId::BrownWool => 195,
+                BlockId::GreenWool => 196,
+                BlockId::RedWool => 197,
+                BlockId::BlackWool => 198,
+                BlockId::WhiteStainedGlass => 199,
+                BlockId::OrangeStainedGlass => 200,
+                BlockId::MagentaStainedGlass => 201,
+                BlockId::LightBlueStainedGlass => 202,
+                BlockId::YellowStainedGlass => 203,
+                BlockId::LimeStainedGlass => 204,
+                BlockId::PinkStainedGlass => 205,
+                BlockId::GrayStainedGlass => 206,
+                BlockId::LightGrayStainedGlass => 207,
+                BlockId::CyanStainedGlass => 208,
+                BlockId::PurpleStainedGlass => 209,
+                BlockId::BlueStainedGlass => 210,
+                BlockId::BrownStainedGlass => 211,
+                BlockId::GreenStainedGlass => 212,
+                BlockId::RedStainedGlass => 213,
+                BlockId::BlackStainedGlass => 214,
+                BlockId::WhiteStainedGlassPane => 215,
+                BlockId::OrangeStainedGlassPane => 216,
+                BlockId::MagentaStainedGlassPane => 217,
+                BlockId::LightBlueStainedGlassPane => 218,
+                BlockId::YellowStainedGlassPane => 219,
+                BlockId::LimeStainedGlassPane => 220,
+                BlockId::PinkStainedGlassPane => 221,
+                BlockId::GrayStainedGlassPane => 222,
+                BlockId::LightGrayStainedGlassPane => 223,
+                BlockId::CyanStainedGlassPane => 224,
+                BlockId::PurpleStainedGlassPane => 225,
+                BlockId::BlueStainedGlassPane => 226,
+                BlockId::BrownStainedGlassPane => 227,
+                BlockId::GreenStainedGlassPane => 228,
+                BlockId::RedStainedGlassPane => 229,
+                BlockId::BlackStainedGlassPane => 230,
+                BlockId::Terracotta => 231,
+                BlockId::WhiteTerracotta => 232,
+                BlockId::OrangeTerracotta => 233,
+                BlockId::MagentaTerracotta => 234,
+                BlockId::LightBlueTerracotta => 235,
+                BlockId::YellowTerracotta => 236,
+                BlockId::LimeTerracotta => 237,
+                BlockId::PinkTerracotta => 238,
+                BlockId::GrayTerracotta => 239,
+                BlockId::LightGrayTerracotta => 240,
+                BlockId::CyanTerracotta => 241,
+                BlockId::PurpleTerracotta => 242,
+                BlockId::BlueTerracotta => 243,
+                BlockId::BrownTerracotta => 244,
+                BlockId::GreenTerracotta => 245,
+                BlockId::RedTerracotta => 246,
+                BlockId::BlackTerracotta => 247,
+                BlockId::WhiteConcrete => 248,
+                BlockId::OrangeConcrete => 249,
+                BlockId::MagentaConcrete => 250,
+                BlockId::LightBlueConcrete => 251,
+                BlockId::YellowConcrete => 252,
+                BlockId::LimeConcrete => 253,
+                BlockId::PinkConcrete => 254,
+                BlockId::GrayConcrete => 255,
+                BlockId::LightGrayConcrete => 256,
+                BlockId::CyanConcrete => 257,
+                BlockId::PurpleConcrete => 258,
+                BlockId::BlueConcrete => 259,
+                BlockId::BrownConcrete => 260,
+                BlockId::GreenConcrete => 261,
+                BlockId::RedConcrete => 262,
+                BlockId::BlackConcrete => 263,
+                BlockId::WhiteConcretePowder => 264,
+                BlockId::OrangeConcretePowder => 265,
+                BlockId::MagentaConcretePowder => 266,
+                BlockId::LightBlueConcretePowder => 267,
+                BlockId::YellowConcretePowder => 268,
+                BlockId::LimeConcretePowder => 269,
+                BlockId::PinkConcretePowder => 270,
+                BlockId::GrayConcretePowder => 271,
+                BlockId::LightGrayConcretePowder => 272,
+                BlockId::CyanConcretePowder => 273,
+                BlockId::PurpleConcretePowder => 274,
+                BlockId::BlueConcretePowder => 275,
+                BlockId::BrownConcretePowder => 276,
+                BlockId::GreenConcretePowder => 277,
+                BlockId::RedConcretePowder => 278,
+                BlockId::BlackConcretePowder => 279,
             };
-            assert_eq!(encoded(&id), [expected], "{id:?}: {ENCODING_WARNING}");
+            assert_eq!(encoded(&id), varint(expected), "{id:?}: {ENCODING_WARNING}");
         }
     }
 
@@ -1942,6 +2529,11 @@ mod tests {
     #[test]
     fn stone_and_metal_blocks_need_a_pickaxe_of_their_level_and_the_others_nothing() {
         for id in ALL_BLOCKS {
+            // a block of the palette needs what the block it is made of needs
+            if let Some(palette) = id.palette().filter(|_| matches!(id, crate::new_palette_blocks!())) {
+                assert_eq!(id.get_required_tool(), palette.base.get_required_tool(), "{id:?}");
+                continue;
+            }
             let level = match id {
                 BlockId::Stone
                 | BlockId::Cobblestone
