@@ -24,3 +24,30 @@ pack (XSSheep's, kept up by Nova_Wostra): https://github.com/NovaWostra/Pixel-Pe
 - The repository has no license file, only the credits in its `pack.txt`. Say which textures
   came from it in the commit message, and credit the pack in `docs/ressources.txt`.
 - Draw a texture only when the pack has none for it.
+
+## Tests and builds
+
+- While iterating, run the targeted tests of what you change (`cargo test -p <crate> <filter>`).
+  Run `just test-fast` before a commit, and `just check` once per lot, after the last edit.
+  Do not rerun a check without a code change in between.
+- Run long commands in the background and wait for their completion notification. Never write
+  `sleep`, `until` or `pgrep -f` loops to wait: a `pgrep -f` loop matches itself.
+- Do not run `cargo clippy` right after `cargo build` expecting reuse: clippy rebuilds (about
+  30 s). Run it at the end of a lot.
+
+## Where things are
+
+- UI goldens: `client/tests/golden/`. `UPDATE_GOLDEN=1` rewrites the ones a test run touches
+  (`client/src/ui/golden.rs`).
+- Benchmarks: `client/src/world/rendering/bench.rs`, `client/src/e2e/bench.rs` and
+  `server/src/world/bench.rs`. Run them in release with `--ignored`.
+- Assets are in `data/`, generators in `scripts/`, recipes in `Justfile`, and the architecture
+  in `docs/ARCHITECTURE.md`. Never `find /`.
+
+## Running the game
+
+Headless only, never on the desktop, under gamescope:
+
+```
+gamescope --backend headless -W 1280 -H 720 -- env -u WAYLAND_DISPLAY <command>
+```
