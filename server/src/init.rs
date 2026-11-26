@@ -350,6 +350,7 @@ fn load_world(
         game_mode: world_data.game_mode,
         boss: crate::mob::boss::Boss::saved(world_data.boss_defeated),
         paper_maps: Default::default(),
+        fishing: Default::default(),
     };
     cleanup_all_players_from_world(&mut world_map);
 

@@ -2,6 +2,7 @@ use bevy::prelude::*;
 
 use crate::state::GameState;
 
+mod fishing;
 mod hearts;
 mod hurt;
 mod models;
@@ -19,6 +20,8 @@ pub struct MobRoot;
 /// playing the clip of what they do, flashing red when hurt, and sparking at a special blow.
 pub fn mob_plugin(app: &mut App) {
     app.add_message::<MobHurt>()
+        .add_message::<fishing::BobberBite>()
+        .init_resource::<fishing::Bubbles>()
         .init_resource::<ClientMobs>()
         .init_resource::<MobEntities>()
         .init_resource::<models::MobAnimations>()
@@ -38,6 +41,8 @@ pub fn mob_plugin(app: &mut App) {
                 show_saddles,
                 setup_mob_animators,
                 play_mob_clips,
+                fishing::show_bites,
+                fishing::draw_lines,
             )
                 .chain()
                 .run_if(in_state(GameState::Game)),

@@ -128,6 +128,22 @@ fn are_mates(a: &ServerMob, b: &ServerMob) -> bool {
         && (!a.kind.is_tameable() || a.owner.is_some() && a.owner == b.owner)
 }
 
+/// One tick in this many, an adult hen lays an egg: every 5 minutes or so.
+pub const EGG_ODDS: u32 = 5 * 60 * shared::TICKS_PER_SECOND as u32;
+
+/// Where the adult hens in loaded terrain lay an egg in this tick: under them.
+pub fn lay_eggs(
+    mobs: &HashMap<MobId, ServerMob>,
+    loaded: impl Fn(Vec3) -> bool,
+    rng: &mut impl Rng,
+) -> Vec<Vec3> {
+    mobs.values()
+        .filter(|mob| mob.kind == MobKind::Chicken && !mob.is_young())
+        .filter(|mob| loaded(mob.position) && rng.gen_ratio(1, EGG_ODDS))
+        .map(|mob| mob.position - Vec3::Y * (mob.height / 2.0 - 0.15))
+        .collect()
+}
+
 /// One step of the animals' lives, after their moves: the young grow, the wish for a mate
 /// fades, and two animals that want a mate walk to each other and give birth once close
 /// (`MATE_DISTANCE`). A young one born of a tamed pair belongs to their owner. The mobs

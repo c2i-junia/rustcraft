@@ -75,7 +75,8 @@ pub(super) fn walk_speed(kind: MobKind) -> f32 {
         | MobKind::EmberMother
         | MobKind::Ember
         | MobKind::Arrow
-        | MobKind::Boat => 0.0,
+        | MobKind::Boat
+        | MobKind::Bobber => 0.0,
         MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => 1.5,
         MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 1.6,
         MobKind::Horse => 1.5,
@@ -96,7 +97,7 @@ fn flee_speed(kind: MobKind) -> f32 {
         | MobKind::Cinderling
         | MobKind::GustOwl
         | MobKind::EmberMother => super::hostile::own_speed(kind),
-        MobKind::Ember | MobKind::Arrow | MobKind::Boat => 0.0,
+        MobKind::Ember | MobKind::Arrow | MobKind::Boat | MobKind::Bobber => 0.0,
         // Never struck
         MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => 3.0,
         MobKind::Horse => 6.0,
@@ -124,6 +125,7 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time
         players,
         changed_mobs,
         difficulty,
+        dropped_items,
         ..
     } = world_map.as_mut();
     let doors = step_mobs(
@@ -143,6 +145,21 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time
         |mob, position| !collides_at(mob, chunks, position),
     );
     super::breeding::credit_births(births, players);
+    for at in super::breeding::lay_eggs(
+        mobs,
+        |position| is_terrain_loaded(position, chunks),
+        &mut rand::thread_rng(),
+    ) {
+        dropped_items.spawn(shared::world::DroppedItem::new(
+            shared::world::ItemStack {
+                item_id: shared::world::ItemId::Egg,
+                item_type: shared::world::ItemId::Egg.get_default_type(),
+                nb: 1,
+            },
+            at,
+            Vec3::ZERO,
+        ));
+    }
     push_mobs(mobs, chunks, players, changed_mobs, delta);
 }
 

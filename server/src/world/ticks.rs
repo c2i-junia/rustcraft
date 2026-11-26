@@ -61,11 +61,28 @@ pub fn block_ticks_system(
         chunks,
         players,
         render_distances,
+        dropped_items,
         ..
     } = &mut *world_map;
     let radius = |id| render_distances.get(id).min(SIMULATION_DISTANCE);
-    ticks.tick(chunks, players, radius, &context, &mut rand::thread_rng());
+    let fallen = ticks.tick(chunks, players, radius, &context, &mut rand::thread_rng());
+    for pos in fallen {
+        let apple = shared::world::ItemStack {
+            item_id: shared::world::ItemId::Apple,
+            item_type: shared::world::ItemId::Apple.get_default_type(),
+            nb: 1,
+        };
+        dropped_items.spawn(shared::world::DroppedItem::new(
+            apple,
+            pos.as_vec3() + Vec3::new(0.5, -0.3, 0.5),
+            Vec3::ZERO,
+        ));
+    }
 }
+
+/// One random tick in this many on the leaves of an apple tree with air under them lets an
+/// apple fall.
+pub const APPLE_ODDS: u32 = 24;
 
 /// The chunks near the players, where the world is simulated: the loaded chunks within
 /// `radius` of a player (a cube, see `render_distance_offsets`), each once, but the chunks of
@@ -116,7 +133,7 @@ fn random_tick_cells(
 
 /// Grows the tree of the sapling at `pos`, unless its trunk has no room. It takes no block but
 /// the sapling.
-fn grow_tree(chunks: &mut ChunkMap, pos: IVec3, sapling: BlockId, seed: u32) {
+pub(crate) fn grow_tree(chunks: &mut ChunkMap, pos: IVec3, sapling: BlockId, seed: u32) {
     let tree = sapling_tree(sapling, pos, seed);
     let is_log = |id: BlockId| id.is_mined_faster_by(ToolKind::Axe);
     let blocked = tree
@@ -141,7 +158,8 @@ fn is_fire(chunks: &ChunkMap, pos: IVec3) -> bool {
 
 impl BlockTicks {
     /// One tick: schedules the fires lit since the last one, gives the random ticks, then ticks
-    /// up to `MAX_FIRE_UPDATES` of the fires whose time has come.
+    /// up to `MAX_FIRE_UPDATES` of the fires whose time has come. Returns the leaves of the
+    /// apple trees an apple falls from.
     fn tick(
         &mut self,
         chunks: &mut ChunkMap,
@@ -149,7 +167,8 @@ impl BlockTicks {
         radius: impl Fn(PlayerId) -> i32,
         context: &TickContext,
         rng: &mut impl Rng,
-    ) {
+    ) -> Vec<IVec3> {
+        let mut fallen = Vec::new();
         // Lit by a player during this tick
         let lit: Vec<IVec3> = chunks
             .changed_blocks()
@@ -175,6 +194,15 @@ impl BlockTicks {
                 }
                 continue;
             }
+            let apple_tree = chunks
+                .get_block(pos)
+                .is_some_and(|block| block.id == BlockId::AppleLeaves);
+            if apple_tree {
+                if chunks.get_block(pos - IVec3::Y).is_none() && rng.gen_ratio(1, APPLE_ODDS) {
+                    fallen.push(pos);
+                }
+                continue;
+            }
             for change in random_tick(chunks, pos, context, rng) {
                 self.apply(chunks, change, rng);
             }
@@ -196,6 +224,7 @@ impl BlockTicks {
                 self.apply(chunks, change, rng);
             }
         }
+        fallen
     }
 
     /// Makes the fire at `pos` tick in `FIRE_TICK_INTERVAL` ticks, unless it is scheduled.

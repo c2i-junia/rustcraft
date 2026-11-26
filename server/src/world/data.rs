@@ -69,6 +69,8 @@ pub struct ServerWorldMap {
     pub boss: Boss,
     /// The paper maps, and what the players were sent of them and of their waypoints.
     pub paper_maps: PaperMaps,
+    /// The floats of the fishing rods cast.
+    pub fishing: crate::mob::fishing::Lines,
 }
 
 /// What one client has received of the world.

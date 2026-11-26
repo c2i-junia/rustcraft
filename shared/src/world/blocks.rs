@@ -323,6 +323,9 @@ pub enum BlockId {
     BlackConcretePowder,
     /// A board of planks that shows the paper map put on it (`cartography`).
     MapFrame,
+    /// The leaves of an apple tree, which drop apples now and then (`server::world::ticks`).
+    AppleLeaves,
+    AppleSapling,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -546,7 +549,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 281] = [
+    pub const ALL: [BlockId; 283] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -828,6 +831,8 @@ impl BlockId {
         BlockId::RedConcretePowder,
         BlockId::BlackConcretePowder,
         BlockId::MapFrame,
+        BlockId::AppleLeaves,
+        BlockId::AppleSapling,
     ];
 
     pub fn is_stairs(&self) -> bool {
@@ -870,6 +875,7 @@ impl BlockId {
             Self::JungleLeaves => Some(ItemId::JungleSapling),
             Self::WillowLeaves => Some(ItemId::WillowSapling),
             Self::AcaciaLeaves => Some(ItemId::AcaciaSapling),
+            Self::AppleLeaves => Some(ItemId::AppleSapling),
             _ => None,
         }
     }
@@ -883,6 +889,7 @@ impl BlockId {
             | Self::JungleSapling
             | Self::WillowSapling
             | Self::AcaciaSapling
+            | Self::AppleSapling
             | Self::BerryBush => Some(&[Self::Dirt, Self::Grass, Self::TilledSoil]),
             _ => None,
         }
@@ -942,6 +949,7 @@ impl BlockId {
             | Self::JungleSapling
             | Self::WillowSapling
             | Self::AcaciaSapling
+            | Self::AppleSapling
             | Self::BerryBush
             | Self::RipeBerryBush
             | Self::RyeSprout
@@ -1003,6 +1011,7 @@ impl BlockId {
             | Self::JungleSapling
             | Self::WillowSapling
             | Self::AcaciaSapling
+            | Self::AppleSapling
             | Self::BerryBush
             | Self::RipeBerryBush
             | Self::RyeSprout
@@ -1132,6 +1141,8 @@ impl BlockId {
             Self::JungleSapling => 1,
             Self::WillowSapling => 1,
             Self::AcaciaSapling => 1,
+            Self::AppleSapling => 1,
+            Self::AppleLeaves => 2,
             Self::Wool => 4,
             Self::BerryBush => 2,
             Self::RipeBerryBush => 2,
@@ -1264,6 +1275,7 @@ impl BlockId {
                         | Self::Thatch
                         | Self::WillowLeaves
                         | Self::AcaciaLeaves
+                        | Self::AppleLeaves
                 )
             }
         }
@@ -1419,6 +1431,7 @@ impl BlockId {
             BlockId::JungleSapling => vec![(1, ItemId::JungleSapling, 1)],
             BlockId::WillowSapling => vec![(1, ItemId::WillowSapling, 1)],
             BlockId::AcaciaSapling => vec![(1, ItemId::AcaciaSapling, 1)],
+            BlockId::AppleSapling => vec![(1, ItemId::AppleSapling, 1)],
             BlockId::Wool => vec![(1, ItemId::Wool, 1)],
             BlockId::BerryBush => vec![(1, ItemId::BerryBush, 1)],
             BlockId::RipeBerryBush => vec![(1, ItemId::BerryBush, 1)],
@@ -1521,6 +1534,7 @@ impl BlockId {
             | Self::JungleSapling
             | Self::WillowSapling
             | Self::AcaciaSapling
+            | Self::AppleSapling
             | Self::BerryBush
             | Self::RipeBerryBush
             | Self::RyeSprout
@@ -1544,7 +1558,8 @@ impl BlockId {
             | Self::SpruceLeaves
             | Self::JungleLeaves
             | Self::WillowLeaves
-            | Self::AcaciaLeaves => BlockTransparency::Transparent,
+            | Self::AcaciaLeaves
+            | Self::AppleLeaves => BlockTransparency::Transparent,
             Self::Water | Self::Lava => BlockTransparency::Liquid,
             _ => BlockTransparency::Solid,
         }
@@ -1595,7 +1610,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 281] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 283] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 3] = [BlockId::Bedrock, BlockId::Water, BlockId::Lava];
@@ -1716,6 +1731,8 @@ mod tests {
             | BlockId::CobbledGloomrock
             | BlockId::Anvil
             | BlockId::MapFrame
+            | BlockId::AppleLeaves
+            | BlockId::AppleSapling
             | crate::new_palette_blocks!() => {}
         }
     }
@@ -2054,6 +2071,8 @@ mod tests {
                 BlockId::RedConcretePowder => 278,
                 BlockId::BlackConcretePowder => 279,
                 BlockId::MapFrame => 280,
+                BlockId::AppleLeaves => 281,
+                BlockId::AppleSapling => 282,
             };
             assert_eq!(encoded(&id), varint(expected), "{id:?}: {ENCODING_WARNING}");
         }

@@ -49,10 +49,13 @@ pub enum MobKind {
     EmberMother,
     /// A boat of planks (`crate::players::riding`): a vehicle, neither an animal nor hostile.
     Boat,
+    /// The float of a fishing rod (`crate::world::fishing`): a projectile, which plunges
+    /// (`MobAction::Attack`) when a fish bites.
+    Bobber,
 }
 
 impl MobKind {
-    pub const ALL: [MobKind; 24] = [
+    pub const ALL: [MobKind; 25] = [
         MobKind::Fox,
         MobKind::Sheep,
         MobKind::Cow,
@@ -77,6 +80,7 @@ impl MobKind {
         MobKind::Cartographer,
         MobKind::EmberMother,
         MobKind::Boat,
+        MobKind::Bobber,
     ];
 
     /// Whether mobs of this kind hunt the players (`crate::world::hostiles`), and appear in the
@@ -111,7 +115,7 @@ impl MobKind {
     /// not walk, are not pushed nor struck, are not counted with the hostiles, and are not
     /// saved.
     pub fn is_projectile(self) -> bool {
-        matches!(self, MobKind::Ember | MobKind::Arrow)
+        matches!(self, MobKind::Ember | MobKind::Arrow | MobKind::Bobber)
     }
 
     /// Whether mobs of this kind are villagers: they trade (`trade::offers`), live in a house,
@@ -151,7 +155,7 @@ impl MobKind {
             // Alone against her; more with the players (`ServerMob::extra_health`)
             MobKind::EmberMother => 200,
             // Never struck
-            MobKind::Ember | MobKind::Arrow => 1,
+            MobKind::Ember | MobKind::Arrow | MobKind::Bobber => 1,
             MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => 20,
             MobKind::Cow => 12,
             MobKind::Wolf | MobKind::Horse => 16,
@@ -254,6 +258,7 @@ impl MobKind {
             MobKind::Cartographer => "Cartographer",
             MobKind::EmberMother => "Ember Mother",
             MobKind::Boat => "Boat",
+            MobKind::Bobber => "Bobber",
         }
     }
 
@@ -297,6 +302,8 @@ impl MobKind {
             MobKind::EmberMother => Vec3::new(1.9, 3.0, 1.9),
             // The hull of `scripts/generate_boat.py`, 1.25 wide and 2 long, 0.5 high
             MobKind::Boat => Vec3::new(1.4, 0.6, 1.4),
+            // `scripts/generate_bobber.py`: 4 voxels wide, 6 tall
+            MobKind::Bobber => Vec3::new(0.25, 0.375, 0.25),
         }
     }
 }
@@ -537,6 +544,9 @@ pub struct ServerMob {
     /// The way a walking hostile follows to its prey. Neither saved nor sent.
     #[serde(skip)]
     pub route: Option<Route>,
+    /// The line of a float. Neither saved nor sent.
+    #[serde(skip)]
+    pub bobber: Option<crate::world::fishing::Bobber>,
     /// What a villager remembers; none for the other mobs. Saves from before it read none.
     #[serde(default)]
     pub villager: Option<Villager>,
@@ -594,6 +604,7 @@ impl ServerMob {
             extra_health: 0,
             arrow: None,
             route: None,
+            bobber: None,
             villager: kind.is_villager().then(Villager::default),
             struck: None,
             horse: None,
@@ -671,7 +682,7 @@ mod tests {
     #[test]
     fn the_embers_and_the_arrows_are_the_projectiles_neither_hostile_nor_animals() {
         for kind in MobKind::ALL {
-            let expected = matches!(kind, MobKind::Ember | MobKind::Arrow);
+            let expected = matches!(kind, MobKind::Ember | MobKind::Arrow | MobKind::Bobber);
             assert_eq!(kind.is_projectile(), expected, "{kind:?}");
         }
         assert!(!MobKind::Ember.is_hostile());

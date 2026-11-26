@@ -4,6 +4,7 @@ pub mod boss;
 pub mod breeding;
 pub mod cinder;
 pub mod combat;
+pub mod fishing;
 mod float;
 pub mod guards;
 pub mod hostile;
@@ -11,6 +12,7 @@ pub mod path;
 pub mod riding;
 pub mod spawning;
 pub mod villager;
+pub mod wildlife;
 
 use std::collections::{HashMap, HashSet};
 

@@ -1212,7 +1212,8 @@ fn craft_to_hotbar(
     Ok(())
 }
 
-/// What a craft takes from the grid: one item of each cell.
+/// What a craft takes from the grid: one item of each cell. A bucket of milk leaves its bucket
+/// in its cell (`ItemId::crafting_remains`).
 fn take_one_from_each_cell(inventory: &mut Inventory) {
     // A copy of a map leaves the map copied in its cell
     let copy = copies_a_map(&inventory.crafting_grid());
@@ -1222,7 +1223,21 @@ fn take_one_from_each_cell(inventory: &mut Inventory) {
             .get(&slot)
             .is_some_and(|stack| stack.item_id == ItemId::FilledMap);
         if !(copy && copied) {
+            let remains = inventory
+                .inner
+                .get(&slot)
+                .and_then(|stack| stack.item_id.crafting_remains());
             inventory.remove_item_from_stack(slot, 1);
+            if let Some(remains) = remains.filter(|_| !inventory.inner.contains_key(&slot)) {
+                inventory.inner.insert(
+                    slot,
+                    ItemStack {
+                        item_id: remains,
+                        item_type: remains.get_default_type(),
+                        nb: 1,
+                    },
+                );
+            }
         }
     }
 }
@@ -3641,6 +3656,24 @@ mod tests {
             .collect();
         held.sort();
         held
+    }
+
+    #[test]
+    fn a_bucket_of_milk_crafted_with_leaves_its_bucket_in_the_grid() {
+        let mut inventory = inventory_with(grid_slot(0, 0), stack(ItemId::Bowl, 1));
+        for (slot, item) in [
+            (grid_slot(0, 1), ItemId::MilkBucket),
+            (grid_slot(1, 0), ItemId::RawPike),
+            (grid_slot(1, 1), ItemId::Potato),
+        ] {
+            inventory.inner.insert(slot, stack(item, 1));
+        }
+
+        apply(&mut inventory, InventoryAction::CraftAll);
+
+        assert_eq!(held_in_inventory(&inventory, ItemId::FishChowder), [(0, 1)]);
+        assert_eq!(inventory.inner[&grid_slot(0, 1)].item_id, ItemId::Bucket);
+        assert_eq!(inventory.inner.len(), 2);
     }
 
     #[test]

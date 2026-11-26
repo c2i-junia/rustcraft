@@ -35,6 +35,8 @@ pub struct ActionsOutcome {
     /// The frames of maps the player clicked, and the slots of the empty maps it used.
     pub frames: Vec<IVec3>,
     pub drawn_maps: Vec<u32>,
+    /// The saplings the player gave compost (`BlockInteractions::fertilized`).
+    pub fertilized: Vec<IVec3>,
     /// What the player placed, from its hand.
     pub placed: Vec<ItemId>,
     /// How many blocks the player fell, when it landed.
@@ -79,6 +81,7 @@ pub fn simulate_player_actions(
         bedrolls: interactions.bedrolls,
         frames: interactions.frames,
         drawn_maps: interactions.drawn_maps,
+        fertilized: interactions.fertilized,
         placed: interactions.placed,
         thrown: inventory
             .iter()

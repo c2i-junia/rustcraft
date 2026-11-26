@@ -5,6 +5,7 @@ use crate::{
     players::{hunger::MAX_FOOD, movement::MAX_FRAME_DELTA_MS, Player, ViewMode},
     world::{
         fire::fire_can_stay,
+        growth::{is_sapling, next_stage},
         fit_portal,
         furnace::smelting_result,
         global_block_to_chunk_pos,
@@ -149,6 +150,8 @@ pub struct BlockInteractions {
     pub frames: Vec<IVec3>,
     /// The hotbar slots of the empty maps the player used, which the server draws.
     pub drawn_maps: Vec<u32>,
+    /// The saplings given compost, which the server may grow into their tree at once.
+    pub fertilized: Vec<IVec3>,
     /// What the player placed, from its hand.
     pub placed: Vec<ItemId>,
     /// The shots of the portal gun, which the server tells the other players of.
@@ -193,7 +196,7 @@ pub fn simulate_player_block_interactions(
     let mut spawned = Vec::new();
     let mut dropped = Vec::new();
     let mut placed = Vec::new();
-    let (mut signs, mut bedrolls) = (Vec::new(), Vec::new());
+    let (mut signs, mut bedrolls, mut fertilized) = (Vec::new(), Vec::new(), Vec::new());
     let (mut frames, mut drawn_maps) = (Vec::new(), Vec::new());
     // Both count the time the button is held, so that a block takes as long to break, and
     // blocks are placed as often, at any frame rate.
@@ -220,6 +223,7 @@ pub fn simulate_player_block_interactions(
                     &mut signs,
                     &mut bedrolls,
                     &mut frames,
+                    &mut fertilized,
                 ) =>
             {
                 player.place_wait_ms = UNTIL_RELEASED_MS;
@@ -247,10 +251,15 @@ pub fn simulate_player_block_interactions(
                     "eat",
                     eat(player, action).map(|()| player.place_wait_ms = UNTIL_RELEASED_MS),
                 ),
-                // `bow::draw_bow` draws them, `shield::raise_shield` raises it
-                Some(ItemId::Bow | ItemId::Crossbow | ItemId::ThrowingAxe | ItemId::Shield) => {
-                    continue
-                }
+                // `bow::draw_bow` draws them, `shield::raise_shield` raises it; the server casts
+                // and draws in a fishing rod (`server::mob::fishing`)
+                Some(
+                    ItemId::Bow
+                    | ItemId::Crossbow
+                    | ItemId::ThrowingAxe
+                    | ItemId::Shield
+                    | ItemId::FishingRod,
+                ) => continue,
                 Some(ItemId::MilkBucket) => (
                     "drink milk",
                     drink_milk(player, action).map(|()| player.place_wait_ms = UNTIL_RELEASED_MS),
@@ -302,6 +311,7 @@ pub fn simulate_player_block_interactions(
         bedrolls,
         frames,
         drawn_maps,
+        fertilized,
         placed,
         shots: Vec::new(),
     }
@@ -550,6 +560,7 @@ fn use_block(
     signs: &mut Vec<IVec3>,
     bedrolls: &mut Vec<IVec3>,
     frames: &mut Vec<IVec3>,
+    fertilized: &mut Vec<IVec3>,
 ) -> bool {
     if action.is_pressed(NetworkAction::SneakOrFlyDown) {
         return false;
@@ -618,6 +629,20 @@ fn use_block(
                 BlockData::new(sprout, BlockDirection::Front),
             );
         }
+        // Compost grows a crop by a stage, ripens a bush, and may grow a sapling at once,
+        // which only the server can (`fertilized`)
+        (id, Some(ItemId::Compost))
+            if next_stage(id).is_some() || id == BlockId::BerryBush || is_sapling(id) =>
+        {
+            player.inventory.remove_item_from_stack(slot, 1);
+            if let Some(grown) = next_stage(id) {
+                become_block(world_map, pos, grown);
+            } else if id == BlockId::BerryBush {
+                become_block(world_map, pos, BlockId::RipeBerryBush);
+            } else {
+                fertilized.push(pos);
+            }
+        }
         (BlockId::FullRainCistern, Some(ItemId::Bucket)) => {
             become_block(world_map, pos, BlockId::RainCistern);
             player.inventory.remove_item_from_stack(slot, 1);
@@ -631,18 +656,10 @@ fn use_block(
         (BlockId::UnlitCampfire, Some(ItemId::Torch | ItemId::Flint | ItemId::FlintAndSteel)) => {
             become_block(world_map, pos, BlockId::Campfire);
         }
-        (
-            BlockId::Campfire,
-            Some(
-                raw @ (ItemId::RawMutton
-                | ItemId::RawPork
-                | ItemId::RawBeef
-                | ItemId::RawChicken
-                | ItemId::RawRabbit
-                | ItemId::Mushroom
-                | ItemId::Potato),
-            ),
-        ) => {
+        // A campfire cooks at once what the furnace cooks into a food
+        (BlockId::Campfire, Some(raw))
+            if smelting_result(raw).is_some_and(|cooked| cooked.food_value().is_some()) =>
+        {
             player.inventory.remove_item_from_stack(slot, 1);
             if let Some(roast) = smelting_result(raw) {
                 give(player, roast, 1);
@@ -802,11 +819,29 @@ fn eat(player: &mut Player, action: &PlayerFrameInput) -> Result<(), Refused> {
     let (food, saturation) = held_item(player, action)
         .and_then(|item| item.food_value())
         .ok_or(refused(Refusal::EmptySlot(slot)))?;
-    if player.food >= MAX_FOOD {
+    let item = held_item(player, action).ok_or(refused(Refusal::EmptySlot(slot)))?;
+    // A healing food is eaten for its effect, even by a player who has all its food
+    if player.food >= MAX_FOOD && item.food_effect().is_none() {
         return Err(refused(Refusal::NotHungry));
     }
     player.inventory.remove_item_from_stack(slot, 1);
     player.eat(food, saturation);
+    if let Some((kind, level, ticks)) = item.food_effect() {
+        player.effects.give(kind, level, ticks);
+    }
+    // The bowl of a soup is left in the hand
+    if let Some(remains) = item.eaten_remains() {
+        let bowl = ItemStack {
+            item_id: remains,
+            item_type: remains.get_default_type(),
+            nb: 1,
+        };
+        if player.inventory.inner.contains_key(&slot) {
+            player.inventory.add_item_to_inventory(bowl);
+        } else {
+            player.inventory.inner.insert(slot, bowl);
+        }
+    }
     Ok(())
 }
 
@@ -2579,6 +2614,9 @@ mod use_tests {
             (ItemId::RawRabbit, ItemId::RoastRabbit),
             (ItemId::Mushroom, ItemId::RoastMushroom),
             (ItemId::Potato, ItemId::BakedPotato),
+            (ItemId::RawEel, ItemId::GrilledEel),
+            (ItemId::Egg, ItemId::FriedEgg),
+            (ItemId::RawPie, ItemId::ApplePie),
         ] {
             let (mut player, mut world) = facing_a(BlockId::Campfire, Some(raw));
             player
@@ -2619,6 +2657,45 @@ mod use_tests {
                 assert!(player.inventory.inner.is_empty());
                 assert!(player.food > 10, "{item:?} on {block:?}");
             }
+        }
+    }
+
+    #[test]
+    fn a_soup_leaves_its_bowl_and_the_chowder_heals_even_a_full_player() {
+        use crate::players::effects::EffectKind;
+        let (mut player, mut world) = facing_a(BlockId::Stone, Some(ItemId::MushroomSoup));
+        player.food = 5;
+        click(&mut player, &mut world, NetworkAction::RightClick);
+        assert_eq!(player.food, 12);
+        let held = player.inventory.inner.values().map(|stack| stack.item_id);
+        assert_eq!(held.collect::<Vec<_>>(), [ItemId::Bowl]);
+
+        let (mut player, mut world) = facing_a(BlockId::Stone, Some(ItemId::FishChowder));
+        player.food = MAX_FOOD;
+        click(&mut player, &mut world, NetworkAction::RightClick);
+        assert_eq!(player.effects.level(EffectKind::Regeneration), 2);
+        let held = player.inventory.inner.values().map(|stack| stack.item_id);
+        assert_eq!(held.collect::<Vec<_>>(), [ItemId::Bowl]);
+
+        // A food that does not heal is refused to a full player
+        let (mut player, mut world) = facing_a(BlockId::Stone, Some(ItemId::Stew));
+        player.food = MAX_FOOD;
+        click(&mut player, &mut world, NetworkAction::RightClick);
+        let held = player.inventory.inner.values().map(|stack| stack.item_id);
+        assert_eq!(held.collect::<Vec<_>>(), [ItemId::Stew]);
+    }
+
+    #[test]
+    fn compost_grows_a_crop_by_a_stage_and_ripens_a_bush() {
+        for (block, after) in [
+            (BlockId::YoungRye, BlockId::RipeRye),
+            (BlockId::CarrotSprout, BlockId::YoungCarrots),
+            (BlockId::BerryBush, BlockId::RipeBerryBush),
+        ] {
+            let (mut player, mut world) = facing_a(block, Some(ItemId::Compost));
+            click(&mut player, &mut world, NetworkAction::RightClick);
+            assert_eq!(id(&world, AT), Some(after), "{block:?}");
+            assert!(player.inventory.inner.is_empty(), "{block:?}");
         }
     }
 

@@ -232,12 +232,12 @@ custom_textures/blocks/Left, custom_textures/blocks/Right, custom_textures/block
 
 ## Sounds, music and models
 
-- The 223 files of `data/sounds/` and the 8 of `data/music/`: synthesised by `scripts/generate_sounds.py`,
-  `scripts/generate_feature_sounds.py` (the 52 of the armour, the bow, the experience, the engraving
+- The 226 files of `data/sounds/` and the 8 of `data/music/`: synthesised by `scripts/generate_sounds.py`,
+  `scripts/generate_feature_sounds.py` (the 55 of the armour, the bow, the experience, the engraving
   table, the anvil, the trade, the villagers, the breeding, the progress, the melee, the mounts, the
-  shield and the crossbow) and `scripts/generate_music.py`, as commits `86973646`, `52050487`, `2396d533`, `75bd05c9` and others
+  shield, the crossbow and the fishing) and `scripts/generate_music.py`, as commits `86973646`, `52050487`, `2396d533`, `75bd05c9` and others
   and `docs/ressources.txt` say. Not run again to compare their output.
-- The 29 models of `data/models/animated/`: built by `scripts/generate_{animals,sheep,hostiles,villagers,boat}.py`.
+- The 30 models of `data/models/animated/`: built by `scripts/generate_{animals,sheep,hostiles,villagers,boat,bobber}.py`.
   Not run again either.
 
 ## Added after the audit, from Nova_Wostra's pack (10)
@@ -261,6 +261,19 @@ items/Compass_Draw12, items/Compass_Draw13, items/Compass_Draw14, items/Compass_
 items/Compass_Draw16, items/Compass_Draw2, items/Compass_Draw3, items/Compass_Draw4,
 items/Compass_Draw5, items/Compass_Draw6, items/Compass_Draw7, items/Compass_Draw8,
 items/Compass_Draw9, items/EmptyMap, items/FilledMap, items/Paper
+## Added after the audit, from Pixel Perfection CE (26)
+
+CC BY-SA 4.0, as A and the palette: made by `scripts/generate_farm_items.py` from the `master` branch
+of Pixel Perfection CE. Taken as they are (8): items/FishingRod (`item/fishing_rod`), items/Egg
+(`egg`), items/Apple (`apple`), items/Bowl (`bowl`), items/MushroomSoup (`mushroom_stew`), items/Stew
+(`rabbit_stew`), items/BerrySalad (`beetroot_soup`), items/FishChowder (`suspicious_stew`).
+Recoloured, as C, the changes being those of the script (17): items/RawRoach, items/RawEel (`cod`),
+items/RawPerch (`tropical_fish`), items/RawPike (`salmon`), items/RawGlowfin (`pufferfish`),
+items/GrilledRoach, items/GrilledPerch, items/GrilledGlowfin (`cooked_cod`), items/GrilledPike,
+items/GrilledEel (`cooked_salmon`), items/CakeBatter (`mushroom_stew`), items/CocoaCake (`cake`),
+items/RawPie, items/ApplePie (`pumpkin_pie`), items/Compost (`bone_meal`), blocks/AppleLeaves
+(`block/oak_leaves`, coloured green, apples drawn on it), blocks/AppleSapling (`block/oak_sapling`,
+apples drawn on it). Drawn by the script, MIT (1): items/FriedEgg.
 
 ## To do before the release
 

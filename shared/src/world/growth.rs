@@ -42,6 +42,7 @@ pub fn is_sapling(id: BlockId) -> bool {
             | BlockId::JungleSapling
             | BlockId::WillowSapling
             | BlockId::AcaciaSapling
+            | BlockId::AppleSapling
     )
 }
 

@@ -86,6 +86,8 @@ pub struct Mob {
     pub max_health: u32,
     /// How many blows the mob parried (`ServerMob::parries`): each change is heard.
     parries: u8,
+    /// The name of the player whose rod a float hangs from: its line is drawn to it.
+    pub angler: Option<String>,
 }
 
 /// The model of a mob, a child of its entity, scaled with the mob.
@@ -121,12 +123,16 @@ impl Mob {
             hurt_seconds: None,
             scale: scale_of(server),
             in_love: server.in_love > 0,
-            tamed: server.owner.is_some(),
+            tamed: server.owner.is_some() && server.kind.is_animal(),
             born: server.is_young() && server.growing + BORN_TICKS >= GROW_TICKS,
             coat: server.horse.map(|traits| traits.coat),
             saddled: server.saddled,
             max_health: server.max_health(),
             parries: server.parries,
+            angler: server
+                .owner
+                .clone()
+                .filter(|_| server.kind == MobKind::Bobber),
         }
     }
 
@@ -151,9 +157,17 @@ pub fn apply_mob_updates(
     asset_server: Res<AssetServer>,
     mut hurts: MessageWriter<MobHurt>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
+    mut bites: MessageWriter<super::fishing::BobberBite>,
 ) {
+    use crate::audio::{PlaySound, Sound};
     for id in std::mem::take(&mut client_mobs.removed) {
         if let Some(entity) = entities.0.remove(&id) {
+            // A float drawn in winds the reel
+            if let Ok((mob, transform)) = mobs.get(entity) {
+                if mob.kind == MobKind::Bobber {
+                    sounds.write(PlaySound::at(Sound::FishingReel, transform.translation));
+                }
+            }
             commands.entity(entity).despawn();
         }
     }
@@ -168,6 +182,16 @@ pub fn apply_mob_updates(
                     server.position,
                 ));
             }
+            // A fish bites: the float plunges with a plop and bubbles
+            if server.kind == MobKind::Bobber
+                && server.action == MobAction::Attack
+                && mob.action != MobAction::Attack
+            {
+                sounds.write(PlaySound::at(Sound::FishingBite, server.position));
+                bites.write(super::fishing::BobberBite {
+                    at: server.position,
+                });
+            }
             if take_update(&mut mob, &mut transform, &server) {
                 hurts.write(MobHurt {
                     kind: server.kind,
@@ -176,6 +200,9 @@ pub fn apply_mob_updates(
                 });
             }
             continue;
+        }
+        if server.kind == MobKind::Bobber {
+            sounds.write(PlaySound::at(Sound::FishingCast, server.position));
         }
         let entity = spawn_mob(&mut commands, &server, &asset_server);
         entities.0.insert(id, entity);
@@ -196,7 +223,7 @@ fn take_update(mob: &mut Mob, transform: &mut Transform, server: &ServerMob) -> 
     mob.action = server.action;
     mob.scale = scale_of(server);
     mob.in_love = server.in_love > 0;
-    mob.tamed = server.owner.is_some();
+    mob.tamed = server.owner.is_some() && server.kind.is_animal();
     mob.saddled = server.saddled;
     mob.max_health = server.max_health();
     mob.position = server.position;
@@ -419,6 +446,7 @@ mod tests {
             saddled: false,
             max_health: 8,
             parries: 0,
+            angler: None,
         };
         let mut transform = Transform::from_translation(shown).with_rotation(mob.rotation);
         let mut server = ServerMob {

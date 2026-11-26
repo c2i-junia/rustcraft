@@ -98,8 +98,9 @@ pub fn interact(
         && !feeds
         && mob.kind == MobKind::Sheep
         && !mob.is_young()
-        // It is drawn
+        // It is drawn, or cast
         && held != Some(ItemId::Bow)
+        && held != Some(ItemId::FishingRod)
         && !held.is_some_and(|i| i.spawned_mob().is_some() || i.food_value().is_some());
     // Nothing hurts a villager
     let villager = mob.kind.is_villager();
@@ -482,6 +483,7 @@ fn kind_loot(mob: &ServerMob, rng: &mut impl Rng) -> Vec<(ItemId, u32)> {
         | MobKind::Drowner
         | MobKind::Ember
         | MobKind::Arrow
+        | MobKind::Bobber
         | MobKind::Farmer
         | MobKind::Smith
         | MobKind::Cartographer => vec![],

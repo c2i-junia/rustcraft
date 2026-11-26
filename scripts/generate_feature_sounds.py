@@ -4,7 +4,8 @@ bow and its arrows, the experience, the engraving table, the anvil, the trade an
 the breeding and the taming, a mob falling into water, and the stings of the progress (a depth
 reached, an achievement, a boss, the victory, the credits, a skin imported), and the critical
 blows and the sweeps of the melee, and the mounts: a saddle put on, a boat's oars and a blow on its
-hull, and the shield's parry and the crossbow's loading and shot.
+hull, and the shield's parry and the crossbow's loading and shot, and the fishing: a rod cast,
+a bite and the line drawn in.
 
 Built with the primitives of `generate_sounds.py` (its seed, its loudness and its output), so
 that they sound of a piece with the others; every sound is synthesised here, entirely original
@@ -548,6 +549,49 @@ def build_boat_hit(rng):
     return finish(outdoors(rng, knock * 0.8 + hull * 0.5 + crack * 0.3), -19)
 
 
+# --- fishing ----------------------------------------------------------------
+
+
+def drops(rng, d, count, start, end, f_low=600, f_high=1500, gain=(0.1, 0.25)):
+    """Drops of water falling back: short rising blips."""
+    parts = []
+    for offset in np.sort(rng.uniform(start, end, count)):
+        f0 = rng.uniform(f_low, f_high)
+        tau = 0.012 * 900 / f0
+        t = t_axis(tau * 8)
+        drop = np.sin(2 * np.pi * np.cumsum(f0 * (1 + 2.0 * t)) / 44100) * env(tau * 8, 0.001, tau)
+        parts.append(place_at(d, drop * rng.uniform(*gain), offset))
+    return mix(np.zeros(n_of(d)), *parts)
+
+
+def build_fishing_cast(rng):
+    """A rod cast: the rod swishing through the air and the line whistling off the reel."""
+    d = 0.6
+    swish = band(colored(rng, d, 1), 500, 3000) * curve(d, (0, 0), (0.06, 1), (0.22, 0))
+    t = t_axis(d)
+    whirr = np.sin(2 * np.pi * np.cumsum(np.interp(t, [0, d], [2600, 1900])) / 44100)
+    whirr *= (0.5 + 0.5 * np.sign(np.sin(2 * np.pi * 70 * t))) * curve(d, (0, 0), (0.1, 0.6), (0.5, 0))
+    return finish(outdoors(rng, swish * 0.7 + whirr * 0.12), -22)
+
+
+def build_fishing_bite(rng):
+    """A bite: the float pulled under with a plop, and the bubbles that rise after it."""
+    d = 0.7
+    plop = thump(rng, d, 420, 160, 0.035) * 0.7
+    slap = band(colored(rng, d, 1), 400, 3500) * env(d, 0.002, 0.03) * 0.4
+    bubbles = drops(rng, d, 9, 0.05, 0.45, 350, 1100, (0.15, 0.35))
+    return finish(outdoors(rng, plop + slap + bubbles), -18)
+
+
+def build_fishing_reel(rng):
+    """The line drawn in: the reel clicking round fast, and a drip of water off the float."""
+    d = 0.6
+    times = np.arange(0.0, 0.32, 0.028) + rng.uniform(0, 0.004, 12)
+    ratchet = clinks(rng, d, list(times), 2600, 3600, 0.012)
+    water = drops(rng, d, 4, 0.3, 0.5)
+    return finish(outdoors(rng, ratchet * 0.6 + water), -22)
+
+
 def main():
     write_ogg("armour/leather_on", build_leather_on)
     write_ogg("armour/leather_off", build_leather_off)
@@ -594,6 +638,9 @@ def main():
     write_ogg("combat/shield_block", build_shield_block)
     write_ogg("combat/crossbow_load", build_crossbow_load)
     write_ogg("combat/crossbow_shot", build_crossbow_shot)
+    write_ogg("fishing/cast", build_fishing_cast)
+    write_ogg("fishing/bite", build_fishing_bite)
+    write_ogg("fishing/reel", build_fishing_reel)
 
 
 if __name__ == "__main__":

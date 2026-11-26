@@ -620,7 +620,8 @@ never moves a player, so the prediction of the clients is left alone.
 ### The systems of a tick, in order
 
 Before **Receive**: `villager_day_system` (night sends the villagers home), `mob_behavior_system` (the animals wander, flee, follow their owner and
-breed, the hostiles hunt and strike, `push_mobs`), `cinder_system` (the embers fly), `arrow_system` (the arrows fly), `hostile_spawning_system`, `dungeon_guards_system`, and
+breed, the hostiles hunt and strike, `push_mobs`), `cinder_system` (the embers fly), `arrow_system` (the arrows fly), `fishing_system` (the floats of the rods), `hostile_spawning_system`,
+`wildlife_system` (the herds coming back), `dungeon_guards_system`, and
 `dropped_items_physics_system`. In **Simulate**, chained: `tick_damage_timers_system` (the
 invulnerability and the memory of the last mob hit count down), `handle_player_inputs_system`
 (movement, blocks, blows, eating; a fall hurts here), `boss_system`, `breathe_system`, `burn_system` (lava
@@ -911,6 +912,46 @@ them, and a foal inherits the mean of its parents' with a little drift. The coat
 when the horse is saddled (`ServerMob::saddled`, which a saddle item sets). The boat is the mob
 `MobKind::Boat` (`is_vehicle`: no behaviour, no voice, it floats), put down from `ItemId::Boat` as a
 spawn egg aimed like a bucket, on the water, and dropping its item when broken.
+
+### Fishing, cooking and the farm
+
+`world/fishing.rs` (shared) holds the rules of fishing: the waits, the bite, the line, and what a
+catch is (`catch`: 84 % fish, 11 % junk, 5 % treasure; the glowfin bites at night only). The float
+is the mob `MobKind::Bobber`, a projectile, which `server/src/mob/fishing.rs` flies: `use_rod`, from
+`handle_player_inputs_system` after `combat::interact`, casts one at a press of the right button
+with a rod in hand (the client's `simulate_player_block_interactions` leaves the rod alone) and
+draws it in at the next press, `ServerWorldMap::fishing` (`Lines`) keeping the float of each
+angler. `fishing_system` flies it (`MobAction::Walk`), floats it on the top of the water it falls
+into (`Idle`, `Bobber::in_water`), and after `BITE_WAIT_TICKS` makes it bite (`Attack`, lowered by
+`BITE_DIP`) for `BITE_TICKS`. Drawn in during a bite, the catch drops at the angler's feet with an
+orb, and the rod wears by `CATCH_WEAR`; a float caught on the ground wears it by `SNAG_WEAR`. A float
+whose angler left, died, went beyond `LINE_LENGTH` or put the rod away is drawn in for nothing. Its
+`owner` is the angler's name: the client draws the line to that player (`mob/fishing.rs`,
+`draw_lines`), plays the cast, the bite and the reel from the float's appearance, its `Attack` and
+its removal (`apply_mob_updates`), and bursts bubbles at a bite (`show_bites`). Its model,
+`Bobber.glb`, plunges in its Attack clip.
+
+The dishes are foods (`ItemId::food_value`) more filling than their ingredients. `food_effect` gives
+an effect as they are eaten (regeneration for the fish chowder and the grilled glowfin, which a full
+player may eat), `eaten_remains` the bowl left in the hand, and `crafting_remains` what a craft
+leaves in a cell of the grid (the bucket of a bucket of milk, `take_one_from_each_cell`). The
+shapeless recipes take families (`ItemTag::RawFish`, `ItemTag::RoastMeat`). The furnace grills the
+fish, fries the eggs and bakes the batter and the raw pies (`smelting_result`); a campfire cooks at
+once what the furnace cooks into a food.
+
+The hens lay an egg every `EGG_ODDS` ticks on average (`breeding::lay_eggs`, from
+`mob_behavior_system`); a sheep shorn grows its wool back as it grazes. An apple sapling grows an oak
+of `AppleLeaves`, which `block_ticks_system` makes drop an apple below them one random tick in
+`APPLE_ODDS`; broken, they drop an apple one time in four, and oak leaves an apple sapling one time
+in sixty (`DroppedItems::drop_block_items`). Compost, used on a crop, a berry bush or a sapling
+(`use_block`), grows the crop a stage or ripens the bush at once, both predicted; for a sapling the
+server grows the tree one time in two (`BlockInteractions::fertilized`, `ticks::grow_tree`).
+
+`server/src/mob/wildlife.rs` brings the wild animals back: every `RETURN_INTERVAL_TICKS`, each player
+has a chance of a herd of the biome (`WorldGenerator::wild_herds_at`, none on a village) appearing on
+grass or snow under the sky in `RETURN_RING` around it, at least `AWAY_FROM_PLAYERS` from every
+player and `AWAY_FROM_BEDROLLS` from every bedroll, cut so that the animals within `ZONE_RADIUS`
+stay under `ZONE_CAP` (`may_return_at`).
 
 ### The depth tiers
 

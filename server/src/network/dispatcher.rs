@@ -214,7 +214,9 @@ pub fn register_systems(app: &mut App) {
                 mob_behavior_system,
                 crate::mob::cinder::cinder_system,
                 crate::mob::arrow::arrow_system,
+                crate::mob::fishing::fishing_system,
                 crate::mob::spawning::hostile_spawning_system,
+                crate::mob::wildlife::wildlife_system,
                 crate::mob::guards::dungeon_guards_system,
             )
                 .chain(),

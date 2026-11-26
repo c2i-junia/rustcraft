@@ -61,6 +61,14 @@ pub fn smelting_result(item: ItemId) -> Option<ItemId> {
         ItemId::RawRabbit => Some(ItemId::RoastRabbit),
         ItemId::Potato => Some(ItemId::BakedPotato),
         ItemId::Cactus => Some(ItemId::GreenDye),
+        ItemId::RawRoach => Some(ItemId::GrilledRoach),
+        ItemId::RawPerch => Some(ItemId::GrilledPerch),
+        ItemId::RawPike => Some(ItemId::GrilledPike),
+        ItemId::RawEel => Some(ItemId::GrilledEel),
+        ItemId::RawGlowfin => Some(ItemId::GrilledGlowfin),
+        ItemId::Egg => Some(ItemId::FriedEgg),
+        ItemId::CakeBatter => Some(ItemId::CocoaCake),
+        ItemId::RawPie => Some(ItemId::ApplePie),
         _ => None,
     }
 }

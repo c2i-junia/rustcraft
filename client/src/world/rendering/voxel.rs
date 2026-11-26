@@ -275,6 +275,8 @@ impl VoxelShape {
             | BlockId::AcaciaLeaves => Self::full_cube(block)
                 .biome_tinted(BiomeTint::Foliage)
                 .swaying(Sway::Whole),
+            // Its texture has the colours of its leaves and of its apples
+            BlockId::AppleLeaves => Self::full_cube(block).swaying(Sway::Whole),
             BlockId::SpruceLeaves => Self::full_cube(block)
                 .tinted(FaceColor::Grass)
                 .swaying(Sway::Whole),
@@ -291,6 +293,7 @@ impl VoxelShape {
             | BlockId::JungleSapling
             | BlockId::WillowSapling
             | BlockId::AcaciaSapling
+            | BlockId::AppleSapling
             | BlockId::BerryBush
             | BlockId::RipeBerryBush
             | BlockId::RyeSprout

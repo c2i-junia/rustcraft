@@ -13,9 +13,9 @@ use shared::{
         Player,
     },
     world::{
-        step_dropped_item, world_position_to_chunk_position, ChunkMap, DroppedItem, DroppedItemId,
-        ItemStack, DROPPED_ITEM_SIZE, LIFETIME_TICKS, MERGE_RADIUS, THROWN_PICKUP_DELAY_TICKS,
-        VOID_Y,
+        step_dropped_item, world_position_to_chunk_position, BlockId, ChunkMap, DroppedItem,
+        DroppedItemId, ItemId, ItemStack, DROPPED_ITEM_SIZE, LIFETIME_TICKS, MERGE_RADIUS,
+        THROWN_PICKUP_DELAY_TICKS, VOID_Y,
     },
     HALF_BLOCK,
 };
@@ -148,10 +148,28 @@ impl DroppedItems {
                 item_type: item_id.get_default_type(),
                 nb: 1,
             });
+        // An apple tree's leaves hold an apple now and then, and an oak's, rarely, the sapling
+        // of an apple tree
+        let fruit = match broken.block {
+            BlockId::AppleLeaves if rng.gen_ratio(1, 4) => Some(ItemId::Apple),
+            BlockId::OakLeaves if rng.gen_ratio(1, 60) => Some(ItemId::AppleSapling),
+            _ => None,
+        }
+        .filter(|_| broken.harvested)
+        .map(|item_id| ItemStack {
+            item_id,
+            item_type: item_id.get_default_type(),
+            nb: 1,
+        });
         if broken.harvested {
             self.drop_orb(broken.block.experience(), centre, rng);
         }
-        for stack in drops.chain(sapling).chain(contents).chain(furnace) {
+        for stack in drops
+            .chain(sapling)
+            .chain(fruit)
+            .chain(contents)
+            .chain(furnace)
+        {
             self.spawn(DroppedItem::new(stack, centre, pop_velocity(rng)));
         }
     }

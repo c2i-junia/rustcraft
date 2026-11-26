@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy_renet::{renet::ClientId, RenetServer};
+use rand::Rng;
 use shared::{
     messages::{PlayerFrameInput, PlayerId, PlayerUpdateEvent},
     players::{
@@ -372,6 +373,15 @@ pub fn handle_player_inputs_system(
         };
         let rest = combat::interact(player, &ev.input, mob_world, &mut rng);
         let input = rest.as_ref().unwrap_or(&ev.input);
+        crate::mob::fishing::use_rod(
+            &mut world_map.fishing,
+            player,
+            input,
+            &mut world_map.mobs,
+            &mut world_map.changed_mobs,
+            dropped_items,
+            &mut rng,
+        );
         // The shots of the input are aimed before its move
         let eyes = player.position + Vec3::Y * EYE_HEIGHT;
         let outcome = simulate_player_actions(player, chunks, input, CallerType::Server);
@@ -384,6 +394,18 @@ pub fn handle_player_inputs_system(
             .extend(outcome.frames.iter().map(|&pos| (ev.client_id, pos)));
         home.drawn
             .extend(outcome.drawn_maps.iter().map(|&slot| (ev.client_id, slot)));
+        // Compost grows a sapling at once one time in two
+        for &pos in &outcome.fertilized {
+            if rng.gen_bool(0.5) {
+                if let Some(sapling) = chunks
+                    .get_block(pos)
+                    .map(|block| block.id)
+                    .filter(|&id| shared::world::growth::is_sapling(id))
+                {
+                    super::ticks::grow_tree(chunks, pos, sapling, rng.gen());
+                }
+            }
+        }
         if !outcome.bedrolls.is_empty() {
             player.earn(Achievement::Bed);
         }

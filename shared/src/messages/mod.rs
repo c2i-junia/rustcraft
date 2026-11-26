@@ -264,6 +264,7 @@ mod tests {
                 extra_health: 0,
                 arrow: None,
                 route: None,
+                bobber: None,
                 villager: None,
                 struck: None,
                 horse: None,

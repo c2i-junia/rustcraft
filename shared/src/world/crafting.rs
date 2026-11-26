@@ -30,6 +30,10 @@ pub enum ItemTag {
     Cobble,
     /// The wool of every colour, which a dye colours again.
     Wool,
+    /// The five fish of `world::fishing`, raw.
+    RawFish,
+    /// The meats roasted.
+    RoastMeat,
 }
 
 impl ItemTag {
@@ -46,6 +50,20 @@ impl ItemTag {
             ],
             Self::Cobble => &[ItemId::Cobblestone, ItemId::CobbledGloomrock],
             Self::Wool => &WOOLS,
+            Self::RawFish => &[
+                ItemId::RawRoach,
+                ItemId::RawPerch,
+                ItemId::RawPike,
+                ItemId::RawEel,
+                ItemId::RawGlowfin,
+            ],
+            Self::RoastMeat => &[
+                ItemId::RoastMutton,
+                ItemId::RoastPork,
+                ItemId::RoastBeef,
+                ItemId::RoastChicken,
+                ItemId::RoastRabbit,
+            ],
         }
     }
 
@@ -55,6 +73,8 @@ impl ItemTag {
             Self::Planks => "Planks",
             Self::Cobble => "Cobble",
             Self::Wool => "Wool",
+            Self::RawFish => "RawFish",
+            Self::RoastMeat => "RoastMeat",
         }
     }
 }
@@ -144,6 +164,7 @@ const fn boots(m: Option<Ingredient>) -> [Option<Ingredient>; 6] {
     [m, None, m, m, None, m]
 }
 const GLASS: Option<Ingredient> = item(ItemId::Glass);
+const BOWL: Option<Ingredient> = item(ItemId::Bowl);
 const WOOL: Option<Ingredient> = Some(Ingredient::Tag(ItemTag::Wool));
 
 #[rustfmt::skip]
@@ -332,6 +353,16 @@ const RECIPES: &[Recipe] = &[
     Recipe { width: 3, cells: &[STICK, STICK, None, item(ItemId::Rope), None, STICK, STICK, STICK, None], output: ItemId::Bow, nb: 1, shapeless: false },
     Recipe { width: 1, cells: &[FLINT, STICK, item(ItemId::Feather)], output: ItemId::Arrow, nb: 4, shapeless: false },
     Recipe { width: 3, cells: &[None, item(ItemId::GoldIngot), None, item(ItemId::GoldIngot), item(ItemId::Diamond), item(ItemId::GoldIngot), None, item(ItemId::GoldIngot), None], output: ItemId::DepthsCompass, nb: 1, shapeless: false },
+    // The farm: Minecraft's rod, its line of rope
+    Recipe { width: 3, cells: &[None, None, STICK, None, STICK, item(ItemId::Rope), STICK, None, item(ItemId::Rope)], output: ItemId::FishingRod, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &[PLANKS, None, PLANKS, None, PLANKS, None], output: ItemId::Bowl, nb: 4, shapeless: false },
+    Recipe { width: 2, cells: &[BOWL, item(ItemId::Mushroom), item(ItemId::Mushroom), None], output: ItemId::MushroomSoup, nb: 1, shapeless: true },
+    Recipe { width: 3, cells: &[BOWL, item(ItemId::Carrot), item(ItemId::Potato), item(ItemId::Mushroom), Some(Ingredient::Tag(ItemTag::RoastMeat)), None], output: ItemId::Stew, nb: 1, shapeless: true },
+    Recipe { width: 2, cells: &[BOWL, item(ItemId::Berries), item(ItemId::Berries), item(ItemId::Apple)], output: ItemId::BerrySalad, nb: 1, shapeless: true },
+    Recipe { width: 2, cells: &[BOWL, item(ItemId::MilkBucket), Some(Ingredient::Tag(ItemTag::RawFish)), item(ItemId::Potato)], output: ItemId::FishChowder, nb: 1, shapeless: true },
+    Recipe { width: 3, cells: &[item(ItemId::MilkBucket), item(ItemId::Egg), item(ItemId::CocoaBeans), item(ItemId::Rye), item(ItemId::Rye), None], output: ItemId::CakeBatter, nb: 1, shapeless: true },
+    Recipe { width: 2, cells: &[item(ItemId::Apple), item(ItemId::Apple), item(ItemId::Egg), item(ItemId::Rye)], output: ItemId::RawPie, nb: 1, shapeless: true },
+    Recipe { width: 2, cells: &[item(ItemId::Fiber), item(ItemId::Fiber), item(ItemId::Dirt), None], output: ItemId::Compost, nb: 2, shapeless: true },
 ];
 
 /// The dyes a plant, a fuel or an ore gives, and how many: the green one is smelted from a
@@ -1130,9 +1161,27 @@ mod tests {
     }
 
     #[test]
+    fn the_dishes_fill_more_than_their_ingredients() {
+        for recipe in recipes() {
+            let Some((dish, _)) = recipe.output.item_id.food_value() else {
+                continue;
+            };
+            let eaten: u32 = recipe
+                .ingredients()
+                .iter()
+                .map(|(ingredient, nb)| {
+                    let best = ingredient.members().iter().filter_map(|i| i.food_value());
+                    best.map(|(food, _)| food as u32).max().unwrap_or(0) * nb
+                })
+                .sum();
+            assert!(u32::from(dish) * recipe.output.nb > eaten, "{recipe:?}");
+        }
+    }
+
+    #[test]
     fn every_recipe_is_listed_with_its_index_and_size() {
         let all: Vec<RecipeView> = recipes().collect();
-        assert_eq!(all.len(), 109 - 3 + 152 + 5);
+        assert_eq!(all.len(), 109 - 3 + 152 + 5 + 9 + 6);
         for (position, recipe) in all.iter().enumerate() {
             assert_eq!(recipe.index as usize, position);
             assert_eq!(recipe.cells.len(), recipe.width * recipe.height);
@@ -1151,18 +1200,18 @@ mod tests {
     fn recipes_for_and_uses_of_find_the_recipes_of_an_item() {
         let counts = |item| (recipes_for(item).count(), uses_of(item).count());
         assert_eq!(counts(ItemId::WoodenPickaxe), (1, 0));
-        assert_eq!(counts(ItemId::Stick), (1, 53));
-        // the recipes of any planks (the shield among them), then the slab, stairs, door, trapdoor and gate of the species
-        assert_eq!(counts(ItemId::OakPlanks), (1, 13 + 5));
-        assert_eq!(counts(ItemId::SprucePlanks), (1, 13 + 5));
-        assert_eq!(counts(ItemId::JunglePlanks), (1, 13 + 5));
+        assert_eq!(counts(ItemId::Stick), (1, 55));
+        // the recipes of any planks (the shield and the bowl among them), then the slab, stairs, door, trapdoor and gate of the species
+        assert_eq!(counts(ItemId::OakPlanks), (1, 14 + 5));
+        assert_eq!(counts(ItemId::SprucePlanks), (1, 14 + 5));
+        assert_eq!(counts(ItemId::JunglePlanks), (1, 14 + 5));
         let uses = |item| uses_of(item).map(|r| r.index).collect::<Vec<_>>();
-        assert_eq!(uses(ItemId::OakPlanks)[..13], uses(ItemId::SprucePlanks)[..13]);
-        assert_eq!(uses(ItemId::OakPlanks)[..13], uses(ItemId::JunglePlanks)[..13]);
-        assert_ne!(uses(ItemId::OakPlanks)[13..], uses(ItemId::SprucePlanks)[13..]);
+        assert_eq!(uses(ItemId::OakPlanks)[..14], uses(ItemId::SprucePlanks)[..14]);
+        assert_eq!(uses(ItemId::OakPlanks)[..14], uses(ItemId::JunglePlanks)[..14]);
+        assert_ne!(uses(ItemId::OakPlanks)[14..], uses(ItemId::SprucePlanks)[14..]);
         // the tools, the furnace, and the slab, stairs and low wall
         assert_eq!(counts(ItemId::Cobblestone), (0, 6 + 3));
-        assert_eq!(counts(ItemId::IronIngot), (1, 21));
+        assert_eq!(counts(ItemId::IronIngot), (1, 22));
         assert_eq!(counts(ItemId::Torch), (2, 1));
         assert_eq!(counts(ItemId::Bedrock), (0, 0));
         assert!(recipes_for(ItemId::Chest).all(|r| r.output.item_id == ItemId::Chest));
@@ -1420,6 +1469,7 @@ mod tests {
                 ItemId::Sign,
                 ItemId::Boat,
                 ItemId::Shield,
+                ItemId::Bowl,
             ]
         );
         for recipe in &with_planks {

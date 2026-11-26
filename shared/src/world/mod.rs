@@ -11,6 +11,7 @@ pub mod depths;
 pub mod dropped_items;
 pub mod enchantments;
 pub mod fire;
+pub mod fishing;
 pub mod furnace;
 pub mod growth;
 pub mod hostiles;

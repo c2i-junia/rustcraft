@@ -131,7 +131,14 @@ pub fn smelting_experience(result: ItemId) -> u32 {
         | ItemId::RoastPork
         | ItemId::RoastBeef
         | ItemId::RoastChicken
-        | ItemId::RoastRabbit => 35,
+        | ItemId::RoastRabbit
+        | ItemId::GrilledRoach
+        | ItemId::GrilledPerch
+        | ItemId::GrilledPike
+        | ItemId::GrilledEel
+        | ItemId::GrilledGlowfin => 35,
+        ItemId::FriedEgg => 25,
+        ItemId::CocoaCake | ItemId::ApplePie => 50,
         _ => 0,
     }
 }

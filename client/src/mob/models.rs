@@ -79,6 +79,8 @@ pub fn model(kind: MobKind) -> MobModel {
         MobKind::Cartographer => ("models/animated/Cartographer.glb", VILLAGER_CLIPS),
         // `scripts/generate_boat.py`: its three clips stand still
         MobKind::Boat => ("models/animated/Boat.glb", HOSTILE_CLIPS),
+        // `scripts/generate_bobber.py`: it bobs, and plunges at a bite
+        MobKind::Bobber => ("models/animated/Bobber.glb", HOSTILE_CLIPS),
     };
     MobModel { path, clips }
 }

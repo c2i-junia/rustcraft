@@ -423,11 +423,48 @@ pub enum ItemId {
     Compass,
     /// Shows the paper map put on it.
     MapFrame,
+    /// Cast by a right click into the water, it catches what bites when drawn back in time
+    /// (`world::fishing`). It wears by its catches.
+    FishingRod,
+    /// The fish of the rivers and lakes (`world::fishing`), raw and grilled.
+    RawRoach,
+    GrilledRoach,
+    RawPerch,
+    GrilledPerch,
+    RawPike,
+    GrilledPike,
+    RawEel,
+    GrilledEel,
+    /// A rare fish whose scales glow: grilled, it heals a little (`food_effect`).
+    RawGlowfin,
+    GrilledGlowfin,
+    /// Laid by the chickens now and then.
+    Egg,
+    FriedEgg,
+    /// Fallen from the leaves of an apple tree.
+    Apple,
+    AppleSapling,
+    AppleLeaves,
+    /// What the soups and the stews are served in: eaten, they give it back (`eaten_remains`).
+    Bowl,
+    MushroomSoup,
+    Stew,
+    BerrySalad,
+    /// A soup of fish and milk which heals (`food_effect`).
+    FishChowder,
+    /// Baked into a cocoa cake.
+    CakeBatter,
+    CocoaCake,
+    /// Baked into an apple pie.
+    RawPie,
+    ApplePie,
+    /// Grows a crop by a stage, ripens a bush, and may grow a sapling at once.
+    Compost,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 372] = [
+    pub const ALL: [ItemId; 398] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -800,6 +837,32 @@ impl ItemId {
         Self::FilledMap,
         Self::Compass,
         Self::MapFrame,
+        Self::FishingRod,
+        Self::RawRoach,
+        Self::GrilledRoach,
+        Self::RawPerch,
+        Self::GrilledPerch,
+        Self::RawPike,
+        Self::GrilledPike,
+        Self::RawEel,
+        Self::GrilledEel,
+        Self::RawGlowfin,
+        Self::GrilledGlowfin,
+        Self::Egg,
+        Self::FriedEgg,
+        Self::Apple,
+        Self::AppleSapling,
+        Self::AppleLeaves,
+        Self::Bowl,
+        Self::MushroomSoup,
+        Self::Stew,
+        Self::BerrySalad,
+        Self::FishChowder,
+        Self::CakeBatter,
+        Self::CocoaCake,
+        Self::RawPie,
+        Self::ApplePie,
+        Self::Compost,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -842,8 +905,12 @@ impl ItemId {
             | Self::MilkBucket
             // each map is its own, and a compass is one
             | Self::FilledMap
-            | Self::Compass => 1,
-            Self::ThrowingAxe => 16,
+            | Self::Compass
+            | Self::MushroomSoup
+            | Self::Stew
+            | Self::BerrySalad
+            | Self::FishChowder => 1,
+            Self::ThrowingAxe | Self::Egg => 16,
             _ if self.durability().is_some() => 1,
             _ => 64,
         }
@@ -902,6 +969,53 @@ impl ItemId {
             Self::Carrot => Some((3, 3.6)),
             Self::Potato => Some((1, 0.6)),
             Self::BakedPotato => Some((5, 6.0)),
+            Self::RawRoach | Self::RawPerch | Self::RawEel => Some((2, 0.4)),
+            Self::RawPike => Some((3, 1.2)),
+            Self::RawGlowfin => Some((1, 0.2)),
+            Self::GrilledRoach | Self::GrilledGlowfin => Some((5, 6.0)),
+            Self::GrilledPerch => Some((6, 7.2)),
+            Self::GrilledEel => Some((6, 9.6)),
+            Self::GrilledPike => Some((7, 9.6)),
+            Self::FriedEgg => Some((4, 4.8)),
+            Self::Apple => Some((4, 2.4)),
+            // More than their ingredients eaten one by one
+            Self::MushroomSoup => Some((7, 8.4)),
+            Self::Stew => Some((14, 16.8)),
+            Self::BerrySalad => Some((10, 9.6)),
+            Self::FishChowder => Some((10, 12.0)),
+            Self::CocoaCake => Some((12, 14.4)),
+            Self::ApplePie => Some((12, 12.0)),
+            _ => None,
+        }
+    }
+
+    /// The status effect eating the item gives, if any: its kind, its level and its ticks. The
+    /// healing foods may be eaten with all the food a player can have.
+    pub fn food_effect(&self) -> Option<(crate::players::effects::EffectKind, u8, u32)> {
+        use crate::players::effects::EffectKind::Regeneration;
+        let seconds = |s: u32| s * crate::TICKS_PER_SECOND as u32;
+        match *self {
+            Self::FishChowder => Some((Regeneration, 2, seconds(10))),
+            Self::GrilledGlowfin => Some((Regeneration, 1, seconds(8))),
+            _ => None,
+        }
+    }
+
+    /// What is left in the hand once the item is eaten or drunk: the bowl of a soup.
+    pub fn eaten_remains(&self) -> Option<ItemId> {
+        match *self {
+            Self::MushroomSoup | Self::Stew | Self::BerrySalad | Self::FishChowder => {
+                Some(Self::Bowl)
+            }
+            _ => None,
+        }
+    }
+
+    /// What is left in its cell of the crafting grid once the item is used by a craft: the
+    /// bucket of a bucket of milk.
+    pub fn crafting_remains(&self) -> Option<ItemId> {
+        match *self {
+            Self::MilkBucket | Self::WaterBucket => Some(Self::Bucket),
             _ => None,
         }
     }
@@ -992,6 +1106,7 @@ impl ItemId {
             Self::Shield => Some(crate::players::shield::SHIELD_DURABILITY),
             Self::Crossbow => Some(465),
             Self::Mace => Some(500),
+            Self::FishingRod => Some(64),
             _ => match self.armour() {
                 Some(armour) => Some(armour.durability()),
                 None => self.tool().map(|tool| tool.durability),
@@ -1075,7 +1190,9 @@ impl ItemId {
             | Self::JungleSapling
             | Self::WillowSapling
             | Self::AcaciaSapling
-            | Self::BerryBush => ItemCategory::Nature,
+            | Self::BerryBush
+            | Self::AppleSapling
+            | Self::AppleLeaves => ItemCategory::Nature,
             Self::CoalOre
             | Self::IronOre
             | Self::GoldOre
@@ -1118,6 +1235,29 @@ impl ItemId {
             | Self::Potato
             | Self::BakedPotato
             | Self::Paper
+            | Self::RawRoach
+            | Self::GrilledRoach
+            | Self::RawPerch
+            | Self::GrilledPerch
+            | Self::RawPike
+            | Self::GrilledPike
+            | Self::RawEel
+            | Self::GrilledEel
+            | Self::RawGlowfin
+            | Self::GrilledGlowfin
+            | Self::Egg
+            | Self::FriedEgg
+            | Self::Apple
+            | Self::Bowl
+            | Self::MushroomSoup
+            | Self::Stew
+            | Self::BerrySalad
+            | Self::FishChowder
+            | Self::CakeBatter
+            | Self::CocoaCake
+            | Self::RawPie
+            | Self::ApplePie
+            | Self::Compost
             | crate::dye_items!() => ItemCategory::Materials,
             Self::CraftingTable
             | Self::EngravingTable
@@ -1195,6 +1335,7 @@ impl ItemId {
             | Self::EmptyMap
             | Self::FilledMap
             | Self::Compass => ItemCategory::Tools,
+            | Self::FishingRod => ItemCategory::Tools,
             Self::FoxSpawnEgg
             | Self::SheepSpawnEgg
             | Self::CowSpawnEgg
@@ -1310,6 +1451,8 @@ impl ItemId {
             Self::Rye => ItemType::Block(BlockId::RyeSprout),
             Self::Carrot => ItemType::Block(BlockId::CarrotSprout),
             Self::Potato => ItemType::Block(BlockId::PotatoSprout),
+            Self::AppleSapling => ItemType::Block(BlockId::AppleSapling),
+            Self::AppleLeaves => ItemType::Block(BlockId::AppleLeaves),
             crate::new_palette_block_items!() => match self.palette_block() {
                 Some(block) => ItemType::Block(block),
                 None => ItemType::Generic,
@@ -1382,8 +1525,33 @@ impl ItemId {
             | crate::dye_items!()
             | Self::Bolt
             | Self::ThrowingAxe
-            | Self::MilkBucket => ItemType::Generic,
-            Self::Shield | Self::Crossbow | Self::Mace => ItemType::Tool { wear: 0 },
+            | Self::MilkBucket
+            | Self::RawRoach
+            | Self::GrilledRoach
+            | Self::RawPerch
+            | Self::GrilledPerch
+            | Self::RawPike
+            | Self::GrilledPike
+            | Self::RawEel
+            | Self::GrilledEel
+            | Self::RawGlowfin
+            | Self::GrilledGlowfin
+            | Self::Egg
+            | Self::FriedEgg
+            | Self::Apple
+            | Self::Bowl
+            | Self::MushroomSoup
+            | Self::Stew
+            | Self::BerrySalad
+            | Self::FishChowder
+            | Self::CakeBatter
+            | Self::CocoaCake
+            | Self::RawPie
+            | Self::ApplePie
+            | Self::Compost => ItemType::Generic,
+            Self::Shield | Self::Crossbow | Self::Mace | Self::FishingRod => {
+                ItemType::Tool { wear: 0 }
+            }
             // the server gives each its id as it is drawn (`cartography`)
             Self::FilledMap => ItemType::Map { id: 0 },
             Self::MapFrame => ItemType::Block(BlockId::MapFrame),
@@ -1981,6 +2149,32 @@ mod tests {
             (ItemId::FilledMap, 369),
             (ItemId::Compass, 370),
             (ItemId::MapFrame, 371),
+            (ItemId::FishingRod, 372),
+            (ItemId::RawRoach, 373),
+            (ItemId::GrilledRoach, 374),
+            (ItemId::RawPerch, 375),
+            (ItemId::GrilledPerch, 376),
+            (ItemId::RawPike, 377),
+            (ItemId::GrilledPike, 378),
+            (ItemId::RawEel, 379),
+            (ItemId::GrilledEel, 380),
+            (ItemId::RawGlowfin, 381),
+            (ItemId::GrilledGlowfin, 382),
+            (ItemId::Egg, 383),
+            (ItemId::FriedEgg, 384),
+            (ItemId::Apple, 385),
+            (ItemId::AppleSapling, 386),
+            (ItemId::AppleLeaves, 387),
+            (ItemId::Bowl, 388),
+            (ItemId::MushroomSoup, 389),
+            (ItemId::Stew, 390),
+            (ItemId::BerrySalad, 391),
+            (ItemId::FishChowder, 392),
+            (ItemId::CakeBatter, 393),
+            (ItemId::CocoaCake, 394),
+            (ItemId::RawPie, 395),
+            (ItemId::ApplePie, 396),
+            (ItemId::Compost, 397),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -2192,12 +2386,37 @@ mod tests {
                 | ItemId::ThrowingAxe
                 | ItemId::Mace
                 | ItemId::MilkBucket
-
                 | ItemId::Paper
                 | ItemId::EmptyMap
                 | ItemId::FilledMap
                 | ItemId::Compass
-                | ItemId::MapFrame => {}
+                | ItemId::MapFrame
+                | ItemId::FishingRod
+                | ItemId::RawRoach
+                | ItemId::GrilledRoach
+                | ItemId::RawPerch
+                | ItemId::GrilledPerch
+                | ItemId::RawPike
+                | ItemId::GrilledPike
+                | ItemId::RawEel
+                | ItemId::GrilledEel
+                | ItemId::RawGlowfin
+                | ItemId::GrilledGlowfin
+                | ItemId::Egg
+                | ItemId::FriedEgg
+                | ItemId::Apple
+                | ItemId::AppleSapling
+                | ItemId::AppleLeaves
+                | ItemId::Bowl
+                | ItemId::MushroomSoup
+                | ItemId::Stew
+                | ItemId::BerrySalad
+                | ItemId::FishChowder
+                | ItemId::CakeBatter
+                | ItemId::CocoaCake
+                | ItemId::RawPie
+                | ItemId::ApplePie
+                | ItemId::Compost => {}
             }
         }
         for (id, expected) in table {
@@ -2429,6 +2648,12 @@ mod tests {
             ItemId::MilkBucket,
             ItemId::FilledMap,
             ItemId::Compass,
+            ItemId::FishingRod,
+            ItemId::MushroomSoup,
+            ItemId::Stew,
+            ItemId::BerrySalad,
+            ItemId::FishChowder,
+            ItemId::Egg,
         ];
         let others = ItemId::ALL
             .iter()
@@ -2616,6 +2841,7 @@ mod tests {
                     | ItemId::EmptyMap
                     | ItemId::FilledMap
                     | ItemId::Compass
+                    | ItemId::FishingRod
             );
             assert_eq!(
                 item.category() == ItemCategory::Tools,

@@ -53,6 +53,7 @@ impl SoundMaterial {
             | BlockId::JungleSapling
             | BlockId::WillowSapling
             | BlockId::AcaciaSapling
+            | BlockId::AppleSapling
             | BlockId::Wool
             | BlockId::BerryBush
             | BlockId::RipeBerryBush
@@ -139,7 +140,8 @@ impl SoundMaterial {
             | BlockId::SpruceLeaves
             | BlockId::JungleLeaves
             | BlockId::WillowLeaves
-            | BlockId::AcaciaLeaves => Self::Leaves,
+            | BlockId::AcaciaLeaves
+            | BlockId::AppleLeaves => Self::Leaves,
             BlockId::Sand | BlockId::Gravel => Self::Sand,
             BlockId::Snow => Self::Snow,
             BlockId::Glass | BlockId::Ice | BlockId::GlassPane => Self::Glass,
@@ -200,8 +202,9 @@ impl CreatureCall {
     /// attacks too, and a projectile, never struck, only flies, and a
     /// villager speaks and is hurt as an animal is.
     pub fn of(kind: MobKind) -> &'static [CreatureCall] {
-        if kind == MobKind::Arrow || kind.is_vehicle() {
-            // `creatures::creature_calls` gives the arrow other sounds; a boat has no voice
+        if matches!(kind, MobKind::Arrow | MobKind::Bobber) || kind.is_vehicle() {
+            // `creatures::creature_calls` gives the arrow other sounds, `mob::sync` the float
+            // its own; a boat has no voice
             &[]
         } else if kind.is_villager() {
             &[CreatureCall::Cry, CreatureCall::Hurt]
@@ -247,6 +250,7 @@ fn creature_folder(kind: MobKind) -> &'static str {
         MobKind::Smith => "smith",
         MobKind::Cartographer => "cartographer",
         MobKind::Boat => "boat",
+        MobKind::Bobber => "bobber",
     }
 }
 
@@ -365,6 +369,12 @@ pub enum Sound {
     CrossbowLoad,
     /// A loaded crossbow shoots: the latch let go and the string's snap.
     CrossbowShot,
+    /// A fishing rod casts its float: the line whistling out of the reel.
+    FishingCast,
+    /// A fish bites: the float plunges with a plop and a gurgle.
+    FishingBite,
+    /// The float drawn in: the reel winding and a drip of water.
+    FishingReel,
 }
 
 impl Sound {
@@ -415,7 +425,7 @@ impl Sound {
 
     /// The sounds of the later features (`scripts/generate_feature_sounds.py`), but those of
     /// the armour put on and off and the voices of the villagers.
-    pub const FEATURES: [Sound; 35] = [
+    pub const FEATURES: [Sound; 38] = [
         Sound::BowLoose,
         Sound::ArmourBreak,
         Sound::BowDraw,
@@ -451,6 +461,9 @@ impl Sound {
         Sound::ShieldBlock,
         Sound::CrossbowLoad,
         Sound::CrossbowShot,
+        Sound::FishingCast,
+        Sound::FishingBite,
+        Sound::FishingReel,
     ];
 
     /// The sounds of the weather, played by `audio::weather`.
@@ -568,6 +581,9 @@ impl Sound {
             Sound::ShieldBlock => one("combat/shield_block"),
             Sound::CrossbowLoad => one("combat/crossbow_load"),
             Sound::CrossbowShot => one("combat/crossbow_shot"),
+            Sound::FishingCast => one("fishing/cast"),
+            Sound::FishingBite => one("fishing/bite"),
+            Sound::FishingReel => one("fishing/reel"),
             Sound::PortalPass => vec!["sounds/player/pickup.ogg".to_string()],
             Sound::Creature(kind, call) => {
                 let folder = creature_folder(kind);
@@ -709,7 +725,9 @@ mod tests {
         for kind in MobKind::ALL.into_iter().filter(|kind| !kind.is_villager()) {
             let calls = CreatureCall::of(kind);
             assert!(
-                calls.contains(&CreatureCall::Cry) || kind == MobKind::Arrow || kind.is_vehicle(),
+                calls.contains(&CreatureCall::Cry)
+                    || matches!(kind, MobKind::Arrow | MobKind::Bobber)
+                    || kind.is_vehicle(),
                 "{kind:?}"
             );
             assert_eq!(

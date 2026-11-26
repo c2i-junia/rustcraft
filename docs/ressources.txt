@@ -68,6 +68,17 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
    pictures (items/Compass.png, items/Compass_Draw1..16.png, every other compass_NN of the pack);
    the map drawn (items/FilledMap.png) is its filled_map under its filled_map_markings tinted
    brown, the front of the frame of a map (blocks/MapFrame.png) its item_frame over our oak planks.
+-> The fishing, the cooking and the farm, from Pixel Perfection CE (CC BY-SA 4.0), made by
+   scripts/generate_farm_items.py: the fishing rod, the egg, the apple, the bowl and the soups
+   (items/FishingRod.png, Egg.png, Apple.png, Bowl.png, MushroomSoup.png, Stew.png, BerrySalad.png,
+   FishChowder.png), the pack's item/fishing_rod, egg, apple, bowl, mushroom_stew, rabbit_stew,
+   beetroot_soup and suspicious_stew; recoloured from the pack's cod, salmon, tropical_fish,
+   pufferfish, cooked_cod and cooked_salmon, the five fish raw and grilled (items/Raw*.png,
+   items/Grilled*.png); from its cake, pumpkin_pie, mushroom_stew and bone_meal, the cocoa cake, the
+   pies, the cake batter and the compost; from its oak_leaves and oak_sapling, the leaves and the
+   sapling of the apple tree (blocks/AppleLeaves.png, blocks/AppleSapling.png), apples drawn on
+   them. The fried egg is our own, drawn by the same script; the float of the rod
+   (models/animated/Bobber.glb) is built by scripts/generate_bobber.py.
 -> The spawn eggs (items/*SpawnEgg.png) are our own,
    drawn by scripts/generate_spawn_eggs.py.
 -> The coin (items/Coin.png) and the directions (hud/directions.png) are our own,

@@ -704,6 +704,7 @@ pub(super) fn sapling_tree(
         BlockId::SpruceSapling => (BlockId::SpruceLog, BlockId::SpruceLeaves),
         BlockId::WillowSapling => (BlockId::WillowLog, BlockId::WillowLeaves),
         BlockId::AcaciaSapling => (BlockId::AcaciaLog, BlockId::AcaciaLeaves),
+        BlockId::AppleSapling => (BlockId::OakLog, BlockId::AppleLeaves),
         _ => (BlockId::OakLog, BlockId::OakLeaves),
     };
     for (_, block, _) in &mut blocks {
@@ -1083,6 +1084,18 @@ impl WorldGenerator {
             animals.extend(plan.chunk_animals(chunk_pos));
         }
         animals
+    }
+
+    /// The herds the animals coming back to the column at `(x, z)` are drawn from
+    /// (`mob::wildlife`): those of its biome, none on a village.
+    pub fn wild_herds_at(&self, x: i32, z: i32) -> Vec<Herd> {
+        let chunk = IVec2::new(x.div_euclid(CHUNK_SIZE), z.div_euclid(CHUNK_SIZE));
+        let columns = self.chunk_columns(chunk);
+        let column = columns.at(x.rem_euclid(CHUNK_SIZE), z.rem_euclid(CHUNK_SIZE));
+        if column.village {
+            return Vec::new();
+        }
+        column.def().herds.clone()
     }
 
     /// The `ChunkColumns` of the column of chunks `chunk_column`, from the cache or computed.
