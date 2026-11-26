@@ -463,7 +463,10 @@ fn fury(
         (mother.action, mother.action_ticks) = (MobAction::Attack, ATTACK_SHOW_TICKS);
         let damage = map.difficulty.strike_damage(strike.damage);
         if let Some(player) = map.players.get_mut(&prey.id) {
-            player.hurt(damage, DamageSource::Mob(mother.kind));
+            // Her blow knocks a raised shield down
+            if player.parry(mother.position, damage, true).is_none() {
+                player.hurt(damage, DamageSource::Mob(mother.kind));
+            }
             player.knock_back(player.position - mother.position, strike.knock_back);
         }
     }

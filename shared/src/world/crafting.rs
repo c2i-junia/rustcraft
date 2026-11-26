@@ -300,6 +300,19 @@ const RECIPES: &[Recipe] = &[
         nb: 1,
         shapeless: false,
     },
+    // Minecraft's shield, of any planks around an iron boss
+    Recipe { width: 3, cells: &[PLANKS, IRON, PLANKS, PLANKS, PLANKS, PLANKS, None, PLANKS, None], output: ItemId::Shield, nb: 1, shapeless: false },
+    // Minecraft's crossbow, its tripwire hook an iron latch, its strings of rope
+    Recipe {
+        width: 3,
+        cells: &[STICK, IRON, STICK, item(ItemId::Rope), IRON, item(ItemId::Rope), None, STICK, None],
+        output: ItemId::Crossbow,
+        nb: 1,
+        shapeless: false,
+    },
+    Recipe { width: 1, cells: &[IRON, STICK, item(ItemId::Feather)], output: ItemId::Bolt, nb: 8, shapeless: false },
+    Recipe { width: 2, cells: &[IRON, IRON, None, STICK], output: ItemId::ThrowingAxe, nb: 4, shapeless: false },
+    Recipe { width: 2, cells: &[IRON, IRON, IRON, IRON, None, STICK], output: ItemId::Mace, nb: 1, shapeless: false },
     Recipe { width: 3, cells: &helmet(LEATHER), output: ItemId::LeatherHelmet, nb: 1, shapeless: false },
     Recipe { width: 3, cells: &chestplate(LEATHER), output: ItemId::LeatherChestplate, nb: 1, shapeless: false },
     Recipe { width: 3, cells: &leggings(LEATHER), output: ItemId::LeatherLeggings, nb: 1, shapeless: false },
@@ -1076,7 +1089,7 @@ mod tests {
     #[test]
     fn every_recipe_is_listed_with_its_index_and_size() {
         let all: Vec<RecipeView> = recipes().collect();
-        assert_eq!(all.len(), 109 - 3 + 152);
+        assert_eq!(all.len(), 109 - 3 + 152 + 5);
         for (position, recipe) in all.iter().enumerate() {
             assert_eq!(recipe.index as usize, position);
             assert_eq!(recipe.cells.len(), recipe.width * recipe.height);
@@ -1095,18 +1108,18 @@ mod tests {
     fn recipes_for_and_uses_of_find_the_recipes_of_an_item() {
         let counts = |item| (recipes_for(item).count(), uses_of(item).count());
         assert_eq!(counts(ItemId::WoodenPickaxe), (1, 0));
-        assert_eq!(counts(ItemId::Stick), (1, 49));
-        // the recipes of any planks, then the slab, stairs, door, trapdoor and gate of the species
-        assert_eq!(counts(ItemId::OakPlanks), (1, 12 + 5));
-        assert_eq!(counts(ItemId::SprucePlanks), (1, 12 + 5));
-        assert_eq!(counts(ItemId::JunglePlanks), (1, 12 + 5));
+        assert_eq!(counts(ItemId::Stick), (1, 53));
+        // the recipes of any planks (the shield among them), then the slab, stairs, door, trapdoor and gate of the species
+        assert_eq!(counts(ItemId::OakPlanks), (1, 13 + 5));
+        assert_eq!(counts(ItemId::SprucePlanks), (1, 13 + 5));
+        assert_eq!(counts(ItemId::JunglePlanks), (1, 13 + 5));
         let uses = |item| uses_of(item).map(|r| r.index).collect::<Vec<_>>();
-        assert_eq!(uses(ItemId::OakPlanks)[..12], uses(ItemId::SprucePlanks)[..12]);
-        assert_eq!(uses(ItemId::OakPlanks)[..12], uses(ItemId::JunglePlanks)[..12]);
-        assert_ne!(uses(ItemId::OakPlanks)[12..], uses(ItemId::SprucePlanks)[12..]);
+        assert_eq!(uses(ItemId::OakPlanks)[..13], uses(ItemId::SprucePlanks)[..13]);
+        assert_eq!(uses(ItemId::OakPlanks)[..13], uses(ItemId::JunglePlanks)[..13]);
+        assert_ne!(uses(ItemId::OakPlanks)[13..], uses(ItemId::SprucePlanks)[13..]);
         // the tools, the furnace, and the slab, stairs and low wall
         assert_eq!(counts(ItemId::Cobblestone), (0, 6 + 3));
-        assert_eq!(counts(ItemId::IronIngot), (1, 16));
+        assert_eq!(counts(ItemId::IronIngot), (1, 21));
         assert_eq!(counts(ItemId::Torch), (2, 1));
         assert_eq!(counts(ItemId::Bedrock), (0, 0));
         assert!(recipes_for(ItemId::Chest).all(|r| r.output.item_id == ItemId::Chest));
@@ -1363,6 +1376,7 @@ mod tests {
                 ItemId::Barrel,
                 ItemId::Sign,
                 ItemId::Boat,
+                ItemId::Shield,
             ]
         );
         for recipe in &with_planks {

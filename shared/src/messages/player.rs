@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::PlayerId;
 use crate::players::armour::WornArmour;
+use crate::players::effects::StatusEffects;
 use crate::players::experience::Experience;
 use crate::players::game_mode::{DeathCause, GameMode};
 use crate::players::skin::PlayerSkin;
@@ -80,6 +81,10 @@ pub struct PlayerUpdateEvent {
     pub held: Option<Held>,
     /// The armour the player wears (`Inventory::worn`): the others see it on its model.
     pub worn: WornArmour,
+    /// The status effects on the player (`Player::effects`), which its HUD shows.
+    pub effects: StatusEffects,
+    /// The hits the shield of the player parried (`Player::parries`): each one is heard.
+    pub parries: u8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]

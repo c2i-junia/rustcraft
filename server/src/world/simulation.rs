@@ -494,6 +494,15 @@ pub fn burn_system(mut world_map: ResMut<ServerWorldMap>, weather: Res<ServerWea
     }
 }
 
+/// A tick of the status effects of each player (`Player::tick_effects`): poison, burn and
+/// regeneration change its health, and its slowness is set for its next inputs. Runs once the
+/// inputs of the tick moved the players.
+pub fn status_effects_system(mut world_map: ResMut<ServerWorldMap>) {
+    for player in world_map.players.values_mut() {
+        player.tick_effects();
+    }
+}
+
 /// Every `REGENERATION_TICKS`, each player's metabolism (`Player::metabolise`): a fed player
 /// gets a point of health back, a starving one loses one.
 pub fn metabolism_system(mut world_map: ResMut<ServerWorldMap>, time: Res<ServerTime>) {
@@ -532,6 +541,8 @@ pub fn broadcast_player_updates_system(
                 swinging: player.is_swinging,
                 held: player.inventory.in_hand(player.hotbar_slot),
                 worn: player.inventory.worn(),
+                effects: player.effects.clone(),
+                parries: player.parries,
             })
         };
         let open_chest = player

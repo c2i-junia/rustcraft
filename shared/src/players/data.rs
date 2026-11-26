@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::air::{full_air, MAX_AIR};
 use super::constants::DRAG_MS;
+use super::effects::StatusEffects;
 use super::experience::Experience;
 use super::game_mode::{
     DamageSource, DeathCause, GameMode, INVULNERABILITY_TICKS, MAX_HEALTH, THROWN_OFF_TICKS,
@@ -330,6 +331,25 @@ pub struct Player {
     /// who joins stands.
     #[serde(skip)]
     pub riding: Option<Riding>,
+    /// The status effects on the player (`effects`). Only the server changes them; saved.
+    #[serde(default)]
+    pub effects: StatusEffects,
+    /// The level of slowness of the player, from its effects (`Player::tick_effects`). Part of
+    /// the `MovementState`, as it slows the player. Not saved: the effects give it again.
+    #[serde(skip)]
+    pub slowness: u8,
+    /// How long the player has raised its shield, in ms (`shield::raise_shield`). Part of the
+    /// `MovementState`. Not saved.
+    #[serde(skip)]
+    pub shield_ms: u32,
+    /// The time left, in ms of input, before a shield knocked down may be raised again. Part
+    /// of the `MovementState`. Not saved.
+    #[serde(skip)]
+    pub shield_disabled_ms: u32,
+    /// How many hits the shield of the player parried, wrapping: the clients hear each one. Not
+    /// saved.
+    #[serde(skip)]
+    pub parries: u8,
 }
 
 /// What the movement simulation carries over from one input to the next. The server sends it
@@ -351,6 +371,12 @@ pub struct MovementState {
     pub bow_draw_ms: u32,
     /// `Player::riding`: the others see the player seated.
     pub riding: Option<Riding>,
+    /// `Player::slowness`.
+    pub slowness: u8,
+    /// `Player::shield_ms`: the others see the shield raised.
+    pub shield_ms: u32,
+    /// `Player::shield_disabled_ms`.
+    pub shield_disabled_ms: u32,
 }
 
 /// The upward velocity a knock back gives at least, in blocks/s: a hop of a quarter of a block.
@@ -379,6 +405,9 @@ impl Player {
             dragged_ms: self.dragged_ms,
             bow_draw_ms: self.bow_draw_ms,
             riding: self.riding,
+            slowness: self.slowness,
+            shield_ms: self.shield_ms,
+            shield_disabled_ms: self.shield_disabled_ms,
         }
     }
 
@@ -395,6 +424,9 @@ impl Player {
         self.dragged_ms = state.dragged_ms;
         self.bow_draw_ms = state.bow_draw_ms;
         self.riding = state.riding;
+        self.slowness = state.slowness;
+        self.shield_ms = state.shield_ms;
+        self.shield_disabled_ms = state.shield_disabled_ms;
     }
 
     /// What the portals know of the player going through them: its box, and the floor portal it
@@ -496,6 +528,7 @@ impl Player {
         self.food = MAX_FOOD;
         self.saturation = RESPAWN_SATURATION;
         self.exhaustion = 0.0;
+        self.effects.clear();
     }
 
     pub fn new(id: PlayerId, name: String, position: Vec3, camera_transform: Transform) -> Self {
@@ -542,6 +575,11 @@ impl Player {
             hotbar_slot: 0,
             skin: PlayerSkin::default(),
             riding: None,
+            effects: StatusEffects::default(),
+            slowness: 0,
+            shield_ms: 0,
+            shield_disabled_ms: 0,
+            parries: 0,
         }
     }
 }

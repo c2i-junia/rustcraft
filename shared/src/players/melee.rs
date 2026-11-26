@@ -21,6 +21,8 @@ pub enum WeaponClass {
     Axe,
     /// Blows from afar, at a steady pace.
     Spear,
+    /// The slowest and heaviest blows, which throw back far (`WeaponClass::knock_back`).
+    Mace,
     /// A pickaxe, a shovel or a hoe: a tool, not a weapon.
     Tool,
 }
@@ -38,8 +40,11 @@ impl WeaponClass {
         let Some(item) = held else {
             return Self::Hand;
         };
-        if item == ItemId::Spear {
-            return Self::Spear;
+        match item {
+            ItemId::Spear => return Self::Spear,
+            ItemId::Mace => return Self::Mace,
+            ItemId::ThrowingAxe => return Self::Axe,
+            _ => {}
         }
         match item.tool().map(|tool| tool.kind) {
             Some(ToolKind::Sword) => Self::Sword,
@@ -57,6 +62,16 @@ impl WeaponClass {
             Self::Tool => 650,
             Self::Spear => 750,
             Self::Axe => 1000,
+            Self::Mace => 1400,
+        }
+    }
+
+    /// What the weapon multiplies the throw back of a blow by.
+    pub fn knock_back(self) -> f32 {
+        if self == Self::Mace {
+            2.2
+        } else {
+            1.0
         }
     }
 
@@ -73,8 +88,8 @@ impl WeaponClass {
         self == Self::Sword
     }
 
-    /// Whether a blow breaks the shield it meets. The hook for the shields to come: nothing
-    /// carries one yet.
+    /// Whether a blow knocks down the shield it meets for a while (`shield::Parry`), or the
+    /// bark of a Stumpling.
     pub fn breaks_shields(self) -> bool {
         self == Self::Axe
     }
@@ -203,6 +218,9 @@ mod tests {
         assert_eq!(class(ItemId::IronAxe).pace(), Pace::Slow);
         assert!(class(ItemId::IronAxe).breaks_shields());
         assert!(!class(ItemId::IronSword).breaks_shields());
+        assert_eq!(class(ItemId::Mace).pace(), Pace::Slow);
+        assert!(class(ItemId::Mace).knock_back() > class(ItemId::IronAxe).knock_back());
+        assert!(ItemId::Mace.attack_damage() > ItemId::DiamondAxe.attack_damage());
         let (sword, axe) = (ItemId::IronSword, ItemId::IronAxe);
         assert!(axe.attack_damage() > sword.attack_damage());
         // Per second, the sword still wins

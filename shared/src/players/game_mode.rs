@@ -86,12 +86,17 @@ pub enum DamageSource {
     Mob(MobKind),
     /// An arrow of this player hit it.
     Arrow(PlayerId),
+    /// A poison runs in its blood (`effects::EffectKind::Poison`).
+    Poison,
 }
 
 impl DamageSource {
     /// Whether the source hurts a player who was just hit: the void and hunger do not wait.
     pub fn pierces_invulnerability(self) -> bool {
-        matches!(self, DamageSource::Void | DamageSource::Starvation)
+        matches!(
+            self,
+            DamageSource::Void | DamageSource::Starvation | DamageSource::Poison
+        )
     }
 
     /// Whether armour absorbs a share of it: the blows and the throws of the mobs, the
@@ -121,6 +126,8 @@ pub enum DeathCause {
     ThrownOff(MobKind),
     /// An arrow of this player hit it last.
     Shot(PlayerId),
+    /// A poison, which in the game never kills by itself.
+    Poison,
 }
 
 impl DeathCause {
@@ -137,6 +144,7 @@ impl DeathCause {
             (DamageSource::Starvation, _) => DeathCause::Starvation,
             (DamageSource::Mob(kind), _) => DeathCause::Mob(kind),
             (DamageSource::Arrow(shooter), _) => DeathCause::Shot(shooter),
+            (DamageSource::Poison, _) => DeathCause::Poison,
         }
     }
 
@@ -158,6 +166,7 @@ impl DeathCause {
             DeathCause::Lava => "You tried to swim in lava".into(),
             DeathCause::Starvation => "You starved to death".into(),
             DeathCause::Shot(_) => "An arrow got you".into(),
+            DeathCause::Poison => "The poison got you".into(),
             DeathCause::Mob(kind) => format!("A {} got you", kind.display_name()),
             DeathCause::ThrownOff(kind) => {
                 format!("A {} threw you off a ledge", kind.display_name())

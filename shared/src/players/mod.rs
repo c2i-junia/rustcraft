@@ -6,6 +6,7 @@ pub mod bow;
 pub mod collision;
 pub mod constants;
 mod data;
+pub mod effects;
 pub mod enchanting;
 pub mod experience;
 pub mod fire;
@@ -16,6 +17,7 @@ pub mod melee;
 pub mod movement;
 pub mod progress;
 pub mod riding;
+pub mod shield;
 pub mod simulation;
 pub mod skin;
 

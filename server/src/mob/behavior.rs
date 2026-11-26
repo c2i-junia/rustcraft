@@ -166,6 +166,7 @@ fn step_mobs(
             continue;
         }
         mob.hurt_ticks = mob.hurt_ticks.saturating_sub(1);
+        mob.guard_down = mob.guard_down.saturating_sub(1);
         // Its rider moves it (`riding::riding_system`)
         if super::riding::is_driven(mob) {
             continue;

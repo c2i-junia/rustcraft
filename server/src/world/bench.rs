@@ -430,6 +430,8 @@ fn bench_player_updates() {
             swinging: false,
             held: None,
             worn: Default::default(),
+            effects: Default::default(),
+            parries: 0,
         }))
         .len()
     };

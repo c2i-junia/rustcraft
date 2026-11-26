@@ -124,6 +124,7 @@ pub fn simulate_player_movement(
         return MovementOutcome::default();
     }
     draw_bow(player, action);
+    super::shield::raise_shield(player, action);
     // Hold the player still until its terrain has arrived
     if !is_terrain_loaded(player.position, world_map) {
         log::debug!(
@@ -258,6 +259,7 @@ fn update_stance(player: &mut Player, action: &PlayerFrameInput, in_liquid: bool
     player.is_sprinting = forward
         && !player.is_sneaking
         && player.bow_draw_ms == 0
+        && player.shield_ms == 0
         && player.may_sprint()
         && (player.is_sprinting || action.is_pressed(NetworkAction::Sprint));
     player.is_swimming = in_liquid && player.is_sprinting;
@@ -482,11 +484,14 @@ pub fn top_speed(player: &Player) -> f32 {
 
 /// The horizontal speed of the player, in blocks/s: less while it draws a bow.
 fn speed(player: &Player, in_liquid: bool, in_lava: bool) -> f32 {
-    let drawing = if player.bow_draw_ms > 0 {
+    let held_back = if player.bow_draw_ms > 0 {
         DRAW_SPEED_MULTIPLIER
+    } else if player.shield_ms > 0 {
+        super::shield::RAISED_SPEED_MULTIPLIER
     } else {
         1.0
     };
+    let drawing = held_back * super::effects::StatusEffects::speed_factor(player.slowness);
     let speed = if player.is_flying {
         let sprint = if player.is_sprinting {
             FLY_SPRINT_SPEED_MULTIPLIER

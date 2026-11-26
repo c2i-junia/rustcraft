@@ -196,6 +196,11 @@ fn tr_built(key: String) -> &'static str {
     lookup(language(), &key).unwrap_or("?")
 }
 
+/// The name of a status effect.
+pub fn effect_kind_name(kind: shared::players::effects::EffectKind) -> &'static str {
+    tr_built(format!("effect.{kind:?}"))
+}
+
 /// The name of a mob, an animal or a villager.
 pub fn mob_name(kind: MobKind) -> &'static str {
     tr_built(format!("mob.{kind:?}"))

@@ -18,6 +18,7 @@ use rand::Rng;
 use shared::{
     messages::PlayerId,
     players::{
+        effects::EffectKind,
         game_mode::{DamageSource, SAFE_FALL_DISTANCE},
         Player,
     },
@@ -401,14 +402,41 @@ fn face(mob: &mut ServerMob, target: Vec3) {
 }
 
 /// `mob` strikes `player` (`Player::hurt`, which its invulnerability may ignore), and knocks it
-/// away from itself; a Drowner's grab drags it down (`Player::drag`).
+/// away from itself; a Drowner's grab drags it down (`Player::drag`). A shield raised toward
+/// `mob` parries the blow, but a Roller's charge knocks it down. A blow that lands may leave its
+/// effect (`inflicted_effect`).
 fn strike_player(mob: &ServerMob, player: &mut Player, strike: &Strike, away: Vec3) {
-    player.hurt(strike.damage, DamageSource::Mob(mob.kind));
+    let knocks_down = mob.kind == MobKind::Roller;
+    if player
+        .parry(mob.position, strike.damage, knocks_down)
+        .is_some()
+    {
+        // The shield takes the push, a little of it
+        if strike.knock_back > 0.0 {
+            player.knock_back(away, strike.knock_back * 0.3);
+        }
+        return;
+    }
+    let landed = player.hurt(strike.damage, DamageSource::Mob(mob.kind));
     if strike.knock_back > 0.0 {
         player.knock_back(away, strike.knock_back);
     }
     if mob.kind == MobKind::Drowner {
         player.drag();
+    }
+    if let (true, Some((kind, level, seconds))) = (landed, inflicted_effect(mob.kind)) {
+        player.give_effect(kind, level, seconds);
+    }
+}
+
+/// The status effect the blow of a hostile of `kind` leaves, its level and its seconds: the
+/// Drowner's cold grip slows, the Bramble's thorns poison, the Gnawer's bite weakens.
+pub fn inflicted_effect(kind: MobKind) -> Option<(EffectKind, u8, u32)> {
+    match kind {
+        MobKind::Drowner => Some((EffectKind::Slowness, 2, 6)),
+        MobKind::Bramble => Some((EffectKind::Poison, 1, 6)),
+        MobKind::Gnawer => Some((EffectKind::Weakness, 1, 10)),
+        _ => None,
     }
 }
 

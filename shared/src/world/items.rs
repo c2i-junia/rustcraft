@@ -399,11 +399,24 @@ pub enum ItemId {
     GreenDye,
     RedDye,
     BlackDye,
+    /// Raised by holding the right button, it parries what comes from the front
+    /// (`players::shield`).
+    Shield,
+    /// Loaded slowly by holding the right button, it shoots a bolt once loaded (`players::bow`).
+    Crossbow,
+    /// What a crossbow shoots: it pierces a creature and goes on.
+    Bolt,
+    /// Thrown as an arrow is shot, it falls back as itself (`players::bow`).
+    ThrowingAxe,
+    /// A heavy weapon, slow, which throws back far (`players::melee`).
+    Mace,
+    /// Drunk, it takes every status effect away (`players::effects`).
+    MilkBucket,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 361] = [
+    pub const ALL: [ItemId; 367] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -765,6 +778,12 @@ impl ItemId {
         Self::GreenDye,
         Self::RedDye,
         Self::BlackDye,
+        Self::Shield,
+        Self::Crossbow,
+        Self::Bolt,
+        Self::ThrowingAxe,
+        Self::Mace,
+        Self::MilkBucket,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -803,7 +822,9 @@ impl ItemId {
             | Self::Spear
             | Self::PortalGun
             | Self::Saddle
-            | Self::Boat => 1,
+            | Self::Boat
+            | Self::MilkBucket => 1,
+            Self::ThrowingAxe => 16,
             _ if self.durability().is_some() => 1,
             _ => 64,
         }
@@ -811,8 +832,10 @@ impl ItemId {
 
     /// The points of health a blow with the item takes from a mob.
     pub fn attack_damage(&self) -> u32 {
-        if *self == Self::Spear {
-            return 5;
+        match *self {
+            Self::Spear | Self::ThrowingAxe => return 5,
+            Self::Mace => return 10,
+            _ => {}
         }
         let Some(tool) = self.tool() else {
             return 1;
@@ -834,6 +857,9 @@ impl ItemId {
     /// How much a blow on a mob wears the item: a sword is made for it, another tool wears as
     /// it does on a block it is not made for; the rest does not wear.
     pub fn blow_wear(&self) -> u32 {
+        if *self == Self::Mace {
+            return 1;
+        }
         match self.tool() {
             Some(tool) if tool.kind == ToolKind::Sword => 1,
             Some(_) => 2,
@@ -944,6 +970,9 @@ impl ItemId {
         match *self {
             Self::FlintAndSteel => Some(64),
             Self::Bow => Some(320),
+            Self::Shield => Some(crate::players::shield::SHIELD_DURABILITY),
+            Self::Crossbow => Some(465),
+            Self::Mace => Some(500),
             _ => match self.armour() {
                 Some(armour) => Some(armour.durability()),
                 None => self.tool().map(|tool| tool.durability),
@@ -1135,7 +1164,13 @@ impl ItemId {
             | Self::Arrow
             | Self::DepthsCompass
             | Self::Saddle
-            | Self::Boat => ItemCategory::Tools,
+            | Self::Boat
+            | Self::Shield
+            | Self::Crossbow
+            | Self::Bolt
+            | Self::ThrowingAxe
+            | Self::Mace
+            | Self::MilkBucket => ItemCategory::Tools,
             Self::FoxSpawnEgg
             | Self::SheepSpawnEgg
             | Self::CowSpawnEgg
@@ -1317,7 +1352,11 @@ impl ItemId {
             | Self::BakedPotato
             | Self::Saddle
             | Self::Boat
-            | crate::dye_items!() => ItemType::Generic,
+            | crate::dye_items!()
+            | Self::Bolt
+            | Self::ThrowingAxe
+            | Self::MilkBucket => ItemType::Generic,
+            Self::Shield | Self::Crossbow | Self::Mace => ItemType::Tool { wear: 0 },
 
             Self::WoodenPickaxe
             | Self::WoodenAxe
@@ -1897,6 +1936,12 @@ mod tests {
             (ItemId::GreenDye, 358),
             (ItemId::RedDye, 359),
             (ItemId::BlackDye, 360),
+            (ItemId::Shield, 361),
+            (ItemId::Crossbow, 362),
+            (ItemId::Bolt, 363),
+            (ItemId::ThrowingAxe, 364),
+            (ItemId::Mace, 365),
+            (ItemId::MilkBucket, 366),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -2101,7 +2146,13 @@ mod tests {
                 | ItemId::Saddle
                 | ItemId::Boat
                 | crate::new_palette_block_items!()
-                | crate::dye_items!() => {}
+                | crate::dye_items!()
+                | ItemId::Shield
+                | ItemId::Crossbow
+                | ItemId::Bolt
+                | ItemId::ThrowingAxe
+                | ItemId::Mace
+                | ItemId::MilkBucket => {}
             }
         }
         for (id, expected) in table {
@@ -2325,6 +2376,12 @@ mod tests {
             ItemId::Bow,
             ItemId::Saddle,
             ItemId::Boat,
+            ItemId::Shield,
+            ItemId::Crossbow,
+            ItemId::Bolt,
+            ItemId::ThrowingAxe,
+            ItemId::Mace,
+            ItemId::MilkBucket,
         ];
         let others = ItemId::ALL
             .iter()
@@ -2503,6 +2560,12 @@ mod tests {
                     | ItemId::DepthsCompass
                     | ItemId::Saddle
                     | ItemId::Boat
+                    | ItemId::Shield
+                    | ItemId::Crossbow
+                    | ItemId::Bolt
+                    | ItemId::ThrowingAxe
+                    | ItemId::Mace
+                    | ItemId::MilkBucket
             );
             assert_eq!(
                 item.category() == ItemCategory::Tools,

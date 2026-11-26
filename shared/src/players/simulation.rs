@@ -56,6 +56,7 @@ pub fn simulate_player_actions(
     player.hotbar_slot = action.hotbar_slot;
     if player.is_dead() {
         player.bow_draw_ms = 0;
+        player.shield_ms = 0;
         return ActionsOutcome::default();
     }
     let interactions = simulate_player_block_interactions(player, world_map, action, caller_type);

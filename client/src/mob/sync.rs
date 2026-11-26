@@ -84,6 +84,8 @@ pub struct Mob {
     pub saddled: bool,
     /// The points of health the mob has at most, for the mount's bar (`ui::hud::mount`).
     pub max_health: u32,
+    /// How many blows the mob parried (`ServerMob::parries`): each change is heard.
+    parries: u8,
 }
 
 /// The model of a mob, a child of its entity, scaled with the mob.
@@ -124,6 +126,7 @@ impl Mob {
             coat: server.horse.map(|traits| traits.coat),
             saddled: server.saddled,
             max_health: server.max_health(),
+            parries: server.parries,
         }
     }
 
@@ -147,6 +150,7 @@ pub fn apply_mob_updates(
     mut mobs: Query<(&mut Mob, &mut Transform)>,
     asset_server: Res<AssetServer>,
     mut hurts: MessageWriter<MobHurt>,
+    mut sounds: MessageWriter<crate::audio::PlaySound>,
 ) {
     for id in std::mem::take(&mut client_mobs.removed) {
         if let Some(entity) = entities.0.remove(&id) {
@@ -157,6 +161,13 @@ pub fn apply_mob_updates(
         if let Some((mut mob, mut transform)) =
             entities.0.get(&id).and_then(|&e| mobs.get_mut(e).ok())
         {
+            if mob.parries != server.parries {
+                mob.parries = server.parries;
+                sounds.write(crate::audio::PlaySound::at(
+                    crate::audio::Sound::ShieldBlock,
+                    server.position,
+                ));
+            }
             if take_update(&mut mob, &mut transform, &server) {
                 hurts.write(MobHurt {
                     kind: server.kind,
@@ -407,6 +418,7 @@ mod tests {
             coat: None,
             saddled: false,
             max_health: 8,
+            parries: 0,
         };
         let mut transform = Transform::from_translation(shown).with_rotation(mob.rotation);
         let mut server = ServerMob {

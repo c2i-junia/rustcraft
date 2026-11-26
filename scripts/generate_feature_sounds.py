@@ -4,7 +4,7 @@ bow and its arrows, the experience, the engraving table, the anvil, the trade an
 the breeding and the taming, a mob falling into water, and the stings of the progress (a depth
 reached, an achievement, a boss, the victory, the credits, a skin imported), and the critical
 blows and the sweeps of the melee, and the mounts: a saddle put on, a boat's oars and a blow on its
-hull.
+hull, and the shield's parry and the crossbow's loading and shot.
 
 Built with the primitives of `generate_sounds.py` (its seed, its loudness and its output), so
 that they sound of a piece with the others; every sound is synthesised here, entirely original
@@ -475,6 +475,43 @@ def build_sweep(rng):
     return finish(outdoors(rng, swing + edge), -19)
 
 
+def build_shield_block(rng):
+    """A blow parried by a shield: a dull knock on planks, their ring, and the iron rim's clink."""
+    d = 0.45
+    knock = thump(rng, d, 170, 85, 0.05)
+    planks = modes(rng, d, [(240, 0.06, 1.0), (410, 0.04, 0.6), (690, 0.03, 0.4)], 0.01)
+    crack = band(white(rng, d), 800, 4000) * env(d, 0.0003, 0.008)
+    rim = clinks(rng, d, [0.005], 1900, 2600, 0.03)
+    return finish(outdoors(rng, knock * 0.9 + planks * 0.5 + crack * 0.35 + rim * 0.2), -17)
+
+
+def build_crossbow_load(rng):
+    """A crossbow cranked: the ratchet clicking slower as the string tightens, the stave
+    creaking under it, and the latch snapping shut."""
+    d = 1.25
+    times = [0.04 + 1.05 * (k / 9) ** 1.3 for k in range(9)]
+    ratchet = clinks(rng, d, times, 2600, 3600, 0.012)
+    rate = curve(d, (0, 20), (0.8, 50), (d, 60))
+    ticks = np.diff(np.floor(np.cumsum(rate) / 44100), prepend=0.0) * rng.uniform(0.5, 1.0, n_of(d))
+    wood = modes(rng, 0.02, [(480, 0.004, 1.0), (1300, 0.002, 0.5)])
+    creak = band(np.convolve(ticks, wood)[: n_of(d)], 300, 3500) * curve(d, (0, 0.2), (1.0, 1.0), (d, 0.4))
+    latch = clinks(rng, d, [1.15], 1500, 1900, 0.03) + place_at(d, contact_wood(rng, 0.5), 1.15) * 0.4
+    return finish(ratchet * 0.5 + creak * 0.4 + latch * 0.8, -24)
+
+
+def build_crossbow_shot(rng):
+    """A loaded crossbow let go: the latch's click, the short heavy string's snap and the bolt's
+    hiss."""
+    d = 0.45
+    click = clinks(rng, d, [0.0], 2200, 2800, 0.01)
+    f0 = rng.uniform(120, 135)
+    string = modes(rng, d, [(f0 * k, 0.06 / k**0.5, 1 / k) for k in range(1, 7)], 0.002)
+    snap = band(white(rng, d), 1500, 9000) * env(d, 0.0003, 0.01)
+    knock = thump(rng, d, 260, 90, 0.03)
+    hiss = whoosh(rng, d, 1800, 8000, 0.008, 0.05)
+    return finish(outdoors(rng, click * 0.4 + string * 0.6 + snap * 0.5 + knock * 0.6 + hiss * 0.3), -17)
+
+
 # --- mounts -----------------------------------------------------------------
 
 def build_saddle(rng):
@@ -554,6 +591,9 @@ def main():
     write_ogg("mob/saddle", build_saddle)
     write_ogg("boat/paddle", build_boat_paddle)
     write_ogg("boat/hit", build_boat_hit)
+    write_ogg("combat/shield_block", build_shield_block)
+    write_ogg("combat/crossbow_load", build_crossbow_load)
+    write_ogg("combat/crossbow_shot", build_crossbow_shot)
 
 
 if __name__ == "__main__":

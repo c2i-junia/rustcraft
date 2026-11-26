@@ -11,7 +11,8 @@ use bevy::ui::InteractionDisabled;
 use shared::messages::PlayerId;
 use shared::players::armour::WornArmour;
 use shared::players::Player;
-use shared::world::{BlockId, MobId, MobKind};
+use shared::players::bow::CROSSBOW_LOAD_MS;
+use shared::world::{BlockId, ItemId, MobId, MobKind};
 
 use super::creatures::HEARING_DISTANCE;
 use super::playback::PlaySound;
@@ -19,6 +20,7 @@ use super::sounds::{CreatureCall, Sound};
 use crate::dropped_items::ItemPickedUp;
 use crate::mob::{Mob, MobEntities};
 use crate::player::armour::Worn;
+use crate::player::hand::HeldItem;
 use crate::player::CurrentPlayerMarker;
 use crate::portal::PortalCamera;
 use crate::state::GameState;
@@ -84,6 +86,7 @@ pub struct PlayerSeen {
     worn: WornArmour,
     health: u32,
     bow_draw_ms: u32,
+    parries: u8,
     armour_heard: f32,
     draw_heard: f32,
 }
@@ -93,7 +96,12 @@ pub struct PlayerSeen {
 #[allow(clippy::type_complexity)]
 pub fn player_cues(
     time: Res<Time>,
-    players: Query<(&Player, Option<&Worn>, Has<CurrentPlayerMarker>)>,
+    players: Query<(
+        &Player,
+        Option<&Worn>,
+        Option<&HeldItem>,
+        Has<CurrentPlayerMarker>,
+    )>,
     cameras: Query<&GlobalTransform, (With<Camera3d>, Without<PortalCamera>)>,
     mut seen: Local<HashMap<PlayerId, PlayerSeen>>,
     mut sounds: MessageWriter<PlaySound>,
@@ -101,7 +109,8 @@ pub fn player_cues(
     let now = time.elapsed_secs();
     let ears = ears(&cameras);
     seen.retain(|id, _| players.iter().any(|(player, ..)| player.id == *id));
-    for (player, worn, local) in &players {
+    for (player, worn, held, local) in &players {
+        let held = held.and_then(|held| held.item());
         let worn = match (local, worn) {
             (true, _) => player.inventory.worn(),
             (false, Some(worn)) => worn.0,
@@ -114,6 +123,7 @@ pub fn player_cues(
                     worn,
                     health: player.health,
                     bow_draw_ms: player.bow_draw_ms,
+                    parries: player.parries,
                     ..default()
                 },
             );
@@ -138,9 +148,25 @@ pub fn player_cues(
             && player.bow_draw_ms > 0
             && now - last.draw_heard >= DRAW_INTERVAL_SECS
         {
-            sounds.write_batch(play(Sound::BowDraw));
+            let draw = if held == Some(ItemId::Crossbow) {
+                Sound::CrossbowLoad
+            } else {
+                Sound::BowDraw
+            };
+            sounds.write_batch(play(draw));
             last.draw_heard = now;
         }
+        // A loaded crossbow let go
+        if last.bow_draw_ms >= CROSSBOW_LOAD_MS
+            && player.bow_draw_ms == 0
+            && held == Some(ItemId::Crossbow)
+        {
+            sounds.write_batch(play(Sound::CrossbowShot));
+        }
+        if player.parries != last.parries {
+            sounds.write_batch(play(Sound::ShieldBlock));
+        }
+        last.parries = player.parries;
         last.worn = worn;
         last.health = player.health;
         last.bow_draw_ms = player.bow_draw_ms;

@@ -702,10 +702,20 @@ fn notes(stack: &ItemStack) -> String {
 /// weapon does besides. None for what is no weapon.
 fn weapon_notes(item: shared::world::ItemId) -> Vec<String> {
     use shared::players::melee::{Pace, WeaponClass};
+    use shared::world::ItemId;
     let class = WeaponClass::of(Some(item));
+    let ranged = match item {
+        ItemId::Shield => Some("inventory.shield"),
+        ItemId::Crossbow => Some("inventory.crossbow"),
+        ItemId::Bolt => Some("inventory.bolt"),
+        _ => None,
+    };
+    if let Some(key) = ranged {
+        return vec![tr(key).to_string()];
+    }
     if !matches!(
         class,
-        WeaponClass::Sword | WeaponClass::Axe | WeaponClass::Spear
+        WeaponClass::Sword | WeaponClass::Axe | WeaponClass::Spear | WeaponClass::Mace
     ) {
         return Vec::new();
     }
@@ -723,6 +733,15 @@ fn weapon_notes(item: shared::world::ItemId) -> Vec<String> {
     }
     if class == WeaponClass::Spear {
         notes.push(tr("inventory.long_reach").to_string());
+    }
+    if class.breaks_shields() {
+        notes.push(tr("inventory.breaks_shields").to_string());
+    }
+    if class == WeaponClass::Mace {
+        notes.push(tr("inventory.heavy_knock_back").to_string());
+    }
+    if item == ItemId::ThrowingAxe {
+        notes.push(tr("inventory.thrown").to_string());
     }
     notes
 }

@@ -150,6 +150,8 @@ Not run again to compare their output.
 - `scripts/generate_engraving_table.py` (2): blocks/EngravingTable, blocks/EngravingTableTop
 - `scripts/generate_bow.py` (5): items/Arrow, items/Bow, items/Bow_Draw1, items/Bow_Draw2,
   items/Bow_Draw3
+- `scripts/generate_combat_gear.py` (4, after the audit): items/Bolt, items/Mace, items/Shield,
+  items/ThrowingAxe
 - `scripts/generate_spawn_eggs.py` (20): items/BrambleSpawnEgg, items/CartographerSpawnEgg,
   items/CatSpawnEgg, items/ChickenSpawnEgg, items/CinderlingSpawnEgg, items/CowSpawnEgg,
   items/DrownerSpawnEgg, items/FarmerSpawnEgg, items/FoxSpawnEgg, items/GnawerSpawnEgg,
@@ -230,12 +232,21 @@ custom_textures/blocks/Left, custom_textures/blocks/Right, custom_textures/block
 
 ## Sounds, music and models
 
-- The 220 files of `data/sounds/` and the 8 of `data/music/`: synthesised by `scripts/generate_sounds.py`,
-  `scripts/generate_feature_sounds.py` (the 49 of the armour, the bow, the experience, the engraving
-  table, the anvil, the trade, the villagers, the breeding, the progress, the melee and the mounts) and `scripts/generate_music.py`, as commits `86973646`, `52050487`, `2396d533`, `75bd05c9` and others
+- The 223 files of `data/sounds/` and the 8 of `data/music/`: synthesised by `scripts/generate_sounds.py`,
+  `scripts/generate_feature_sounds.py` (the 52 of the armour, the bow, the experience, the engraving
+  table, the anvil, the trade, the villagers, the breeding, the progress, the melee, the mounts, the
+  shield and the crossbow) and `scripts/generate_music.py`, as commits `86973646`, `52050487`, `2396d533`, `75bd05c9` and others
   and `docs/ressources.txt` say. Not run again to compare their output.
 - The 29 models of `data/models/animated/`: built by `scripts/generate_{animals,sheep,hostiles,villagers,boat}.py`.
   Not run again either.
+
+## Added after the audit, from Nova_Wostra's pack (10)
+
+As B: taken from the repository at the time of the shield and the crossbow, not cleared by a license.
+items/Crossbow (`item/crossbow_standby`), items/Crossbow_Draw1 (`crossbow_pulling_0`),
+items/Crossbow_Draw2 (`crossbow_pulling_2`), items/Crossbow_Draw3 (`crossbow_arrow`),
+items/MilkBucket (`milk_bucket`), hud/effect_poison, hud/effect_slowness, hud/effect_weakness,
+hud/effect_regeneration (`mob_effect/`), hud/effect_burn (`mob_effect/fire_resistance`).
 
 ## To do before the release
 

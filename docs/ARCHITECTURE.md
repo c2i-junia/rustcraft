@@ -683,8 +683,45 @@ falling, neither flying nor swimming). A full blow of a sword on the ground swee
 of its damage, but the tamed animals and the villagers. `ServerMob::struck` tells the clients what
 made the last blow special; `MobHurt` carries it, for the sparks (`mob/strikes.rs`) and the sounds
 (`Sound::CriticalHit`, `Sound::Sweep`). The client counts the same `Recharge` from its own inputs
-for the gauge under the reticle (`ui/hud/recharge.rs`). `WeaponClass::breaks_shields` (the axe) is
-the hook for the shields to come.
+for the gauge under the reticle (`ui/hud/recharge.rs`). The mace (`WeaponClass::Mace`, 1.4 s) is
+the slowest and throws back 2.2 times as far (`WeaponClass::knock_back`).
+
+### Shields, crossbows, throwing axes
+
+The shield (`shared/src/players/shield.rs`) is raised by holding the right button, from the
+selected slot or, as in the other hand, from anywhere in the hotbar while the hand holds a melee
+weapon or nothing (`shield_slot`). `raise_shield` runs with `draw_bow` in the movement: the raise
+(`Player::shield_ms`, up after 250 ms) and the time a knocked-down shield stays down
+(`shield_disabled_ms`, 5 s of input) are part of the `MovementState`, as the shield halves the speed
+and stops the sprint. Every source of a hit asks `Player::parry` first with where the hit comes from:
+a raised shield parries what comes from the front half (`shield::in_front`), wears by the damage, and
+counts `Player::parries`, which the clients hear (`Sound::ShieldBlock`). The hostiles' blows
+(`hostile::strike_player`), the embers, the arrows and the Ember Mother's blow go through it; the
+Roller's charge and the Ember Mother knock it down. A parried arrow falls as an item. The
+Stumpling parries the player's blows from its front with its bark (`MobKind::guards`,
+`ServerMob::parries`, heard the same); an axe (`WeaponClass::breaks_shields`) knocks it aside for
+4 s (`ServerMob::guard_down`) and lands.
+
+`players/bow.rs` draws three weapons (`full_draw_ms`): the bow, the crossbow (1.25 s to load, it
+shoots only once loaded, a bolt of 11 points that flies 1.3 times as fast and pierces two creatures:
+`BowShot::pierce`, `ArrowFlight::pierce_left`; a piercing bolt goes through what it already hurt)
+and the throwing axe (thrown out of its stack of 16, it falls back as an item where it ends). All
+three fly as `MobKind::Arrow`; `BowShot::ammo` says what is picked up again.
+
+### Status effects
+
+`shared/src/players/effects.rs` is the generic system the potions will use: an `EffectKind`
+(poison, burn, slowness, weakness, regeneration), a level and the ticks left (`Effect`), one at most
+of each kind in `Player::effects` (`StatusEffects::give`: the higher level wins, at the same level
+the longer time). The server gives them (`Player::give_effect`, never in creative) and counts them
+down once a tick (`status_effects_system`, `Player::tick_effects`): poison takes a point every 25
+ticks (halved by level) but never the last, burn every 20 ticks and may kill (`DamageSource::Fire`),
+regeneration heals every 50; slowness sets `Player::slowness`, part of the `MovementState`
+(15 % per level), and weakness takes 2 points per level from a blow (`StatusEffects::weakened`).
+They are saved with the player, sent in `PlayerUpdateEvent::effects` and shown at the top left of
+the HUD (`ui/hud/effects.rs`). The Drowner's grip slows, the Bramble's thorns poison, the Gnawer's
+bite weakens (`hostile::inflicted_effect`), an ember burns. A bucket of milk, from a cow with a
+bucket, takes them all away (`blocks::drink_milk`).
 
 ### Hostile mobs
 

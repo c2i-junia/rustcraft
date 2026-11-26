@@ -9,6 +9,7 @@ use shared::{
         blocks::{aim, held_item},
         hunger::BLOW_EXHAUSTION,
         melee::{self, Recharge, Strike, WeaponClass},
+        shield,
         progress::Achievement,
         Player, ViewMode,
     },
@@ -37,6 +38,8 @@ const KNOCK_SPEED: f32 = 4.0;
 const KNOCK_BACK_SPEED: f32 = 6.0;
 /// Ticks after a blow during which the mob takes no other.
 pub const MOB_INVULNERABILITY_TICKS: u32 = 10;
+/// Ticks the guard of a Stumpling stays down after an axe knocked it aside: 4 seconds.
+pub const GUARD_DOWN_TICKS: u32 = 4 * shared::TICKS_PER_SECOND as u32;
 /// Ticks a mob hit flees from the player: 5 seconds.
 pub const FLEE_TICKS: u32 = 5 * shared::TICKS_PER_SECOND as u32;
 
@@ -102,6 +105,11 @@ pub fn interact(
     let villager = mob.kind.is_villager();
     // A bow being drawn is not let go by what it sweeps over
     let trades = right && villager && player.bow_draw_ms == 0;
+    // A cow gives its milk to a bucket
+    let milks = right
+        && held == Some(ItemId::Bucket)
+        && mob.kind == MobKind::Cow
+        && !mob.is_young();
     let saddles = right
         && held == Some(ItemId::Saddle)
         && mob.kind == MobKind::Horse
@@ -111,13 +119,14 @@ pub fn interact(
     let mounts = right
         && !feeds
         && !saddles
+        && !milks
         && !shears
         && player.bow_draw_ms == 0
         && player.riding.is_none()
         && !player.is_sneaking
         && !held.is_some_and(|i| i.spawned_mob().is_some())
         && super::riding::free_seat(mob, &player.name).is_some();
-    if !left && !shears && !feeds && !trades && !saddles && !mounts {
+    if !left && !shears && !feeds && !trades && !saddles && !mounts && !milks {
         return None;
     }
     let target = aim(
@@ -175,6 +184,12 @@ pub fn interact(
             world.changed.insert(id);
         }
     }
+    if milks {
+        rest.inputs.remove(&NetworkAction::RightClick);
+        if pressed {
+            milk(player, input.hotbar_slot, &mut drops);
+        }
+    }
     if mounts {
         rest.inputs.remove(&NetworkAction::RightClick);
         if pressed {
@@ -188,7 +203,26 @@ pub fn interact(
         rest.inputs.remove(&NetworkAction::LeftClick);
         // A blow on a mob still invulnerable swings for nothing
         if let (Some(charge), false) = (swing, villager) {
-            if mob.hurt_ticks == 0 {
+            let class = WeaponClass::of(held);
+            let guarded = mob.kind.guards()
+                && mob.guard_down == 0
+                && shield::in_front(mob.rotation * Vec3::Z, mob.position, player.position);
+            if guarded && mob.hurt_ticks == 0 && !class.breaks_shields() {
+                // Its bark parries the blow
+                mob.hurt_ticks = MOB_INVULNERABILITY_TICKS;
+                mob.parries = mob.parries.wrapping_add(1);
+                world.changed.insert(id);
+                if let Some(item) = held {
+                    player
+                        .inventory
+                        .wear_tool(input.hotbar_slot, item.blow_wear());
+                }
+            } else if mob.hurt_ticks == 0 {
+                if guarded {
+                    // An axe knocks the guard aside, and the blow lands
+                    mob.guard_down = GUARD_DOWN_TICKS;
+                    mob.parries = mob.parries.wrapping_add(1);
+                }
                 player.exhaust(BLOW_EXHAUSTION);
                 let away = (mob.position - player.position)
                     .with_y(0.0)
@@ -198,16 +232,17 @@ pub fn interact(
                 let sharpness = weapon.filter(|_| held.is_some());
                 let base = mob.kind.blow_damage(held)
                     + sharpness.map_or(0, |weapon| weapon.bonus_blow_damage());
+                let base = player.effects.weakened(base);
                 let critical = melee::is_critical(
                     charge,
                     player.on_ground,
                     -player.velocity.y,
                     player.is_flying || player.is_swimming,
                 );
-                let sweeps = melee::sweeps(WeaponClass::of(held), charge, player.on_ground);
+                let sweeps = melee::sweeps(class, charge, player.on_ground);
                 let damage = melee::blow_damage(base, charge, critical);
                 // A hurried blow throws the mob back less far
-                let push = away * KNOCK_BACK_SPEED * (0.5 + 0.5 * charge);
+                let push = away * KNOCK_BACK_SPEED * (0.5 + 0.5 * charge) * class.knock_back();
                 let dies = wound(mob, player.id, damage, push);
                 mob.struck = if critical {
                     Some(Strike::Critical)
@@ -237,6 +272,27 @@ pub fn interact(
         sweep_around(player, id, position, forward, damage, &mut world, rng);
     }
     Some(rest)
+}
+
+/// Fills a bucket of the hotbar slot `slot` of `player` with milk: a single bucket becomes the
+/// bucket of milk, one of a stack goes into the inventory, or into `drops` without room.
+fn milk(player: &mut Player, slot: u32, drops: &mut Vec<(ItemId, u32)>) {
+    let Some(stack) = player.inventory.inner.get(&slot).copied() else {
+        return;
+    };
+    let milk = ItemStack {
+        item_id: ItemId::MilkBucket,
+        item_type: ItemId::MilkBucket.get_default_type(),
+        nb: 1,
+    };
+    if stack.nb == 1 {
+        player.inventory.inner.insert(slot, milk);
+        return;
+    }
+    player.inventory.remove_item_from_stack(slot, 1);
+    if player.inventory.add_item_to_inventory(milk) > 0 {
+        drops.push((ItemId::MilkBucket, 1));
+    }
 }
 
 /// The mob `id`, dead of a blow of `player`: the player beat it, its loot goes into `drops` and its
@@ -612,6 +668,54 @@ mod tests {
             melee::blow_damage(damage, charge, false)
         );
         assert_eq!(arena.mobs[&7].struck, None);
+    }
+
+    #[test]
+    fn a_stumpling_parries_from_its_front_but_an_axe_knocks_its_guard_aside() {
+        // Facing the player
+        let mut arena = Arena::with(ServerMob::new(MobKind::Stumpling, AHEAD));
+        let mut player = fighter(1, Some(ItemId::IronSword));
+        arena.click(&mut player, NetworkAction::LeftClick, 1);
+        assert_eq!(arena.mobs[&7].damage, 0);
+        assert_eq!(arena.mobs[&7].parries, 1);
+
+        let mut player = fighter(1, Some(ItemId::IronAxe));
+        arena.click(&mut player, NetworkAction::LeftClick, 1);
+        assert!(arena.mobs[&7].damage > 0);
+        assert_eq!(arena.mobs[&7].guard_down, GUARD_DOWN_TICKS);
+
+        // Turned away, it is struck by anything
+        let mut turned = ServerMob::new(MobKind::Stumpling, AHEAD);
+        turned.rotation = Quat::from_rotation_y(std::f32::consts::PI);
+        let mut arena = Arena::with(turned);
+        arena.click(&mut fighter(1, Some(ItemId::IronSword)), NetworkAction::LeftClick, 1);
+        assert!(arena.mobs[&7].damage > 0);
+    }
+
+    #[test]
+    fn a_weakened_player_strikes_softer_and_a_mace_throws_back_farther() {
+        use shared::players::effects::EffectKind;
+        let mut arena = Arena::with(ServerMob::new(MobKind::Cow, AHEAD));
+        let mut player = fighter(1, Some(ItemId::IronSword));
+        player.give_effect(EffectKind::Weakness, 1, 10);
+        arena.tick(&mut player, &NetworkAction::LeftClick, true);
+        assert_eq!(
+            arena.mobs[&7].damage,
+            ItemId::IronSword.attack_damage() - 2
+        );
+        let sword_push = arena.mobs[&7].velocity.with_y(0.0).length();
+
+        let mut arena = Arena::with(ServerMob::new(MobKind::Cow, AHEAD));
+        arena.tick(&mut fighter(1, Some(ItemId::Mace)), &NetworkAction::LeftClick, true);
+        assert!(arena.mobs[&7].velocity.with_y(0.0).length() > sword_push * 2.0);
+    }
+
+    #[test]
+    fn a_cow_fills_a_bucket_with_milk() {
+        let mut arena = Arena::with(ServerMob::new(MobKind::Cow, AHEAD));
+        let mut player = fighter(1, Some(ItemId::Bucket));
+        arena.click(&mut player, NetworkAction::RightClick, 1);
+        assert_eq!(player.inventory.inner[&0].item_id, ItemId::MilkBucket);
     }
 
     #[test]

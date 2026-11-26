@@ -13,7 +13,7 @@ use crate::world::locate::Locator;
 use crate::world::save::SaveRequestEvent;
 use crate::world::simulation::{
     breathe_system, broadcast_player_updates_system, burn_system, handle_player_inputs_system,
-    metabolism_system, tick_damage_timers_system, PlayerInputsEvent,
+    metabolism_system, status_effects_system, tick_damage_timers_system, PlayerInputsEvent,
 };
 use crate::world::weather::ServerWeather;
 use bevy::prelude::*;
@@ -141,6 +141,7 @@ pub fn register_systems(app: &mut App) {
             crate::mob::boss::boss_system,
             breathe_system,
             burn_system,
+            status_effects_system,
             world::furnaces::tick_furnaces_system,
             metabolism_system,
             crate::mob::villager::trade_system,

@@ -101,6 +101,12 @@ impl MobKind {
         self == MobKind::EmberMother
     }
 
+    /// Whether mobs of this kind parry the blows from their front, as with a shield: the
+    /// Stumpling, behind its thick bark, which an axe knocks aside for a while.
+    pub fn guards(self) -> bool {
+        self == MobKind::Stumpling
+    }
+
     /// Whether mobs of this kind are projectiles the server flies (`MobKind::Ember`, `MobKind::Arrow`): they do
     /// not walk, are not pushed nor struck, are not counted with the hostiles, and are not
     /// saved.
@@ -460,6 +466,8 @@ pub struct ArrowFlight {
     pub shot: BowShot,
     /// The cell of the block it is stuck in, if it is.
     pub stuck_in: Option<IVec3>,
+    /// How many more creatures it goes through (`BowShot::pierce`).
+    pub pierce_left: u8,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -547,6 +555,13 @@ pub struct ServerMob {
     /// with their `Player::riding`. Neither saved nor sent: the riders' states tell it.
     #[serde(skip)]
     pub riders: [Option<PlayerId>; 2],
+    /// How many blows the mob parried (a Stumpling's bark, `MobKind::guards`), wrapping: the
+    /// clients hear each one.
+    #[serde(default)]
+    pub parries: u8,
+    /// Ticks left before the guard an axe knocked down is up again. Neither saved nor sent.
+    #[serde(skip)]
+    pub guard_down: u32,
 }
 
 impl ServerMob {
@@ -584,6 +599,8 @@ impl ServerMob {
             horse: None,
             saddled: false,
             riders: [None; 2],
+            parries: 0,
+            guard_down: 0,
         }
     }
 

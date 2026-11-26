@@ -358,6 +358,12 @@ pub enum Sound {
     BoatPaddle,
     /// A boat is struck: its hull knocks.
     BoatHit,
+    /// A shield, or a Stumpling's bark, parries a blow or a shot: a dull wooden knock.
+    ShieldBlock,
+    /// A crossbow is loaded: its string cranked back to the latch.
+    CrossbowLoad,
+    /// A loaded crossbow shoots: the latch let go and the string's snap.
+    CrossbowShot,
 }
 
 impl Sound {
@@ -408,7 +414,7 @@ impl Sound {
 
     /// The sounds of the later features (`scripts/generate_feature_sounds.py`), but those of
     /// the armour put on and off and the voices of the villagers.
-    pub const FEATURES: [Sound; 32] = [
+    pub const FEATURES: [Sound; 35] = [
         Sound::BowLoose,
         Sound::ArmourBreak,
         Sound::BowDraw,
@@ -441,6 +447,9 @@ impl Sound {
         Sound::Saddle,
         Sound::BoatPaddle,
         Sound::BoatHit,
+        Sound::ShieldBlock,
+        Sound::CrossbowLoad,
+        Sound::CrossbowShot,
     ];
 
     /// The sounds of the weather, played by `audio::weather`.
@@ -555,6 +564,9 @@ impl Sound {
             Sound::Saddle => one("mob/saddle"),
             Sound::BoatPaddle => one("boat/paddle"),
             Sound::BoatHit => one("boat/hit"),
+            Sound::ShieldBlock => one("combat/shield_block"),
+            Sound::CrossbowLoad => one("combat/crossbow_load"),
+            Sound::CrossbowShot => one("combat/crossbow_shot"),
             Sound::PortalPass => vec!["sounds/player/pickup.ogg".to_string()],
             Sound::Creature(kind, call) => {
                 let folder = creature_folder(kind);

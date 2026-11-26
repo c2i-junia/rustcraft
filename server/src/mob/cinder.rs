@@ -12,7 +12,9 @@ use bevy::{
 use bevy_ecs::system::{Res, ResMut};
 use shared::{
     messages::PlayerId,
-    players::{game_mode::DamageSource, movement::is_terrain_loaded, Player},
+    players::{
+        effects::EffectKind, game_mode::DamageSource, movement::is_terrain_loaded, Player,
+    },
     world::{
         depths::{strengthened, DepthTier},
         fire::flammability,
@@ -132,7 +134,7 @@ fn fly(
             is_prey(player) && body.intersects(&Aabb3d::new(player.position, half))
         });
         if let Some(player) = struck {
-            hit(player, ember.tier, difficulty);
+            hit(player, start, ember.tier, difficulty);
             return false;
         }
         if let Some(block) = chunks.get_block(at.floor().as_ivec3()).copied() {
@@ -152,16 +154,24 @@ fn fly(
     true
 }
 
-/// An ember hits `player`: the damage of a Cinderling of `tier`, and burning for `EMBER_BURNING_TICKS` at
-/// least.
-fn hit(player: &mut Player, tier: Option<DepthTier>, difficulty: Difficulty) {
+/// An ember coming from `from` hits `player`: the damage of a Cinderling of `tier`, burning for
+/// `EMBER_BURNING_TICKS` at least, and a burn (`EffectKind::Burn`) for `EMBER_BURN_SECONDS`. A
+/// shield raised toward it parries it all.
+fn hit(player: &mut Player, from: Vec3, tier: Option<DepthTier>, difficulty: Difficulty) {
     let damage = MobKind::Cinderling
         .strike()
         .map_or(1, |strike| strike.damage);
     let damage = difficulty.strike_damage(strengthened(damage, tier));
+    if player.parry(from, damage, false).is_some() {
+        return;
+    }
     player.hurt(damage, DamageSource::Mob(MobKind::Cinderling));
     player.burning_ticks = player.burning_ticks.max(EMBER_BURNING_TICKS);
+    player.give_effect(EffectKind::Burn, 1, EMBER_BURN_SECONDS);
 }
+
+/// How long the burn of an ember lasts, in seconds, once its flames are out.
+const EMBER_BURN_SECONDS: u32 = 6;
 
 /// Removes, without loot, the Cinderlings whose box touches water, and while it rains those
 /// that see the sky (`ticks::sees_sky`), where the terrain is loaded.

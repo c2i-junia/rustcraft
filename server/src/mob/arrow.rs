@@ -49,8 +49,14 @@ const PUSH_SPEED: (f32, f32) = (2.0, 7.0);
 /// An arrow `shooter` lets fly from `from`, its eyes, toward `direction`.
 pub fn arrow(shooter: PlayerId, from: Vec3, direction: Vec3, shot: BowShot) -> ServerMob {
     let direction = direction.normalize_or(Vec3::NEG_Z);
+    // A bolt flies faster and flatter, a throwing axe slower
+    let speed = match shot.ammo {
+        ItemId::Bolt => ARROW_SPEED * 1.3,
+        ItemId::ThrowingAxe => ARROW_SPEED * 0.55,
+        _ => ARROW_SPEED,
+    };
     ServerMob {
-        velocity: direction * (ARROW_SPEED * shot.power),
+        velocity: direction * (speed * shot.power),
         rotation: pointing(direction),
         action: MobAction::Walk,
         action_ticks: ARROW_LIFE_TICKS,
@@ -58,6 +64,7 @@ pub fn arrow(shooter: PlayerId, from: Vec3, direction: Vec3, shot: BowShot) -> S
             shooter,
             shot,
             stuck_in: None,
+            pierce_left: shot.pierce,
         }),
         ..ServerMob::new(MobKind::Arrow, from - Vec3::Y * BELOW_EYES)
     }
@@ -124,17 +131,31 @@ fn step(arrow: &mut ServerMob, map: &mut ServerWorldMap, delta: f32, rng: &mut i
         arrow.velocity = Vec3::ZERO;
         return true;
     }
-    !(flight.shot.recoverable && is_picked_up(arrow.position, map))
+    !(flight.shot.recoverable && is_picked_up(arrow.position, flight.shot.ammo, map))
+}
+
+/// What flew, as an item of one.
+fn ammo_stack(ammo: ItemId) -> ItemStack {
+    ItemStack {
+        item_id: ammo,
+        item_type: ammo.get_default_type(),
+        nb: 1,
+    }
+}
+
+/// Drops what flew where it ended, if it may be picked up again: a throwing axe falls back as
+/// itself, an arrow parried by a shield falls off it.
+fn fall_as_item(flight: &ArrowFlight, at: Vec3, map: &mut ServerWorldMap) {
+    if flight.shot.recoverable {
+        map.dropped_items
+            .spawn(DroppedItem::new(ammo_stack(flight.shot.ammo), at, Vec3::ZERO));
+    }
 }
 
 /// Gives the arrow at `position` to a living player within reach with room for it, as an item
 /// dropped there, which the player picks up at once.
-fn is_picked_up(position: Vec3, map: &mut ServerWorldMap) -> bool {
-    let stack = ItemStack {
-        item_id: ItemId::Arrow,
-        item_type: ItemId::Arrow.get_default_type(),
-        nb: 1,
-    };
+fn is_picked_up(position: Vec3, ammo: ItemId, map: &mut ServerWorldMap) -> bool {
+    let stack = ammo_stack(ammo);
     let taken = map.players.values().any(|player| {
         !player.is_dead()
             && within_reach(player, position)
@@ -150,11 +171,13 @@ fn is_picked_up(position: Vec3, map: &mut ServerWorldMap) -> bool {
 }
 
 /// One step of `arrow` along its curve, by `ARROW_STEP` at most. It hits the first player in
-/// survival or mob whose box it touches, but its shooter at first, and is gone; it sticks in the
-/// first block whose hitbox it enters. Returns whether it stays in the world.
+/// survival or mob whose box it touches, but its shooter at first, and is gone, but a bolt that
+/// still pierces goes on through the mobs; it sticks in the first block whose hitbox it enters. A
+/// shield raised toward it parries it. A throwing axe falls as an item wherever it ends. Returns
+/// whether it stays in the world.
 fn fly(
     arrow: &mut ServerMob,
-    flight: ArrowFlight,
+    mut flight: ArrowFlight,
     map: &mut ServerWorldMap,
     delta: f32,
     rng: &mut impl Rng,
@@ -183,9 +206,13 @@ fn fly(
         .mobs
         .iter()
         .filter(|(_, mob)| !mob.kind.is_projectile())
+        // A piercing bolt goes through what it just hurt
+        .filter(|(_, mob)| flight.pierce_left == 0 || mob.hurt_ticks == 0)
         .map(|(id, mob)| (*id, mob_box(mob)))
         .filter(|(_, body)| swept.intersects(body))
         .collect();
+    // The mobs a piercing bolt went through in this step
+    let mut passed = Vec::new();
     for step in 1..=steps {
         let at = start + moved * (step as f32 / steps as f32);
         let body = Aabb3d::new(at, half);
@@ -197,12 +224,21 @@ fn fly(
         });
         if let Some(player) = struck {
             let source = DamageSource::Arrow(flight.shooter);
-            if player.hurt(flight.shot.damage, source) {
+            let parried = player
+                .parry(at - direction * 2.0, flight.shot.damage, false)
+                .is_some();
+            if !parried && player.hurt(flight.shot.damage, source) {
                 player.knock_back(push, push.length());
+            }
+            if parried || flight.shot.ammo == ItemId::ThrowingAxe {
+                fall_as_item(&flight, at - direction * 0.5, map);
             }
             return false;
         }
-        if let Some((id, _)) = near.iter().find(|(_, target)| body.intersects(target)) {
+        let hit = near
+            .iter()
+            .find(|(id, target)| body.intersects(target) && !passed.contains(id));
+        if let Some((id, _)) = hit {
             if let Some(mob) = map.mobs.get_mut(id) {
                 // One still invulnerable is hit for nothing, as by a blow; a villager always
                 if mob.hurt_ticks == 0 && !mob.kind.is_villager() {
@@ -220,9 +256,23 @@ fn fly(
                     }
                 }
             }
+            if flight.pierce_left > 0 {
+                flight.pierce_left -= 1;
+                arrow.arrow = Some(flight);
+                passed.push(*id);
+                arrow.position = at;
+                continue;
+            }
+            if flight.shot.ammo == ItemId::ThrowingAxe {
+                fall_as_item(&flight, at, map);
+            }
             return false;
         }
         if is_in_block(&map.chunks, at) {
+            if flight.shot.ammo == ItemId::ThrowingAxe {
+                fall_as_item(&flight, at - direction * STUCK_BACK, map);
+                return false;
+            }
             arrow.position = at - direction * STUCK_BACK;
             arrow.velocity = Vec3::ZERO;
             arrow.action = MobAction::Idle;
@@ -308,10 +358,16 @@ mod tests {
     }
 
     fn shoot(world: &mut World, ticks: u32) {
+        shoot_with(world, ticks, ItemId::Arrow, 0);
+    }
+
+    fn shoot_with(world: &mut World, ticks: u32, ammo: ItemId, pierce: u8) {
         let shot = BowShot {
             power: 1.0,
             damage: 9,
             recoverable: true,
+            ammo,
+            pierce,
         };
         let mut map = world.resource_mut::<ServerWorldMap>();
         map.mobs.insert(9, arrow(1, EYES, Vec3::X, shot));
@@ -384,5 +440,63 @@ mod tests {
         assert!(mob.velocity.x > 3.0);
         assert!(matches!(mob.target, shared::world::MobTarget::Player(1)));
         assert!(!map(&w).mobs.contains_key(&9));
+    }
+
+    fn stumplings(w: &mut World) {
+        for (id, x) in [(3, 4.5), (4, 7.5)] {
+            let at = ServerMob::standing_at(MobKind::Stumpling, x, 1.0, 0.5);
+            let mob = ServerMob::new(MobKind::Stumpling, at);
+            w.resource_mut::<ServerWorldMap>().mobs.insert(id, mob);
+        }
+    }
+
+    #[test]
+    fn a_bolt_pierces_the_first_creature_and_hurts_the_next_but_an_arrow_stops() {
+        let mut w = world(None);
+        stumplings(&mut w);
+        shoot_with(&mut w, 10, ItemId::Bolt, 1);
+        assert_eq!(map(&w).mobs[&3].damage, 9);
+        assert_eq!(map(&w).mobs[&4].damage, 9);
+        assert!(!map(&w).mobs.contains_key(&9));
+
+        let mut w = world(None);
+        stumplings(&mut w);
+        shoot(&mut w, 10);
+        assert_eq!(map(&w).mobs[&3].damage, 9);
+        assert_eq!(map(&w).mobs[&4].damage, 0);
+    }
+
+    #[test]
+    fn a_shield_raised_toward_an_arrow_parries_it_and_it_falls_off() {
+        use shared::players::shield::RAISE_MS;
+        use shared::world::ItemStack;
+        let mut target = player_at(2, 6.5);
+        target.inventory.inner.insert(
+            0,
+            ItemStack {
+                item_id: ItemId::Shield,
+                item_type: ItemId::Shield.get_default_type(),
+                nb: 1,
+            },
+        );
+        target.shield_ms = RAISE_MS;
+        target.camera_transform = Transform::default().looking_to(Vec3::NEG_X, Vec3::Y);
+        let mut w = world(Some(target));
+        shoot(&mut w, 10);
+        let target = &map(&w).players[&2];
+        assert_eq!(target.health, MAX_HEALTH);
+        assert_eq!(target.parries, 1);
+        assert!(map(&w).mobs.is_empty());
+        assert_eq!(map(&w).dropped_items.to_saved().len(), 1);
+    }
+
+    #[test]
+    fn a_throwing_axe_falls_back_as_itself_where_it_ends() {
+        let mut w = world(None);
+        shoot_with(&mut w, 20, ItemId::ThrowingAxe, 0);
+        assert!(map(&w).mobs.is_empty());
+        let items = map(&w).dropped_items.to_saved();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].stack.item_id, ItemId::ThrowingAxe);
     }
 }

@@ -203,7 +203,9 @@ pub fn simulate_player_block_interactions(
             ),
             NetworkAction::RightClick if !may_place => continue,
             // A bow being drawn uses nothing it is swept over
-            NetworkAction::RightClick if player.bow_draw_ms > 0 => continue,
+            NetworkAction::RightClick if player.bow_draw_ms > 0 || player.shield_ms > 0 => {
+                continue
+            }
             NetworkAction::RightClick
                 if use_block(
                     player,
@@ -239,8 +241,14 @@ pub fn simulate_player_block_interactions(
                     "eat",
                     eat(player, action).map(|()| player.place_wait_ms = UNTIL_RELEASED_MS),
                 ),
-                // `bow::draw_bow` draws it
-                Some(ItemId::Bow) => continue,
+                // `bow::draw_bow` draws them, `shield::raise_shield` raises it
+                Some(ItemId::Bow | ItemId::Crossbow | ItemId::ThrowingAxe | ItemId::Shield) => {
+                    continue
+                }
+                Some(ItemId::MilkBucket) => (
+                    "drink milk",
+                    drink_milk(player, action).map(|()| player.place_wait_ms = UNTIL_RELEASED_MS),
+                ),
                 Some(ItemId::FlintAndSteel) => (
                     "light a fire",
                     light_fire(player, world_map, action)
@@ -783,6 +791,34 @@ fn eat(player: &mut Player, action: &PlayerFrameInput) -> Result<(), Refused> {
     }
     player.inventory.remove_item_from_stack(slot, 1);
     player.eat(food, saturation);
+    Ok(())
+}
+
+/// Drinks the bucket of milk held in the selected hotbar slot, which takes every status effect
+/// away and leaves the empty bucket in its place. It is refused to a player under none, so that
+/// no milk is lost.
+fn drink_milk(player: &mut Player, action: &PlayerFrameInput) -> Result<(), Refused> {
+    let slot = action.hotbar_slot;
+    let refused = |reason| Refused {
+        reason,
+        predicted_at: None,
+    };
+    if held_item(player, action) != Some(ItemId::MilkBucket) {
+        return Err(refused(Refusal::EmptySlot(slot)));
+    }
+    if player.effects.is_empty() {
+        return Err(refused(Refusal::NotHungry));
+    }
+    player.effects.clear();
+    player.slowness = 0;
+    player.inventory.inner.insert(
+        slot,
+        ItemStack {
+            item_id: ItemId::Bucket,
+            item_type: ItemId::Bucket.get_default_type(),
+            nb: 1,
+        },
+    );
     Ok(())
 }
 

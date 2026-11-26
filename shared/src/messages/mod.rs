@@ -242,6 +242,8 @@ mod tests {
                 horse: None,
                 saddled: false,
                 riders: [None; 2],
+                parries: 0,
+                guard_down: 0,
             },
         };
         let update = PlayerUpdateEvent {
@@ -262,6 +264,8 @@ mod tests {
             swinging: false,
             held: None,
             worn: Default::default(),
+            effects: Default::default(),
+            parries: 0,
         };
         for (message, expected) in [
             (ServerToClientMessage::AuthRegisterResponse(response), 0),

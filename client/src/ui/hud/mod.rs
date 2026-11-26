@@ -42,6 +42,7 @@ pub mod item_browser;
 pub mod minimap;
 pub mod mount;
 pub mod progress;
+pub mod effects;
 pub mod recharge;
 pub mod reticle;
 pub mod sign;
@@ -118,6 +119,13 @@ pub fn hud_plugin(app: &mut App) {
         .add_systems(OnEnter(GameState::Game), setup_chunk_ghost)
         .add_systems(OnEnter(GameState::Game), burning::spawn_burning_flames)
         .add_systems(OnEnter(GameState::Game), mount::spawn_mount_line)
+        .add_systems(OnEnter(GameState::Game), effects::spawn_effects_column)
+        .add_systems(
+            Update,
+            effects::update_effects_column
+                .after(GameSet::Reconciliation)
+                .run_if(in_state(GameState::Game)),
+        )
         .add_systems(
             Update,
             mount::update_mount_line

@@ -180,6 +180,8 @@ pub fn update_players_system(
         player.food = event.food;
         player.experience = event.experience;
         player.burning_ticks = event.burning_ticks;
+        player.effects = event.effects.clone();
+        player.parries = event.parries;
         player.game_mode = event.game_mode;
         player.death_cause = event.death_cause;
         if event.id != my_id {
@@ -385,6 +387,8 @@ mod tests {
                 swinging: false,
                 held,
                 worn: Default::default(),
+                effects: Default::default(),
+                parries: 0,
             });
             app.update();
             assert_eq!(app.world().get::<HeldItem>(other), Some(&HeldItem(held)));
@@ -436,6 +440,8 @@ mod tests {
             swinging: false,
             held: None,
             worn: Default::default(),
+            effects: Default::default(),
+            parries: 0,
         };
         reconcile_prediction(
             &mut client,
@@ -526,6 +532,8 @@ mod tests {
             swinging: false,
             held: None,
             worn: Default::default(),
+            effects: Default::default(),
+            parries: 0,
         };
         reconcile_prediction(&mut client, &update, &mut sent, &mut [], &blocks);
 
@@ -596,6 +604,8 @@ mod tests {
             swinging: false,
             held: None,
             worn: Default::default(),
+            effects: Default::default(),
+            parries: 0,
         });
         app.update();
 
@@ -630,6 +640,8 @@ mod tests {
             swinging: false,
             held: None,
             worn: Default::default(),
+            effects: Default::default(),
+            parries: 0,
         });
         app.update();
 
@@ -675,6 +687,8 @@ mod tests {
             swinging: false,
             held: None,
             worn: Default::default(),
+            effects: Default::default(),
+            parries: 0,
         });
         app.update();
 
@@ -716,6 +730,8 @@ mod tests {
             swinging: false,
             held: None,
             worn: Default::default(),
+            effects: Default::default(),
+            parries: 0,
         });
         app.update();
 
@@ -767,6 +783,8 @@ mod tests {
             swinging: false,
             held: None,
             worn: Default::default(),
+            effects: Default::default(),
+            parries: 0,
         });
         app.update();
 
@@ -829,6 +847,8 @@ mod tests {
             swinging: false,
             held: None,
             worn: Default::default(),
+            effects: Default::default(),
+            parries: 0,
         });
         app.update();
 
@@ -1126,6 +1146,8 @@ mod tests {
             swinging: false,
             held: None,
             worn: Default::default(),
+            effects: Default::default(),
+            parries: 0,
         });
         app.update();
 
@@ -1280,6 +1302,8 @@ mod tests {
                 swinging: false,
                 held: None,
                 worn: Default::default(),
+                effects: Default::default(),
+                parries: 0,
             };
             for _ in 0..=u32::from(self.repeats_updates) {
                 self.to_client

@@ -19,7 +19,7 @@ use bevy::{
     light::{NotShadowCaster, NotShadowReceiver},
     prelude::*,
 };
-use shared::players::bow::{draw_stage, power};
+use shared::players::bow::{full_draw_ms, power_of};
 use shared::players::{Held, Inventory, Player, ViewMode};
 use shared::world::{ItemId, ItemStack};
 
@@ -410,9 +410,16 @@ pub fn track_the_local_held_item(
     }
 }
 
-/// How far `player` draws the bow it holds in `held`, if it does (`bow::draw_stage`).
+/// How far `player` draws the bow or loads the crossbow it holds in `held`, if it does
+/// (`bow::draw_stage_of`).
 fn draw_stage_of(player: &Player, held: Option<ItemId>) -> Option<u8> {
-    draw_stage(player.bow_draw_ms).filter(|_| held == Some(ItemId::Bow))
+    shared::players::bow::draw_stage_of(held?, player.bow_draw_ms)
+}
+
+/// How far `player` draws what it holds in `held`, from 0 to 1.
+fn power(player: &Player, held: Option<ItemId>) -> f32 {
+    let full = held.and_then(full_draw_ms).unwrap_or(1000);
+    power_of(player.bow_draw_ms, full)
 }
 
 /// Puts the item each player holds in the right hand of its model.
@@ -565,7 +572,10 @@ pub fn move_the_hand(
         );
         let draw = draw_stage_of(player, motion.shown);
         let offset = match draw {
-            Some(_) => offset.then(draw_bow(power(player.bow_draw_ms), time.elapsed_secs())),
+            Some(_) => offset.then(draw_bow(
+                power(player, motion.shown),
+                time.elapsed_secs(),
+            )),
             None => offset,
         };
         let draw = match motion.shown {
