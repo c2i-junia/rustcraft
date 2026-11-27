@@ -1,5 +1,5 @@
 use bevy::{
-    asset::{load_internal_asset, uuid_handle},
+    asset::embedded_path,
     mesh::MeshVertexBufferLayoutRef,
     pbr::{MaterialPipeline, MaterialPipelineKey},
     prelude::*,
@@ -12,8 +12,7 @@ use bevy::{
 };
 
 use super::mesh::{ATTRIBUTE_DENSITIES, ATTRIBUTE_SHADE};
-
-const CLOUDS_SHADER: Handle<Shader> = uuid_handle!("3f6c1d2a-9b7e-4c58-a1d0-5e2b8f4c7a93");
+use crate::shader_assets::{embed_shader, embedded_shader};
 
 /// What the clouds are drawn with: unlit, seen from both sides, faded out with the horizontal
 /// distance to the camera (`clouds.wgsl`).
@@ -68,11 +67,11 @@ pub struct CloudParams {
 
 impl Material for CloudMaterial {
     fn vertex_shader() -> ShaderRef {
-        CLOUDS_SHADER.into()
+        embedded_shader(embedded_path!("clouds.wgsl"))
     }
 
     fn fragment_shader() -> ShaderRef {
-        CLOUDS_SHADER.into()
+        embedded_shader(embedded_path!("clouds.wgsl"))
     }
 
     /// Both drawings are among the transparent meshes, after the terrain, which they let
@@ -129,6 +128,6 @@ impl Material for CloudMaterial {
 
 /// Makes `CloudMaterial` drawable.
 pub fn cloud_material_plugin(app: &mut App) {
-    load_internal_asset!(app, CLOUDS_SHADER, "clouds.wgsl", Shader::from_wgsl);
+    embed_shader!(app, "clouds.wgsl");
     app.add_plugins(MaterialPlugin::<CloudMaterial>::default());
 }

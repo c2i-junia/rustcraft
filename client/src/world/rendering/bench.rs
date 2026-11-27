@@ -440,6 +440,8 @@ impl Drawing {
                 .set(AssetPlugin {
                     file_path: data.to_string_lossy().into_owned(),
                     unapproved_path_mode: UnapprovedPathMode::Allow,
+                    // A benchmark watches no files, even in a `dev` build: it would only time the watchers
+                    watch_for_changes_override: Some(false),
                     ..default()
                 })
                 .set(RenderPlugin {

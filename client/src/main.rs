@@ -16,6 +16,7 @@ mod mob;
 mod network;
 mod player;
 mod portal;
+mod shader_assets;
 mod state;
 mod ui;
 mod world;

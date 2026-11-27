@@ -47,8 +47,9 @@ opener = "0.8"
 
 [features]
 default = ["dev"]
-# Links Bevy dynamically to speed up debug builds. Release builds disable it with `--no-default-features`.
-dev = ["bevy/dynamic_linking"]
+# Links Bevy dynamically to speed up debug builds, and reloads the assets and the shaders when their
+# files are saved while the game runs. Release builds disable it with `--no-default-features`.
+dev = ["bevy/dynamic_linking", "bevy/file_watcher", "bevy/embedded_watcher"]
 
 [lints]
 workspace = true

@@ -8,7 +8,7 @@
 //! and no blue is left. The buffer is written in place as the weather and the hour change:
 //! changing a material instead would prepare every chunk drawn again.
 
-use bevy::asset::{load_internal_asset, uuid_handle};
+use bevy::asset::embedded_path;
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use bevy::mesh::MeshVertexBufferLayoutRef;
@@ -21,6 +21,7 @@ use bevy::render::storage::ShaderBuffer;
 use bevy::shader::ShaderRef;
 
 use crate::portal::PortalCamera;
+use crate::shader_assets::{embed_shader, embedded_shader};
 use crate::state::GameState;
 use crate::world::celestial::{sky_rotation, smoothstep, sun_height};
 use crate::world::clouds::SPEED;
@@ -316,11 +317,9 @@ pub fn new_weather_buffer() -> ShaderBuffer {
     ShaderBuffer::from(WeatherShading::default())
 }
 
-const OVERCAST_SHADER: Handle<Shader> = uuid_handle!("d3e5a7c1-4f2b-4b9e-8a61-7c0e9f3b5d24");
-
 /// The overcast sky and the dome that draws it.
 pub fn overcast_plugin(app: &mut App) {
-    load_internal_asset!(app, OVERCAST_SHADER, "overcast.wgsl", Shader::from_wgsl);
+    embed_shader!(app, "overcast.wgsl");
     app.add_plugins(MaterialPlugin::<OvercastMaterial>::default())
         .init_resource::<WindDrift>()
         .add_systems(
@@ -389,11 +388,11 @@ pub struct OvercastMaterial {
 
 impl Material for OvercastMaterial {
     fn vertex_shader() -> ShaderRef {
-        OVERCAST_SHADER.into()
+        embedded_shader(embedded_path!("overcast.wgsl"))
     }
 
     fn fragment_shader() -> ShaderRef {
-        OVERCAST_SHADER.into()
+        embedded_shader(embedded_path!("overcast.wgsl"))
     }
 
     fn alpha_mode(&self) -> AlphaMode {

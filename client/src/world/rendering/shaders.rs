@@ -16,7 +16,7 @@
 
 use bevy::anti_alias::smaa::Smaa;
 use bevy::anti_alias::taa::TemporalAntiAliasing;
-use bevy::asset::{load_internal_asset, uuid_handle, RenderAssetUsages};
+use bevy::asset::{embedded_path, RenderAssetUsages};
 use bevy::camera::{Exposure, Hdr};
 use bevy::core_pipeline::prepass::{DepthPrepass, MotionVectorPrepass, NormalPrepass};
 use bevy::light::atmosphere::ScatteringMedium;
@@ -43,6 +43,7 @@ use bevy::shader::ShaderRef;
 use super::volumetric_fog::{drawn_in, one_camera_offset, HazePerCamera};
 use crate::camera::{underwater_fog_system, CameraController};
 use crate::portal::PortalCamera;
+use crate::shader_assets::{embed_shader, embedded_shader};
 use crate::world::celestial::{celestial_light_system, smoothstep, CelestialRoot, SkyLight};
 use crate::world::clouds::cloud_uniforms_system;
 use crate::world::clouds::material::CloudMaterial;
@@ -193,10 +194,8 @@ fn light_scale(ev100: f32) -> f32 {
     2f32.powf(ev100 - BASE_EV100)
 }
 
-const HORIZON_SHADER: Handle<Shader> = uuid_handle!("b6a2d0f4-91c3-4e57-8d1a-5c7e2f90a3b4");
-
 pub fn shaders_plugin(app: &mut App) {
-    load_internal_asset!(app, HORIZON_SHADER, "horizon.wgsl", Shader::from_wgsl);
+    embed_shader!(app, "horizon.wgsl");
     // The rays of light of the portal cameras, through their oblique near plane
     app.add_plugins(super::volumetric_fog::VolumetricFogPatchPlugin);
     app.add_plugins(MaterialPlugin::<HorizonMaterial>::default())
@@ -998,11 +997,11 @@ pub struct HorizonMaterial {
 
 impl Material for HorizonMaterial {
     fn vertex_shader() -> ShaderRef {
-        HORIZON_SHADER.into()
+        embedded_shader(embedded_path!("horizon.wgsl"))
     }
 
     fn fragment_shader() -> ShaderRef {
-        HORIZON_SHADER.into()
+        embedded_shader(embedded_path!("horizon.wgsl"))
     }
 
     // Its top fades into the sky drawn by the atmosphere, which is a bit different

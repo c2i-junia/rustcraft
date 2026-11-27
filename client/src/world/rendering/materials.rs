@@ -1,4 +1,5 @@
 use crate::constants::{BASE_ROUGHNESS, BASE_SPECULAR_HIGHLIGHT, GRASS_COLOR};
+use crate::shader_assets::{embed_shader, embedded_shader};
 use crate::state::PreLoadingCompletion;
 use crate::state::TexturePath;
 use crate::world::meshing::BlockLooks;
@@ -6,7 +7,7 @@ use crate::world::overcast::new_weather_buffer;
 use crate::world::precipitation::occlusion::OcclusionMap;
 use crate::world::voxel::FaceColor;
 use crate::world::{new_climate_map, GlobalMaterial, GraphicsSettings, BLOCK_LIGHT};
-use bevy::asset::{load_internal_asset, uuid_handle, RenderAssetUsages};
+use bevy::asset::{embedded_path, load_embedded_asset, RenderAssetUsages};
 use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
 use bevy::prelude::*;
@@ -141,12 +142,6 @@ fn table_row(layer: u32, frames: u32, animation: TextureAnimation, surface: WetS
     )
 }
 
-const CHUNK_SHADER: Handle<Shader> = uuid_handle!("8d2b8c4e-6a51-4f7e-9b0c-3e5f1a7d9c21");
-/// `rustcraft::sky`, which `chunk.wgsl` imports.
-const SKY_SHADER: Handle<Shader> = uuid_handle!("3f0c9a61-27d4-4b8e-a5c2-9e41d7b06f18");
-/// `rustcraft::weather`, which `rustcraft::sky` and the precipitation import.
-const WEATHER_SHADER: Handle<Shader> = uuid_handle!("6b1e8f20-3c7d-4a95-b2e4-0d9f5a7c1e63");
-
 /// What the chunks are drawn with: the material of the block textures, which repeat over the
 /// faces that span several blocks.
 pub type ChunkMaterial = ExtendedMaterial<StandardMaterial, BlockLayers>;
@@ -230,27 +225,32 @@ impl ChunkShading {
 
 impl MaterialExtension for BlockLayers {
     fn vertex_shader() -> ShaderRef {
-        CHUNK_SHADER.into()
+        embedded_shader(embedded_path!("chunk.wgsl"))
     }
 
     fn fragment_shader() -> ShaderRef {
-        CHUNK_SHADER.into()
+        embedded_shader(embedded_path!("chunk.wgsl"))
     }
 
     fn prepass_vertex_shader() -> ShaderRef {
-        CHUNK_SHADER.into()
+        embedded_shader(embedded_path!("chunk.wgsl"))
     }
 
     fn prepass_fragment_shader() -> ShaderRef {
-        CHUNK_SHADER.into()
+        embedded_shader(embedded_path!("chunk.wgsl"))
     }
 }
 
 /// Makes `ChunkMaterial` drawable.
 pub fn chunk_material_plugin(app: &mut App) {
-    load_internal_asset!(app, WEATHER_SHADER, "weather.wgsl", Shader::from_wgsl);
-    load_internal_asset!(app, SKY_SHADER, "sky.wgsl", Shader::from_wgsl);
-    load_internal_asset!(app, CHUNK_SHADER, "chunk.wgsl", Shader::from_wgsl);
+    // `rustcraft::weather`, which `rustcraft::sky` and the precipitation import, and
+    // `rustcraft::sky`, which `chunk.wgsl` imports: no pipeline loads them, they are found by
+    // name once loaded, so their handles are kept for good
+    embed_shader!(app, "weather.wgsl");
+    embed_shader!(app, "sky.wgsl");
+    std::mem::forget::<Handle<Shader>>(load_embedded_asset!(&*app, "weather.wgsl"));
+    std::mem::forget::<Handle<Shader>>(load_embedded_asset!(&*app, "sky.wgsl"));
+    embed_shader!(app, "chunk.wgsl");
     app.add_plugins(MaterialPlugin::<ChunkMaterial>::default());
 }
 

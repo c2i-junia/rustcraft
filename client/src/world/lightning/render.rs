@@ -8,7 +8,7 @@
 //! With the shaders it is far brighter than white, and the bloom spreads it.
 
 use bevy::anti_alias::taa::temporal_anti_alias;
-use bevy::asset::{load_internal_asset, uuid_handle};
+use bevy::asset::load_embedded_asset;
 use bevy::core_pipeline::schedule::{Core3d, Core3dSystems};
 use bevy::prelude::*;
 use bevy::render::{
@@ -32,6 +32,8 @@ use bevy::render::{
 };
 use bevy::shader::Shader;
 
+use crate::shader_assets::embed_shader;
+
 use super::{shown_reach, Lightning};
 use crate::state::GameState;
 use crate::world::precipitation::render::{
@@ -40,8 +42,6 @@ use crate::world::precipitation::render::{
 use crate::world::shaders::ShaderFeatures;
 use crate::world::GraphicsSettings;
 use crate::world::{RenderDistance, ServerRenderDistanceLimit};
-
-const LIGHTNING_SHADER: Handle<Shader> = uuid_handle!("6e1f0b3c-27d4-4a8e-b5c9-d0a4f8e2c7b1");
 
 /// A point of a channel as the pass reads it (`BoltVertex` in `lightning.wgsl`).
 #[derive(ShaderType, Clone, Copy, Debug, Default, PartialEq)]
@@ -135,7 +135,7 @@ pub fn vertex_count(points: usize) -> u32 {
 /// The pass of the bolts, in the render world. It draws for the camera of the player and those
 /// of the portals, the `PrecipitationView`s that the pass of the rain extracts.
 pub fn lightning_render_plugin(app: &mut App) {
-    load_internal_asset!(app, LIGHTNING_SHADER, "lightning.wgsl", Shader::from_wgsl);
+    embed_shader!(app, "lightning.wgsl");
     app.init_resource::<LightningDraw>()
         .add_plugins(ExtractResourcePlugin::<LightningDraw>::default())
         .add_systems(OnExit(GameState::Game), stop_drawing_lightning)
@@ -201,10 +201,11 @@ fn stop_drawing_lightning(mut draw: ResMut<LightningDraw>) {
 pub struct LightningPipeline {
     layout: BindGroupLayoutDescriptor,
     multisampled_layout: BindGroupLayoutDescriptor,
+    shader: Handle<Shader>,
 }
 
 impl FromWorld for LightningPipeline {
-    fn from_world(_world: &mut World) -> Self {
+    fn from_world(world: &mut World) -> Self {
         let layout = |multisampled: bool| {
             let depth = if multisampled {
                 texture_depth_2d_multisampled()
@@ -227,6 +228,7 @@ impl FromWorld for LightningPipeline {
         Self {
             layout: layout(false),
             multisampled_layout: layout(true),
+            shader: load_embedded_asset!(world, "lightning.wgsl"),
         }
     }
 }
@@ -259,13 +261,13 @@ impl SpecializedRenderPipeline for LightningPipeline {
             label: Some("lightning_pipeline".into()),
             layout: vec![layout],
             vertex: VertexState {
-                shader: LIGHTNING_SHADER,
+                shader: self.shader.clone(),
                 shader_defs: shader_defs.clone(),
                 entry_point: Some("vertex".into()),
                 buffers: vec![],
             },
             fragment: Some(FragmentState {
-                shader: LIGHTNING_SHADER,
+                shader: self.shader.clone(),
                 shader_defs,
                 entry_point: Some("fragment".into()),
                 targets: vec![Some(ColorTargetState {

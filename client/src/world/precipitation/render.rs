@@ -9,7 +9,7 @@
 //! MSAA).
 
 use bevy::anti_alias::taa::temporal_anti_alias;
-use bevy::asset::{load_internal_asset, uuid_handle};
+use bevy::asset::load_embedded_asset;
 use bevy::core_pipeline::schedule::{Core3d, Core3dSystems};
 use bevy::prelude::*;
 use bevy::render::{
@@ -37,9 +37,9 @@ use bevy::render::{
 };
 use bevy::shader::Shader;
 
-use crate::world::overcast::WeatherShading;
+use crate::shader_assets::embed_shader;
 
-const PRECIPITATION_SHADER: Handle<Shader> = uuid_handle!("a4c7e2d9-58b1-4f03-9e6a-2d71c0b8f5e4");
+use crate::world::overcast::WeatherShading;
 
 /// Marks the cameras that the rain and the snow are drawn for: the camera of the player and the
 /// cameras of the portals, which show them around the twin, whose depth textures are made
@@ -103,12 +103,7 @@ pub struct PrecipitationSources {
 
 /// The pass of the rain and the snow, in the render world.
 pub fn precipitation_render_plugin(app: &mut App) {
-    load_internal_asset!(
-        app,
-        PRECIPITATION_SHADER,
-        "precipitation.wgsl",
-        Shader::from_wgsl
-    );
+    embed_shader!(app, "precipitation.wgsl");
     app.init_resource::<PrecipitationDraw>().add_plugins((
         ExtractResourcePlugin::<PrecipitationDraw>::default(),
         ExtractComponentPlugin::<PrecipitationView>::default(),
@@ -145,10 +140,11 @@ pub fn precipitation_render_plugin(app: &mut App) {
 pub struct PrecipitationPipeline {
     layout: BindGroupLayoutDescriptor,
     multisampled_layout: BindGroupLayoutDescriptor,
+    shader: Handle<Shader>,
 }
 
 impl FromWorld for PrecipitationPipeline {
-    fn from_world(_world: &mut World) -> Self {
+    fn from_world(world: &mut World) -> Self {
         let layout = |multisampled: bool| {
             let depth = if multisampled {
                 texture_depth_2d_multisampled()
@@ -174,6 +170,7 @@ impl FromWorld for PrecipitationPipeline {
         Self {
             layout: layout(false),
             multisampled_layout: layout(true),
+            shader: load_embedded_asset!(world, "precipitation.wgsl"),
         }
     }
 }
@@ -201,13 +198,13 @@ impl SpecializedRenderPipeline for PrecipitationPipeline {
             label: Some("precipitation_pipeline".into()),
             layout: vec![layout],
             vertex: VertexState {
-                shader: PRECIPITATION_SHADER,
+                shader: self.shader.clone(),
                 shader_defs: shader_defs.clone(),
                 entry_point: Some("vertex".into()),
                 buffers: vec![],
             },
             fragment: Some(FragmentState {
-                shader: PRECIPITATION_SHADER,
+                shader: self.shader.clone(),
                 shader_defs,
                 entry_point: Some("fragment".into()),
                 targets: vec![Some(ColorTargetState {

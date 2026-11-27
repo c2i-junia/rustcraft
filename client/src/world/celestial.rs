@@ -1,12 +1,13 @@
 use crate::player::CurrentPlayerMarker;
 use crate::portal::{BODY_LAYER, PORTAL_CHUNKS_LAYER};
+use crate::shader_assets::{embed_shader, embedded_shader};
 use crate::state::GameState;
 use crate::world::overcast::Overcast;
 use crate::world::time::ClientTime;
 use crate::world::weather::ClientWeather;
 use crate::world::{GraphicsSettings, ShaderQuality};
 use bevy::{
-    asset::{load_internal_asset, uuid_handle},
+    asset::embedded_path,
     camera::visibility::{NoFrustumCulling, RenderLayers},
     light::{NotShadowCaster, NotShadowReceiver},
     mesh::MeshVertexBufferLayoutRef,
@@ -70,8 +71,6 @@ const PHYSICAL_SKY_INTENSITY: f32 = 4.;
 /// How many days the moon takes to wax and wane.
 const MOON_CYCLE_DAYS: u64 = 8;
 
-const CELESTIAL_SHADER: Handle<Shader> = uuid_handle!("6c1e7f52-3a9d-4b20-8e6f-0d4c5b9a2e17");
-
 /// What `celestial.wgsl` draws: the sun, the moon or the stars, added to the sky behind them.
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
 pub struct CelestialMaterial {
@@ -106,11 +105,11 @@ pub enum CelestialKind {
 
 impl Material for CelestialMaterial {
     fn vertex_shader() -> ShaderRef {
-        CELESTIAL_SHADER.into()
+        embedded_shader(embedded_path!("celestial.wgsl"))
     }
 
     fn fragment_shader() -> ShaderRef {
-        CELESTIAL_SHADER.into()
+        embedded_shader(embedded_path!("celestial.wgsl"))
     }
 
     fn alpha_mode(&self) -> AlphaMode {
@@ -154,7 +153,7 @@ impl Material for CelestialMaterial {
 
 /// Makes `CelestialMaterial` drawable.
 pub fn celestial_material_plugin(app: &mut App) {
-    load_internal_asset!(app, CELESTIAL_SHADER, "celestial.wgsl", Shader::from_wgsl);
+    embed_shader!(app, "celestial.wgsl");
     app.add_plugins(MaterialPlugin::<CelestialMaterial>::default());
 }
 

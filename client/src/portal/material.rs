@@ -1,5 +1,5 @@
 use bevy::{
-    asset::{load_internal_asset, uuid_handle},
+    asset::embedded_path,
     mesh::MeshVertexBufferLayoutRef,
     pbr::{MaterialPipeline, MaterialPipelineKey},
     prelude::*,
@@ -10,7 +10,7 @@ use bevy::{
 };
 use shared::world::Portal;
 
-const PORTAL_SHADER: Handle<Shader> = uuid_handle!("b7e3a5d1-4c2f-4e8a-9f61-2d7c0b9e5a14");
+use crate::shader_assets::{embed_shader, embedded_shader};
 
 /// How a `PortalMaterial` draws. Keep in sync with `portal.wgsl`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -89,7 +89,7 @@ pub struct PortalParams {
 
 impl Material for PortalMaterial {
     fn fragment_shader() -> ShaderRef {
-        PORTAL_SHADER.into()
+        embedded_shader(embedded_path!("portal.wgsl"))
     }
 
     fn alpha_mode(&self) -> AlphaMode {
@@ -125,6 +125,6 @@ impl Material for PortalMaterial {
 
 /// Makes `PortalMaterial` drawable.
 pub fn portal_material_plugin(app: &mut App) {
-    load_internal_asset!(app, PORTAL_SHADER, "portal.wgsl", Shader::from_wgsl);
+    embed_shader!(app, "portal.wgsl");
     app.add_plugins(MaterialPlugin::<PortalMaterial>::default());
 }

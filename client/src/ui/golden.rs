@@ -78,6 +78,8 @@ impl UiGolden {
                 .set(AssetPlugin {
                     file_path: data.to_string_lossy().into_owned(),
                     unapproved_path_mode: UnapprovedPathMode::Allow,
+                    // No file watchers for the many golden apps, even in a `dev` build
+                    watch_for_changes_override: Some(false),
                     ..default()
                 })
                 .set(RenderPlugin {
