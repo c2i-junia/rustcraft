@@ -18,7 +18,7 @@ export const ITEM_NOTES: Record<string, string> = {
 	DepthsCompass:
 		'<p>Its needle points to the lair of the Ember Mother, at the bottom of the world. It spins in a world without one, and when you stand at the heart of the lair. Getting one earns <em>It Points Down</em>. See <a href="/guides/ember-mother">the Ember Mother</a>.</p>',
 	PortalGun:
-		'<p>The attack button opens your blue portal, the use button your orange one, on the face of a block up to 32 blocks away. A portal is 2 blocks wide and 3 high: its 6 wall cells must be solid full blocks (not glass or leaves) and the 6 in front of it empty. Walk into one and you come out of the other; you can see through them. A portal closes if its wall changes.</p>',
+		'<p>The attack button opens your blue portal, the use button your orange one, on the face of a block up to 32 blocks away. A portal is 2 blocks wide and 3 high: its 6 wall cells must be solid full blocks (not glass or leaves) and nothing solid in the 6 in front of it. Walk into one and you come out of the other; you can see through them. A portal closes if its wall changes.</p>',
 	Compost:
 		'<p>Use it on a crop to grow it a stage, on a berry bush to ripen it, or on a sapling for a one in two chance to grow it into a tree at once. See <a href="/guides/farming">farming</a>.</p>',
 	Lead:
@@ -42,7 +42,7 @@ export const ITEM_NOTES: Record<string, string> = {
 		'<p>The best fuel of all: one burns for 1000 seconds, 100 items, and leaves its bucket.</p>',
 	GlassVial: '<p>Fill it at a water source for a water vial, the start of every potion. See <a href="/alchemy">alchemy</a>.</p>',
 	Shield:
-		'<p>Hold the use button to raise it: it stops the blows and arrows that come from the front, and you walk at half speed. An axe or a Roller knocks it down for five seconds. It works from any hotbar slot while your hand holds a weapon or nothing. See <a href="/guides/combat">combat</a>.</p>',
+		'<p>Hold the use button to raise it: it stops the blows and arrows that come from the front, and you walk at half speed. A Roller’s charge or the Ember Mother’s blow knocks it down for five seconds. It works from any hotbar slot while your hand holds a melee weapon or nothing. See <a href="/guides/combat">combat</a>.</p>',
 	Campfire:
 		'<p>A light that keeps hostiles away and that rain puts out. Relight it with a torch, flint, or flint and steel.</p>',
 	RainCistern: '<p>Fills in the rain. Empty it with a bucket for a water bucket.</p>',

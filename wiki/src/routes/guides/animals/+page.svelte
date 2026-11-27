@@ -213,8 +213,8 @@
 	<h3>Horse armour</h3>
 	<p>
 		Use horse armour on an adult horse you own to put it on; using another piece swaps them. Only horses
-		wear it, not donkeys or mules. Each point takes 4 % off the blows the horse takes. Horse armour is not
-		crafted: it is found in ruins and crypts.
+		wear it, not donkeys or mules. Each point takes 4 % off the blows the horse takes. Horse armour is
+		crafted at a crafting table, and also found in ruins and crypts.
 	</p>
 	<table>
 		<thead><tr><th>Armour</th><th class="n">Points</th><th class="n">Damage taken off</th></tr></thead>

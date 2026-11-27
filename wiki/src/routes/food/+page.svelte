@@ -2,7 +2,7 @@
 	import Page from '#lib/components/Page.svelte';
 	import Slot from '#lib/components/Slot.svelte';
 	import ItemLink from '#lib/components/ItemLink.svelte';
-	import { duration } from '#lib/format.ts';
+	import { duration, num } from '#lib/format.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -33,7 +33,7 @@
 					<tr>
 						<td><ItemLink id={f.id} /></td>
 						<td class="n">{f.hunger}</td>
-						<td class="n">{f.saturation}</td>
+						<td class="n">{num(f.saturation)}</td>
 						<td>
 							{#if f.cooked}Smelt <ItemLink id={f.cooked} />{:else if f.crafted}<a href="/items/{f.id.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase()}">Crafted</a>{:else}Found{/if}
 						</td>

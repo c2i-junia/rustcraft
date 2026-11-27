@@ -150,7 +150,7 @@
 
 	<h3>Throwing axe</h3>
 	<p>
-		The <ItemLink id="ThrowingAxe" /> is swung back for up to 0.6 s and thrown: 3 damage on a quick throw,
+		The <ItemLink id="ThrowingAxe" /> is swung back for up to 0.6 s and thrown: 4 damage on a quick throw,
 		8 on a full one. It falls to the ground as itself, to be picked up again. In melee it hits for 5 at
 		the pace of an axe.
 	</p>
@@ -175,7 +175,7 @@
 	<ul>
 		<li>It stops every blow and shot from the <strong>front half</strong> of you, measured flat on the ground.</li>
 		<li>It wears by the damage it stops (at least 1 per hit): 336 points in all.</li>
-		<li>A Roller's charge knocks it down for 5 seconds.</li>
+		<li>A Roller's charge or the Ember Mother's blow knocks it down for 5 seconds.</li>
 		<li>
 			It works from <strong>any hotbar slot</strong> while your hand holds a sword, an axe, a spear, the mace
 			or nothing, so you can fight and block at once.

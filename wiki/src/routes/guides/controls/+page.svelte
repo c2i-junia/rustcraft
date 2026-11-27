@@ -152,7 +152,7 @@
 			<tr><td><kbd>Shift</kbd> + click</td><td>Move the stack to the other part of the inventory, or onto the armour slot it fits. On a crafting result, craft as many as you can.</td></tr>
 			<tr><td><kbd>1</kbd>–<kbd>9</kbd> over a slot</td><td>Swap it with that hotbar slot. Over a crafting result, craft into that slot.</td></tr>
 			<tr><td><kbd>Q</kbd> over a slot</td><td>Throw out one item; <kbd>Ctrl</kbd> + <kbd>Q</kbd> the whole stack.</td></tr>
-			<tr><td>Click outside the panel holding a stack</td><td>Throw the stack out.</td></tr>
+			<tr><td>Click outside the panel holding a stack</td><td>With the left button, throw the stack out; with the right one, one item.</td></tr>
 		</tbody>
 	</table>
 	<p>

@@ -192,7 +192,7 @@
 			when she keeps away.
 		</li>
 		<li>
-			<strong>A <ItemLink id="Shield" /></strong> to stop the embers. It will not hold her blow in fury.
+			<strong>A <ItemLink id="Shield" /></strong> to stop the embers and her blows; each blow it stops knocks it down for 5 seconds.
 		</li>
 		<li>
 			<strong>Your best sword</strong>, like a <ItemLink id="DiamondSword" />, with Sharpness if you can,

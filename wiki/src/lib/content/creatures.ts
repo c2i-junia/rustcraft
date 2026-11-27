@@ -65,7 +65,7 @@ export const CREATURES: Record<string, CreatureFacts> = {
 		spawns: 'In packs of 2 to 4 in forests, groves and the ice plains.',
 		behaviour:
 			'Feed it meat, raw or roast: each time there is a one in three chance it becomes yours. A tamed wolf follows you, bites for 4 every second at what you hit and at the hostiles that go after you, and can be told to sit. See <a href="/guides/animals">taming</a>.',
-		speed: '1.6 walking, 4 running'
+		speed: '1.6 walking, 4 fleeing, 4.5 hunting when tamed'
 	},
 	Horse: {
 		summary: 'The fastest way across the land.',
@@ -123,7 +123,7 @@ export const CREATURES: Record<string, CreatureFacts> = {
 		summary: 'A walking stump that comes out of the grass at night.',
 		spawns: 'At night on grass. It sinks back into the ground at dawn.',
 		behaviour:
-			'Its bark turns away blows from the front: an axe knocks its guard down for four seconds, and axes deal half again their damage to it. It flees fire and lava within 6 blocks, and it is the only creature that opens doors.',
+			'Its bark turns away blows from the front: an axe knocks its guard down for four seconds, and axes deal half again their damage to it. It flees fire and lava within 6 blocks, and it is the only hostile that opens doors.',
 		damage: 3,
 		xp: 5,
 		speed: '1.2 hunting',
@@ -169,7 +169,7 @@ export const CREATURES: Record<string, CreatureFacts> = {
 		speed: '1.5'
 	},
 	Smith: {
-		summary: 'A villager who buys coal and iron and sells iron tools and armour.',
+		summary: 'A villager who buys coal and iron and sells tools and armour.',
 		spawns: 'In villages: each house gets one villager, the professions in turn.',
 		behaviour:
 			'Villagers walk around their home by day and go in at night. Nothing hurts them and hostiles ignore them. Use one to trade. See <a href="/guides/trading">trading</a>.',
@@ -225,7 +225,7 @@ export const CREATURES: Record<string, CreatureFacts> = {
 	Slagcrawler: {
 		summary: 'A crawler of slag from the basalt galleries.',
 		spawns: 'In the dark on basalt or magma, in the basalt galleries of the deep.',
-		behaviour: 'Its bite sets you burning. Fire resistance makes it harmless.',
+		behaviour: 'Its bite sets you burning. Fire resistance spares you the burn, not the bite.',
 		damage: 2,
 		effect: 'Burn I for 4 s',
 		xp: 6,

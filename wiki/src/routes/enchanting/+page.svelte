@@ -77,7 +77,7 @@
 		<dd>
 			With a second item of the same kind. Their durability adds up, plus 12 % of a new one, up to full.
 			Enchantments of the same level join into the next level, up to III; otherwise the higher one is kept.
-			It costs 2 levels, plus the level of each enchantment the second item brings.
+			It costs 2 levels, plus the level each enchantment the second item brings ends at.
 		</dd>
 		<dt>Rename</dt>
 		<dd>Type a name of up to 24 letters: 1 level more.</dd>
