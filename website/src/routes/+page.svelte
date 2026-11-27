@@ -1,5 +1,6 @@
 <script lang="ts">
 	const repo = 'https://github.com/c2i-junia/rustcraft';
+	const wiki = 'https://wiki.rustcraft.dev';
 	// Link previews (Discord, Mastodon…) need absolute URLs.
 	const site = 'https://rustcraft.dev';
 	const description =
@@ -55,6 +56,7 @@
 		<a class="brand" href="/">Rustcraft</a>
 		<nav aria-label="Main">
 			<a href="#download">Download</a>
+			<a href={wiki}>Wiki</a>
 			<a href={repo}>GitHub</a>
 		</nav>
 	</div>
@@ -76,6 +78,7 @@
 			</p>
 			<div class="actions">
 				<a class="button primary" href="{repo}/releases">Download for Windows and Linux</a>
+				<a class="button" href={wiki}>Read the wiki</a>
 				<a class="button" href={repo}>View the source</a>
 			</div>
 		</div>
