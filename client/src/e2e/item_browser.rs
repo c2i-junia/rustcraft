@@ -514,12 +514,12 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
     let stick = h.first_card_slot("Stick");
     h.click_entity(stick, MouseButton::Left);
     h.wait_for(&button("<- Wooden Pickaxe"), SCREEN);
-    assert!(h.is_visible(&button("Uses 56")));
+    assert!(h.is_visible(&button("Uses 84")));
     let planks = h.first_card_slot("Any Planks");
     h.click_entity(planks, MouseButton::Right);
     h.wait_for(&button("<- Stick"), SCREEN);
     assert!(h.is_visible(&L::text("Uses")));
-    assert!(h.is_visible(&button("Uses 20")));
+    assert!(h.is_visible(&button("Uses 23")));
     // scrolled down, its cards are left at the top of the next view
     let first = h.first_card_slot("Any Planks");
     h.hover_entity(first);
@@ -559,7 +559,7 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
     h.wait_for(&button("Uses 11"), SCREEN);
     h.click(&button("Recipes 0"));
     h.wait_for(
-        &L::text("Cobblestone is gathered, not crafted. It goes into 10 recipes: see Uses."),
+        &L::text("Cobblestone is gathered, not crafted. It goes into 11 recipes: see Uses."),
         SCREEN,
     );
 
@@ -614,14 +614,14 @@ fn r_and_u_work_over_any_slot_in_both_modes_and_open_the_drawer() {
     h.wait_for(&button("Recipes 1"), SCREEN);
     assert!(h.is_visible(&L::text("Oak Planks").within(L::marker::<RecipePanel>())));
     h.press(KeyCode::KeyU);
-    h.wait_for(&button("Uses 20"), SCREEN);
+    h.wait_for(&button("Uses 23"), SCREEN);
     assert!(h.is_visible(&button("<- Oak Planks")));
 
     // R over a slot of a card, and over one of the catalog
     let stick = h.first_card_slot("Stick");
     h.hover_entity(stick);
     h.press(KeyCode::KeyR);
-    h.wait_for(&button("Uses 56"), SCREEN);
+    h.wait_for(&button("Uses 84"), SCREEN);
     h.press(KeyCode::Escape);
     h.press(KeyCode::Escape);
     h.press(KeyCode::Escape);
@@ -640,7 +640,7 @@ fn r_and_u_work_over_any_slot_in_both_modes_and_open_the_drawer() {
     assert!(!h.is_visible(&L::marker::<ItemBrowser>()));
     h.hover(&L::cell(0));
     h.press(KeyCode::KeyU);
-    h.wait_for(&button("Uses 20"), SCREEN);
+    h.wait_for(&button("Uses 23"), SCREEN);
     assert!(h.is_visible(&L::marker::<ItemBrowser>()));
     h.press(KeyCode::Escape);
     h.wait_for(&L::text("519 / 519"), SCREEN);

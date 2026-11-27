@@ -535,9 +535,12 @@ fn commands_are_completed_as_they_are_typed() {
     h.frames(10);
     h.snapshot("items");
 
-    // Down chooses the next ones, past the fence gate and the leaves, and Tab takes the log
+    // Down chooses the next ones, past the chair, the fence gate and the leaves, and Tab takes
+    // the log
     h.type_text("oa");
     assert!(h.suggests("oak_leaves"));
+    h.press(KeyCode::ArrowDown);
+    assert_eq!(h.ghost().as_deref(), Some("k_fence_gate"));
     h.press(KeyCode::ArrowDown);
     assert_eq!(h.ghost().as_deref(), Some("k_leaves"));
     h.press(KeyCode::ArrowDown);
