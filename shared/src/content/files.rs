@@ -162,7 +162,7 @@ impl Content {
 
     /// Whether the chunks are drawn alike with `other`: no block changes the properties the
     /// meshes are made from (`palette`, `visibility`, `light_opacity`, `light_emission`,
-    /// `flags`, `look`).
+    /// `flags`, `look`, and `hitbox`, which a `Shape::Box` is drawn from).
     pub fn draws_like(&self, other: &Content) -> bool {
         self.blocks.iter().zip(&other.blocks).all(|(a, b)| {
             a.palette == b.palette
@@ -171,6 +171,7 @@ impl Content {
                 && a.light_emission == b.light_emission
                 && a.flags == b.flags
                 && a.look == b.look
+                && a.hitbox == b.hitbox
         })
     }
 }
@@ -910,6 +911,17 @@ mod tests {
             furnaces,
             [(BlockId::Furnace, false), (BlockId::LitFurnace, true)]
         );
+    }
+
+    #[test]
+    fn a_new_collision_box_draws_otherwise() {
+        let folder = edited_game_folder(&[(
+            "lantern",
+            "(look: Decoration, light: 15, break: 8, tools: [Pickaxe], shape: Box, \
+             collision: Aabb((min: (0.25, 0, 0.25), max: (0.75, 0.5, 0.75))))",
+        )]);
+        let content = Content::load(folder.path()).unwrap();
+        assert!(!content.draws_like(&Content::load(&game_folder()).unwrap()));
     }
 
     #[test]
