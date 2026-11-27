@@ -154,6 +154,7 @@ pub fn register_systems(app: &mut App) {
                 world::home::home_system,
                 world::treasure::treasure_maps_system,
                 world::cartography::cartography_system,
+                world::decor::decor_system,
             )
                 .chain(),
             // Fires, lava, plants, cisterns and campfires; before the flow, which washes the

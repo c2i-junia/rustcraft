@@ -31,6 +31,12 @@ pub struct Places {
     /// The paper map each frame of a map holds (`cartography`).
     #[serde(default)]
     pub frames: HashMap<IVec3, shared::world::cartography::MapId>,
+    /// What each item frame and flower pot shows (`decor`).
+    #[serde(default)]
+    pub displays: HashMap<IVec3, shared::world::Shown>,
+    /// The patterns of each banner that has some (`decor`).
+    #[serde(default)]
+    pub banners: HashMap<IVec3, shared::world::BannerPatterns>,
 }
 
 impl Places {
@@ -75,6 +81,12 @@ pub struct HomeEvents {
     /// (`cartography`).
     pub framed: Vec<(PlayerId, IVec3)>,
     pub drawn: Vec<(PlayerId, u32)>,
+    /// The item frames and flower pots clicked (`decor`).
+    pub displayed: Vec<(PlayerId, IVec3)>,
+    /// Whether a frame, a pot or a banner changed since the decorations were sent.
+    pub decorations_changed: bool,
+    /// The players who were sent the decorations as they are.
+    pub sent_decorations: HashSet<PlayerId>,
     sleeping: HashSet<PlayerId>,
 }
 
@@ -85,7 +97,10 @@ pub fn respawn_position(world_map: &ServerWorldMap, player: &Player) -> Vec3 {
     };
     let chunk = shared::world::global_block_to_chunk_pos(&pos);
     let gone = world_map.chunks.is_chunk_loaded(chunk)
-        && world_map.chunks.get_block(pos).map(|b| b.id) != Some(BlockId::Bedroll);
+        && !world_map
+            .chunks
+            .get_block(pos)
+            .is_some_and(|b| b.id.is_bedroll());
     if gone {
         return world_map.spawn;
     }

@@ -133,6 +133,10 @@ pub fn simulate_player_movement(
         );
         return MovementOutcome::default();
     }
+    // A seated player stays on its chair
+    if player.sitting.is_some() {
+        return super::sitting::simulate_sitting(player, world_map, action);
+    }
     // A rider moves with its mount
     if player.riding.is_some() {
         let delta_ms = action.delta_ms.min(MAX_FRAME_DELTA_MS);

@@ -350,6 +350,9 @@ pub struct Player {
     /// who joins stands.
     #[serde(skip)]
     pub riding: Option<Riding>,
+    /// The chair the player sits on (`sitting`). Part of the `MovementState`; not saved.
+    #[serde(skip)]
+    pub sitting: Option<super::sitting::Seat>,
     /// The status effects on the player (`effects`). Only the server changes them; saved.
     #[serde(default)]
     pub effects: StatusEffects,
@@ -400,6 +403,8 @@ pub struct MovementState {
     pub shield_ms: u32,
     /// `Player::shield_disabled_ms`.
     pub shield_disabled_ms: u32,
+    /// `Player::sitting`: the others see the player seated.
+    pub sitting: Option<super::sitting::Seat>,
 }
 
 /// The upward velocity a knock back gives at least, in blocks/s: a hop of a quarter of a block.
@@ -431,6 +436,7 @@ impl Player {
             slowness: self.slowness,
             shield_ms: self.shield_ms,
             shield_disabled_ms: self.shield_disabled_ms,
+            sitting: self.sitting,
         }
     }
 
@@ -450,6 +456,7 @@ impl Player {
         self.slowness = state.slowness;
         self.shield_ms = state.shield_ms;
         self.shield_disabled_ms = state.shield_disabled_ms;
+        self.sitting = state.sitting;
     }
 
     /// What the portals know of the player going through them: its box, and the floor portal it
@@ -600,6 +607,7 @@ impl Player {
             hotbar_slot: 0,
             skin: PlayerSkin::default(),
             riding: None,
+            sitting: None,
             effects: StatusEffects::default(),
             slowness: 0,
             shield_ms: 0,

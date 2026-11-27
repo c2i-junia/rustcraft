@@ -61,6 +61,7 @@ pub fn audio_plugin(app: &mut App) {
                         cues::depth_cue.before(depths::announce_depth),
                         cues::achievement_cue.before(progress::show_earned),
                         cues::boss_cue,
+                        cues::furniture_cues,
                     ),
                 )
                     .after(GameSet::Reconciliation)

@@ -143,6 +143,8 @@ mod tests {
                 ItemId::Door,
                 ItemId::OakTrapdoor,
                 ItemId::OakFenceGate,
+                ItemId::OakTable,
+                ItemId::OakChair,
                 ItemId::OakLog,
                 ItemId::OakPlanks,
                 ItemId::OakLeaves,

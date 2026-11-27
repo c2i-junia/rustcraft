@@ -7,7 +7,8 @@ blows and the sweeps of the melee, and the mounts: a saddle put on, a boat's oar
 hull, and the shield's parry and the crossbow's loading and shot, and the fishing: a rod cast,
 a bite and the line drawn in; and the creatures of the seas and the deep caves: the fish, the
 Mossback, the Shardling and the Slagcrawler; and the companions: horse armour put on, a lead
-tied, a chest strapped on a donkey and a wolf's bite.
+tied, a chest strapped on a donkey and a wolf's bite; and the furniture: a chair sat on, and an item
+put in a frame or turned in it.
 
 Built with the primitives of `generate_sounds.py` (its seed, its loudness and its output), so
 that they sound of a piece with the others; every sound is synthesised here, entirely original
@@ -594,6 +595,27 @@ def build_wolf_bite(rng):
     return finish(outdoors(rng, growl * 0.6 + place_at(d, snap[: n_of(0.1)], 0.25) * 0.8 + teeth * 0.4), -18)
 
 
+# --- furniture --------------------------------------------------------------
+
+
+def build_sit(rng):
+    """Sitting down on a wooden chair: a soft knock of the seat and the creak of its joints."""
+    d = 0.5
+    t = t_axis(d)
+    knock = thump(rng, d, 180, 95, 0.04) * 0.7
+    creak = band(colored(rng, d, 1), 500, 2600) * (0.6 + 0.4 * np.sign(np.sin(2 * np.pi * 38 * t)))
+    creak *= curve(d, (0, 0), (0.06, 0.2), (0.14, 1), (0.32, 0.25), (d, 0))
+    return finish(outdoors(rng, knock + creak * 0.35), -23)
+
+
+def build_frame_turn(rng):
+    """An item put in a frame, or turned in it: a light wooden click and a rub on leather."""
+    d = 0.3
+    click = modes(rng, d, [(900, 0.025, 1.0), (1650, 0.015, 0.5)], 0.003)
+    rub = rustle(rng, d, [(0.05, 0.1)], 800, 3800)
+    return finish(outdoors(rng, click * 0.7 + rub * 0.35), -24)
+
+
 # --- fishing ----------------------------------------------------------------
 
 
@@ -823,6 +845,8 @@ def main():
     write_ogg("mob/lead", build_lead)
     write_ogg("mob/pack_chest", build_pack_chest)
     write_ogg("mob/wolf_bite", build_wolf_bite)
+    write_ogg("furniture/sit", build_sit)
+    write_ogg("furniture/frame", build_frame_turn)
 
 
 if __name__ == "__main__":

@@ -163,6 +163,7 @@ impl SoundMaterial {
             BlockId::Water | BlockId::Lava | BlockId::Fire => return None,
             // as the block they are made of
             shared::new_palette_blocks!() => return Self::of(block.palette()?.base),
+            shared::new_decor_blocks!() => return Self::of(block.decor()?.base),
         })
     }
 
@@ -405,6 +406,10 @@ pub enum Sound {
     PackChest,
     /// A wolf bites: a growl and the snap of its jaws.
     WolfBite,
+    /// A player sits down on a chair: the seat knocks and its joints creak.
+    Sit,
+    /// An item is put in a frame or turned in it: a light wooden click.
+    FrameTurn,
 }
 
 impl Sound {
@@ -455,7 +460,7 @@ impl Sound {
 
     /// The sounds of the later features (`scripts/generate_feature_sounds.py`), but those of
     /// the armour put on and off and the voices of the villagers.
-    pub const FEATURES: [Sound; 42] = [
+    pub const FEATURES: [Sound; 44] = [
         Sound::BowLoose,
         Sound::ArmourBreak,
         Sound::BowDraw,
@@ -498,6 +503,8 @@ impl Sound {
         Sound::Lead,
         Sound::PackChest,
         Sound::WolfBite,
+        Sound::Sit,
+        Sound::FrameTurn,
     ];
 
     /// The sounds of the weather, played by `audio::weather`.
@@ -622,6 +629,8 @@ impl Sound {
             Sound::Lead => one("mob/lead"),
             Sound::PackChest => one("mob/pack_chest"),
             Sound::WolfBite => one("mob/wolf_bite"),
+            Sound::Sit => one("furniture/sit"),
+            Sound::FrameTurn => one("furniture/frame"),
             Sound::PortalPass => vec!["sounds/player/pickup.ogg".to_string()],
             Sound::Creature(kind, call) => {
                 let folder = creature_folder(kind);

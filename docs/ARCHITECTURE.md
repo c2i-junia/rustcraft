@@ -1083,6 +1083,36 @@ to the middle of their kind within 10 blocks (`school`), a dart away from a play
 blocks; out of the water they flop toward it. `/locate` finds the nearest wreck by region and the
 nearest cell of a cave biome on a grid of 16 blocks at three heights.
 
+### Furniture and decoration
+
+`world/decor.rs` (shared) gives each block of the furniture a `Decor`: its kind (`DecorKind`), the
+plain block it breaks, sounds and burns like (`base`) and its item, as `palette` does for the
+builder's blocks; the hitboxes, the visibility, the drops and the shapes (`client/.../voxel.rs`,
+`of_decor`) follow the kind. The bedroll of older worlds is the red one of sixteen
+(`BlockId::is_bedroll`). A chair, a bedroll, a pot, a frame and a canvas are used by a right
+click; a frame, a canvas and a banner hang on the side of a cell, as a vine, toward the wall they
+were placed against. A canvas is a block per picture, one of four of one block or one of three of
+two blocks (`SMALL_CANVASES`, `WIDE_CANVASES`): the simulation places the right half beside the left
+one, breaks both together like a door, and shows the next canvas at a click, so the client predicts
+it all.
+
+Sitting (`players/sitting.rs`) is the passenger's seat of `riding` without a mob: `Player::sitting`,
+part of the `MovementState`, holds the chair and the heading; the movement keeps the player on the
+seat until the sneak key or the chair broken stands it up in front of it, and the model is drawn
+seated as a rider.
+
+What a frame or a pot shows and the patterns of a banner are not in the block. The simulation tells
+the server of the frames and pots clicked (`BlockInteractions::displays`) and of the banners placed
+with patterns (`banners`); `server/src/world/decor.rs`, after the maps, puts the held item in a frame
+(only a plain one: a frame keeps no wear nor id) or turns it by an eighth, plants or takes back the
+plant of a pot, drops what a broken frame or pot showed, and sends `Decorations` to every player when
+any changed. They are kept in `places.ron` (`displays`, `banners`). A broken banner drops itself of
+`ItemType::Banner` with its patterns, which stack to one. The patterns (`BannerPatterns`, six bytes:
+pattern and colour) are dyed at the crafting grid by dyes of one colour laid in the shape of the
+pattern around the banner (`dye_banner`, before the recipes); the client draws them as a picture
+over the cloth (`client/src/world/decor.rs`), and the item framed or the plant potted with the look
+of a dropped item.
+
 ### The progress of a player
 
 `players/progress.rs` (shared) is what a player achieved in a world, `Player::progress`, kept in its

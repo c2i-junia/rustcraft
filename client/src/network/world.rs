@@ -212,6 +212,13 @@ pub fn update_world_from_network(
                     world.resource_mut::<Cartography>().receive_map(id, map);
                 });
             }
+            ServerToClientMessage::Decorations(decorations) => {
+                commands.queue(move |world: &mut World| {
+                    world
+                        .resource_mut::<crate::world::decor::ClientDecorations>()
+                        .set(decorations);
+                });
+            }
             ServerToClientMessage::FramedMaps(frames) => {
                 commands.queue(move |world: &mut World| {
                     world.resource_mut::<Cartography>().set_frames(frames);

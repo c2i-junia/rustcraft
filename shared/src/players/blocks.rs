@@ -2,7 +2,7 @@
 
 use crate::{
     messages::{NetworkAction, PlayerFrameInput},
-    players::{hunger::MAX_FOOD, movement::MAX_FRAME_DELTA_MS, Player, ViewMode},
+    players::{hunger::MAX_FOOD, movement::MAX_FRAME_DELTA_MS, sitting, Player, ViewMode},
     world::{
         fire::fire_can_stay,
         growth::{is_sapling, next_stage},
@@ -11,7 +11,8 @@ use crate::{
         global_block_to_chunk_pos,
         liquid::{is_source, Liquid, LAVA, WATER},
         raycast, BlockData, BlockDirection, BlockHitbox, BlockId, BlockTransparency, ChunkMap,
-        Container, FaceDirectionExt, Form, Furnace, ItemId, ItemStack, ItemType, MobKind,
+        decor::painting_right, BannerPatterns, Container, DecorKind, FaceDirectionExt, Form,
+        Furnace, ItemId, ItemStack, ItemType, MobKind,
         PortalColor, RaycastResponse, ServerMob, Tool, ToolKind,
     },
     HALF_BLOCK, MAX_INVENTORY_SLOTS,
@@ -148,6 +149,11 @@ pub struct BlockInteractions {
     pub bedrolls: Vec<IVec3>,
     /// The frames of maps the player clicked, to put the held map on or take the one there.
     pub frames: Vec<IVec3>,
+    /// The item frames and the flower pots the player clicked, to put the held item in, turn
+    /// the item shown or take the plant back (`decor`).
+    pub displays: Vec<IVec3>,
+    /// The banners the player placed with patterns dyed on them, which the server keeps.
+    pub banners: Vec<(IVec3, BannerPatterns)>,
     /// The hotbar slots of the empty maps the player used, which the server draws.
     pub drawn_maps: Vec<u32>,
     /// The saplings given compost, which the server may grow into their tree at once.
@@ -198,6 +204,7 @@ pub fn simulate_player_block_interactions(
     let mut placed = Vec::new();
     let (mut signs, mut bedrolls, mut fertilized) = (Vec::new(), Vec::new(), Vec::new());
     let (mut frames, mut drawn_maps) = (Vec::new(), Vec::new());
+    let (mut displays, mut banners) = (Vec::new(), Vec::new());
     // Both count the time the button is held, so that a block takes as long to break, and
     // blocks are placed as often, at any frame rate.
     let hits = mining_hits(player, action);
@@ -223,6 +230,7 @@ pub fn simulate_player_block_interactions(
                     &mut signs,
                     &mut bedrolls,
                     &mut frames,
+                    &mut displays,
                     &mut fertilized,
                 ) =>
             {
@@ -275,16 +283,33 @@ pub fn simulate_player_block_interactions(
                     light_fire(player, world_map, action)
                         .map(|()| player.place_wait_ms = UNTIL_RELEASED_MS),
                 ),
-                held => (
-                    "place a block",
-                    place_block(player, world_map, action).map(|(mob, sign)| {
-                        placed.extend(held);
-                        spawned.extend(mob);
-                        // A sign just placed is written on at once
-                        signs.extend(sign);
-                        player.place_wait_ms = PLACE_REPEAT_MS
-                    }),
-                ),
+                held => {
+                    let held_type = player
+                        .inventory
+                        .inner
+                        .get(&action.hotbar_slot)
+                        .map(|stack| stack.item_type);
+                    (
+                        "place a block",
+                        place_block(player, world_map, action).map(|(mob, at)| {
+                            placed.extend(held);
+                            spawned.extend(mob);
+                            if let Some(at) = at {
+                                // A sign just placed is written on at once
+                                if world_map.get_block(at).is_some_and(|b| b.id == BlockId::Sign) {
+                                    signs.push(at);
+                                }
+                                // The patterns of a banner stay with it
+                                if let Some(ItemType::Banner { patterns }) = held_type {
+                                    if !patterns.is_empty() {
+                                        banners.push((at, patterns));
+                                    }
+                                }
+                            }
+                            player.place_wait_ms = PLACE_REPEAT_MS
+                        }),
+                    )
+                }
             },
             _ => continue,
         };
@@ -310,6 +335,8 @@ pub fn simulate_player_block_interactions(
         signs,
         bedrolls,
         frames,
+        displays,
+        banners,
         drawn_maps,
         fertilized,
         placed,
@@ -536,6 +563,15 @@ fn break_block(
             BlockData::new(BlockId::Water, BlockDirection::Front),
         );
     }
+    // The other half of a canvas of two blocks goes with it
+    if let Some((other_half, step)) = block.id.other_painting_half(block.direction) {
+        if world_map
+            .get_block(position + step)
+            .is_some_and(|half| half.id == other_half)
+        {
+            world_map.remove_block(position + step);
+        }
+    }
     // The other half of a door goes with it
     if let Some((_, step)) = block.id.door() {
         let other = position + step;
@@ -567,6 +603,7 @@ fn use_block(
     signs: &mut Vec<IVec3>,
     bedrolls: &mut Vec<IVec3>,
     frames: &mut Vec<IVec3>,
+    displays: &mut Vec<IVec3>,
     fertilized: &mut Vec<IVec3>,
 ) -> bool {
     if action.is_pressed(NetworkAction::SneakOrFlyDown) {
@@ -607,9 +644,29 @@ fn use_block(
         become_block(world_map, pos, turned);
         return true;
     }
+    // A canvas shows the next of its size, both halves of one of two blocks
+    if let Some((next, next_right)) = block.id.next_canvas() {
+        let right = painting_right(block.direction);
+        let is_right = matches!(
+            block.id.decor_kind(),
+            Some(DecorKind::Painting { right: true, .. })
+        );
+        let left = if is_right { pos - right } else { pos };
+        become_block(world_map, left, next);
+        if let Some(next_right) = next_right {
+            become_block(world_map, left + right, next_right);
+        }
+        return true;
+    }
     match (block.id, held) {
         (BlockId::Sign, _) => signs.push(pos),
-        (BlockId::Bedroll, _) => bedrolls.push(pos),
+        (id, _) if id.is_bedroll() => bedrolls.push(pos),
+        (id, _) if id.decor_kind() == Some(DecorKind::Chair) => {
+            if !sitting::sit(player, pos, block.direction) {
+                return false;
+            }
+        }
+        (BlockId::FlowerPot | BlockId::ItemFrame, _) => displays.push(pos),
         (BlockId::MapFrame, _) => frames.push(pos),
         (BlockId::RipeBerryBush, _) => {
             become_block(world_map, pos, BlockId::BerryBush);
@@ -733,7 +790,7 @@ fn cell_against_aimed_face(
 }
 
 /// Places the block held in the selected hotbar slot against the aimed face, and returns where
-/// it placed a sign. A spawn egg makes its mob appear there instead, standing on the bottom of the
+/// it placed it. A spawn egg makes its mob appear there instead, standing on the bottom of the
 /// cell, and is returned.
 fn place_block(
     player: &mut Player,
@@ -761,9 +818,23 @@ fn place_block(
     if block_overlaps_player(position, player) {
         return refused(Refusal::InsidePlayer);
     }
-    let ItemType::Block(block_id) = item.item_type else {
-        return refused(Refusal::NotABlock(item.item_type));
+    let block_id = match item.item_type {
+        ItemType::Block(block_id) => block_id,
+        // a banner with patterns places its block all the same
+        ItemType::Banner { .. } => match item.item_id.decor_block() {
+            Some(block_id) => block_id,
+            None => return refused(Refusal::NotABlock(item.item_type)),
+        },
+        _ => return refused(Refusal::NotABlock(item.item_type)),
     };
+    // A carpet lies on a block
+    if block_id.decor_kind() == Some(DecorKind::Carpet)
+        && !world_map
+            .get_block(position - IVec3::Y)
+            .is_some_and(|below| !below.id.is_replaceable())
+    {
+        return refused(Refusal::NoSoil(block_id));
+    }
 
     if let Some(soils) = block_id.soil() {
         let below = world_map.get_block(position - IVec3::Y);
@@ -798,9 +869,10 @@ fn place_block(
         world_map.set_block(above, top);
     }
     // A lantern placed under a block hangs from it
-    let hangs = block_id == BlockId::Lantern && target.face.to_ivec3() == IVec3::NEG_Y;
+    let hangs = (block_id == BlockId::Lantern || block_id.hanging_lantern().is_some())
+        && target.face.to_ivec3() == IVec3::NEG_Y;
     let block_id = if hangs {
-        BlockId::HangingLantern
+        block_id.hanging_lantern().unwrap_or(BlockId::HangingLantern)
     } else {
         block_id
     };
@@ -817,8 +889,30 @@ fn place_block(
             facing(&action.camera)
         }
         id if id.form().is_some_and(Form::faces_placer) => facing(&action.camera),
+        // A frame, a canvas or a banner hangs on the wall it is placed against
+        id if id.decor_kind().is_some_and(DecorKind::on_wall) => {
+            let Some(toward) = BlockDirection::toward(-target.face.to_ivec3()) else {
+                return refused(Refusal::NotASide);
+            };
+            toward
+        }
+        id if id.decor_kind().is_some_and(DecorKind::faces_placer) => facing(&action.camera),
         _ => BlockDirection::Front,
     };
+    // A canvas of two blocks takes the cell on its right too
+    if let Some((right_half, step)) = block_id.other_painting_half(direction) {
+        let right = position + step;
+        let free = world_map
+            .get_block(right)
+            .is_none_or(|block| block.id.is_replaceable());
+        if !free
+            || !world_map.is_chunk_loaded(global_block_to_chunk_pos(&right))
+            || block_overlaps_player(right, player)
+        {
+            return refused(Refusal::Occupied);
+        }
+        world_map.set_block(right, BlockData::new(right_half, direction));
+    }
 
     player.inventory.remove_item_from_stack(slot, 1);
     world_map.set_block(position, BlockData::new(block_id, direction));
@@ -828,7 +922,7 @@ fn place_block(
     if block_id == BlockId::Furnace {
         world_map.insert_furnace(position, Furnace::default());
     }
-    Ok((None, (block_id == BlockId::Sign).then_some(position)))
+    Ok((None, Some(position)))
 }
 
 /// Eats one of the food held in the selected hotbar slot, which gives food and saturation. It is
@@ -1476,6 +1570,53 @@ mod tests {
         };
         simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
         (world, player)
+    }
+
+    #[test]
+    fn a_wide_painting_hangs_on_two_cells_of_the_wall_and_a_click_shows_the_next_canvas() {
+        // seen from the south, looking north at the wall: the right half to the east
+        let stone = IVec3::new(0, 0, -3);
+        let (mut world, mut player) = place_against(ItemId::WidePainting, stone, IVec3::Z);
+        let left = world.get_block(stone + IVec3::Z).copied().unwrap();
+        let right = world.get_block(stone + IVec3::Z + IVec3::X).copied().unwrap();
+        assert_eq!(left.id, BlockId::ValleyPainting);
+        assert_eq!(right.id, BlockId::ValleyPaintingRight);
+        assert_eq!(left.direction, BlockDirection::Front);
+        assert!(player.inventory.inner.is_empty());
+        // a click on the right half
+        player.place_wait_ms = 0;
+        let camera = Transform::from_translation(player.position)
+            .looking_at(stone.as_vec3() + Vec3::new(1.5, 0.5, 1.1), Vec3::Y);
+        let input = PlayerFrameInput {
+            inputs: [NetworkAction::RightClick].into(),
+            camera,
+            ..Default::default()
+        };
+        simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
+        assert_eq!(world.get_block(stone + IVec3::Z).unwrap().id, BlockId::SeascapePainting);
+        assert_eq!(
+            world.get_block(stone + IVec3::Z + IVec3::X).unwrap().id,
+            BlockId::SeascapePaintingRight
+        );
+    }
+
+    #[test]
+    fn an_item_frame_is_hung_on_a_side_only_and_a_click_on_it_is_told_to_the_server() {
+        let stone = IVec3::new(0, 0, -3);
+        let (world, _) = place_against(ItemId::ItemFrame, stone, IVec3::Y);
+        assert!(world.get_block(stone + IVec3::Y).is_none());
+        let (mut world, mut player) = place_against(ItemId::ItemFrame, stone, IVec3::Z);
+        assert_eq!(world.get_block(stone + IVec3::Z).unwrap().id, BlockId::ItemFrame);
+        player.place_wait_ms = 0;
+        let input = PlayerFrameInput {
+            inputs: [NetworkAction::RightClick].into(),
+            camera: Transform::from_translation(player.position)
+                .looking_at(stone.as_vec3() + Vec3::new(0.5, 0.5, 1.0), Vec3::Y),
+            ..Default::default()
+        };
+        let done =
+            simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
+        assert_eq!(done.displays, vec![stone + IVec3::Z]);
     }
 
     #[test]

@@ -4,7 +4,8 @@ use bevy::math::{IVec3, Vec3};
 use shared::world::blocks::{
     BEDROLL, CAMPFIRE, DOOR, HANGING_LANTERN, LANTERN, OPEN_DOOR, SIGN, SLAB, STAIR_BACK, TRAPDOOR,
 };
-use shared::world::{BlockData, BlockDirection, BlockId, Form, Palette, VINE_GAP};
+use shared::world::decor::{CARPET, FLOWER_POT, ITEM_FRAME, PAINTING};
+use shared::world::{BlockData, BlockDirection, BlockId, Decor, DecorKind, Form, Palette, VINE_GAP};
 
 /// Specifies which position in the voxel this face occupies
 ///
@@ -193,6 +194,9 @@ const BOTTOM: usize = 1;
 impl VoxelShape {
     /// Creates a VoxelShape based on the given BlockData
     pub fn create_from_block(block: &BlockData) -> VoxelShape {
+        if let Some(decor) = block.id.decor() {
+            return Self::of_decor(block.id, decor);
+        }
         if let Some(palette) = block.id.palette() {
             if palette.form != Form::Cube {
                 return Self::of_palette(block.id, palette);
@@ -418,6 +422,60 @@ impl VoxelShape {
                 Self::arms(glass, 7., 9., &[(7., 9., 0., 16.)])
             }
             Form::Cube => Self::full_cube(&BlockData::new(id, shared::world::BlockDirection::Front)),
+        }
+    }
+
+    /// A block of the furniture: a bedroll, a carpet, a pot, a frame, a canvas, a banner or a
+    /// lantern shows its own texture, or that of its wool, on its box; a table and a chair are
+    /// made of boxes of the planks of their wood, the chair's back on the back of its cell; a
+    /// bookshelf is a whole block with planks above and below.
+    fn of_decor(id: BlockId, decor: Decor) -> VoxelShape {
+        let own = format!("{id:?}");
+        let base = format!("{:?}", decor.base);
+        let of = |a: [f32; 3], b: [f32; 3]| Aabb3d {
+            min: (Vec3::from(a) / 16.).to_vec3a(),
+            max: (Vec3::from(b) / 16.).to_vec3a(),
+        };
+        let legs = |near: f32, far: f32, height: f32| {
+            [(near, near), (far, near), (near, far), (far, far)]
+                .map(|(x, z)| of([x, 0., z], [x + 2., height, z + 2.]))
+        };
+        match decor.kind {
+            DecorKind::Bedroll => Self::boxes(&own, &[BEDROLL]),
+            DecorKind::Table => {
+                let mut parts = vec![of([0., 13., 0.], [16., 16., 16.])];
+                parts.extend(legs(1., 13., 13.));
+                Self::boxes(&base, &parts)
+            }
+            DecorKind::Chair => {
+                let mut parts = vec![
+                    of([2., 6., 2.], [14., 8., 14.]),
+                    of([2., 8., 12.], [14., 16., 14.]),
+                ];
+                parts.extend(legs(3., 11., 6.));
+                Self::boxes(&base, &parts)
+            }
+            DecorKind::Bookshelf => {
+                let mut shape = Self::full_cube(&BlockData::new(id, BlockDirection::Front));
+                shape.faces[TOP].texture = base.clone();
+                shape.faces[BOTTOM].texture = base;
+                shape
+            }
+            DecorKind::Carpet => Self::boxes(&base, &[CARPET]),
+            DecorKind::FlowerPot => Self::boxes(&own, &[FLOWER_POT]),
+            DecorKind::ItemFrame => Self::boxes(&own, &[ITEM_FRAME]),
+            DecorKind::Painting { .. } => Self::boxes(&own, &[PAINTING]),
+            DecorKind::Banner => {
+                let mut shape = Self::boxes(&own, &[of([2., 0., 1.], [14., 14., 2.])]);
+                shape
+                    .faces
+                    .extend(Self::boxes("OakPlanks", &[of([1., 14., 0.], [15., 15., 2.])]).faces);
+                shape
+            }
+            DecorKind::Lantern { hanging } => {
+                let lantern = format!("{:?}", decor.item);
+                Self::boxes(&lantern, &[if hanging { HANGING_LANTERN } else { LANTERN }])
+            }
         }
     }
 
@@ -980,6 +1038,25 @@ mod tests {
             assert_eq!(face.color, oak_face.color);
             assert_eq!(face.sway, oak_face.sway);
         }
+    }
+
+    #[test]
+    fn every_face_of_the_furniture_and_every_icon_of_it_has_its_texture() {
+        let textures =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/graphics/base_textures");
+        for id in BlockId::ALL.into_iter().filter(|id| id.decor().is_some()) {
+            for face in shape_of(id).faces {
+                let path = textures.join(format!("blocks/{}.png", face.texture));
+                assert!(path.is_file(), "{id:?}: {}", path.display());
+            }
+            let item = id.decor().unwrap().item;
+            let icon = |folder: &str| textures.join(format!("{folder}/{item:?}.png")).is_file();
+            assert!(icon("items") || icon("blocks"), "{item:?}");
+        }
+        // a chair's back is on the back of its cell, away from where its sitter looks
+        let chair = shape_of(BlockId::OakChair);
+        let back = chair.faces.iter().flat_map(|f| f.vertices.iter()).filter(|v| v[1] > 0.6);
+        assert!(back.clone().count() > 0 && back.clone().all(|v| v[2] >= 0.74));
     }
 
     /// An item with no texture of its own shows its block texture untinted, as the oak leaves

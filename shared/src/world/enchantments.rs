@@ -144,7 +144,11 @@ impl ItemType {
             Self::Tool { wear } | Self::Enchanted { wear, .. } | Self::Forged { wear, .. } => {
                 Some(wear)
             }
-            Self::Generic | Self::Block(_) | Self::Map { .. } | Self::Treasure { .. } => None,
+            Self::Generic
+            | Self::Block(_)
+            | Self::Map { .. }
+            | Self::Treasure { .. }
+            | Self::Banner { .. } => None,
         }
     }
 

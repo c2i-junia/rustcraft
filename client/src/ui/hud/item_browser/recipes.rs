@@ -438,13 +438,14 @@ mod tests {
         assert_eq!(cards(ItemId::Chest, RecipeTab::Recipes).len(), 1);
         assert_eq!(cards(ItemId::Stick, RecipeTab::Recipes).len(), 1);
         // The uses of any planks are the recipes of planks, then those of the species (its
-        // slab, stairs, door, trapdoor and fence gate), then its burning
+        // slab, stairs, door, trapdoor and fence gate), then its table and its chair and the
+        // bookshelf of any planks, then its burning
         for species in ItemTag::Planks.members() {
             let uses = cards(*species, RecipeTab::Uses);
-            assert_eq!(uses.len(), 14 + 5 + 1, "{species:?}");
+            assert_eq!(uses.len(), 14 + 5 + 3 + 1, "{species:?}");
             assert_eq!(uses[..14], cards(ItemId::OakPlanks, RecipeTab::Uses)[..14]);
             assert_eq!(
-                uses[19],
+                uses[22],
                 BrowserCard::Fuel {
                     item: *species,
                     ticks: 300

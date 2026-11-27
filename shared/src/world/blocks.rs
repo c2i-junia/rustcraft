@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::{palette::Form, GameElementId, ItemId, Tool, ToolKind};
+use super::{decor::DecorKind, palette::Form, GameElementId, ItemId, Tool, ToolKind};
 use bevy::math::{bounding::Aabb3d, IVec3, Vec3A};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -351,6 +351,119 @@ pub enum BlockId {
     PolishedBasalt,
     /// A crust of cooling lava: it glows, and burns who stands on it without sneaking.
     Magma,
+    // The furniture and the decoration of a home: see `decor`
+    /// The bedrolls of the other colours: the first one, `Bedroll`, is red.
+    WhiteBedroll,
+    OrangeBedroll,
+    MagentaBedroll,
+    LightBlueBedroll,
+    YellowBedroll,
+    LimeBedroll,
+    PinkBedroll,
+    GrayBedroll,
+    LightGrayBedroll,
+    CyanBedroll,
+    PurpleBedroll,
+    BlueBedroll,
+    BrownBedroll,
+    GreenBedroll,
+    BlackBedroll,
+    /// A table and a chair of each wood: a player sits on a chair (`players::sitting`).
+    OakTable,
+    SpruceTable,
+    JungleTable,
+    WillowTable,
+    AcaciaTable,
+    OakChair,
+    SpruceChair,
+    JungleChair,
+    WillowChair,
+    AcaciaChair,
+    /// Shelves of books, which the engraving table may one day count.
+    Bookshelf,
+    /// A thin rug of wool of each colour.
+    WhiteCarpet,
+    OrangeCarpet,
+    MagentaCarpet,
+    LightBlueCarpet,
+    YellowCarpet,
+    LimeCarpet,
+    PinkCarpet,
+    GrayCarpet,
+    LightGrayCarpet,
+    CyanCarpet,
+    PurpleCarpet,
+    BlueCarpet,
+    BrownCarpet,
+    GreenCarpet,
+    RedCarpet,
+    BlackCarpet,
+    /// Shows the plant put in it (`decor::Displays`).
+    FlowerPot,
+    /// Hung on a wall, it shows the item put in it, turned at each click.
+    ItemFrame,
+    /// The canvases of one block, hung on a wall: a click shows the next one.
+    DawnPainting,
+    MeadowPainting,
+    HarbourPainting,
+    StillLifePainting,
+    /// The canvases of two blocks, their left half and their right half.
+    ValleyPainting,
+    ValleyPaintingRight,
+    SeascapePainting,
+    SeascapePaintingRight,
+    ForestPainting,
+    ForestPaintingRight,
+    /// A banner of each colour hung on a wall, and the patterns dyed on it (`decor::BannerPatterns`).
+    WhiteBanner,
+    OrangeBanner,
+    MagentaBanner,
+    LightBlueBanner,
+    YellowBanner,
+    LimeBanner,
+    PinkBanner,
+    GrayBanner,
+    LightGrayBanner,
+    CyanBanner,
+    PurpleBanner,
+    BlueBanner,
+    BrownBanner,
+    GreenBanner,
+    RedBanner,
+    BlackBanner,
+    /// A lantern of each colour, standing and hung.
+    WhiteLantern,
+    OrangeLantern,
+    MagentaLantern,
+    LightBlueLantern,
+    YellowLantern,
+    LimeLantern,
+    PinkLantern,
+    GrayLantern,
+    LightGrayLantern,
+    CyanLantern,
+    PurpleLantern,
+    BlueLantern,
+    BrownLantern,
+    GreenLantern,
+    RedLantern,
+    BlackLantern,
+    HangingWhiteLantern,
+    HangingOrangeLantern,
+    HangingMagentaLantern,
+    HangingLightBlueLantern,
+    HangingYellowLantern,
+    HangingLimeLantern,
+    HangingPinkLantern,
+    HangingGrayLantern,
+    HangingLightGrayLantern,
+    HangingCyanLantern,
+    HangingPurpleLantern,
+    HangingBlueLantern,
+    HangingBrownLantern,
+    HangingGreenLantern,
+    HangingRedLantern,
+    HangingBlackLantern,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -574,7 +687,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 296] = [
+    pub const ALL: [BlockId; 398] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -871,6 +984,108 @@ impl BlockId {
         BlockId::Basalt,
         BlockId::PolishedBasalt,
         BlockId::Magma,
+        BlockId::WhiteBedroll,
+        BlockId::OrangeBedroll,
+        BlockId::MagentaBedroll,
+        BlockId::LightBlueBedroll,
+        BlockId::YellowBedroll,
+        BlockId::LimeBedroll,
+        BlockId::PinkBedroll,
+        BlockId::GrayBedroll,
+        BlockId::LightGrayBedroll,
+        BlockId::CyanBedroll,
+        BlockId::PurpleBedroll,
+        BlockId::BlueBedroll,
+        BlockId::BrownBedroll,
+        BlockId::GreenBedroll,
+        BlockId::BlackBedroll,
+        BlockId::OakTable,
+        BlockId::SpruceTable,
+        BlockId::JungleTable,
+        BlockId::WillowTable,
+        BlockId::AcaciaTable,
+        BlockId::OakChair,
+        BlockId::SpruceChair,
+        BlockId::JungleChair,
+        BlockId::WillowChair,
+        BlockId::AcaciaChair,
+        BlockId::Bookshelf,
+        BlockId::WhiteCarpet,
+        BlockId::OrangeCarpet,
+        BlockId::MagentaCarpet,
+        BlockId::LightBlueCarpet,
+        BlockId::YellowCarpet,
+        BlockId::LimeCarpet,
+        BlockId::PinkCarpet,
+        BlockId::GrayCarpet,
+        BlockId::LightGrayCarpet,
+        BlockId::CyanCarpet,
+        BlockId::PurpleCarpet,
+        BlockId::BlueCarpet,
+        BlockId::BrownCarpet,
+        BlockId::GreenCarpet,
+        BlockId::RedCarpet,
+        BlockId::BlackCarpet,
+        BlockId::FlowerPot,
+        BlockId::ItemFrame,
+        BlockId::DawnPainting,
+        BlockId::MeadowPainting,
+        BlockId::HarbourPainting,
+        BlockId::StillLifePainting,
+        BlockId::ValleyPainting,
+        BlockId::ValleyPaintingRight,
+        BlockId::SeascapePainting,
+        BlockId::SeascapePaintingRight,
+        BlockId::ForestPainting,
+        BlockId::ForestPaintingRight,
+        BlockId::WhiteBanner,
+        BlockId::OrangeBanner,
+        BlockId::MagentaBanner,
+        BlockId::LightBlueBanner,
+        BlockId::YellowBanner,
+        BlockId::LimeBanner,
+        BlockId::PinkBanner,
+        BlockId::GrayBanner,
+        BlockId::LightGrayBanner,
+        BlockId::CyanBanner,
+        BlockId::PurpleBanner,
+        BlockId::BlueBanner,
+        BlockId::BrownBanner,
+        BlockId::GreenBanner,
+        BlockId::RedBanner,
+        BlockId::BlackBanner,
+        BlockId::WhiteLantern,
+        BlockId::OrangeLantern,
+        BlockId::MagentaLantern,
+        BlockId::LightBlueLantern,
+        BlockId::YellowLantern,
+        BlockId::LimeLantern,
+        BlockId::PinkLantern,
+        BlockId::GrayLantern,
+        BlockId::LightGrayLantern,
+        BlockId::CyanLantern,
+        BlockId::PurpleLantern,
+        BlockId::BlueLantern,
+        BlockId::BrownLantern,
+        BlockId::GreenLantern,
+        BlockId::RedLantern,
+        BlockId::BlackLantern,
+        BlockId::HangingWhiteLantern,
+        BlockId::HangingOrangeLantern,
+        BlockId::HangingMagentaLantern,
+        BlockId::HangingLightBlueLantern,
+        BlockId::HangingYellowLantern,
+        BlockId::HangingLimeLantern,
+        BlockId::HangingPinkLantern,
+        BlockId::HangingGrayLantern,
+        BlockId::HangingLightGrayLantern,
+        BlockId::HangingCyanLantern,
+        BlockId::HangingPurpleLantern,
+        BlockId::HangingBlueLantern,
+        BlockId::HangingBrownLantern,
+        BlockId::HangingGreenLantern,
+        BlockId::HangingRedLantern,
+        BlockId::HangingBlackLantern,
     ];
 
     pub fn is_stairs(&self) -> bool {
@@ -965,6 +1180,9 @@ impl BlockId {
     }
 
     pub fn get_hitbox(&self) -> BlockHitbox {
+        if let Some(decor) = self.decor() {
+            return decor.kind.hitbox();
+        }
         if let Some(palette) = self.palette() {
             return match palette.form {
                 Form::Slab | Form::Stairs => BlockHitbox::Aabb(SLAB),
@@ -1036,6 +1254,9 @@ impl BlockId {
     }
 
     pub fn get_ray_hitbox(&self) -> BlockHitbox {
+        if let Some(decor) = self.decor() {
+            return decor.kind.ray_hitbox();
+        }
         if let Some(palette) = self.palette() {
             return match palette.form {
                 // a gate is aimed at open or shut, below the height it blocks
@@ -1242,6 +1463,9 @@ impl BlockId {
             crate::new_palette_blocks!() => {
                 return self.palette().and_then(|palette| palette.base.get_break_time())
             }
+            crate::new_decor_blocks!() => {
+                return self.decor().and_then(|decor| decor.base.get_break_time())
+            }
         };
         Some(2 * steps)
     }
@@ -1250,6 +1474,9 @@ impl BlockId {
     pub fn is_mined_faster_by(&self, kind: ToolKind) -> bool {
         if let Some(palette) = self.palette() {
             return palette.base.is_mined_faster_by(kind);
+        }
+        if let Some(decor) = self.decor() {
+            return decor.base.is_mined_faster_by(kind);
         }
         match kind {
             ToolKind::Pickaxe => matches!(
@@ -1393,7 +1620,13 @@ impl BlockId {
             }
             Self::GoldOre | Self::DiamondOre | Self::GoldBlock | Self::DiamondBlock => 2,
             Self::Obsidian => 3,
-            _ => return self.palette().and_then(|palette| palette.base.get_required_tool()),
+            _ => {
+                return match (self.palette(), self.decor()) {
+                    (Some(palette), _) => palette.base.get_required_tool(),
+                    (_, Some(decor)) => decor.base.get_required_tool(),
+                    _ => None,
+                }
+            }
         };
         Some(RequiredTool {
             kind: ToolKind::Pickaxe,
@@ -1558,6 +1791,11 @@ impl BlockId {
             BlockId::Basalt => vec![(1, ItemId::Basalt, 1)],
             BlockId::PolishedBasalt => vec![(1, ItemId::PolishedBasalt, 1)],
             BlockId::Magma => vec![(1, ItemId::Magma, 1)],
+            // The furniture drops its item, a canvas of two blocks once
+            crate::new_decor_blocks!() => match self.decor() {
+                Some(decor) => vec![(1, decor.item, 1)],
+                None => vec![],
+            },
             // The other blocks of the palette drop their item, but glass, which breaks
             _ => match self.palette() {
                 Some(palette) if palette.base != BlockId::Glass => vec![(1, palette.item, 1)],
@@ -1581,6 +1819,7 @@ impl BlockId {
                 | Self::Bedroll
                 | Self::RipeBerryBush
         ) || self.form().is_some_and(Form::opens)
+            || self.decor_kind().is_some_and(DecorKind::is_usable)
             || self.is_furnace()
     }
 
@@ -1611,6 +1850,9 @@ impl BlockId {
     }
 
     pub fn get_visibility(&self) -> BlockTransparency {
+        if let Some(decor) = self.decor() {
+            return decor.kind.visibility();
+        }
         if let Some(palette) = self.palette() {
             return match palette.form {
                 Form::Cube => palette.base.get_visibility(),
@@ -1701,6 +1943,11 @@ impl BlockId {
             Self::Torch => 14,
             Self::EmberHeart => 12,
             Self::Lantern | Self::HangingLantern => 15,
+            crate::new_decor_blocks!()
+                if matches!(self.decor_kind(), Some(DecorKind::Lantern { .. })) =>
+            {
+                15
+            }
             Self::Campfire => 13,
             Self::LitFurnace => 13,
             Self::Glowcrystal => 12,
@@ -1730,7 +1977,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 296] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 398] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 3] = [BlockId::Bedrock, BlockId::Water, BlockId::Lava];
@@ -1866,7 +2113,8 @@ mod tests {
             | BlockId::Basalt
             | BlockId::PolishedBasalt
             | BlockId::Magma
-            | crate::new_palette_blocks!() => {}
+            | crate::new_palette_blocks!()
+            | crate::new_decor_blocks!() => {}
         }
     }
 
@@ -2219,6 +2467,108 @@ mod tests {
                 BlockId::Basalt => 293,
                 BlockId::PolishedBasalt => 294,
                 BlockId::Magma => 295,
+                BlockId::WhiteBedroll => 296,
+                BlockId::OrangeBedroll => 297,
+                BlockId::MagentaBedroll => 298,
+                BlockId::LightBlueBedroll => 299,
+                BlockId::YellowBedroll => 300,
+                BlockId::LimeBedroll => 301,
+                BlockId::PinkBedroll => 302,
+                BlockId::GrayBedroll => 303,
+                BlockId::LightGrayBedroll => 304,
+                BlockId::CyanBedroll => 305,
+                BlockId::PurpleBedroll => 306,
+                BlockId::BlueBedroll => 307,
+                BlockId::BrownBedroll => 308,
+                BlockId::GreenBedroll => 309,
+                BlockId::BlackBedroll => 310,
+                BlockId::OakTable => 311,
+                BlockId::SpruceTable => 312,
+                BlockId::JungleTable => 313,
+                BlockId::WillowTable => 314,
+                BlockId::AcaciaTable => 315,
+                BlockId::OakChair => 316,
+                BlockId::SpruceChair => 317,
+                BlockId::JungleChair => 318,
+                BlockId::WillowChair => 319,
+                BlockId::AcaciaChair => 320,
+                BlockId::Bookshelf => 321,
+                BlockId::WhiteCarpet => 322,
+                BlockId::OrangeCarpet => 323,
+                BlockId::MagentaCarpet => 324,
+                BlockId::LightBlueCarpet => 325,
+                BlockId::YellowCarpet => 326,
+                BlockId::LimeCarpet => 327,
+                BlockId::PinkCarpet => 328,
+                BlockId::GrayCarpet => 329,
+                BlockId::LightGrayCarpet => 330,
+                BlockId::CyanCarpet => 331,
+                BlockId::PurpleCarpet => 332,
+                BlockId::BlueCarpet => 333,
+                BlockId::BrownCarpet => 334,
+                BlockId::GreenCarpet => 335,
+                BlockId::RedCarpet => 336,
+                BlockId::BlackCarpet => 337,
+                BlockId::FlowerPot => 338,
+                BlockId::ItemFrame => 339,
+                BlockId::DawnPainting => 340,
+                BlockId::MeadowPainting => 341,
+                BlockId::HarbourPainting => 342,
+                BlockId::StillLifePainting => 343,
+                BlockId::ValleyPainting => 344,
+                BlockId::ValleyPaintingRight => 345,
+                BlockId::SeascapePainting => 346,
+                BlockId::SeascapePaintingRight => 347,
+                BlockId::ForestPainting => 348,
+                BlockId::ForestPaintingRight => 349,
+                BlockId::WhiteBanner => 350,
+                BlockId::OrangeBanner => 351,
+                BlockId::MagentaBanner => 352,
+                BlockId::LightBlueBanner => 353,
+                BlockId::YellowBanner => 354,
+                BlockId::LimeBanner => 355,
+                BlockId::PinkBanner => 356,
+                BlockId::GrayBanner => 357,
+                BlockId::LightGrayBanner => 358,
+                BlockId::CyanBanner => 359,
+                BlockId::PurpleBanner => 360,
+                BlockId::BlueBanner => 361,
+                BlockId::BrownBanner => 362,
+                BlockId::GreenBanner => 363,
+                BlockId::RedBanner => 364,
+                BlockId::BlackBanner => 365,
+                BlockId::WhiteLantern => 366,
+                BlockId::OrangeLantern => 367,
+                BlockId::MagentaLantern => 368,
+                BlockId::LightBlueLantern => 369,
+                BlockId::YellowLantern => 370,
+                BlockId::LimeLantern => 371,
+                BlockId::PinkLantern => 372,
+                BlockId::GrayLantern => 373,
+                BlockId::LightGrayLantern => 374,
+                BlockId::CyanLantern => 375,
+                BlockId::PurpleLantern => 376,
+                BlockId::BlueLantern => 377,
+                BlockId::BrownLantern => 378,
+                BlockId::GreenLantern => 379,
+                BlockId::RedLantern => 380,
+                BlockId::BlackLantern => 381,
+                BlockId::HangingWhiteLantern => 382,
+                BlockId::HangingOrangeLantern => 383,
+                BlockId::HangingMagentaLantern => 384,
+                BlockId::HangingLightBlueLantern => 385,
+                BlockId::HangingYellowLantern => 386,
+                BlockId::HangingLimeLantern => 387,
+                BlockId::HangingPinkLantern => 388,
+                BlockId::HangingGrayLantern => 389,
+                BlockId::HangingLightGrayLantern => 390,
+                BlockId::HangingCyanLantern => 391,
+                BlockId::HangingPurpleLantern => 392,
+                BlockId::HangingBlueLantern => 393,
+                BlockId::HangingBrownLantern => 394,
+                BlockId::HangingGreenLantern => 395,
+                BlockId::HangingRedLantern => 396,
+                BlockId::HangingBlackLantern => 397,
             };
             assert_eq!(encoded(&id), varint(expected), "{id:?}: {ENCODING_WARNING}");
         }

@@ -295,6 +295,22 @@ blocks/Geodestone, blocks/Glowcrystal, blocks/Moss, items/CrystalShard, items/Tr
 `scripts/generate_spawn_eggs.py` the eggs of the Glintfin, the Shoalback, the Mossback, the
 Shardling and the Slagcrawler.
 
+## Added after the audit, the furniture
+
+From the `master` branch of Pixel Perfection CE (CC BY-SA 4.0), as they are: blocks/Bookshelf
+(`block/bookshelf`), items/Book (`item/book`), items/FlowerPot (`item/flower_pot`),
+items/ItemFrame (`item/item_frame`), items/Painting (`item/painting`).
+
+Drawn by `scripts/generate_furniture.py` (MIT), from textures of the game: the bedrolls of fifteen
+colours (blocks and items, the red `Bedroll` recoloured with the shades of each wool), the lanterns
+of sixteen colours (`Lantern` with its light tinted), the banners of sixteen colours (blocks, of
+their wool, and items), the carpets' icons, the tables' and the chairs' icons (of the planks of
+each wood), blocks/FlowerPot (our terracotta and dirt), blocks/ItemFrame (our oak planks and
+leather), and the canvases, original pictures drawn pixel by pixel: blocks/DawnPainting,
+MeadowPainting, HarbourPainting, StillLifePainting, ValleyPainting, ValleyPaintingRight,
+SeascapePainting, SeascapePaintingRight, ForestPainting, ForestPaintingRight, items/WidePainting.
+The patterns of the banners are drawn by the game (`client/src/world/decor.rs`), not from files.
+
 ## Added after the audit, from Nova_Wostra's pack (5)
 
 Taken as they are from the `main` branch of the Chorus Edit, not compared with CE: as B until they

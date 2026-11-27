@@ -261,7 +261,7 @@ const RECIPES: &[Recipe] = &[
     Recipe { width: 3, cells: &[item(ItemId::Glass), item(ItemId::Glass), item(ItemId::Glass)], output: ItemId::GlassPane, nb: 8, shapeless: false },
     Recipe { width: 2, cells: &[item(ItemId::Flint), item(ItemId::Rope), STICK, None, STICK, None], output: ItemId::Spear, nb: 1, shapeless: false },
     Recipe { width: 3, cells: &[item(ItemId::Rye), item(ItemId::Rye), item(ItemId::Rye)], output: ItemId::RyeBread, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &[item(ItemId::Wool), item(ItemId::Wool), item(ItemId::Wool), item(ItemId::Rope), None, item(ItemId::Rope)], output: ItemId::Bedroll, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &[item(ItemId::RedWool), item(ItemId::RedWool), item(ItemId::RedWool), item(ItemId::Rope), None, item(ItemId::Rope)], output: ItemId::Bedroll, nb: 1, shapeless: false },
     Recipe { width: 3, cells: &[PLANKS, item(ItemId::Rope), PLANKS, PLANKS, None, PLANKS, PLANKS, item(ItemId::Rope), PLANKS], output: ItemId::Barrel, nb: 1, shapeless: false },
     Recipe { width: 3, cells: &[item(ItemId::HewnStone), None, item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::Bucket), item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::HewnStone)], output: ItemId::RainCistern, nb: 1, shapeless: false },
     Recipe { width: 3, cells: &[None, STICK, None, STICK, None, STICK, item(ItemId::OakLog), item(ItemId::OakLog), item(ItemId::OakLog)], output: ItemId::Campfire, nb: 1, shapeless: false },
@@ -476,6 +476,52 @@ fn palette_recipes() -> Vec<Recipe> {
     recipes
 }
 
+/// The recipes of the furniture (`decor`): a bedroll of each colour from its wool, a table and
+/// chairs of each wood, the book and the bookshelf, the carpets, the flower pot, the item frame,
+/// the paintings, a banner of each colour, and a lantern dyed of each colour.
+fn decor_recipes() -> Vec<Recipe> {
+    let mut recipes = Vec::new();
+    let mut add = |width, cells: Vec<Option<Ingredient>>, output, nb, shapeless| {
+        recipes.push(Recipe {
+            width,
+            cells: Vec::leak(cells),
+            output,
+            nb,
+            shapeless,
+        })
+    };
+    let rope = item(ItemId::Rope);
+    for color in DyeColor::ALL {
+        let wool = item(color.wool());
+        // the red one is in `RECIPES`, from before the colours
+        if color != DyeColor::Red {
+            add(3, vec![wool, wool, wool, rope, None, rope], color.bedroll(), 1, false);
+        }
+        add(2, vec![wool, wool], color.carpet(), 3, false);
+        add(3, vec![wool, wool, wool, wool, wool, wool, None, STICK, None], color.banner(), 1, false);
+        add(2, vec![item(ItemId::Lantern), item(color.dye())], color.lantern(), 1, true);
+    }
+    for wood in Wood::ALL {
+        let p = item(wood.planks());
+        add(3, vec![p, p, p, STICK, None, STICK], wood.table(), 1, false);
+        add(3, vec![STICK, None, None, p, p, p, STICK, None, STICK], wood.chair(), 2, false);
+    }
+    let book = item(ItemId::Book);
+    add(2, vec![PAPER, PAPER, PAPER, LEATHER], ItemId::Book, 1, true);
+    add(3, vec![PLANKS, PLANKS, PLANKS, book, book, book, PLANKS, PLANKS, PLANKS], ItemId::Bookshelf, 1, false);
+    let brick = item(ItemId::FiredBrick);
+    add(3, vec![brick, None, brick, None, brick, None], ItemId::FlowerPot, 1, false);
+    let ring = |centre| {
+        let mut cells = vec![STICK; 9];
+        cells[4] = centre;
+        cells
+    };
+    add(3, ring(WOOL), ItemId::ItemFrame, 1, false);
+    add(3, ring(PAPER), ItemId::Painting, 1, false);
+    add(2, vec![item(ItemId::Painting); 2], ItemId::WidePainting, 1, false);
+    recipes
+}
+
 /// The recipes of the maps (`cartography`): paper from reeds, the empty map, its copy, the
 /// compass and the frame of a map.
 #[rustfmt::skip]
@@ -507,6 +553,7 @@ fn all_recipes() -> &'static [Recipe] {
             .copied()
             .chain(palette_recipes())
             .chain(MAP_RECIPES.iter().copied())
+            .chain(decor_recipes())
             .collect()
     })
 }
@@ -1203,8 +1250,8 @@ mod tests {
     fn every_recipe_is_listed_with_its_index_and_size() {
         let all: Vec<RecipeView> = recipes().collect();
         // + 3: the glowing crystal, the polished basalt and the paper of kelp; + 5: the lead and
-        // the four horse armours
-        assert_eq!(all.len(), 109 - 3 + 152 + 5 + 9 + 6 + 3 + 5);
+        // the four horse armours; + 79: the furniture (`decor_recipes`)
+        assert_eq!(all.len(), 109 - 3 + 152 + 5 + 9 + 6 + 3 + 5 + 79);
         for (position, recipe) in all.iter().enumerate() {
             assert_eq!(recipe.index as usize, position);
             assert_eq!(recipe.cells.len(), recipe.width * recipe.height);
@@ -1223,11 +1270,12 @@ mod tests {
     fn recipes_for_and_uses_of_find_the_recipes_of_an_item() {
         let counts = |item| (recipes_for(item).count(), uses_of(item).count());
         assert_eq!(counts(ItemId::WoodenPickaxe), (1, 0));
-        assert_eq!(counts(ItemId::Stick), (1, 55));
-        // the recipes of any planks (the shield and the bowl among them), then the slab, stairs, door, trapdoor and gate of the species
-        assert_eq!(counts(ItemId::OakPlanks), (1, 14 + 5));
-        assert_eq!(counts(ItemId::SprucePlanks), (1, 14 + 5));
-        assert_eq!(counts(ItemId::JunglePlanks), (1, 14 + 5));
+        // + 28: the banners, the tables, the chairs, the item frame and the painting
+        assert_eq!(counts(ItemId::Stick), (1, 55 + 28));
+        // the recipes of any planks (the shield and the bowl among them), then the slab, stairs, door, trapdoor and gate of the species, its table and its chair, and the bookshelf of any planks
+        assert_eq!(counts(ItemId::OakPlanks), (1, 14 + 5 + 3));
+        assert_eq!(counts(ItemId::SprucePlanks), (1, 14 + 5 + 3));
+        assert_eq!(counts(ItemId::JunglePlanks), (1, 14 + 5 + 3));
         let uses = |item| uses_of(item).map(|r| r.index).collect::<Vec<_>>();
         assert_eq!(uses(ItemId::OakPlanks)[..14], uses(ItemId::SprucePlanks)[..14]);
         assert_eq!(uses(ItemId::OakPlanks)[..14], uses(ItemId::JunglePlanks)[..14]);
@@ -1493,6 +1541,7 @@ mod tests {
                 ItemId::Boat,
                 ItemId::Shield,
                 ItemId::Bowl,
+                ItemId::Bookshelf,
             ]
         );
         for recipe in &with_planks {

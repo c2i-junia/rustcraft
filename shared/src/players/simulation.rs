@@ -34,6 +34,9 @@ pub struct ActionsOutcome {
     pub bedrolls: Vec<IVec3>,
     /// The frames of maps the player clicked, and the slots of the empty maps it used.
     pub frames: Vec<IVec3>,
+    /// The item frames and flower pots it clicked, and the banners with patterns it placed.
+    pub displays: Vec<IVec3>,
+    pub banners: Vec<(IVec3, crate::world::BannerPatterns)>,
     pub drawn_maps: Vec<u32>,
     /// The saplings the player gave compost (`BlockInteractions::fertilized`).
     pub fertilized: Vec<IVec3>,
@@ -80,6 +83,8 @@ pub fn simulate_player_actions(
         signs: interactions.signs,
         bedrolls: interactions.bedrolls,
         frames: interactions.frames,
+        displays: interactions.displays,
+        banners: interactions.banners,
         drawn_maps: interactions.drawn_maps,
         fertilized: interactions.fertilized,
         placed: interactions.placed,

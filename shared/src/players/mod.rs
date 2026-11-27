@@ -19,6 +19,7 @@ pub mod progress;
 pub mod riding;
 pub mod shield;
 pub mod simulation;
+pub mod sitting;
 pub mod skin;
 
 pub use data::*;

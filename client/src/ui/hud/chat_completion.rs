@@ -689,8 +689,8 @@ mod tests {
     fn the_ghost_shows_the_arguments_left_then_the_rest_of_the_chosen_suggestion() {
         assert_eq!(typed("/give").ghost(), " <item> <count>");
         assert_eq!(typed("/give ").ghost(), "<item> <count>");
-        assert_eq!(typed("/give oa").ghost(), "k_fence_gate");
-        assert_eq!(typed("/give OA").ghost(), "k_fence_gate");
+        assert_eq!(typed("/give oa").ghost(), "k_chair");
+        assert_eq!(typed("/give OA").ghost(), "k_chair");
         assert_eq!(typed("/give dirt ").ghost(), "<count>");
         assert_eq!(typed("/give dirt 3").ghost(), "");
         // a suggestion that only contains the word has no rest

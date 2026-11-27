@@ -157,6 +157,7 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
 -> The armour (items/{Leather,Bronze,Iron,Diamond}{Helmet,Chestplate,Leggings,Boots}.png, data/graphics/armour/, hud/armour_*.png, hud/slot_*.png): drawn for Rustcraft by scripts/generate_armour.py.
 -> The engraving table (blocks/EngravingTable.png, EngravingTableTop.png): drawn for Rustcraft by scripts/generate_engraving_table.py.
 -> The coats and the saddle of the horses (models/animated/Horse*.glb) and the boat (models/animated/Boat.glb): built for Rustcraft by scripts/generate_animals.py and scripts/generate_boat.py.
+-> The furniture (blocks/{Color}Bedroll, {Color}Lantern, {Color}Banner, FlowerPot, ItemFrame, the paintings DawnPainting, MeadowPainting, HarbourPainting, StillLifePainting, ValleyPainting*, SeascapePainting*, ForestPainting*; items/{Color}Bedroll, {Color}Carpet, {Color}Banner, {Wood}Table, {Wood}Chair, WidePainting): drawn for Rustcraft by scripts/generate_furniture.py. blocks/Bookshelf and items/Book, FlowerPot, ItemFrame, Painting: Pixel Perfection CE (CC BY-SA 4.0), https://github.com/Athemis/PixelPerfectionCE.
 -> The horse armours on the horses, the donkey and the mule with their saddles and chests (models/animated/{Donkey,Mule}.glb): built for Rustcraft by scripts/generate_animals.py.
 
 ---- SOUNDS AND MUSIC ----
@@ -165,7 +166,7 @@ scripts/generate_sounds.py (the sound effects, the creatures' voices included),
 scripts/generate_feature_sounds.py (the armour, the bow and arrows, the experience, the engraving
 table, the anvil, the trade and the villagers' voices, the breeding and taming, the stings of the
 progress, the saddle and the boat's oars and hull, and the horse armour, the lead, the chest
-of a donkey and the wolf's bite) and
+of a donkey and the wolf's bite, and a chair sat on and an item framed) and
 scripts/generate_music.py (the eight pieces of music in data/music/).
 
 ---- OTHER ----

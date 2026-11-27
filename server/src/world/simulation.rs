@@ -403,6 +403,12 @@ pub fn handle_player_inputs_system(
             .extend(outcome.bedrolls.iter().map(|&pos| (ev.client_id, pos)));
         home.framed
             .extend(outcome.frames.iter().map(|&pos| (ev.client_id, pos)));
+        home.displayed
+            .extend(outcome.displays.iter().map(|&pos| (ev.client_id, pos)));
+        for &(at, patterns) in &outcome.banners {
+            world_map.places.banners.insert(at, patterns);
+            home.decorations_changed = true;
+        }
         home.drawn
             .extend(outcome.drawn_maps.iter().map(|&slot| (ev.client_id, slot)));
         // Compost grows a sapling at once one time in two
@@ -423,6 +429,12 @@ pub fn handle_player_inputs_system(
         player.learn_blocks(outcome.broken.iter().map(|b| b.block), &outcome.placed);
         player.mined(outcome.broken.len());
         for block in &outcome.broken {
+            // A banner keeps its patterns
+            if let Some(dropped) = super::decor::broken_banner(&mut world_map.places, block) {
+                world_map.home.decorations_changed = true;
+                dropped_items.spawn(dropped);
+                continue;
+            }
             dropped_items.drop_block_items(block, &mut rng);
         }
         for &(item, nb) in &outcome.smelted {

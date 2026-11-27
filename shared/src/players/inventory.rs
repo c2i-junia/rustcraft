@@ -1149,6 +1149,13 @@ pub fn craft_result(inventory: &Inventory, size: u32) -> Option<ItemStack> {
     if beyond_the_grid {
         return None;
     }
+    // Dyes laid in a shape around a banner dye a pattern on it
+    let stacks: Vec<Option<ItemStack>> = grid_slots(CRAFTING_GRID_SIZE)
+        .map(|slot| inventory.inner.get(&slot).copied())
+        .collect();
+    if let Some(banner) = crate::world::decor::dye_banner(&stacks) {
+        return Some(banner);
+    }
     let mut result = match_recipe(&inventory.crafting_grid())?;
     // A copy of a paper map is the same map
     if result.item_id == ItemId::FilledMap {

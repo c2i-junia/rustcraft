@@ -595,7 +595,10 @@ pub fn animate_players_system(
             is_flying: player.is_flying,
             is_swinging,
             is_drawing: player.bow_draw_ms > 0 && !player.is_dead(),
-            mount_heading: player.riding.map(|riding| riding.heading),
+            mount_heading: player
+                .riding
+                .map(|riding| riding.heading)
+                .or(player.sitting.map(|seat| seat.heading)),
         };
         let pose = animation.advance(motion, delta, time.elapsed_secs());
 

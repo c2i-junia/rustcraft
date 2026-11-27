@@ -283,6 +283,44 @@ fn feet_in_water(mob: &Mob, at: Vec3, world: &ClientWorldMap) -> bool {
         .is_some_and(|block| block.id == BlockId::Water)
 }
 
+/// A player sitting down on a chair, and an item put in a frame, turned in it or planted in a
+/// pot.
+pub fn furniture_cues(
+    players: Query<&Player>,
+    decorations: Res<crate::world::decor::ClientDecorations>,
+    cameras: Query<&GlobalTransform, (With<Camera3d>, Without<PortalCamera>)>,
+    mut seated: Local<HashSet<PlayerId>>,
+    mut shown: Local<Option<HashMap<IVec3, shared::world::Shown>>>,
+    mut sounds: MessageWriter<PlaySound>,
+) {
+    let ears = ears(&cameras);
+    let mut now_seated = HashSet::new();
+    for player in &players {
+        if player.sitting.is_some() {
+            now_seated.insert(player.id);
+            if !seated.contains(&player.id) {
+                sounds.write_batch(heard(ears, Sound::Sit, player.position));
+            }
+        }
+    }
+    *seated = now_seated;
+    let now: HashMap<IVec3, shared::world::Shown> =
+        decorations.decorations.displays.iter().copied().collect();
+    // what the frames showed when the player came is not heard
+    if let Some(before) = shown.as_ref() {
+        for (at, item) in &now {
+            if before.get(at) != Some(item) {
+                let centre = at.as_vec3() + Vec3::splat(0.5);
+                sounds.write_batch(heard(ears, Sound::FrameTurn, centre));
+            }
+        }
+    }
+    if shown.is_none() && now.is_empty() {
+        return;
+    }
+    *shown = Some(now);
+}
+
 /// The hearts rising over an animal, its birth and its taming, and the splash of a mob falling
 /// into water.
 pub fn mob_cues(

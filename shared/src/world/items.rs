@@ -495,11 +495,94 @@ pub enum ItemId {
     Lead,
     DonkeySpawnEgg,
     MuleSpawnEgg,
+    // The furniture and the decoration of a home: see `decor`
+    WhiteBedroll,
+    OrangeBedroll,
+    MagentaBedroll,
+    LightBlueBedroll,
+    YellowBedroll,
+    LimeBedroll,
+    PinkBedroll,
+    GrayBedroll,
+    LightGrayBedroll,
+    CyanBedroll,
+    PurpleBedroll,
+    BlueBedroll,
+    BrownBedroll,
+    GreenBedroll,
+    BlackBedroll,
+    OakTable,
+    SpruceTable,
+    JungleTable,
+    WillowTable,
+    AcaciaTable,
+    OakChair,
+    SpruceChair,
+    JungleChair,
+    WillowChair,
+    AcaciaChair,
+    /// Paper bound in leather, which shelves hold.
+    Book,
+    Bookshelf,
+    WhiteCarpet,
+    OrangeCarpet,
+    MagentaCarpet,
+    LightBlueCarpet,
+    YellowCarpet,
+    LimeCarpet,
+    PinkCarpet,
+    GrayCarpet,
+    LightGrayCarpet,
+    CyanCarpet,
+    PurpleCarpet,
+    BlueCarpet,
+    BrownCarpet,
+    GreenCarpet,
+    RedCarpet,
+    BlackCarpet,
+    FlowerPot,
+    ItemFrame,
+    /// Hung on a wall, one of the canvases of one block, then of two blocks.
+    Painting,
+    WidePainting,
+    /// Of `ItemType::Banner` once patterns are dyed on it.
+    WhiteBanner,
+    OrangeBanner,
+    MagentaBanner,
+    LightBlueBanner,
+    YellowBanner,
+    LimeBanner,
+    PinkBanner,
+    GrayBanner,
+    LightGrayBanner,
+    CyanBanner,
+    PurpleBanner,
+    BlueBanner,
+    BrownBanner,
+    GreenBanner,
+    RedBanner,
+    BlackBanner,
+    WhiteLantern,
+    OrangeLantern,
+    MagentaLantern,
+    LightBlueLantern,
+    YellowLantern,
+    LimeLantern,
+    PinkLantern,
+    GrayLantern,
+    LightGrayLantern,
+    CyanLantern,
+    PurpleLantern,
+    BlueLantern,
+    BrownLantern,
+    GreenLantern,
+    RedLantern,
+    BlackLantern,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 425] = [
+    pub const ALL: [ItemId; 504] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -925,6 +1008,85 @@ impl ItemId {
         Self::Lead,
         Self::DonkeySpawnEgg,
         Self::MuleSpawnEgg,
+        Self::WhiteBedroll,
+        Self::OrangeBedroll,
+        Self::MagentaBedroll,
+        Self::LightBlueBedroll,
+        Self::YellowBedroll,
+        Self::LimeBedroll,
+        Self::PinkBedroll,
+        Self::GrayBedroll,
+        Self::LightGrayBedroll,
+        Self::CyanBedroll,
+        Self::PurpleBedroll,
+        Self::BlueBedroll,
+        Self::BrownBedroll,
+        Self::GreenBedroll,
+        Self::BlackBedroll,
+        Self::OakTable,
+        Self::SpruceTable,
+        Self::JungleTable,
+        Self::WillowTable,
+        Self::AcaciaTable,
+        Self::OakChair,
+        Self::SpruceChair,
+        Self::JungleChair,
+        Self::WillowChair,
+        Self::AcaciaChair,
+        Self::Book,
+        Self::Bookshelf,
+        Self::WhiteCarpet,
+        Self::OrangeCarpet,
+        Self::MagentaCarpet,
+        Self::LightBlueCarpet,
+        Self::YellowCarpet,
+        Self::LimeCarpet,
+        Self::PinkCarpet,
+        Self::GrayCarpet,
+        Self::LightGrayCarpet,
+        Self::CyanCarpet,
+        Self::PurpleCarpet,
+        Self::BlueCarpet,
+        Self::BrownCarpet,
+        Self::GreenCarpet,
+        Self::RedCarpet,
+        Self::BlackCarpet,
+        Self::FlowerPot,
+        Self::ItemFrame,
+        Self::Painting,
+        Self::WidePainting,
+        Self::WhiteBanner,
+        Self::OrangeBanner,
+        Self::MagentaBanner,
+        Self::LightBlueBanner,
+        Self::YellowBanner,
+        Self::LimeBanner,
+        Self::PinkBanner,
+        Self::GrayBanner,
+        Self::LightGrayBanner,
+        Self::CyanBanner,
+        Self::PurpleBanner,
+        Self::BlueBanner,
+        Self::BrownBanner,
+        Self::GreenBanner,
+        Self::RedBanner,
+        Self::BlackBanner,
+        Self::WhiteLantern,
+        Self::OrangeLantern,
+        Self::MagentaLantern,
+        Self::LightBlueLantern,
+        Self::YellowLantern,
+        Self::LimeLantern,
+        Self::PinkLantern,
+        Self::GrayLantern,
+        Self::LightGrayLantern,
+        Self::CyanLantern,
+        Self::PurpleLantern,
+        Self::BlueLantern,
+        Self::BrownLantern,
+        Self::GreenLantern,
+        Self::RedLantern,
+        Self::BlackLantern,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -978,6 +1140,8 @@ impl ItemId {
             | Self::BerrySalad
             | Self::FishChowder => 1,
             Self::ThrowingAxe | Self::Egg => 16,
+            // each banner may hold patterns of its own
+            _ if self.banner_color().is_some() => 1,
             _ if self.durability().is_some() => 1,
             _ => 64,
         }
@@ -1203,6 +1367,14 @@ impl ItemId {
     pub fn category(self) -> ItemCategory {
         // No wildcard: a new item does not compile until it has a category
         match self {
+            Self::Book => ItemCategory::Materials,
+            // the book was filed above
+            #[allow(unreachable_patterns)]
+            crate::new_decor_items!() if self.decor_block().is_some_and(BlockId::is_bedroll) => {
+                ItemCategory::Stations
+            }
+            #[allow(unreachable_patterns)]
+            crate::new_decor_items!() => ItemCategory::Blocks,
             Self::Dirt
             | Self::Grass
             | Self::Stone
@@ -1565,6 +1737,10 @@ impl ItemId {
             Self::Potato => ItemType::Block(BlockId::PotatoSprout),
             Self::AppleSapling => ItemType::Block(BlockId::AppleSapling),
             Self::AppleLeaves => ItemType::Block(BlockId::AppleLeaves),
+            crate::new_decor_items!() => match self.decor_block() {
+                Some(block) => ItemType::Block(block),
+                None => ItemType::Generic,
+            },
             crate::new_palette_block_items!() => match self.palette_block() {
                 Some(block) => ItemType::Block(block),
                 None => ItemType::Generic,
@@ -1895,6 +2071,10 @@ pub enum ItemType {
     /// A treasure map, and where its chest is buried.
     Treasure {
         at: IVec3,
+    },
+    /// A banner, and the patterns dyed on it (`decor`).
+    Banner {
+        patterns: super::decor::BannerPatterns,
     },
 }
 
@@ -2346,6 +2526,85 @@ mod tests {
             (ItemId::Lead, 422),
             (ItemId::DonkeySpawnEgg, 423),
             (ItemId::MuleSpawnEgg, 424),
+            (ItemId::WhiteBedroll, 425),
+            (ItemId::OrangeBedroll, 426),
+            (ItemId::MagentaBedroll, 427),
+            (ItemId::LightBlueBedroll, 428),
+            (ItemId::YellowBedroll, 429),
+            (ItemId::LimeBedroll, 430),
+            (ItemId::PinkBedroll, 431),
+            (ItemId::GrayBedroll, 432),
+            (ItemId::LightGrayBedroll, 433),
+            (ItemId::CyanBedroll, 434),
+            (ItemId::PurpleBedroll, 435),
+            (ItemId::BlueBedroll, 436),
+            (ItemId::BrownBedroll, 437),
+            (ItemId::GreenBedroll, 438),
+            (ItemId::BlackBedroll, 439),
+            (ItemId::OakTable, 440),
+            (ItemId::SpruceTable, 441),
+            (ItemId::JungleTable, 442),
+            (ItemId::WillowTable, 443),
+            (ItemId::AcaciaTable, 444),
+            (ItemId::OakChair, 445),
+            (ItemId::SpruceChair, 446),
+            (ItemId::JungleChair, 447),
+            (ItemId::WillowChair, 448),
+            (ItemId::AcaciaChair, 449),
+            (ItemId::Book, 450),
+            (ItemId::Bookshelf, 451),
+            (ItemId::WhiteCarpet, 452),
+            (ItemId::OrangeCarpet, 453),
+            (ItemId::MagentaCarpet, 454),
+            (ItemId::LightBlueCarpet, 455),
+            (ItemId::YellowCarpet, 456),
+            (ItemId::LimeCarpet, 457),
+            (ItemId::PinkCarpet, 458),
+            (ItemId::GrayCarpet, 459),
+            (ItemId::LightGrayCarpet, 460),
+            (ItemId::CyanCarpet, 461),
+            (ItemId::PurpleCarpet, 462),
+            (ItemId::BlueCarpet, 463),
+            (ItemId::BrownCarpet, 464),
+            (ItemId::GreenCarpet, 465),
+            (ItemId::RedCarpet, 466),
+            (ItemId::BlackCarpet, 467),
+            (ItemId::FlowerPot, 468),
+            (ItemId::ItemFrame, 469),
+            (ItemId::Painting, 470),
+            (ItemId::WidePainting, 471),
+            (ItemId::WhiteBanner, 472),
+            (ItemId::OrangeBanner, 473),
+            (ItemId::MagentaBanner, 474),
+            (ItemId::LightBlueBanner, 475),
+            (ItemId::YellowBanner, 476),
+            (ItemId::LimeBanner, 477),
+            (ItemId::PinkBanner, 478),
+            (ItemId::GrayBanner, 479),
+            (ItemId::LightGrayBanner, 480),
+            (ItemId::CyanBanner, 481),
+            (ItemId::PurpleBanner, 482),
+            (ItemId::BlueBanner, 483),
+            (ItemId::BrownBanner, 484),
+            (ItemId::GreenBanner, 485),
+            (ItemId::RedBanner, 486),
+            (ItemId::BlackBanner, 487),
+            (ItemId::WhiteLantern, 488),
+            (ItemId::OrangeLantern, 489),
+            (ItemId::MagentaLantern, 490),
+            (ItemId::LightBlueLantern, 491),
+            (ItemId::YellowLantern, 492),
+            (ItemId::LimeLantern, 493),
+            (ItemId::PinkLantern, 494),
+            (ItemId::GrayLantern, 495),
+            (ItemId::LightGrayLantern, 496),
+            (ItemId::CyanLantern, 497),
+            (ItemId::PurpleLantern, 498),
+            (ItemId::BlueLantern, 499),
+            (ItemId::BrownLantern, 500),
+            (ItemId::GreenLantern, 501),
+            (ItemId::RedLantern, 502),
+            (ItemId::BlackLantern, 503),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -2614,7 +2873,8 @@ mod tests {
                 | ItemId::ShoalbackSpawnEgg
                 | ItemId::MossbackSpawnEgg
                 | ItemId::ShardlingSpawnEgg
-                | ItemId::SlagcrawlerSpawnEgg => {}
+                | ItemId::SlagcrawlerSpawnEgg
+                | crate::new_decor_items!() => {}
             }
         }
         for (id, expected) in table {
@@ -2861,7 +3121,9 @@ mod tests {
         let others = ItemId::ALL
             .iter()
             .filter(|item| !tools.iter().any(|(t, ..)| t == *item) && !buckets.contains(item))
-            .filter(|item| **item != ItemId::PortalGun && item.armour().is_none());
+            .filter(|item| **item != ItemId::PortalGun && item.armour().is_none())
+            // a banner may hold patterns of its own
+            .filter(|item| item.banner_color().is_none());
         for item in others {
             assert_eq!(item.tool(), None, "{item:?}");
             assert_eq!(item.get_max_stack(), 64, "{item:?}");

@@ -139,6 +139,9 @@ pub enum ServerToClientMessage {
     },
     /// Every frame of a map of the world that holds one, and the id of its map.
     FramedMaps(Vec<(IVec3, MapId)>),
+    /// What every item frame and flower pot of the world shows, and the patterns of its banners
+    /// (`decor`), sent when they change.
+    Decorations(crate::world::Decorations),
 }
 
 /// What the bar of a boss shows.
@@ -373,6 +376,7 @@ mod tests {
                 24,
             ),
             (ServerToClientMessage::FramedMaps(vec![]), 25),
+            (ServerToClientMessage::Decorations(Default::default()), 26),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");
         }

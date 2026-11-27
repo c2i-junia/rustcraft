@@ -2,6 +2,7 @@
 mod bench;
 pub mod broadcast_world;
 pub mod cartography;
+pub mod decor;
 mod caves;
 pub mod chunk_files;
 pub mod container_files;
