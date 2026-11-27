@@ -4,9 +4,7 @@ use bevy::prelude::*;
 
 use crate::i18n::tr_as;
 
-use crate::ui::theme::{
-    BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_S, MUTED, PANEL, SLOT, SPACE_L, SPACE_S, SPACE_XS, TEXT,
-};
+use crate::ui::theme;
 
 /// A key (or keys) and what it does.
 pub struct Hint {
@@ -20,8 +18,8 @@ pub struct HintBar;
 
 /// The height of the bar of key hints: screens keep their content clear of it.
 pub const HINT_BAR_HEIGHT: f32 = 44.0;
-/// The room above and below the label of a key cap, less than `SPACE_XS` so that the caps stay
-/// within the bar.
+/// The room above and below the label of a key cap, less than `theme::space_xs()` so that the caps
+/// stay within the bar.
 const KEY_CAP_PADDING_Y: f32 = 2.0;
 
 /// Whether `keys` has an arrow (U+2190 to U+2193), which the sans font lacks: the key cap then
@@ -38,7 +36,7 @@ pub fn hint_bar(hints: &[Hint], font: Handle<Font>, glyph_font: Handle<Font>) ->
         .map(|hint| {
             (
                 Node {
-                    column_gap: px(SPACE_XS),
+                    column_gap: px(theme::space_xs()),
                     align_items: AlignItems::Center,
                     ..default()
                 },
@@ -49,10 +47,10 @@ pub fn hint_bar(hints: &[Hint], font: Handle<Font>, glyph_font: Handle<Font>) ->
                         Text::new(tr_as("hint", hint.action)),
                         TextFont {
                             font: font.clone().into(),
-                            font_size: px(FONT_S).into(),
+                            font_size: px(theme::font_s()).into(),
                             ..default()
                         },
-                        TextColor(MUTED),
+                        TextColor(theme::muted()),
                         Pickable::IGNORE,
                     ),
                 ],
@@ -67,11 +65,11 @@ pub fn hint_bar(hints: &[Hint], font: Handle<Font>, glyph_font: Handle<Font>) ->
             left: px(0),
             right: px(0),
             height: px(HINT_BAR_HEIGHT),
-            column_gap: px(SPACE_L),
-            padding: UiRect::axes(px(SPACE_L), px(SPACE_S)),
+            column_gap: px(theme::space_l()),
+            padding: UiRect::axes(px(theme::space_l()), px(theme::space_s())),
             ..default()
         },
-        BackgroundColor(PANEL),
+        BackgroundColor(theme::panel()),
         Pickable::IGNORE,
         Children::spawn(SpawnIter(hints.into_iter())),
     )
@@ -87,26 +85,26 @@ pub fn key_cap(keys: &str, font: Handle<Font>, glyph_font: Handle<Font>) -> impl
     };
     (
         Node {
-            border: UiRect::all(px(BEVEL_WIDTH)),
-            padding: UiRect::axes(px(SPACE_XS), px(KEY_CAP_PADDING_Y)),
+            border: UiRect::all(px(theme::bevel_width())),
+            padding: UiRect::axes(px(theme::space_xs()), px(KEY_CAP_PADDING_Y)),
             ..default()
         },
-        BackgroundColor(SLOT),
+        BackgroundColor(theme::slot()),
         BorderColor {
-            top: BEVEL_LO,
-            left: BEVEL_LO,
-            bottom: BEVEL_HI,
-            right: BEVEL_HI,
+            top: theme::bevel_lo(),
+            left: theme::bevel_lo(),
+            bottom: theme::bevel_hi(),
+            right: theme::bevel_hi(),
         },
         Pickable::IGNORE,
         children![(
             Text::new(keys),
             TextFont {
                 font: font.into(),
-                font_size: px(FONT_S).into(),
+                font_size: px(theme::font_s()).into(),
                 ..default()
             },
-            TextColor(TEXT),
+            TextColor(theme::text()),
             Pickable::IGNORE,
         )],
     )

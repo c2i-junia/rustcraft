@@ -32,7 +32,7 @@ use crate::ui::menus::settings::controls::PRESS_A_KEY;
 use crate::ui::menus::settings::SettingsRoot;
 use crate::ui::menus::{MenuState, QUIT_TITLE};
 use crate::ui::quit::QUITTING_TITLE;
-use crate::ui::theme::{ACCENT, RAISE, RAISE_HOVER};
+use crate::ui::theme;
 use crate::ui::widgets::hints::HintBar;
 
 /// The pause menu, found by its role and title.
@@ -141,7 +141,7 @@ fn the_keyboard_alone_drives_the_pause_menu() {
     assert_eq!(h.focus_label().as_deref(), Some("Codex"));
     h.press(KeyCode::ArrowDown);
     assert_eq!(h.focus_label().as_deref(), Some("Settings"));
-    assert_eq!(h.focus_ring(), ACCENT);
+    assert_eq!(h.focus_ring(), theme::accent());
 
     // Enter opens the settings, and Escape gives the focus back to Settings
     h.press(KeyCode::Enter);
@@ -154,7 +154,7 @@ fn the_keyboard_alone_drives_the_pause_menu() {
         h.world().get::<PauseButton>(focused),
         Some(&PauseButton::Settings)
     );
-    assert_eq!(h.focus_ring(), ACCENT);
+    assert_eq!(h.focus_ring(), theme::accent());
     h.press(KeyCode::Enter);
     h.wait_for(&L::role(Role::Tab, "Controls"), SCREEN);
     h.press(KeyCode::Escape);
@@ -169,7 +169,7 @@ fn the_keyboard_alone_drives_the_pause_menu() {
         Some(&PauseButton::Settings)
     );
     // closed by a key: the ring shows where Enter goes
-    assert_eq!(h.focus_ring(), ACCENT);
+    assert_eq!(h.focus_ring(), theme::accent());
 
     // Tab stays in the menu, and so does a click beside its buttons
     for _ in 0..5 {
@@ -243,7 +243,7 @@ fn the_pause_menu_resumes_saves_and_leaves() {
     let surface = |h: &Harness| h.world().get::<BackgroundColor>(save).unwrap().0;
     h.hover(&button("Save now"));
     h.frames(1);
-    assert_eq!(surface(&h), RAISE_HOVER);
+    assert_eq!(surface(&h), theme::raise_hover());
     h.click(&button("Settings"));
     h.wait_for(&L::role(Role::Tab, "Controls"), SCREEN);
     assert!(is_in(h.world(), GameState::Game));
@@ -251,7 +251,7 @@ fn the_pause_menu_resumes_saves_and_leaves() {
     // The buttons of the pause menu beneath them are out of the cursor's reach
     h.hover(&button("Save now"));
     h.frames(1);
-    assert_eq!(surface(&h), RAISE);
+    assert_eq!(surface(&h), theme::raise());
     // A key bound in the settings does not also do what it does in the game
     h.click(&L::role(Role::Button, "Jump, secondary key"));
     h.wait_for(&L::text(PRESS_A_KEY), SCREEN);

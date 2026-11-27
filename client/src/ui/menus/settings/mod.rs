@@ -26,9 +26,7 @@ use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::hud::UiDialog;
 use crate::ui::menus::modal_open;
 use crate::ui::settings::InterfaceSettings;
-use crate::ui::theme::{
-    BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_XL, PANEL, SPACE_L, SPACE_M, SPACE_XL, TEXT,
-};
+use crate::ui::theme;
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::hints::{hint_bar, Hint, HintBar, HINT_BAR_HEIGHT};
 use crate::ui::widgets::tabs::{spawn_tabs, TabButton, TabChange, Tabs};
@@ -191,7 +189,7 @@ pub fn spawn_settings_on(
                     height: percent(100),
                     ..default()
                 },
-                BackgroundColor(BEVEL_LO.with_alpha(0.7)),
+                BackgroundColor(theme::bevel_lo().with_alpha(0.7)),
                 Visibility::Visible,
                 GlobalZIndex(6),
                 TabGroup::modal(),
@@ -214,10 +212,10 @@ pub fn spawn_settings_on(
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
                 padding: UiRect {
-                    top: px(SPACE_XL),
-                    bottom: px(HINT_BAR_HEIGHT + SPACE_XL),
-                    left: px(SPACE_L),
-                    right: px(SPACE_L),
+                    top: px(theme::space_xl()),
+                    bottom: px(HINT_BAR_HEIGHT + theme::space_xl()),
+                    left: px(theme::space_l()),
+                    right: px(theme::space_l()),
                 },
                 ..default()
             },
@@ -232,17 +230,17 @@ pub fn spawn_settings_on(
                 height: px(PANEL_HEIGHT),
                 max_height: percent(100),
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_M),
-                padding: UiRect::all(px(SPACE_L)),
-                border: UiRect::all(px(BEVEL_WIDTH)),
+                row_gap: px(theme::space_m()),
+                padding: UiRect::all(px(theme::space_l())),
+                border: UiRect::all(px(theme::bevel_width())),
                 ..default()
             },
-            BackgroundColor(PANEL),
+            BackgroundColor(theme::panel()),
             BorderColor {
-                top: BEVEL_HI,
-                left: BEVEL_HI,
-                bottom: BEVEL_LO,
-                right: BEVEL_LO,
+                top: theme::bevel_hi(),
+                left: theme::bevel_hi(),
+                bottom: theme::bevel_lo(),
+                right: theme::bevel_lo(),
             },
             ChildOf(content),
         ))
@@ -251,10 +249,10 @@ pub fn spawn_settings_on(
         Text::new(tr("settings.title")),
         TextFont {
             font: font.clone().into(),
-            font_size: px(FONT_XL).into(),
+            font_size: px(theme::font_xl()).into(),
             ..default()
         },
-        TextColor(TEXT),
+        TextColor(theme::text()),
         ChildOf(panel),
     ));
     let labels = SettingsTab::ALL.map(SettingsTab::label);
@@ -275,8 +273,8 @@ pub fn spawn_settings_on(
             flex_direction: FlexDirection::Column,
             flex_grow: 1.0,
             min_height: px(0),
-            padding: UiRect::top(px(SPACE_L)),
-            row_gap: px(SPACE_XL),
+            padding: UiRect::top(px(theme::space_l())),
+            row_gap: px(theme::space_xl()),
             ..default()
         },
         ChildOf(panel),
@@ -298,7 +296,7 @@ pub fn spawn_settings_on(
                 FooterActions,
                 Node {
                     align_items: AlignItems::Center,
-                    column_gap: px(SPACE_L),
+                    column_gap: px(theme::space_l()),
                     ..default()
                 }
             ),

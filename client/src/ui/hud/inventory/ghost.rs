@@ -9,7 +9,7 @@ use shared::world::{grid_slot, Ingredient, ItemStack, CRAFTING_GRID_SIZE};
 
 use crate::ui::hud::item_browser::{tag_member, MISSING_TINT};
 use crate::ui::hud::{CraftingGridCell, InventoryCell, InventoryRoot};
-use crate::ui::theme::BEVEL_WIDTH;
+use crate::ui::theme;
 use crate::ui::widgets::slot::{ICON_SIZE, SLOT_SIZE};
 use crate::world::MaterialResource;
 
@@ -107,7 +107,7 @@ pub fn ghost_tint() -> impl Bundle {
 
 /// The faint icon of a crafting cell, where the slot's icon sits, hidden until a ghost shows it.
 pub fn ghost_icon(icon: ImageNode) -> impl Bundle {
-    let inset = px((SLOT_SIZE - 2.0 * BEVEL_WIDTH - ICON_SIZE) / 2.0);
+    let inset = px((SLOT_SIZE - 2.0 * theme::bevel_width() - ICON_SIZE) / 2.0);
     (
         GhostIcon,
         ImageNode {

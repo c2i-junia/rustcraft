@@ -42,16 +42,13 @@ use crate::input::keyboard::{
 use crate::state::KeyMap;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::settings::{write_interface_settings, InterfaceSettings, InventoryTweaksChoice};
-use crate::ui::theme::{
-    ACCENT, BEVEL_WIDTH, DANGER, FONT_M, FONT_S, MUTED, RAISE, RAISE_HOVER, SPACE_M, SPACE_S,
-    SPACE_XS, TEXT,
-};
+use crate::ui::theme;
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::dialog::{spawn_dialog, Dialog, DialogClosed};
 use crate::ui::widgets::focus::{ArrowNav, FocusRing};
 use crate::ui::widgets::hints::{key_cap, Hint, HintBar};
 use crate::ui::widgets::list::{
-    spawn_scroll_list, ScrollListParts, WheelStep, RING_ROOM, SCROLLBAR_WIDTH,
+    ring_room, spawn_scroll_list, ScrollListParts, WheelStep, SCROLLBAR_WIDTH,
 };
 use crate::ui::widgets::segmented::{spawn_segmented, SegmentChange, Segmented};
 use crate::ui::widgets::slider::{
@@ -475,7 +472,7 @@ fn label(content: &str, font: &Handle<Font>, size: f32, color: Color) -> impl Bu
 fn line() -> Node {
     Node {
         align_items: AlignItems::Center,
-        column_gap: px(SPACE_S),
+        column_gap: px(theme::space_s()),
         ..default()
     }
 }
@@ -502,7 +499,7 @@ pub fn spawn_controls_tab(
                 flex_direction: FlexDirection::Column,
                 flex_grow: 1.0,
                 min_height: px(0),
-                row_gap: px(SPACE_XS),
+                row_gap: px(theme::space_xs()),
                 ..default()
             },
             // Up from the first row goes to the search field
@@ -515,7 +512,10 @@ pub fn spawn_controls_tab(
     let header = commands
         .spawn((
             Node {
-                padding: UiRect::right(px(BEVEL_WIDTH + RING_ROOM + SPACE_XS + SCROLLBAR_WIDTH)),
+                padding: UiRect::right(px(theme::bevel_width()
+                    + ring_room()
+                    + theme::space_xs()
+                    + SCROLLBAR_WIDTH)),
                 ..line()
             },
             ChildOf(content),
@@ -529,7 +529,7 @@ pub fn spawn_controls_tab(
             placeholder: crate::i18n::tr(SEARCH_LABEL),
             max_characters: Some(32),
             font: font.clone(),
-            font_size: FONT_S,
+            font_size: theme::font_s(),
             reserve_error: false,
         },
     );
@@ -572,11 +572,11 @@ pub fn spawn_controls_tab(
                 ..default()
             },
             ChildOf(header),
-            children![label(column, &font, FONT_S, MUTED)],
+            children![label(column, &font, theme::font_s(), theme::muted())],
         ));
     }
     // a row a notch of the wheel
-    let row = WheelStep::Px(SLOT_HEIGHT + 2.0 * RING_ROOM);
+    let row = WheelStep::Px(SLOT_HEIGHT + 2.0 * ring_room());
     let ScrollListParts { frame, list, .. } = spawn_scroll_list(commands, row);
     commands.entity(frame).insert(ChildOf(content));
     commands.entity(header).insert(ColumnHeaders { frame });
@@ -588,12 +588,21 @@ pub fn spawn_controls_tab(
             .spawn((
                 Node {
                     flex_direction: FlexDirection::Column,
-                    padding: UiRect::top(px(if first { SPACE_S } else { SPACE_M })),
+                    padding: UiRect::top(px(if first {
+                        theme::space_s()
+                    } else {
+                        theme::space_m()
+                    })),
                     ..default()
                 },
                 CategoryGroup(category),
                 ChildOf(list),
-                children![label(category.label(), &font, FONT_S, MUTED)],
+                children![label(
+                    category.label(),
+                    &font,
+                    theme::font_s(),
+                    theme::muted()
+                )],
             ))
             .id();
         let actions = GameAction::LISTED
@@ -605,7 +614,7 @@ pub fn spawn_controls_tab(
             let row = commands
                 .spawn((
                     Node {
-                        padding: UiRect::vertical(px(RING_ROOM)),
+                        padding: UiRect::vertical(px(ring_room())),
                         flex_wrap: FlexWrap::Wrap,
                         ..line()
                     },
@@ -614,7 +623,7 @@ pub fn spawn_controls_tab(
                 ))
                 .id();
             commands.spawn((
-                label(action.name(), &font, FONT_M, TEXT),
+                label(action.name(), &font, theme::font_m(), theme::text()),
                 ActionName(action),
                 Node {
                     flex_grow: 1.0,
@@ -631,7 +640,7 @@ pub fn spawn_controls_tab(
             }
             commands.spawn((
                 ConflictMessage(action),
-                label("", &font, FONT_S, DANGER),
+                label("", &font, theme::font_s(), theme::danger()),
                 Node {
                     width: percent(100),
                     display: Display::None,
@@ -643,18 +652,22 @@ pub fn spawn_controls_tab(
     }
     commands.spawn((
         NoMatch,
-        label("", &font, FONT_M, MUTED),
+        label("", &font, theme::font_m(), theme::muted()),
         Node {
             display: Display::None,
             align_self: AlignSelf::Center,
-            padding: UiRect::vertical(px(SPACE_M)),
+            padding: UiRect::vertical(px(theme::space_m())),
             ..default()
         },
         ChildOf(list),
     ));
     spawn_sensitivity(commands, content, view, &font);
     spawn_tweaks_switch(commands, content, interface, &font);
-    commands.spawn((MatchCount, label("", &font, FONT_S, MUTED), ChildOf(footer)));
+    commands.spawn((
+        MatchCount,
+        label("", &font, theme::font_s(), theme::muted()),
+        ChildOf(footer),
+    ));
     commands.spawn((
         button(tr("controls.reset_defaults"), ButtonVariant::Default, font),
         ResetBindings,
@@ -690,7 +703,7 @@ fn spawn_sensitivity(
         .entity(parts.root)
         .insert(ChildOf(content))
         .entry::<Node>()
-        .and_modify(|mut node| node.margin.top = px(SPACE_S));
+        .and_modify(|mut node| node.margin.top = px(theme::space_s()));
     commands
         .entity(parts.slider)
         .observe(set_sensitivity)
@@ -735,7 +748,7 @@ fn spawn_tweaks_switch(
         .insert(ChildOf(row))
         .observe(choose_inventory_tweaks);
     commands.spawn((
-        label(tr(TWEAKS_NOTE), font, FONT_S, MUTED),
+        label(tr(TWEAKS_NOTE), font, theme::font_s(), theme::muted()),
         TextLayout::no_wrap(),
         ChildOf(row),
     ));
@@ -792,14 +805,14 @@ fn spawn_key_slot(commands: &mut Commands, slot: KeySlot) -> Entity {
             Node {
                 width: px(SLOT_WIDTH),
                 height: px(SLOT_HEIGHT),
-                border: UiRect::all(px(BEVEL_WIDTH)),
+                border: UiRect::all(px(theme::bevel_width())),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
                 // a long key name stays inside
                 overflow: Overflow::clip(),
                 ..default()
             },
-            BackgroundColor(RAISE),
+            BackgroundColor(theme::raise()),
             raised_bevel(),
         ))
         .observe(slot_key)
@@ -879,7 +892,7 @@ fn show_in_slot(
         }
         SlotContent::Capturing => {
             commands.spawn((
-                label(tr(PRESS_A_KEY), font, FONT_S, TEXT),
+                label(tr(PRESS_A_KEY), font, theme::font_s(), theme::text()),
                 Pickable::IGNORE,
                 ChildOf(slot),
             ));
@@ -958,12 +971,16 @@ fn style_key_slots(
     capture: Res<KeyCapture>,
 ) {
     for (entity, hovered, pressed, conflicting, hit, mut background, mut border) in &mut slots {
-        let surface = if hovered.get() { RAISE_HOVER } else { RAISE };
+        let surface = if hovered.get() {
+            theme::raise_hover()
+        } else {
+            theme::raise()
+        };
         background.set_if_neq(BackgroundColor(surface));
         let edge = if capture.slot == Some(entity) || hit {
-            BorderColor::all(ACCENT)
+            BorderColor::all(theme::accent())
         } else if conflicting {
-            BorderColor::all(DANGER)
+            BorderColor::all(theme::danger())
         } else if pressed {
             sunken_bevel()
         } else {
@@ -1111,11 +1128,11 @@ fn align_headers(
             .filter_map(|child| bars.get(child).ok())
             .any(|bar| bar.display != Display::None);
         let bar_room = if bar_shown {
-            SPACE_XS + SCROLLBAR_WIDTH
+            theme::space_xs() + SCROLLBAR_WIDTH
         } else {
             0.0
         };
-        let padding = UiRect::right(px(BEVEL_WIDTH + RING_ROOM + bar_room));
+        let padding = UiRect::right(px(theme::bevel_width() + ring_room() + bar_room));
         if node.padding != padding {
             node.padding = padding;
         }
@@ -1216,7 +1233,7 @@ fn light_up_matches(
             commands.spawn((
                 TextSpan::new(part),
                 font.clone(),
-                TextColor(if lit { ACCENT } else { TEXT }),
+                TextColor(if lit { theme::accent() } else { theme::text() }),
                 ChildOf(entity),
             ));
         }

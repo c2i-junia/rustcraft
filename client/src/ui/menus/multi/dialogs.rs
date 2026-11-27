@@ -20,7 +20,7 @@ use crate::constants::SERVER_LIST_SAVE_NAME;
 use crate::network::address::MAX_ADDRESS_LENGTH;
 use crate::ui::assets::FONT_PATH;
 use crate::ui::menus::modal_open;
-use crate::ui::theme::FONT_M;
+use crate::ui::theme;
 use crate::ui::widgets::button::ButtonVariant;
 use crate::ui::widgets::dialog::{
     apply_form_check, close_dialog, spawn_dialog, spawn_form_dialog, CloseRequest, Dialog,
@@ -169,7 +169,7 @@ fn open_server_dialog(
                 placeholder,
                 max_characters: Some(max_characters),
                 font: font.clone(),
-                font_size: FONT_M,
+                font_size: theme::font_m(),
                 reserve_error: true,
             },
         )
@@ -553,7 +553,7 @@ mod tests {
                     placeholder: "",
                     max_characters: None,
                     font: Handle::default(),
-                    font_size: FONT_M,
+                    font_size: theme::font_m(),
                     reserve_error: true,
                 },
             )

@@ -1,0 +1,54 @@
+// The design tokens of the UI: colours, sizes, font sizes and spacings (`client/src/ui/theme.rs`).
+// A colour is "#RRGGBB" in sRGB. A dev build reloads this file when it is saved, and rebuilds the
+// screen shown.
+(
+    // Background of the panels, opaque: a translucent panel shows the world through, as the
+    // colours are blended in linear space.
+    panel: "#111318",
+    // Surface of the raised controls, and under the cursor.
+    raise: "#252A33",
+    raise_hover: "#2E3440",
+    // Light and dark edges of a bevel.
+    bevel_hi: "#48505F",
+    bevel_lo: "#07080A",
+    bevel_width: 2.0,
+    // Background of the item slots and the text fields.
+    slot: "#0C0E12",
+    accent: "#F0B54A",
+    // The light and the dark edges of the bevel of a control in the accent colour.
+    accent_hi: "#F6CF86",
+    accent_lo: "#8A6524",
+    // The experience: its bar, its orbs, and the light and the dark edges of its fill.
+    experience: "#3FC4B4",
+    experience_hi: "#9CF2E4",
+    experience_lo: "#1D7A78",
+    ok_hover: "#8FD877",
+    ok: "#78C75F",
+    danger_hover: "#EA725C",
+    danger: "#E3593F",
+    text: "#EFE9DA",
+    muted: "#9AA2AE",
+    // The bars of the reticle, over their bevel_lo outline.
+    reticle: "#FFFFFF",
+    // The wireframes of the debug overlay, drawn over the world.
+    wireframe: "#FFFFFF",
+    // The tint of the dirt texture behind the menus: about 45 % of its brightness on screen, so
+    // that the text over it reads. The tint multiplies in linear space, hence 0.6 in sRGB.
+    dirt_tint: "#999999",
+    // The earthy colours a world's thumbnail takes: grass, dirt, sand, stone, clay and pine.
+    thumbnail_colors: ["#5D8A3A", "#86603A", "#C9B27A", "#7D7F82", "#A0583A", "#2F5D50"],
+    focus_ring_width: 3.0,
+    focus_ring_offset: 2.0,
+    // Opacity of a disabled control.
+    disabled_alpha: 0.4,
+    font_s: 16.0,
+    font_m: 20.0,
+    font_l: 24.0,
+    font_xl: 32.0,
+    space_xs: 4.0,
+    space_s: 8.0,
+    space_m: 12.0,
+    space_l: 16.0,
+    space_xl: 24.0,
+    space_xxl: 32.0,
+)

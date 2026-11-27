@@ -8,11 +8,11 @@ use shared::players::game_mode::{GameMode, MAX_HEALTH};
 use shared::players::Player;
 
 use crate::player::{CurrentPlayerMarker, HurtFeedback};
-use crate::ui::hud::armour::{ArmourBar, ARMOUR_BAND};
-use crate::ui::hud::experience::EXPERIENCE_BAND;
+use crate::ui::hud::armour::{armour_band, ArmourBar};
+use crate::ui::hud::experience::experience_band;
 use crate::ui::hud::hotbar::{Hotbar, HotbarItemName};
 use crate::ui::hud::InventoryRoot;
-use crate::ui::theme::{SPACE_S, SPACE_XS};
+use crate::ui::theme;
 
 pub const HEART_CONTAINER_PATH: &str = "./graphics/hud/heart_container.png";
 pub const HEART_FULL_PATH: &str = "./graphics/hud/heart_full.png";
@@ -26,7 +26,9 @@ const HEARTS: u32 = MAX_HEALTH / 2;
 
 /// The height the hearts take above the hotbar, in logical px: the bar of experience, their
 /// margin and a heart.
-pub const HEALTH_BAND: f32 = EXPERIENCE_BAND + SPACE_XS + HEART_SIZE;
+pub fn health_band() -> f32 {
+    experience_band() + theme::space_xs() + HEART_SIZE
+}
 
 /// The row of hearts, shown in survival only.
 #[derive(Component)]
@@ -84,7 +86,7 @@ pub fn spawn_health_bar(
                 position_type: PositionType::Absolute,
                 left: px(0.),
                 bottom: percent(100.),
-                margin: UiRect::bottom(px(EXPERIENCE_BAND + SPACE_XS)),
+                margin: UiRect::bottom(px(experience_band() + theme::space_xs())),
                 ..default()
             },
             Visibility::Hidden,
@@ -189,9 +191,9 @@ pub fn raise_item_name_over_the_hearts(
         Visibility::Hidden => 0.0,
         _ => height,
     };
-    let hearts = band(hearts, HEALTH_BAND);
-    let armour = armour.single().map_or(0.0, |v| band(v, ARMOUR_BAND));
-    let margin = UiRect::bottom(px(SPACE_S + hearts + armour));
+    let hearts = band(hearts, health_band());
+    let armour = armour.single().map_or(0.0, |v| band(v, armour_band()));
+    let margin = UiRect::bottom(px(theme::space_s() + hearts + armour));
     if node.margin != margin {
         node.margin = margin;
     }

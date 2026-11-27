@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use super::InventoryRoot;
 use crate::state::GameState;
 use crate::ui::menus::pause::{overlay_open, Overlays};
-use crate::ui::theme::{BEVEL_LO, RETICLE};
+use crate::ui::theme;
 
 /// The length of a bar of the reticle, in logical px.
 const BAR_LENGTH: f32 = 20.0;
@@ -55,10 +55,10 @@ pub fn spawn_reticle(mut commands: Commands) {
         .with_children(|parent| {
             // The outline first, so that the bars are drawn over it
             let (long, thick) = (BAR_LENGTH + 2.0 * OUTLINE, BAR_THICKNESS + 2.0 * OUTLINE);
-            parent.spawn(bar(long, thick, BEVEL_LO));
-            parent.spawn(bar(thick, long, BEVEL_LO));
-            parent.spawn(bar(BAR_LENGTH, BAR_THICKNESS, RETICLE));
-            parent.spawn(bar(BAR_THICKNESS, BAR_LENGTH, RETICLE));
+            parent.spawn(bar(long, thick, theme::bevel_lo()));
+            parent.spawn(bar(thick, long, theme::bevel_lo()));
+            parent.spawn(bar(BAR_LENGTH, BAR_THICKNESS, theme::reticle()));
+            parent.spawn(bar(BAR_THICKNESS, BAR_LENGTH, theme::reticle()));
         });
 }
 
@@ -84,7 +84,7 @@ pub fn show_reticle(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::theme::BEVEL_LO;
+    use crate::ui::theme;
     use bevy::ecs::system::RunSystemOnce;
 
     #[test]
@@ -102,7 +102,7 @@ mod tests {
                     panic!("a bar has a size in px");
                 };
                 let color = world.get::<BackgroundColor>(bar).unwrap().0;
-                ((width, height), color == BEVEL_LO)
+                ((width, height), color == theme::bevel_lo())
             })
             .collect();
         assert_eq!(

@@ -17,10 +17,7 @@ use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::hud::progress::PlayerProgress;
 use crate::ui::hud::UiDialog;
 use crate::ui::menus::modal_open;
-use crate::ui::theme::{
-    ACCENT, BEVEL_LO, BEVEL_WIDTH, FONT_M, FONT_S, FONT_XL, MUTED, PANEL, SLOT, SPACE_L, SPACE_M,
-    SPACE_S, SPACE_XL, SPACE_XS, TEXT,
-};
+use crate::ui::theme;
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::focus::keep_focus_inside;
 use crate::ui::widgets::hints::{hint_bar, Hint, HINT_BAR_HEIGHT};
@@ -146,14 +143,14 @@ fn spawn_progress(commands: &mut Commands, assets: &AssetServer, opener: Entity)
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
                 padding: UiRect {
-                    top: px(SPACE_XL),
-                    bottom: px(HINT_BAR_HEIGHT + SPACE_XL),
-                    left: px(SPACE_L),
-                    right: px(SPACE_L),
+                    top: px(theme::space_xl()),
+                    bottom: px(HINT_BAR_HEIGHT + theme::space_xl()),
+                    left: px(theme::space_l()),
+                    right: px(theme::space_l()),
                 },
                 ..default()
             },
-            BackgroundColor(BEVEL_LO.with_alpha(0.7)),
+            BackgroundColor(theme::bevel_lo().with_alpha(0.7)),
             Visibility::Visible,
             // over the pause menu (5)
             GlobalZIndex(6),
@@ -169,18 +166,23 @@ fn spawn_progress(commands: &mut Commands, assets: &AssetServer, opener: Entity)
                 height: px(PANEL_HEIGHT),
                 max_height: percent(100),
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_M),
-                padding: UiRect::all(px(SPACE_L)),
-                border: UiRect::all(px(BEVEL_WIDTH)),
+                row_gap: px(theme::space_m()),
+                padding: UiRect::all(px(theme::space_l())),
+                border: UiRect::all(px(theme::bevel_width())),
                 ..default()
             },
-            BackgroundColor(PANEL),
+            BackgroundColor(theme::panel()),
             raised_bevel(),
             ChildOf(root),
         ))
         .id();
     commands.spawn((
-        text(crate::i18n::tr(PROGRESS_TITLE), FONT_XL, TEXT, &font),
+        text(
+            crate::i18n::tr(PROGRESS_TITLE),
+            theme::font_xl(),
+            theme::text(),
+            &font,
+        ),
         ChildOf(panel),
     ));
     let labels = ProgressTab::ALL.map(ProgressTab::label);
@@ -203,7 +205,7 @@ fn spawn_progress(commands: &mut Commands, assets: &AssetServer, opener: Entity)
             flex_direction: FlexDirection::Column,
             flex_grow: 1.0,
             min_height: px(0),
-            row_gap: px(SPACE_M),
+            row_gap: px(theme::space_m()),
             ..default()
         },
         ChildOf(panel),
@@ -314,7 +316,10 @@ fn spawn_achievements(
         "progress.count",
         &[("earned", &earned), ("total", &Achievement::ALL.len())],
     );
-    commands.spawn((text(count, FONT_S, MUTED, font), ChildOf(panel)));
+    commands.spawn((
+        text(count, theme::font_s(), theme::muted(), font),
+        ChildOf(panel),
+    ));
     let parts = spawn_scroll_list(commands, WheelStep::Item);
     commands.entity(parts.frame).insert(ChildOf(panel));
     commands.entity(parts.list).insert((
@@ -328,9 +333,9 @@ fn spawn_achievements(
             crate::i18n::achievement_goal(achievement),
         );
         let (state, title_color) = if has {
-            (tr("progress.earned"), TEXT)
+            (tr("progress.earned"), theme::text())
         } else {
-            (tr("progress.not_yet"), MUTED)
+            (tr("progress.not_yet"), theme::muted())
         };
         let label = trf(
             "progress.card",
@@ -364,17 +369,20 @@ fn spawn_achievements(
                     flex_direction: FlexDirection::Column,
                     flex_grow: 1.0,
                     min_width: px(0),
-                    row_gap: px(SPACE_XS),
+                    row_gap: px(theme::space_xs()),
                     ..default()
                 },
                 Pickable::IGNORE,
                 children![
-                    text(title, FONT_M, title_color, font),
-                    text(goal, FONT_S, MUTED, font)
+                    text(title, theme::font_m(), title_color, font),
+                    text(goal, theme::font_s(), theme::muted(), font)
                 ],
             ));
-            let color = if has { ACCENT } else { MUTED };
-            card.spawn((text(state, FONT_S, color, font), TextLayout::no_wrap()));
+            let color = if has { theme::accent() } else { theme::muted() };
+            card.spawn((
+                text(state, theme::font_s(), color, font),
+                TextLayout::no_wrap(),
+            ));
         });
     }
 }
@@ -404,21 +412,24 @@ fn spawn_statistics(
         commands.spawn((
             Node {
                 justify_content: JustifyContent::SpaceBetween,
-                padding: UiRect::axes(px(SPACE_M), px(SPACE_S)),
-                border: UiRect::all(px(BEVEL_WIDTH)),
+                padding: UiRect::axes(px(theme::space_m()), px(theme::space_s())),
+                border: UiRect::all(px(theme::bevel_width())),
                 ..default()
             },
-            BackgroundColor(SLOT),
+            BackgroundColor(theme::slot()),
             sunken_bevel(),
             ChildOf(panel),
             children![
                 text(
                     crate::i18n::tr_as("stat", Stats::LABELS[i]),
-                    FONT_M,
-                    MUTED,
+                    theme::font_m(),
+                    theme::muted(),
                     font
                 ),
-                (StatValue(i), text(value, FONT_M, TEXT, font))
+                (
+                    StatValue(i),
+                    text(value, theme::font_m(), theme::text(), font)
+                )
             ],
         ));
     }

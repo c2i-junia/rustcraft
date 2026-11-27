@@ -7,7 +7,7 @@ use shared::world::depths::DepthTier;
 
 use crate::state::GameState;
 use crate::ui::assets::FONT_PATH;
-use crate::ui::theme::{BEVEL_LO, FONT_XL, TEXT};
+use crate::ui::theme;
 
 const FADE_SECONDS: f32 = 0.6;
 const SHOWN_SECONDS: f32 = 4.0;
@@ -54,14 +54,14 @@ pub fn announce_depth(
         Text::new(crate::i18n::depth_title(tier)),
         TextFont {
             font: assets.load(FONT_PATH).into(),
-            font_size: px(FONT_XL).into(),
+            font_size: px(theme::font_xl()).into(),
             ..default()
         },
-        TextColor(TEXT.with_alpha(0.0)),
+        TextColor(theme::text().with_alpha(0.0)),
         TextLayout::justify(Justify::Center),
         TextShadow {
             offset: Vec2::splat(2.0),
-            color: BEVEL_LO.with_alpha(0.0),
+            color: theme::bevel_lo().with_alpha(0.0),
         },
         Node {
             position_type: PositionType::Absolute,

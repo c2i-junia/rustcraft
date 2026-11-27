@@ -8,9 +8,7 @@ use shared::codex::markup::{self, Block, Line, Target};
 use super::{biome_name, CodexPage, CodexState, OpenCodex, WIKI_URL};
 use crate::i18n::{effect_kind_name, item_name, mob_name, tr};
 use crate::ui::hud::item_browser::{ItemBrowserState, ItemView, RecipeTab};
-use crate::ui::theme::{
-    ACCENT, ACCENT_HI, FONT_L, FONT_M, MUTED, SPACE_M, SPACE_S, SPACE_XS, TEXT,
-};
+use crate::ui::theme;
 
 /// A run of a text that is a link, and what it opens.
 #[derive(Component, Clone, Debug)]
@@ -96,9 +94,9 @@ pub fn spawn_line(commands: &mut Commands, parent: Entity, line: &Line, look: &L
             .clone()
             .unwrap_or_else(|| span.link.as_ref().map(target_name).unwrap_or_default());
         let color = match (&span.link, span.strong, span.em) {
-            (Some(_), _, _) => ACCENT,
-            (None, true, _) => ACCENT_HI,
-            (None, false, true) => ACCENT_HI,
+            (Some(_), _, _) => theme::accent(),
+            (None, true, _) => theme::accent_hi(),
+            (None, false, true) => theme::accent_hi(),
             (None, false, false) => look.color,
         };
         let mut run = commands.spawn((
@@ -127,18 +125,18 @@ pub fn spawn_blocks(
         match block {
             Block::Heading { level, text } => {
                 let size = match level {
-                    1 => FONT_L,
-                    2 => FONT_M,
+                    1 => theme::font_l(),
+                    2 => theme::font_m(),
                     _ => look.size,
                 };
                 let heading = Look {
                     size,
-                    color: if *level == 3 { ACCENT_HI } else { TEXT },
+                    color: if *level == 3 { theme::accent_hi() } else { theme::text() },
                     ..look.clone()
                 };
                 let line = spawn_line(commands, parent, text, &heading);
                 commands.entity(line).insert(Node {
-                    margin: UiRect::top(px(if *level <= 2 { SPACE_M } else { SPACE_S })),
+                    margin: UiRect::top(px(if *level <= 2 { theme::space_m() } else { theme::space_s() })),
                     ..default()
                 });
             }
@@ -150,7 +148,7 @@ pub fn spawn_blocks(
                     .spawn((
                         Node {
                             flex_direction: FlexDirection::Column,
-                            row_gap: px(SPACE_XS),
+                            row_gap: px(theme::space_xs()),
                             ..default()
                         },
                         ChildOf(parent),
@@ -161,7 +159,7 @@ pub fn spawn_blocks(
                         .spawn((
                             Node {
                                 width: percent(100),
-                                column_gap: px(SPACE_S),
+                                column_gap: px(theme::space_s()),
                                 ..default()
                             },
                             ChildOf(list),
@@ -175,7 +173,7 @@ pub fn spawn_blocks(
                     commands.spawn((
                         Text::new(marker),
                         look.font(look.size),
-                        TextColor(MUTED),
+                        TextColor(theme::muted()),
                         Node {
                             flex_shrink: 0.0,
                             ..default()
@@ -205,8 +203,8 @@ pub fn spawn_blocks(
                         Node {
                             display: Display::Grid,
                             grid_template_columns: vec![RepeatedGridTrack::auto(columns as u16)],
-                            column_gap: px(SPACE_M),
-                            row_gap: px(SPACE_XS),
+                            column_gap: px(theme::space_m()),
+                            row_gap: px(theme::space_xs()),
                             ..default()
                         },
                         ChildOf(parent),
@@ -227,7 +225,7 @@ pub fn spawn_blocks(
                     cells(
                         head,
                         &Look {
-                            color: MUTED,
+                            color: theme::muted(),
                             ..look.clone()
                         },
                     );

@@ -9,6 +9,8 @@ mod constants;
 mod dropped_items;
 #[cfg(test)]
 mod e2e;
+#[cfg(feature = "dev")]
+mod file_watch;
 mod game;
 #[cfg(feature = "hot")]
 mod hot;
@@ -124,7 +126,7 @@ fn main() {
         },
     );
     #[cfg(feature = "dev")]
-    app.add_plugins(i18n::watch::watch_plugin);
+    app.add_plugins((i18n::watch::watch_plugin, ui::theme::watch::watch_plugin));
     #[cfg(feature = "hot")]
     app.add_plugins(hot::hot_plugin);
     app.run();

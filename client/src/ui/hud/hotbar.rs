@@ -1,6 +1,6 @@
 use super::{InventoryRoot, UIMode};
 use crate::constants::MAX_HOTBAR_SLOTS;
-use crate::ui::theme::{FONT_M, SPACE_S};
+use crate::ui::theme;
 use crate::ui::widgets::scroll::scroll_steps;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
@@ -11,8 +11,10 @@ use std::time::Duration;
 pub const ITEM_NAME_DURATION: Duration = Duration::from_secs(2);
 
 /// The height the name of the selected item takes above the hotbar, in logical px: its margin,
-/// then a line of `FONT_M`.
-pub const ITEM_NAME_BAND: f32 = SPACE_S + FONT_M * 1.2;
+/// then a line of `theme::font_m()`.
+pub fn item_name_band() -> f32 {
+    theme::space_s() + theme::font_m() * 1.2
+}
 
 /// The keys that select a hotbar slot, and name it over a slot of the inventory: `Digit1` is
 /// slot 0. Hard-wired, they are not part of the `KeyMap`.

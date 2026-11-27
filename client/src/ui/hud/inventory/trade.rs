@@ -18,7 +18,7 @@ use super::setup::icon;
 use super::{item_name, InventoryRoot, TradeGrid};
 use crate::network::SendGameMessageExtension;
 use crate::ui::hud::UIMode;
-use crate::ui::theme::{BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_S, MUTED, SLOT, SPACE_S, SPACE_XS};
+use crate::ui::theme;
 use crate::ui::widgets::button::{ButtonVariant, ThemedButton};
 use crate::ui::widgets::focus::FocusRing;
 use crate::ui::widgets::slot::{
@@ -69,10 +69,10 @@ pub(super) fn spawn_trade_grid(
             Text::new(text),
             TextFont {
                 font: font.clone().into(),
-                font_size: px(FONT_S).into(),
+                font_size: px(theme::font_s()).into(),
                 ..default()
             },
-            TextColor(MUTED),
+            TextColor(theme::muted()),
             Pickable::IGNORE,
         )
     };
@@ -82,8 +82,8 @@ pub(super) fn spawn_trade_grid(
             Node {
                 display: Display::None,
                 grid_template_columns: RepeatedGridTrack::flex(2, 1.0),
-                row_gap: px(SPACE_XS),
-                column_gap: px(SPACE_XS),
+                row_gap: px(theme::space_xs()),
+                column_gap: px(theme::space_xs()),
                 ..default()
             },
         ))
@@ -100,10 +100,10 @@ pub(super) fn spawn_trade_grid(
                     ThemedButton(ButtonVariant::Default),
                     Tooltip::default(),
                     Node {
-                        border: UiRect::all(px(BEVEL_WIDTH)),
-                        padding: UiRect::axes(px(SPACE_S), px(SPACE_XS)),
+                        border: UiRect::all(px(theme::bevel_width())),
+                        padding: UiRect::axes(px(theme::space_s()), px(theme::space_xs())),
                         align_items: AlignItems::Center,
-                        column_gap: px(SPACE_S),
+                        column_gap: px(theme::space_s()),
                         ..default()
                     },
                     observe(take_offer),
@@ -112,12 +112,12 @@ pub(super) fn spawn_trade_grid(
                     let cell = || {
                         (
                             slot_node(),
-                            BackgroundColor(SLOT),
+                            BackgroundColor(theme::slot()),
                             BorderColor {
-                                top: BEVEL_LO,
-                                left: BEVEL_LO,
-                                bottom: BEVEL_HI,
-                                right: BEVEL_HI,
+                                top: theme::bevel_lo(),
+                                left: theme::bevel_lo(),
+                                bottom: theme::bevel_hi(),
+                                right: theme::bevel_hi(),
                             },
                             Pickable::IGNORE,
                         )

@@ -13,9 +13,7 @@ use crate::ui::hud::{
     ChestGrid, CraftResultCell, CraftingGridCell, CraftingRow, FloatingStack, HudBottom,
     InventoryCell, InventoryDialog, InventoryRoot, InventoryTitle, UiDialog,
 };
-use crate::ui::theme::{
-    BEVEL_LO, BEVEL_WIDTH, FONT_L, FONT_M, MUTED, SPACE_L, SPACE_M, SPACE_S, SPACE_XS, TEXT,
-};
+use crate::ui::theme;
 use crate::ui::widgets::focus::ArrowNav;
 use crate::ui::widgets::slot::{
     slot, slot_count, slot_durability, slot_gem, slot_icon, slot_node, SLOT_SIZE,
@@ -35,10 +33,14 @@ pub const CHEST_TITLE: &str = "inventory.chest";
 pub const PACK_TITLE: &str = "inventory.pack";
 
 /// The height of the hotbar above the bottom of the window, in logical px.
-const HOTBAR_BOTTOM: f32 = SPACE_L;
+fn hotbar_bottom() -> f32 {
+    theme::space_l()
+}
 /// The top of the closed panel, the hotbar, above the bottom of the window, in logical px: the
 /// bottom and the margin of the panel, its bevel and its padding, then a slot.
-pub const HOTBAR_TOP: f32 = HOTBAR_BOTTOM + SPACE_S + BEVEL_WIDTH + SPACE_S + SLOT_SIZE;
+pub fn hotbar_top() -> f32 {
+    hotbar_bottom() + theme::space_s() + theme::bevel_width() + theme::space_s() + SLOT_SIZE
+}
 
 /// The icon of a slot. It starts on any sprite of the items atlas, hidden.
 pub(super) fn icon(atlas: &AtlasWrapper) -> ImageNode {
@@ -54,7 +56,7 @@ fn panel_text(text: &str, font: &Handle<Font>, color: Color) -> impl Bundle {
         Text::new(text),
         TextFont {
             font: font.clone().into(),
-            font_size: px(FONT_L).into(),
+            font_size: px(theme::font_l()).into(),
             ..default()
         },
         TextColor(color),
@@ -90,7 +92,7 @@ pub fn setup_inventory(
                 flex_direction: FlexDirection::Column,
                 justify_content: JustifyContent::FlexEnd,
                 align_items: AlignItems::Center,
-                padding: UiRect::bottom(px(HOTBAR_BOTTOM + SPACE_S)),
+                padding: UiRect::bottom(px(hotbar_bottom() + theme::space_s())),
                 ..default()
             },
             Pickable::IGNORE,
@@ -104,9 +106,9 @@ pub fn setup_inventory(
                     InventoryDialog,
                     Node {
                         flex_direction: FlexDirection::Column,
-                        padding: UiRect::all(px(SPACE_S)),
-                        row_gap: px(SPACE_M),
-                        border: UiRect::all(px(BEVEL_WIDTH)),
+                        padding: UiRect::all(px(theme::space_s())),
+                        row_gap: px(theme::space_m()),
+                        border: UiRect::all(px(theme::bevel_width())),
                         ..default()
                     },
                     // Drawn by `style_inventory_panel` while the inventory is open
@@ -125,14 +127,14 @@ pub fn setup_inventory(
                             Visibility::Hidden,
                             Node {
                                 flex_direction: FlexDirection::Column,
-                                row_gap: px(SPACE_M),
+                                row_gap: px(theme::space_m()),
                                 ..default()
                             },
                         ))
                         .with_children(|inventory| {
                             inventory.spawn((
                                 InventoryTitle,
-                                panel_text(crate::i18n::tr(INVENTORY_TITLE), &font, TEXT),
+                                panel_text(crate::i18n::tr(INVENTORY_TITLE), &font, theme::text()),
                             ));
                             spawn_crafting_row(inventory, atlas, &font, &asset_server);
                             spawn_chest_grid(inventory, atlas, &font);
@@ -176,8 +178,8 @@ fn spawn_chest_grid(parent: &mut ChildSpawnerCommands, atlas: &AtlasWrapper, fon
             Node {
                 display: Display::None,
                 grid_template_columns: RepeatedGridTrack::auto(MAX_HOTBAR_SLOTS as u16),
-                row_gap: px(SPACE_XS),
-                column_gap: px(SPACE_XS),
+                row_gap: px(theme::space_xs()),
+                column_gap: px(theme::space_xs()),
                 ..default()
             },
         ))
@@ -199,8 +201,8 @@ fn spawn_backpack(parent: &mut ChildSpawnerCommands, atlas: &AtlasWrapper, font:
         .spawn(Node {
             display: Display::Grid,
             grid_template_columns: RepeatedGridTrack::auto(MAX_HOTBAR_SLOTS as u16),
-            row_gap: px(SPACE_XS),
-            column_gap: px(SPACE_XS),
+            row_gap: px(theme::space_xs()),
+            column_gap: px(theme::space_xs()),
             ..default()
         })
         .with_children(|grid| {
@@ -224,7 +226,7 @@ fn spawn_hotbar(parent: &mut ChildSpawnerCommands, atlas: &AtlasWrapper, font: &
         .spawn((
             Hotbar { selected: 0 },
             Node {
-                column_gap: px(SPACE_XS),
+                column_gap: px(theme::space_xs()),
                 ..default()
             },
         ))
@@ -235,21 +237,21 @@ fn spawn_hotbar(parent: &mut ChildSpawnerCommands, atlas: &AtlasWrapper, font: &
                 Text::new(""),
                 TextFont {
                     font: font.clone().into(),
-                    font_size: px(FONT_M).into(),
+                    font_size: px(theme::font_m()).into(),
                     ..default()
                 },
-                TextColor(TEXT),
+                TextColor(theme::text()),
                 TextLayout::justify(Justify::Center),
                 TextShadow {
                     offset: Vec2::splat(2.0),
-                    color: BEVEL_LO,
+                    color: theme::bevel_lo(),
                 },
                 Node {
                     position_type: PositionType::Absolute,
                     left: px(0.),
                     right: px(0.),
                     bottom: percent(100.),
-                    margin: UiRect::bottom(px(SPACE_S)),
+                    margin: UiRect::bottom(px(theme::space_s())),
                     ..default()
                 },
                 Visibility::Hidden,
@@ -279,7 +281,7 @@ fn spawn_crafting_row(
             CraftingRow,
             Node {
                 align_items: AlignItems::Center,
-                column_gap: px(SPACE_L),
+                column_gap: px(theme::space_l()),
                 ..default()
             },
         ))
@@ -287,8 +289,8 @@ fn spawn_crafting_row(
             // The grid has as many rows and columns as its shown cells reach
             row.spawn(Node {
                 display: Display::Grid,
-                row_gap: px(SPACE_XS),
-                column_gap: px(SPACE_XS),
+                row_gap: px(theme::space_xs()),
+                column_gap: px(theme::space_xs()),
                 ..default()
             })
             .with_children(|grid| {
@@ -321,7 +323,7 @@ fn spawn_crafting_row(
                     }
                 }
             });
-            row.spawn(panel_text("->", font, MUTED));
+            row.spawn(panel_text("->", font, theme::muted()));
             row.spawn((
                 CraftResultCell,
                 Tooltip::default(),

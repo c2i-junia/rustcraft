@@ -35,10 +35,7 @@ use crate::constants::SAVE_PATH;
 use crate::network::session::SessionEnd;
 use crate::state::GameState;
 use crate::ui::assets::FONT_PATH;
-use crate::ui::theme::{
-    BEVEL_WIDTH, DANGER, FONT_L, FONT_M, FONT_S, FONT_XL, MUTED, PANEL, SPACE_L, SPACE_M, SPACE_S,
-    SPACE_XL, SPACE_XS, TEXT,
-};
+use crate::ui::theme;
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::focus::ArrowNav;
 use crate::ui::widgets::hints::{Hint, HINT_BAR_HEIGHT};
@@ -180,12 +177,12 @@ fn solo_setup(end: Option<Res<SessionEnd>>, mut commands: Commands, assets: Res<
                 height: percent(100),
                 flex_direction: FlexDirection::Column,
                 padding: UiRect {
-                    left: px(SPACE_XL),
-                    right: px(SPACE_XL),
-                    top: px(SPACE_XL),
-                    bottom: px(HINT_BAR_HEIGHT + SPACE_XL),
+                    left: px(theme::space_xl()),
+                    right: px(theme::space_xl()),
+                    top: px(theme::space_xl()),
+                    bottom: px(HINT_BAR_HEIGHT + theme::space_xl()),
                 },
-                row_gap: px(SPACE_M),
+                row_gap: px(theme::space_m()),
                 ..default()
             },
             ChildOf(root),
@@ -198,7 +195,7 @@ fn solo_setup(end: Option<Res<SessionEnd>>, mut commands: Commands, assets: Res<
         },
         ChildOf(content),
         children![
-            text(tr(WORLDS_TITLE), FONT_XL, TEXT, &font),
+            text(tr(WORLDS_TITLE), theme::font_xl(), theme::text(), &font),
             Node {
                 flex_grow: 1.0,
                 ..default()
@@ -215,7 +212,7 @@ fn solo_setup(end: Option<Res<SessionEnd>>, mut commands: Commands, assets: Res<
             Node {
                 flex_grow: 1.0,
                 min_height: px(0),
-                column_gap: px(SPACE_L),
+                column_gap: px(theme::space_l()),
                 ..default()
             },
             ChildOf(content),
@@ -264,12 +261,12 @@ fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>)
                 flex_shrink: 0.0,
                 flex_direction: FlexDirection::Column,
                 justify_content: JustifyContent::SpaceBetween,
-                padding: UiRect::all(px(SPACE_L)),
-                border: UiRect::all(px(BEVEL_WIDTH)),
-                row_gap: px(SPACE_L),
+                padding: UiRect::all(px(theme::space_l())),
+                border: UiRect::all(px(theme::bevel_width())),
+                row_gap: px(theme::space_l()),
                 ..default()
             },
-            BackgroundColor(PANEL),
+            BackgroundColor(theme::panel()),
             raised_bevel(),
             ChildOf(body),
         ))
@@ -278,7 +275,7 @@ fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>)
         WorldFacts,
         Node {
             flex_direction: FlexDirection::Column,
-            row_gap: px(SPACE_XS),
+            row_gap: px(theme::space_xs()),
             min_width: px(0),
             ..default()
         },
@@ -288,7 +285,7 @@ fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>)
         .spawn((
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_S),
+                row_gap: px(theme::space_s()),
                 ..default()
             },
             ChildOf(pane),
@@ -299,7 +296,7 @@ fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>)
             ArrowNav,
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_S),
+                row_gap: px(theme::space_s()),
                 ..default()
             },
             ChildOf(actions),
@@ -313,7 +310,7 @@ fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>)
     let pair = commands
         .spawn((
             Node {
-                column_gap: px(SPACE_S),
+                column_gap: px(theme::space_s()),
                 ..default()
             },
             ChildOf(buttons),
@@ -339,7 +336,7 @@ fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>)
     }
     commands.spawn((
         WorldError,
-        text("", FONT_S, DANGER, font),
+        text("", theme::font_s(), theme::danger(), font),
         Node {
             display: Display::None,
             ..default()
@@ -355,7 +352,7 @@ fn thumbnail(seed: Option<u32>, side: f32) -> impl Bundle {
             width: px(side),
             height: px(side),
             flex_shrink: 0.0,
-            border: UiRect::all(px(BEVEL_WIDTH)),
+            border: UiRect::all(px(theme::bevel_width())),
             ..default()
         },
         BackgroundColor(thumbnail_color(seed)),
@@ -381,18 +378,26 @@ fn show_worlds(
                     flex_direction: FlexDirection::Column,
                     justify_content: JustifyContent::Center,
                     align_items: AlignItems::Center,
-                    row_gap: px(SPACE_S),
+                    row_gap: px(theme::space_s()),
                     ..default()
                 },
                 ChildOf(list),
                 children![
-                    text(tr("worlds.empty"), FONT_L, TEXT, font),
-                    text(tr("worlds.empty_hint"), FONT_S, MUTED, font),
+                    text(tr("worlds.empty"), theme::font_l(), theme::text(), font),
+                    text(
+                        tr("worlds.empty_hint"),
+                        theme::font_s(),
+                        theme::muted(),
+                        font
+                    ),
                 ],
             ))
             .id();
         if let Some(message) = error {
-            commands.spawn((text(tr(message), FONT_S, DANGER, font), ChildOf(empty)));
+            commands.spawn((
+                text(tr(message), theme::font_s(), theme::danger(), font),
+                ChildOf(empty),
+            ));
         }
         return Vec::new();
     }
@@ -403,19 +408,29 @@ fn show_worlds(
             let details = match (world.day, world.seed) {
                 (Some(day), Some(seed)) => text(
                     &trf("worlds.day_seed", &[("day", &day), ("seed", &seed)]),
-                    FONT_S,
-                    MUTED,
+                    theme::font_s(),
+                    theme::muted(),
                     font,
                 ),
-                _ => text(tr("worlds.unreadable"), FONT_S, DANGER, font),
+                _ => text(
+                    tr("worlds.unreadable"),
+                    theme::font_s(),
+                    theme::danger(),
+                    font,
+                ),
             };
             let played = text(
                 &played_ago(elapsed_since(world.played)),
-                FONT_S,
-                MUTED,
+                theme::font_s(),
+                theme::muted(),
                 font,
             );
-            let size = text(&format_size(world.size), FONT_S, MUTED, font);
+            let size = text(
+                &format_size(world.size),
+                theme::font_s(),
+                theme::muted(),
+                font,
+            );
             // two lines, each with its fact on the right: the short size leaves the day and
             // the seed the width the age takes from the name
             commands.entity(card).insert((
@@ -427,11 +442,14 @@ fn show_worlds(
                             flex_direction: FlexDirection::Column,
                             flex_grow: 1.0,
                             min_width: px(0),
-                            row_gap: px(SPACE_XS),
+                            row_gap: px(theme::space_xs()),
                             ..default()
                         },
                         children![
-                            card_line(text(&world.name, FONT_M, TEXT, font), played),
+                            card_line(
+                                text(&world.name, theme::font_m(), theme::text(), font),
+                                played
+                            ),
                             card_line(details, size),
                         ],
                     ),
@@ -446,7 +464,7 @@ fn show_worlds(
 fn card_line(left: impl Bundle, right: impl Bundle) -> impl Bundle {
     (
         Node {
-            column_gap: px(SPACE_M),
+            column_gap: px(theme::space_m()),
             align_items: AlignItems::Center,
             ..default()
         },
@@ -478,23 +496,35 @@ fn show_detail(commands: &mut Commands, facts: Entity, world: &WorldSummary, fon
     commands
         .spawn((thumbnail(world.seed, DETAIL_THUMBNAIL), ChildOf(facts)))
         .entry::<Node>()
-        .and_modify(|mut node| node.margin = UiRect::bottom(px(SPACE_S)));
+        .and_modify(|mut node| node.margin = UiRect::bottom(px(theme::space_s())));
     let mut line = |content: &str, size: f32, color: Color| {
         commands.spawn((text(content, size, color, font), ChildOf(facts)));
     };
-    line(&world.name, FONT_L, TEXT);
+    line(&world.name, theme::font_l(), theme::text());
     match (world.day, world.seed) {
         (Some(day), Some(seed)) => {
-            line(&trf("worlds.day", &[("day", &day)]), FONT_M, TEXT);
-            line(&trf("worlds.seed", &[("seed", &seed)]), FONT_S, MUTED);
+            line(
+                &trf("worlds.day", &[("day", &day)]),
+                theme::font_m(),
+                theme::text(),
+            );
+            line(
+                &trf("worlds.seed", &[("seed", &seed)]),
+                theme::font_s(),
+                theme::muted(),
+            );
         }
-        _ => line(tr("worlds.unreadable"), FONT_S, DANGER),
+        _ => line(tr("worlds.unreadable"), theme::font_s(), theme::danger()),
     }
-    line(&played_ago(elapsed_since(world.played)), FONT_S, MUTED);
+    line(
+        &played_ago(elapsed_since(world.played)),
+        theme::font_s(),
+        theme::muted(),
+    );
     line(
         &trf("worlds.on_disk", &[("size", &format_size(world.size))]),
-        FONT_S,
-        MUTED,
+        theme::font_s(),
+        theme::muted(),
     );
 }
 

@@ -17,7 +17,7 @@ use crate::ui::hud::{
     FloatingStack, FurnaceRow, InventoryCell, InventoryDialog, InventoryRoot, InventoryTitle,
     OpenTrade, TradeGrid, UIMode,
 };
-use crate::ui::theme::{ACCENT, BEVEL_HI, BEVEL_LO, PANEL, TEXT};
+use crate::ui::theme;
 use crate::ui::widgets::slot::{
     count_label, durability_bar, tool_wear, Slot, SlotCount, SlotDurability, SlotGem, SlotIcon,
     SlotSelected, ENCHANTED_TINT, ICON_SIZE, SLOT_SIZE,
@@ -379,7 +379,7 @@ pub fn display_inventory_system(
         }
         show_stack(
             held,
-            TEXT,
+            theme::text(),
             children,
             &mut counts,
             &mut icons,
@@ -433,7 +433,11 @@ pub fn display_inventory_system(
         if cell.id >= MAX_HOTBAR_SLOTS && !is_open {
             continue;
         }
-        let color = if planned.is_some() { ACCENT } else { TEXT };
+        let color = if planned.is_some() {
+            theme::accent()
+        } else {
+            theme::text()
+        };
         show_stack(
             stack,
             color,
@@ -519,12 +523,12 @@ pub fn style_inventory_panel(
         .is_ok_and(|visibility| *visibility == Visibility::Visible);
     let (background, border) = if is_open {
         (
-            PANEL,
+            theme::panel(),
             BorderColor {
-                top: BEVEL_HI,
-                left: BEVEL_HI,
-                bottom: BEVEL_LO,
-                right: BEVEL_LO,
+                top: theme::bevel_hi(),
+                left: theme::bevel_hi(),
+                bottom: theme::bevel_lo(),
+                right: theme::bevel_lo(),
             },
         )
     } else {
@@ -655,7 +659,7 @@ pub fn display_crafting_system(
         ));
         show_stack(
             made,
-            TEXT,
+            theme::text(),
             children,
             &mut counts,
             &mut icons,
@@ -891,7 +895,7 @@ mod tests {
         wheel_inventory_cells_system, InventoryDialog, InventoryTitle, DOUBLE_CLICK_WINDOW,
     };
     use crate::ui::settings::{InterfaceSettings, InventoryTweaksChoice};
-    use crate::ui::theme::PANEL;
+    use crate::ui::theme;
     use crate::ui::widgets::slot::slot_durability;
     use crate::world::MaterialResource;
     use bevy::ecs::system::RunSystemOnce;
@@ -953,7 +957,7 @@ mod tests {
                         Tooltip::default(),
                         SlotSelected::default(),
                     ))
-                    .with_child((SlotCount, Text::new(""), TextColor(TEXT)));
+                    .with_child((SlotCount, Text::new(""), TextColor(theme::text())));
             }
             Self { world }
         }
@@ -1234,7 +1238,10 @@ mod tests {
             *panel.single(&hud.world).unwrap()
         };
         assert_eq!(background(Visibility::Hidden), BackgroundColor(Color::NONE));
-        assert_eq!(background(Visibility::Visible), BackgroundColor(PANEL));
+        assert_eq!(
+            background(Visibility::Visible),
+            BackgroundColor(theme::panel())
+        );
     }
 
     #[test]
@@ -2608,20 +2615,20 @@ mod tests {
 
         // A single slot is a click: no preview
         hud.press(9, MouseButton::Left);
-        assert_eq!(hud.shown_count(9), (String::new(), TEXT));
+        assert_eq!(hud.shown_count(9), (String::new(), theme::text()));
         assert_eq!(hud.floating_shown(), "7");
 
         // 7 over two slots: 3 each, 1 stays held
         hud.enter(10);
-        assert_eq!(hud.shown_count(9), ("3".to_string(), ACCENT));
-        assert_eq!(hud.shown_count(10), ("4".to_string(), ACCENT));
-        assert_eq!(hud.shown_count(11), (String::new(), TEXT));
+        assert_eq!(hud.shown_count(9), ("3".to_string(), theme::accent()));
+        assert_eq!(hud.shown_count(10), ("4".to_string(), theme::accent()));
+        assert_eq!(hud.shown_count(11), (String::new(), theme::text()));
         assert_eq!(hud.floating_shown(), "");
 
         // Released, the cells show what the inventory holds
         hud.release(MouseButton::Left);
-        assert_eq!(hud.shown_count(9), (String::new(), TEXT));
-        assert_eq!(hud.shown_count(10), (String::new(), TEXT));
+        assert_eq!(hud.shown_count(9), (String::new(), theme::text()));
+        assert_eq!(hud.shown_count(10), (String::new(), theme::text()));
         assert_eq!(hud.floating_shown(), "7");
     }
 

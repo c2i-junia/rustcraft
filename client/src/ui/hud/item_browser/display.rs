@@ -32,10 +32,7 @@ use crate::network::buffered_client::CurrentFrameInputs;
 use crate::player::CurrentPlayerMarker;
 use crate::ui::assets::load_font;
 use crate::ui::hud::{HudBottom, InventoryDialog, InventoryRoot, UIMode};
-use crate::ui::theme::{
-    ACCENT, ACCENT_HI, ACCENT_LO, BEVEL_HI, BEVEL_LO, MUTED, OK, PANEL, RAISE, RAISE_HOVER,
-    SPACE_L, TEXT,
-};
+use crate::ui::theme;
 use crate::ui::widgets::slot::{count_label as slot_count_label, SlotCount, SlotIcon, SLOT_SIZE};
 use crate::ui::widgets::text_field::{set_text, Cancel, Submit};
 use crate::ui::widgets::toast::{show_toast, ToastKind};
@@ -343,7 +340,11 @@ pub fn show_item_browser(
     });
     let (width, right) = (
         px(layout.width),
-        px(if layout.compact { 0.0 } else { SPACE_L }),
+        px(if layout.compact {
+            0.0
+        } else {
+            theme::space_l()
+        }),
     );
     if node.width != width || node.right != right {
         node.width = width;
@@ -719,7 +720,7 @@ pub fn style_chips(
         let (fill, edge, mut text) = chip_look(chosen, is_craftable, hovered.get());
         // the back button reads as a button, not as a choice
         if is_back {
-            text = TEXT;
+            text = theme::text();
         }
         background.set_if_neq(BackgroundColor(fill));
         border.set_if_neq(edge);
@@ -754,16 +755,24 @@ fn chip_look(chosen: bool, green: bool, hovered: bool) -> (Color, BorderColor, C
         right: dark,
     };
     match (chosen, green) {
-        (true, false) => (ACCENT, bevel(ACCENT_HI, ACCENT_LO), PANEL),
-        (true, true) => (OK, bevel(OK_HI, OK_LO), PANEL),
+        (true, false) => (
+            theme::accent(),
+            bevel(theme::accent_hi(), theme::accent_lo()),
+            theme::panel(),
+        ),
+        (true, true) => (theme::ok(), bevel(OK_HI, OK_LO), theme::panel()),
         (false, green) => (
-            if hovered { RAISE_HOVER } else { RAISE },
-            bevel(BEVEL_HI, BEVEL_LO),
+            if hovered {
+                theme::raise_hover()
+            } else {
+                theme::raise()
+            },
+            bevel(theme::bevel_hi(), theme::bevel_lo()),
             // the Craftable chip reads apart from the categories
             match (green, hovered) {
-                (true, _) => OK,
-                (false, true) => TEXT,
-                (false, false) => MUTED,
+                (true, _) => theme::ok(),
+                (false, true) => theme::text(),
+                (false, false) => theme::muted(),
             },
         ),
     }

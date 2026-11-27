@@ -3,8 +3,8 @@
 
 use bevy::prelude::*;
 
-use crate::ui::theme::{BEVEL_WIDTH, SPACE_L, SPACE_S, SPACE_XS};
-use crate::ui::widgets::list::{RING_ROOM, SCROLLBAR_WIDTH};
+use crate::ui::theme;
+use crate::ui::widgets::list::{ring_room, SCROLLBAR_WIDTH};
 use crate::ui::widgets::slot::SLOT_SIZE;
 
 /// The most columns the docked browser takes.
@@ -15,20 +15,26 @@ pub const MIN_COLUMNS: u32 = 4;
 pub const MAX_DRAWER_COLUMNS: u32 = 6;
 /// The width around the grid: the padding and the bevel of the panel, the room of the focus ring
 /// on both sides of the grid, and the scrollbar with its gap.
-pub const BROWSER_CHROME: f32 =
-    2.0 * (SPACE_S + BEVEL_WIDTH) + 2.0 * RING_ROOM + SPACE_XS + SCROLLBAR_WIDTH;
+pub fn browser_chrome() -> f32 {
+    2.0 * (theme::space_s() + theme::bevel_width())
+        + 2.0 * ring_room()
+        + theme::space_xs()
+        + SCROLLBAR_WIDTH
+}
 
 /// The width of a column: a slot and the gap after it.
-const COLUMN: f32 = SLOT_SIZE + SPACE_XS;
+fn column() -> f32 {
+    SLOT_SIZE + theme::space_xs()
+}
 
 /// The width of the browser holding `columns` columns.
 pub fn browser_width(columns: u32) -> f32 {
-    columns as f32 * COLUMN - SPACE_XS + BROWSER_CHROME
+    columns as f32 * column() - theme::space_xs() + browser_chrome()
 }
 
 /// How many columns fit in `room`, at least 0.
 fn columns_in(room: f32) -> u32 {
-    ((room - BROWSER_CHROME + SPACE_XS) / COLUMN)
+    ((room - browser_chrome() + theme::space_xs()) / column())
         .floor()
         .max(0.0) as u32
 }
@@ -47,26 +53,26 @@ pub struct BrowserLayout {
 }
 
 /// The layout of the browser in a window of `window` logical px, beside an inventory panel
-/// `inventory_width` wide. The room beside the panel, with `SPACE_L` on its left, between the panel
-/// and the browser, and on the right of the browser, gives the columns, up to `MAX_COLUMNS`; the
-/// panel stays centred when the browser leaves it the room, else it slides left, as far as
-/// `SPACE_L` from the edge. Below `MIN_COLUMNS` columns the browser is a drawer of up to
-/// `MAX_DRAWER_COLUMNS` columns over the right edge, and the panel stays centred.
+/// `inventory_width` wide. The room beside the panel, with `theme::space_l()` on its left, between
+/// the panel and the browser, and on the right of the browser, gives the columns, up to
+/// `MAX_COLUMNS`; the panel stays centred when the browser leaves it the room, else it slides left,
+/// as far as `theme::space_l()` from the edge. Below `MIN_COLUMNS` columns the browser is a drawer
+/// of up to `MAX_DRAWER_COLUMNS` columns over the right edge, and the panel stays centred.
 pub fn browser_layout(window: Vec2, inventory_width: f32) -> BrowserLayout {
     let centred = (window.x - inventory_width) / 2.0;
-    let free = window.x - inventory_width - 3.0 * SPACE_L;
+    let free = window.x - inventory_width - 3.0 * theme::space_l();
     let columns = columns_in(free).min(MAX_COLUMNS);
     if columns >= MIN_COLUMNS {
         let width = browser_width(columns);
-        let beside = window.x - width - 2.0 * SPACE_L - inventory_width;
+        let beside = window.x - width - 2.0 * theme::space_l() - inventory_width;
         return BrowserLayout {
             columns,
             compact: false,
             width,
-            inventory_left: centred.min(beside).max(SPACE_L),
+            inventory_left: centred.min(beside).max(theme::space_l()),
         };
     }
-    let columns = columns_in(window.x - 2.0 * SPACE_L).clamp(1, MAX_DRAWER_COLUMNS);
+    let columns = columns_in(window.x - 2.0 * theme::space_l()).clamp(1, MAX_DRAWER_COLUMNS);
     BrowserLayout {
         columns,
         compact: true,
@@ -78,7 +84,7 @@ pub fn browser_layout(window: Vec2, inventory_width: f32) -> BrowserLayout {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::theme::SPACE_L;
+    use crate::ui::theme;
 
     /// The width of the inventory panel: 9 slots, 8 gaps, its padding and its bevel.
     const INVENTORY: f32 = 502.0;
@@ -100,8 +106,8 @@ mod tests {
             }
         );
         // 16 px between the panel and the browser, and between the browser and the edge
-        assert_eq!(1280.0 - SPACE_L - docked.width, 794.0);
-        assert_eq!(docked.inventory_left + INVENTORY + SPACE_L, 794.0);
+        assert_eq!(1280.0 - theme::space_l() - docked.width, 794.0);
+        assert_eq!(docked.inventory_left + INVENTORY + theme::space_l(), 794.0);
     }
 
     #[test]
@@ -145,9 +151,13 @@ mod tests {
                 "{width}: {found:?}"
             );
             assert_eq!(found.width, browser_width(found.columns));
-            assert!(found.inventory_left >= SPACE_L, "{width}: {found:?}");
             assert!(
-                found.inventory_left + INVENTORY + SPACE_L <= width - SPACE_L - found.width,
+                found.inventory_left >= theme::space_l(),
+                "{width}: {found:?}"
+            );
+            assert!(
+                found.inventory_left + INVENTORY + theme::space_l()
+                    <= width - theme::space_l() - found.width,
                 "{width}: {found:?}"
             );
         }

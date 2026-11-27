@@ -13,9 +13,7 @@ use bevy::{
 };
 
 use super::{focus::FocusRing, sunken_bevel};
-use crate::ui::theme::{
-    ACCENT, BEVEL_WIDTH, FONT_M, PANEL, RAISE_HOVER, SLOT, SPACE_M, SPACE_XS, TEXT,
-};
+use crate::ui::theme;
 
 /// What `spawn_segmented` builds.
 pub struct Segmented<'a> {
@@ -53,12 +51,12 @@ pub fn spawn_segmented(
             // as wide as its options, even in a column
             Node {
                 align_self: AlignSelf::FlexStart,
-                border: UiRect::all(px(BEVEL_WIDTH)),
-                padding: UiRect::all(px(SPACE_XS)),
-                column_gap: px(SPACE_XS),
+                border: UiRect::all(px(theme::bevel_width())),
+                padding: UiRect::all(px(theme::space_xs())),
+                column_gap: px(theme::space_xs()),
                 ..default()
             },
-            BackgroundColor(SLOT),
+            BackgroundColor(theme::slot()),
             sunken_bevel(),
         ))
         .observe(choose_segment)
@@ -72,7 +70,7 @@ pub fn spawn_segmented(
             Segment(index),
             Hovered::default(),
             Node {
-                padding: UiRect::axes(px(SPACE_M), px(SPACE_XS)),
+                padding: UiRect::axes(px(theme::space_m()), px(theme::space_xs())),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
                 ..default()
@@ -84,7 +82,7 @@ pub fn spawn_segmented(
                 Text::new(*option),
                 TextFont {
                     font: font.clone().into(),
-                    font_size: px(FONT_M).into(),
+                    font_size: px(theme::font_m()).into(),
                     ..default()
                 },
                 TextColor(look.text),
@@ -136,11 +134,11 @@ impl ChoiceOption for Segment {
 
     fn look(checked: bool, hovered: bool) -> OptionLook {
         let (background, text) = if checked {
-            (ACCENT, PANEL)
+            (theme::accent(), theme::panel())
         } else if hovered {
-            (RAISE_HOVER, TEXT)
+            (theme::raise_hover(), theme::text())
         } else {
-            (Color::NONE, TEXT)
+            (Color::NONE, theme::text())
         };
         OptionLook {
             background,

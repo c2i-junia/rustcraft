@@ -11,7 +11,7 @@ use crate::ui::settings::{
     write_interface_settings, FpsCounterChoice, HintsChoice, InterfaceSettings, MinimapChoice,
     UiScaleChoice,
 };
-use crate::ui::theme::{FONT_M, FONT_S, MUTED, SPACE_M, SPACE_XS, TEXT};
+use crate::ui::theme;
 use crate::ui::widgets::scale::ui_scale_for;
 use crate::ui::widgets::segmented::{spawn_segmented, SegmentChange, Segmented};
 use crate::ui::widgets::slider::LABEL_WIDTH;
@@ -40,7 +40,7 @@ pub(super) fn spawn_row(
         .spawn((
             Node {
                 align_items: AlignItems::Center,
-                column_gap: px(SPACE_M),
+                column_gap: px(theme::space_m()),
                 ..default()
             },
             ChildOf(parent),
@@ -48,8 +48,8 @@ pub(super) fn spawn_row(
         .id();
     commands.spawn((
         Text::new(label),
-        text_font(font, FONT_M),
-        TextColor(TEXT),
+        text_font(font, theme::font_m()),
+        TextColor(theme::text()),
         // measured as wrapped on two lines otherwise, which puts it above the middle of the row
         TextLayout::no_wrap(),
         Node {
@@ -91,7 +91,7 @@ pub fn spawn_interface_tab(
         .spawn((
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_XS),
+                row_gap: px(theme::space_xs()),
                 ..default()
             },
             ChildOf(panel),
@@ -117,11 +117,11 @@ pub fn spawn_interface_tab(
     commands.spawn((
         ScaleLimitNote,
         Text::default(),
-        text_font(&font, FONT_S),
-        TextColor(MUTED),
+        text_font(&font, theme::font_s()),
+        TextColor(theme::muted()),
         Node {
             display: Display::None,
-            margin: UiRect::left(px(LABEL_WIDTH + SPACE_M)),
+            margin: UiRect::left(px(LABEL_WIDTH + theme::space_m())),
             ..default()
         },
         ChildOf(column),

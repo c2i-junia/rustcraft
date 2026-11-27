@@ -5,7 +5,7 @@
 use bevy::prelude::*;
 
 use crate::state::GameState;
-use crate::ui::theme::SPACE_S;
+use crate::ui::theme;
 use crate::ui::widgets::toast::ToastsBelow;
 
 /// The column at the top-right of the game.
@@ -27,7 +27,7 @@ pub fn spawn_top_right_column(mut commands: Commands) {
             top: Val::Percent(1.),
             flex_direction: FlexDirection::Column,
             align_items: AlignItems::FlexEnd,
-            row_gap: px(SPACE_S),
+            row_gap: px(theme::space_s()),
             ..default()
         },
     ));
@@ -51,7 +51,7 @@ pub fn spawn_top_left_column(mut commands: Commands) {
             top: Val::Percent(1.),
             flex_direction: FlexDirection::Column,
             align_items: AlignItems::FlexStart,
-            row_gap: px(SPACE_S),
+            row_gap: px(theme::space_s()),
             ..default()
         },
     ));

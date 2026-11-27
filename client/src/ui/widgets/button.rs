@@ -12,10 +12,7 @@ use bevy::{
 };
 
 use super::focus::FocusRing;
-use crate::ui::theme::{
-    BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, DANGER, DANGER_HOVER, DISABLED_ALPHA, FONT_M, OK, OK_HOVER,
-    PANEL, RAISE, RAISE_HOVER, SPACE_L, SPACE_S, TEXT,
-};
+use crate::ui::theme;
 
 /// The look of a button.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
@@ -46,8 +43,8 @@ pub fn button(label: &str, variant: ButtonVariant, font: Handle<Font>) -> impl B
         FocusRing,
         ThemedButton(variant),
         Node {
-            border: UiRect::all(px(BEVEL_WIDTH)),
-            padding: UiRect::axes(px(SPACE_L), px(SPACE_S)),
+            border: UiRect::all(px(theme::bevel_width())),
+            padding: UiRect::axes(px(theme::space_l()), px(theme::space_s())),
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
             ..default()
@@ -58,7 +55,7 @@ pub fn button(label: &str, variant: ButtonVariant, font: Handle<Font>) -> impl B
             Text::new(label),
             TextFont {
                 font: font.into(),
-                font_size: px(FONT_M).into(),
+                font_size: px(theme::font_m()).into(),
                 ..default()
             },
             TextColor(colors.text),
@@ -104,18 +101,36 @@ fn button_colors(
 ) -> ButtonColors {
     // a disabled button ignores the cursor
     let (hovered, pressed) = (hovered && !disabled, pressed && !disabled);
-    let surface = if hovered { RAISE_HOVER } else { RAISE };
+    let surface = if hovered {
+        theme::raise_hover()
+    } else {
+        theme::raise()
+    };
     let (background, text) = match variant {
-        ButtonVariant::Default => (surface, TEXT),
-        ButtonVariant::Primary => (if hovered { OK_HOVER } else { OK }, PANEL),
-        ButtonVariant::Danger => (if hovered { DANGER_HOVER } else { DANGER }, PANEL),
-        ButtonVariant::Ghost if hovered || pressed => (RAISE_HOVER, TEXT),
-        ButtonVariant::Ghost => (Color::NONE, TEXT),
+        ButtonVariant::Default => (surface, theme::text()),
+        ButtonVariant::Primary => (
+            if hovered {
+                theme::ok_hover()
+            } else {
+                theme::ok()
+            },
+            theme::panel(),
+        ),
+        ButtonVariant::Danger => (
+            if hovered {
+                theme::danger_hover()
+            } else {
+                theme::danger()
+            },
+            theme::panel(),
+        ),
+        ButtonVariant::Ghost if hovered || pressed => (theme::raise_hover(), theme::text()),
+        ButtonVariant::Ghost => (Color::NONE, theme::text()),
     };
     let (light, dark) = if pressed {
-        (BEVEL_LO, BEVEL_HI)
+        (theme::bevel_lo(), theme::bevel_hi())
     } else {
-        (BEVEL_HI, BEVEL_LO)
+        (theme::bevel_hi(), theme::bevel_lo())
     };
     let border = if variant == ButtonVariant::Ghost && !hovered && !pressed {
         BorderColor::all(Color::NONE)
@@ -129,7 +144,7 @@ fn button_colors(
     };
     let fade = |color: Color| {
         if disabled {
-            color.with_alpha(color.alpha() * DISABLED_ALPHA)
+            color.with_alpha(color.alpha() * theme::disabled_alpha())
         } else {
             color
         }
@@ -221,14 +236,19 @@ mod tests {
     #[test]
     fn a_default_button_is_raised_and_lightens_on_hover() {
         let rest = button_colors(ButtonVariant::Default, false, false, false);
-        assert_eq!(rest.background, RAISE);
+        assert_eq!(rest.background, theme::raise());
         assert_eq!(
             edges(&rest.border),
-            [BEVEL_HI, BEVEL_HI, BEVEL_LO, BEVEL_LO]
+            [
+                theme::bevel_hi(),
+                theme::bevel_hi(),
+                theme::bevel_lo(),
+                theme::bevel_lo()
+            ]
         );
-        assert_eq!(rest.text, TEXT);
+        assert_eq!(rest.text, theme::text());
         let hover = button_colors(ButtonVariant::Default, true, false, false);
-        assert_eq!(hover.background, RAISE_HOVER);
+        assert_eq!(hover.background, theme::raise_hover());
     }
 
     const VARIANTS: [ButtonVariant; 4] = [
@@ -244,7 +264,12 @@ mod tests {
             let pressed = button_colors(variant, true, true, false);
             assert_eq!(
                 edges(&pressed.border),
-                [BEVEL_LO, BEVEL_LO, BEVEL_HI, BEVEL_HI],
+                [
+                    theme::bevel_lo(),
+                    theme::bevel_lo(),
+                    theme::bevel_hi(),
+                    theme::bevel_hi()
+                ],
                 "{variant:?}"
             );
         }
@@ -270,7 +295,7 @@ mod tests {
             let normal = button_colors(variant, false, false, false);
             let disabled = button_colors(variant, false, false, true);
             let fades = |normal: Color, faded: Color| {
-                assert_eq!(faded.alpha(), normal.alpha() * DISABLED_ALPHA);
+                assert_eq!(faded.alpha(), normal.alpha() * theme::disabled_alpha());
             };
             fades(normal.background, disabled.background);
             fades(normal.text, disabled.text);
@@ -291,15 +316,21 @@ mod tests {
     #[test]
     fn the_variants_have_their_colours() {
         let primary = button_colors(ButtonVariant::Primary, false, false, false);
-        assert_eq!((primary.background, primary.text), (OK, PANEL));
+        assert_eq!(
+            (primary.background, primary.text),
+            (theme::ok(), theme::panel())
+        );
         let danger = button_colors(ButtonVariant::Danger, false, false, false);
-        assert_eq!((danger.background, danger.text), (DANGER, PANEL));
+        assert_eq!(
+            (danger.background, danger.text),
+            (theme::danger(), theme::panel())
+        );
         let ghost = button_colors(ButtonVariant::Ghost, false, false, false);
         assert_eq!(ghost.background, Color::NONE);
         assert_eq!(edges(&ghost.border), [Color::NONE; 4]);
-        assert_eq!(ghost.text, TEXT);
+        assert_eq!(ghost.text, theme::text());
         let hover = button_colors(ButtonVariant::Ghost, true, false, false);
-        assert_eq!(hover.background, RAISE_HOVER);
+        assert_eq!(hover.background, theme::raise_hover());
     }
 
     #[test]

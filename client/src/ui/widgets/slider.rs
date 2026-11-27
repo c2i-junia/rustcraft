@@ -18,9 +18,7 @@ use bevy::{
 };
 
 use super::{focus::FocusRing, scroll::scroll_steps, sunken_bevel};
-use crate::ui::theme::{
-    ACCENT, BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_M, RAISE, SLOT, SPACE_M, TEXT,
-};
+use crate::ui::theme;
 
 /// How much an arrow key or a notch of the wheel moves a percentage slider.
 pub const SLIDER_STEP: f32 = 0.05;
@@ -98,20 +96,20 @@ pub fn spawn_slider(
 ) -> SliderParts {
     let text_font = TextFont {
         font: font.into(),
-        font_size: px(FONT_M).into(),
+        font_size: px(theme::font_m()).into(),
         ..default()
     };
     let root = commands
         .spawn(Node {
             align_items: AlignItems::Center,
-            column_gap: px(SPACE_M),
+            column_gap: px(theme::space_m()),
             ..default()
         })
         .id();
     commands.spawn((
         Text::new(field.label),
         text_font.clone(),
-        TextColor(TEXT),
+        TextColor(theme::text()),
         // measured as wrapped on two lines otherwise, which puts it above the middle of the row
         TextLayout::no_wrap(),
         Node {
@@ -138,10 +136,10 @@ pub fn spawn_slider(
             Node {
                 width: px(TRACK_WIDTH),
                 height: px(TRACK_HEIGHT),
-                border: UiRect::all(px(BEVEL_WIDTH)),
+                border: UiRect::all(px(theme::bevel_width())),
                 ..default()
             },
-            BackgroundColor(SLOT),
+            BackgroundColor(theme::slot()),
             sunken_bevel(),
             ChildOf(root),
         ))
@@ -158,7 +156,7 @@ pub fn spawn_slider(
                 height: percent(100),
                 ..default()
             },
-            BackgroundColor(ACCENT),
+            BackgroundColor(theme::accent()),
             ChildOf(slider),
         ))
         .id();
@@ -168,18 +166,18 @@ pub fn spawn_slider(
             // over the bevel of the track: the widget measures the track with its border
             Node {
                 position_type: PositionType::Absolute,
-                top: px(-BEVEL_WIDTH),
-                bottom: px(-BEVEL_WIDTH),
+                top: px(-theme::bevel_width()),
+                bottom: px(-theme::bevel_width()),
                 width: px(THUMB_WIDTH),
-                border: UiRect::all(px(BEVEL_WIDTH)),
+                border: UiRect::all(px(theme::bevel_width())),
                 ..default()
             },
-            BackgroundColor(RAISE),
+            BackgroundColor(theme::raise()),
             BorderColor {
-                top: BEVEL_HI,
-                left: BEVEL_HI,
-                bottom: BEVEL_LO,
-                right: BEVEL_LO,
+                top: theme::bevel_hi(),
+                left: theme::bevel_hi(),
+                bottom: theme::bevel_lo(),
+                right: theme::bevel_lo(),
             },
             ChildOf(slider),
         ))
@@ -189,7 +187,7 @@ pub fn spawn_slider(
             SliderReadout,
             Text::new((field.scale.readout)(field.value)),
             text_font,
-            TextColor(TEXT),
+            TextColor(theme::text()),
             TextLayout::justify(Justify::Right),
             Node {
                 width: px(READOUT_WIDTH),
@@ -254,7 +252,7 @@ fn place_slider_parts(
 ) {
     for (value, range, look) in &sliders {
         let position = range.thumb_position(value.0).clamp(0.0, 1.0);
-        let thumb_left = position * (TRACK_WIDTH - THUMB_WIDTH) - BEVEL_WIDTH;
+        let thumb_left = position * (TRACK_WIDTH - THUMB_WIDTH) - theme::bevel_width();
         if let Ok(mut fill) = nodes.get_mut(look.fill) {
             fill.width = px(thumb_left + THUMB_WIDTH / 2.0);
         }

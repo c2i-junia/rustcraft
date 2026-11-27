@@ -25,25 +25,24 @@ use bevy::{
 };
 
 use super::{focus::FocusRing, raised_bevel, sunken_bevel};
-use crate::ui::theme::{
-    ACCENT, BEVEL_HI, BEVEL_WIDTH, FOCUS_RING_OFFSET, FOCUS_RING_WIDTH, MUTED, RAISE, RAISE_HOVER,
-    SLOT, SPACE_M, SPACE_XS,
-};
+use crate::ui::theme;
 
 /// The width of the scrollbar of a list.
 pub const SCROLLBAR_WIDTH: f32 = 8.0;
 /// The shortest the thumb of the scrollbar gets.
 pub const SCROLLBAR_MIN_THUMB: f32 = 24.0;
 /// The room around the items for their focus ring, which the list would clip.
-pub const RING_ROOM: f32 = FOCUS_RING_WIDTH + FOCUS_RING_OFFSET;
+pub fn ring_room() -> f32 {
+    theme::focus_ring_width() + theme::focus_ring_offset()
+}
 
 /// What `spawn_scroll_list` builds.
 pub struct ScrollListParts {
     /// The row to place, which grows to fill its parent: the well, then the scrollbar.
     pub frame: Entity,
-    /// The sunken well around the list, `SLOT` unless the caller paints it.
+    /// The sunken well around the list, `theme::slot()` unless the caller paints it.
     pub well: Entity,
-    /// The vertical `ScrollArea` in a sunken well, padded by `RING_ROOM` on its sides, where the
+    /// The vertical `ScrollArea` in a sunken well, padded by `ring_room()` on its sides, where the
     /// caller spawns the items. An item carries the room of its ring above and below itself, as
     /// `spawn_list_card` does.
     pub list: Entity,
@@ -105,7 +104,7 @@ pub fn spawn_scroll_list(commands: &mut Commands, step: WheelStep) -> ScrollList
         .spawn(Node {
             flex_grow: 1.0,
             min_height: px(0),
-            column_gap: px(SPACE_XS),
+            column_gap: px(theme::space_xs()),
             ..default()
         })
         .id();
@@ -117,10 +116,10 @@ pub fn spawn_scroll_list(commands: &mut Commands, step: WheelStep) -> ScrollList
                 flex_direction: FlexDirection::Column,
                 flex_grow: 1.0,
                 min_width: px(0),
-                border: UiRect::all(px(BEVEL_WIDTH)),
+                border: UiRect::all(px(theme::bevel_width())),
                 ..default()
             },
-            BackgroundColor(SLOT),
+            BackgroundColor(theme::slot()),
             sunken_bevel(),
             ChildOf(frame),
         ))
@@ -134,7 +133,7 @@ pub fn spawn_scroll_list(commands: &mut Commands, step: WheelStep) -> ScrollList
                 flex_grow: 1.0,
                 min_height: px(0),
                 overflow: Overflow::scroll_y(),
-                padding: UiRect::horizontal(px(RING_ROOM)),
+                padding: UiRect::horizontal(px(ring_room())),
                 ..default()
             },
             ChildOf(well),
@@ -154,7 +153,7 @@ pub fn spawn_scroll_page(commands: &mut Commands, row_gap: f32) -> (Entity, Enti
         .spawn(Node {
             flex_grow: 1.0,
             min_height: px(0),
-            column_gap: px(SPACE_XS),
+            column_gap: px(theme::space_xs()),
             ..default()
         })
         .id();
@@ -169,7 +168,7 @@ pub fn spawn_scroll_page(commands: &mut Commands, row_gap: f32) -> (Entity, Enti
                 overflow: Overflow::scroll_y(),
                 row_gap: px(row_gap),
                 // the room of the focus rings, which the page would clip
-                padding: UiRect::vertical(px(RING_ROOM)),
+                padding: UiRect::vertical(px(ring_room())),
                 ..default()
             },
             ChildOf(frame),
@@ -190,19 +189,19 @@ fn spawn_scrollbar(commands: &mut Commands, area: Entity, frame: Entity) {
         Scrollbar::new(area, ControlOrientation::Vertical, SCROLLBAR_MIN_THUMB),
         Node {
             width: px(SCROLLBAR_WIDTH),
-            border: UiRect::all(px(BEVEL_WIDTH)),
+            border: UiRect::all(px(theme::bevel_width())),
             ..default()
         },
-        BackgroundColor(SLOT),
+        BackgroundColor(theme::slot()),
         sunken_bevel(),
         ChildOf(frame),
         children![(
             ScrollbarThumb {
-                border: UiRect::all(px(BEVEL_WIDTH)),
+                border: UiRect::all(px(theme::bevel_width())),
                 ..default()
             },
             Hovered::default(),
-            BackgroundColor(BEVEL_HI),
+            BackgroundColor(theme::bevel_hi()),
             raised_bevel(),
         )],
     ));
@@ -253,7 +252,7 @@ pub fn spawn_list_card(commands: &mut Commands, list: Entity, label: &str) -> En
             CardSlot,
             Node {
                 flex_direction: FlexDirection::Column,
-                padding: UiRect::vertical(px(RING_ROOM)),
+                padding: UiRect::vertical(px(ring_room())),
                 ..default()
             },
             ChildOf(list),
@@ -271,13 +270,13 @@ pub fn spawn_list_card(commands: &mut Commands, list: Entity, label: &str) -> En
             FocusRing,
             Hovered::default(),
             Node {
-                border: UiRect::all(px(BEVEL_WIDTH)),
-                padding: UiRect::all(px(SPACE_M)),
-                column_gap: px(SPACE_M),
+                border: UiRect::all(px(theme::bevel_width())),
+                padding: UiRect::all(px(theme::space_m())),
+                column_gap: px(theme::space_m()),
                 align_items: AlignItems::Center,
                 ..default()
             },
-            BackgroundColor(RAISE),
+            BackgroundColor(theme::raise()),
             raised_bevel(),
             ChildOf(slot),
         ))
@@ -420,10 +419,14 @@ fn style_cards(
     >,
 ) {
     for (hovered, selected, mut background, mut border) in &mut cards {
-        let surface = if hovered.get() { RAISE_HOVER } else { RAISE };
+        let surface = if hovered.get() {
+            theme::raise_hover()
+        } else {
+            theme::raise()
+        };
         background.set_if_neq(BackgroundColor(surface));
         let edge = if selected {
-            BorderColor::all(ACCENT)
+            BorderColor::all(theme::accent())
         } else {
             raised_bevel()
         };
@@ -465,9 +468,9 @@ fn style_thumb(
 ) {
     for (hovered, drag, mut background) in &mut thumbs {
         let fill = if hovered.get() || drag.dragging {
-            MUTED
+            theme::muted()
         } else {
-            BEVEL_HI
+            theme::bevel_hi()
         };
         background.set_if_neq(BackgroundColor(fill));
     }

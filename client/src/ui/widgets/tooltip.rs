@@ -11,10 +11,7 @@ use bevy::{
     window::PrimaryWindow,
 };
 
-use crate::ui::{
-    assets::load_font,
-    theme::{BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_S, MUTED, OK, PANEL, SPACE_S, TEXT},
-};
+use crate::ui::{assets::load_font, theme};
 
 /// How far the tooltip sits right of and below the cursor or the focused element, in logical px.
 const TOOLTIP_OFFSET: f32 = 12.0;
@@ -52,7 +49,7 @@ fn spawn_tooltip(mut commands: Commands, asset_server: Res<AssetServer>) {
             Text::new(""),
             TextFont {
                 font: font.clone().into(),
-                font_size: px(FONT_S).into(),
+                font_size: px(theme::font_s()).into(),
                 ..default()
             },
             TextColor(color),
@@ -73,18 +70,23 @@ fn spawn_tooltip(mut commands: Commands, asset_server: Res<AssetServer>) {
         Node {
             position_type: PositionType::Absolute,
             flex_direction: FlexDirection::Column,
-            padding: UiRect::all(px(SPACE_S)),
-            border: UiRect::all(px(BEVEL_WIDTH)),
+            padding: UiRect::all(px(theme::space_s())),
+            border: UiRect::all(px(theme::bevel_width())),
             ..default()
         },
-        BackgroundColor(PANEL),
+        BackgroundColor(theme::panel()),
         BorderColor {
-            top: BEVEL_HI,
-            left: BEVEL_HI,
-            bottom: BEVEL_LO,
-            right: BEVEL_LO,
+            top: theme::bevel_hi(),
+            left: theme::bevel_hi(),
+            bottom: theme::bevel_lo(),
+            right: theme::bevel_lo(),
         },
-        children![line(0, TEXT), line(1, MUTED), line(2, OK), line(3, MUTED)],
+        children![
+            line(0, theme::text()),
+            line(1, theme::muted()),
+            line(2, theme::ok()),
+            line(3, theme::muted())
+        ],
     ));
 }
 

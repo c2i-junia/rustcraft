@@ -23,7 +23,7 @@ use crate::account::hub::{hub_message, HubClient, HubError};
 use crate::account::Account;
 use crate::ui::assets::FONT_PATH;
 use crate::ui::menus::account::add_to_panel;
-use crate::ui::theme::{FONT_M, FONT_S, MUTED, SPACE_S, TEXT};
+use crate::ui::theme;
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::dialog::{
     apply_form_check, close_dialog, set_dialog_width, spawn_dialog, spawn_form_dialog, Dialog,
@@ -173,7 +173,7 @@ pub fn open_create_dialog(commands: &mut Commands, assets: &AssetServer, focus: 
                 placeholder,
                 max_characters: Some(max_characters),
                 font: font.clone(),
-                font_size: FONT_M,
+                font_size: theme::font_m(),
                 reserve_error: true,
             },
         )
@@ -381,7 +381,7 @@ pub fn open_members_dialog(
     let rows = commands
         .spawn(Node {
             flex_direction: FlexDirection::Column,
-            row_gap: px(SPACE_S),
+            row_gap: px(theme::space_s()),
             ..default()
         })
         .id();
@@ -393,7 +393,7 @@ pub fn open_members_dialog(
                 placeholder: "Username",
                 max_characters: Some(USERNAME_LENGTH),
                 font: font.clone(),
-                font_size: FONT_M,
+                font_size: theme::font_m(),
                 reserve_error: true,
             },
         );
@@ -461,7 +461,7 @@ fn fill_rows(
             .spawn((
                 Node {
                     align_items: AlignItems::Center,
-                    column_gap: px(SPACE_S),
+                    column_gap: px(theme::space_s()),
                     ..default()
                 },
                 ChildOf(rows),
@@ -472,16 +472,19 @@ fn fill_rows(
                             min_width: px(0),
                             ..default()
                         },
-                        children![text(name, FONT_M, TEXT, font)],
+                        children![text(name, theme::font_m(), theme::text(), font)],
                     ),
-                    text(role, FONT_S, MUTED, font),
+                    text(role, theme::font_s(), theme::muted(), font),
                 ],
             ))
             .id()
     };
     row(commands, &realm.owner.username, "Owner");
     if realm.members.is_empty() {
-        commands.spawn((text("No members yet.", FONT_S, MUTED, font), ChildOf(rows)));
+        commands.spawn((
+            text("No members yet.", theme::font_s(), theme::muted(), font),
+            ChildOf(rows),
+        ));
     }
     for member in &realm.members {
         let (role, other, change_label) = match member.role {

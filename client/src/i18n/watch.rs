@@ -4,33 +4,28 @@
 //! error changes nothing. Release builds have no `dev` feature, and so no watcher; the tests
 //! never add `watch_plugin`.
 
-use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver};
+use std::path::PathBuf;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use bevy::prelude::*;
-use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::RecommendedWatcher;
 use shared::GameFolderPaths;
 
 use super::{install, lang_folder, read};
+use crate::file_watch::{watch, Changes};
 use crate::ui::rebuild::RebuildScreens;
-
-/// How long the files must stay unchanged before they are read: an editor writes a file in
-/// several steps.
-const SETTLE: Duration = Duration::from_millis(200);
 
 /// Watches the language files of the assets folder of the client, which `add_client` inserted.
 pub fn watch_plugin(app: &mut App) {
     let folder = lang_folder(&app.world().resource::<GameFolderPaths>().assets_folder_path);
-    let (sender, changes) = mpsc::channel();
-    match watch(&folder, sender) {
-        Ok(watcher) => {
+    match watch(&folder) {
+        Ok((watcher, changes)) => {
             info!("Watching the language files of {}", folder.display());
             app.insert_resource(LanguageWatcher {
                 _watcher: Mutex::new(watcher),
             })
-            .insert_resource(LanguageFiles::new(folder, changes))
+            .insert_resource(LanguageFiles { folder, changes })
             .add_systems(Update, reload_languages);
         }
         Err(err) => warn!(
@@ -38,28 +33,6 @@ pub fn watch_plugin(app: &mut App) {
             folder.display()
         ),
     }
-}
-
-/// Sends a message on `sender` for each change of a `.ron` file of `folder`.
-fn watch(folder: &Path, sender: mpsc::Sender<()>) -> notify::Result<RecommendedWatcher> {
-    let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-        match event {
-            Ok(event)
-                if !matches!(event.kind, EventKind::Access(_))
-                    && event
-                        .paths
-                        .iter()
-                        .any(|path| path.extension().is_some_and(|e| e == "ron")) =>
-            {
-                // the receiver is gone only with the app
-                let _ = sender.send(());
-            }
-            Ok(_) => {}
-            Err(err) => warn!("The watcher of the language files failed: {err}"),
-        }
-    })?;
-    watcher.watch(folder, RecursiveMode::NonRecursive)?;
-    Ok(watcher)
 }
 
 /// Keeps the watcher of the language files alive.
@@ -72,43 +45,13 @@ struct LanguageWatcher {
 #[derive(Resource)]
 struct LanguageFiles {
     folder: PathBuf,
-    /// A message for each change.
-    changes: Mutex<Receiver<()>>,
-    /// When they are read: `SETTLE` after the last change.
-    due: Option<Instant>,
-}
-
-impl LanguageFiles {
-    fn new(folder: PathBuf, changes: Receiver<()>) -> Self {
-        Self {
-            folder,
-            changes: Mutex::new(changes),
-            due: None,
-        }
-    }
-
-    /// Whether the files are to be read at `now`: they changed, then stayed unchanged for
-    /// `SETTLE`.
-    fn take_due(&mut self, now: Instant) -> bool {
-        let changes = self
-            .changes
-            .get_mut()
-            .unwrap_or_else(|poison| poison.into_inner());
-        if changes.try_iter().count() > 0 {
-            self.due = Some(now + SETTLE);
-        }
-        if self.due.is_some_and(|due| due <= now) {
-            self.due = None;
-            return true;
-        }
-        false
-    }
+    changes: Changes,
 }
 
 /// Reads the language files again once they settled after a change, puts them in use and has
 /// the screens shown rebuilt in them. An error goes to the log, and the texts stay.
 fn reload_languages(mut files: ResMut<LanguageFiles>, mut rebuild: MessageWriter<RebuildScreens>) {
-    if !files.take_due(Instant::now()) {
+    if !files.changes.take_due(Instant::now()) {
         return;
     }
     match read(&files.folder) {
@@ -124,6 +67,9 @@ fn reload_languages(mut files: ResMut<LanguageFiles>, mut rebuild: MessageWriter
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
+    use std::sync::mpsc;
+
     use crate::i18n::{tr, Language};
 
     /// A copy of the language files of the source tree in a folder of its own.
@@ -151,7 +97,10 @@ mod tests {
         let (sender, changes) = mpsc::channel();
         let mut app = App::new();
         app.add_message::<RebuildScreens>()
-            .insert_resource(LanguageFiles::new(dir.to_path_buf(), changes))
+            .insert_resource(LanguageFiles {
+                folder: dir.to_path_buf(),
+                changes: Changes::new(changes),
+            })
             .add_systems(Update, reload_languages);
         (app, sender)
     }
@@ -160,8 +109,13 @@ mod tests {
     fn change_and_settle(app: &mut App, sender: &mpsc::Sender<()>) {
         sender.send(()).unwrap();
         app.update();
-        assert!(app.world().resource::<LanguageFiles>().due.is_some());
-        app.world_mut().resource_mut::<LanguageFiles>().due = Some(Instant::now());
+        assert!(app
+            .world()
+            .resource::<LanguageFiles>()
+            .changes
+            .due
+            .is_some());
+        app.world_mut().resource_mut::<LanguageFiles>().changes.due = Some(Instant::now());
         app.update();
     }
 

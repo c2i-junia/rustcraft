@@ -20,7 +20,7 @@ use crate::ui::hud::{
     CraftResultCell, FloatingStack, InventoryRoot, CHEST_TITLE, CRAFTING_TABLE_TITLE,
     INVENTORY_TITLE,
 };
-use crate::ui::theme::ACCENT;
+use crate::ui::theme;
 use crate::ui::widgets::slot::SlotCount;
 use crate::world::ClientWorldMap;
 use shared::players::inventory::CHEST_SLOT_START;
@@ -91,7 +91,7 @@ fn a_drag_splits_planks_over_the_ring_of_a_chest() {
     h.frames(1);
     for cell in ring {
         assert_eq!(h.text_of(&L::cell(cell)), "2", "cell {cell}");
-        assert_eq!(count_color(&mut h, cell), ACCENT, "cell {cell}");
+        assert_eq!(count_color(&mut h, cell), theme::accent(), "cell {cell}");
     }
     assert_eq!(h.text_of(&L::marker::<FloatingStack>()), "2");
     h.snapshot("drag_over_the_ring");
@@ -111,7 +111,7 @@ fn a_drag_splits_planks_over_the_ring_of_a_chest() {
         .iter()
         .all(|&cell| slot(h.world(), cell) == Some((planks, 2))));
     assert_eq!(made(h.world(), CRAFTING_GRID_SIZE), Some(ItemId::Chest));
-    assert_eq!(count_color(&mut h, ring[0]), crate::ui::theme::TEXT);
+    assert_eq!(count_color(&mut h, ring[0]), crate::ui::theme::text());
 }
 
 #[test]

@@ -29,7 +29,7 @@ use crate::ui::menus::worlds::{
     list_worlds, EMPTY_WORLD_NAME, INVALID_SEED, INVALID_WORLD_NAME, WORLD_EXISTS,
 };
 use crate::ui::menus::MenuState;
-use crate::ui::theme::RAISE_HOVER;
+use crate::ui::theme;
 use crate::ui::widgets::hints::{HintBar, HINT_BAR_HEIGHT};
 use crate::ui::widgets::list::cards_of;
 use shared::players::game_mode::GameMode;
@@ -424,10 +424,13 @@ fn hovering_a_card_or_a_button_lightens_it() {
     };
     h.hover(&card("Survie"));
     h.frames(1);
-    assert_eq!(background(&mut h, &card("Survie")), RAISE_HOVER);
+    assert_eq!(background(&mut h, &card("Survie")), theme::raise_hover());
     h.hover(&new_world_button());
     h.frames(1);
-    assert_eq!(background(&mut h, &new_world_button()), RAISE_HOVER);
+    assert_eq!(
+        background(&mut h, &new_world_button()),
+        theme::raise_hover()
+    );
 }
 
 #[test]

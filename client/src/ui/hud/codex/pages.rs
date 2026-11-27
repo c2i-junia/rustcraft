@@ -15,7 +15,7 @@ use shared::TICKS_PER_SECOND;
 use super::text::{blocks_of, line_of, plain, spawn_blocks, spawn_line, Look};
 use super::{CodexPage, Section};
 use crate::i18n::{category_name, enchantment_name, folded, tag_name, tr, trf};
-use crate::ui::theme::{FONT_L, FONT_M, FONT_S, MUTED, SPACE_M, SPACE_S, SPACE_XS, TEXT};
+use crate::ui::theme;
 use crate::world::AtlasWrapper;
 
 pub use shared::codex::guides::GUIDES;
@@ -220,8 +220,8 @@ impl Facts {
                 Node {
                     display: Display::Grid,
                     grid_template_columns: vec![GridTrack::auto(), GridTrack::flex(1.0)],
-                    column_gap: px(SPACE_M),
-                    row_gap: px(SPACE_XS),
+                    column_gap: px(theme::space_m()),
+                    row_gap: px(theme::space_xs()),
                     ..default()
                 },
                 ChildOf(parent),
@@ -232,13 +232,13 @@ impl Facts {
                 Text::new(label),
                 TextFont {
                     font: ctx.font.clone().into(),
-                    font_size: px(FONT_S).into(),
+                    font_size: px(theme::font_s()).into(),
                     ..default()
                 },
-                TextColor(MUTED),
+                TextColor(theme::muted()),
                 ChildOf(grid),
             ));
-            spawn_line(commands, grid, &value, &ctx.look(FONT_S, TEXT));
+            spawn_line(commands, grid, &value, &ctx.look(theme::font_s(), theme::text()));
         }
     }
 }
@@ -248,12 +248,12 @@ fn heading(commands: &mut Commands, parent: Entity, key: &str, ctx: &PageContext
         Text::new(tr(key)),
         TextFont {
             font: ctx.font.clone().into(),
-            font_size: px(FONT_M).into(),
+            font_size: px(theme::font_m()).into(),
             ..default()
         },
-        TextColor(TEXT),
+        TextColor(theme::text()),
         Node {
-            margin: UiRect::top(px(SPACE_S)),
+            margin: UiRect::top(px(theme::space_s())),
             ..default()
         },
         ChildOf(parent),
@@ -262,7 +262,7 @@ fn heading(commands: &mut Commands, parent: Entity, key: &str, ctx: &PageContext
 
 fn lines(commands: &mut Commands, parent: Entity, lines: &[Line], ctx: &PageContext) {
     for line in lines {
-        spawn_line(commands, parent, line, &ctx.look(FONT_S, TEXT));
+        spawn_line(commands, parent, line, &ctx.look(theme::font_s(), theme::text()));
     }
 }
 
@@ -278,7 +278,7 @@ fn header(
         .spawn((
             Node {
                 align_items: AlignItems::Center,
-                column_gap: px(SPACE_M),
+                column_gap: px(theme::space_m()),
                 ..default()
             },
             ChildOf(parent),
@@ -312,10 +312,10 @@ fn header(
         Text::new(page.title()),
         TextFont {
             font: ctx.font.clone().into(),
-            font_size: px(FONT_L).into(),
+            font_size: px(theme::font_l()).into(),
             ..default()
         },
-        TextColor(TEXT),
+        TextColor(theme::text()),
         ChildOf(titles),
     ));
     if let Some(under) = under {
@@ -323,10 +323,10 @@ fn header(
             Text::new(under),
             TextFont {
                 font: ctx.font.clone().into(),
-                font_size: px(FONT_S).into(),
+                font_size: px(theme::font_s()).into(),
                 ..default()
             },
-            TextColor(MUTED),
+            TextColor(theme::muted()),
             ChildOf(titles),
         ));
     }
@@ -349,10 +349,10 @@ pub fn spawn_page(
                     Text::new(tr("codex.unknown")),
                     TextFont {
                         font: ctx.font.clone().into(),
-                        font_size: px(FONT_L).into(),
+                        font_size: px(theme::font_l()).into(),
                         ..default()
                     },
-                    TextColor(MUTED),
+                    TextColor(theme::muted()),
                     ChildOf(parent),
                 ));
             }
@@ -376,7 +376,7 @@ fn spawn_guide_blocks(
         commands,
         parent,
         blocks,
-        &ctx.look(FONT_S, TEXT),
+        &ctx.look(theme::font_s(), theme::text()),
         &mut |commands, parent, block| match block {
             Block::Recipe { item } => lines(commands, parent, &recipe_lines(*item), ctx),
             Block::Computed { name, args } => {
@@ -451,7 +451,7 @@ fn spawn_item(
         commands,
         parent,
         &note,
-        &ctx.look(FONT_S, TEXT),
+        &ctx.look(theme::font_s(), theme::text()),
         &mut |_, _, _| {},
     );
 
@@ -665,9 +665,9 @@ fn spawn_mob(
     let body = commands
         .spawn((
             Node {
-                column_gap: px(SPACE_M),
+                column_gap: px(theme::space_m()),
                 flex_wrap: FlexWrap::WrapReverse,
-                row_gap: px(SPACE_M),
+                row_gap: px(theme::space_m()),
                 ..default()
             },
             ChildOf(parent),
@@ -677,7 +677,7 @@ fn spawn_mob(
         .spawn((
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_S),
+                row_gap: px(theme::space_s()),
                 flex_grow: 1.0,
                 flex_basis: px(260),
                 min_width: px(0),
@@ -690,7 +690,7 @@ fn spawn_mob(
         .spawn((
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_S),
+                row_gap: px(theme::space_s()),
                 width: px(220),
                 flex_shrink: 0.0,
                 ..default()
@@ -763,7 +763,7 @@ fn spawn_mob(
     }
     facts.spawn(commands, side, ctx);
 
-    let text_look = ctx.look(FONT_S, TEXT);
+    let text_look = ctx.look(theme::font_s(), theme::text());
     let mut biomes = Vec::new();
     for def in Biomes::vanilla().defs() {
         for herd in def.herds.iter().filter(|h| h.kind == kind) {
@@ -838,7 +838,7 @@ fn spawn_mob(
 fn spawn_biome(commands: &mut Commands, parent: Entity, key: &str, ctx: &PageContext) {
     header(commands, parent, &CodexPage::Biome(key.into()), None, ctx);
     if let Some(note) = line_of(&format!("codex.biome.{key}")) {
-        spawn_line(commands, parent, &note, &ctx.look(FONT_S, TEXT));
+        spawn_line(commands, parent, &note, &ctx.look(theme::font_s(), theme::text()));
     }
     let biomes = Biomes::vanilla();
     let Some(def) = biomes
@@ -895,7 +895,7 @@ fn spawn_effect(commands: &mut Commands, parent: Entity, kind: EffectKind, ctx: 
         ctx,
     );
     if let Some(note) = line_of(&format!("codex.effect.{kind:?}")) {
-        spawn_line(commands, parent, &note, &ctx.look(FONT_S, TEXT));
+        spawn_line(commands, parent, &note, &ctx.look(theme::font_s(), theme::text()));
     }
     let mut given = Vec::new();
     let potions: Vec<Line> = ItemId::ALL

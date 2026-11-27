@@ -25,7 +25,7 @@ use crate::network::CurrentPlayerProfile;
 use crate::ui::assets::{load_font, load_title_image, MONO_FONT_PATH};
 use crate::ui::credits::{spawn_credits, Credits};
 use crate::ui::hud::progress::PlayerProgress;
-use crate::ui::theme::{FONT_S, MUTED, SPACE_L, SPACE_S, SPACE_XXL};
+use crate::ui::theme;
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::dialog::{spawn_dialog, Dialog, DialogClosed};
 use crate::ui::widgets::focus::{keep_focus_inside, ArrowNav};
@@ -74,9 +74,13 @@ const LOGO_TOP_VH: f32 = 9.0;
 
 /// The width of the column of buttons, and the space between two of its rows.
 pub const BUTTON_COLUMN_WIDTH: f32 = 400.0;
-const BUTTON_GAP: f32 = SPACE_S;
+fn button_gap() -> f32 {
+    theme::space_s()
+}
 /// The space between the column and the skin beside it.
-const SIDE_GAP: f32 = SPACE_XXL;
+fn side_gap() -> f32 {
+    theme::space_xxl()
+}
 /// How far the skin, its name and its button are moved from their place in the row, right and
 /// down, in hundredths of the window height.
 pub const SKIN_SHIFT_VH: Vec2 = Vec2::new(4.0, 4.0);
@@ -144,7 +148,7 @@ pub fn home_setup(
         .spawn((
             ArrowNav,
             Node {
-                column_gap: px(SIDE_GAP),
+                column_gap: px(side_gap()),
                 align_items: AlignItems::Center,
                 ..default()
             },
@@ -164,7 +168,7 @@ pub fn home_setup(
         .spawn((
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(BUTTON_GAP),
+                row_gap: px(button_gap()),
                 width: px(BUTTON_COLUMN_WIDTH),
                 flex_shrink: 0.0,
                 ..default()
@@ -201,8 +205,8 @@ pub fn home_setup(
     let pair = commands
         .spawn((
             Node {
-                column_gap: px(BUTTON_GAP),
-                margin: UiRect::top(px(SPACE_S)),
+                column_gap: px(button_gap()),
+                margin: UiRect::top(px(theme::space_s())),
                 ..default()
             },
             ChildOf(column),
@@ -231,7 +235,7 @@ pub fn home_setup(
             Node {
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
-                row_gap: px(SPACE_S),
+                row_gap: px(theme::space_s()),
                 flex_shrink: 0.0,
                 left: vh(SKIN_SHIFT_VH.x),
                 top: vh(SKIN_SHIFT_VH.y),
@@ -263,7 +267,7 @@ pub fn home_setup(
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
-            right: px(SPACE_L),
+            right: px(theme::space_l()),
             bottom: px(0),
             height: px(HINT_BAR_HEIGHT),
             align_items: AlignItems::Center,
@@ -275,10 +279,10 @@ pub fn home_setup(
             Text(format!("v{}", env!("CARGO_PKG_VERSION"))),
             TextFont {
                 font: font.into(),
-                font_size: px(FONT_S).into(),
+                font_size: px(theme::font_s()).into(),
                 ..default()
             },
-            TextColor(MUTED),
+            TextColor(theme::muted()),
         )],
     ));
 }

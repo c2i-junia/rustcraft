@@ -19,7 +19,7 @@ use crate::ui::hud::{
     CraftResultCell, FloatingStack, HudBottom, InventoryCell, InventoryDialog, InventoryRoot,
     UIMode,
 };
-use crate::ui::theme::ACCENT;
+use crate::ui::theme;
 use crate::ui::widgets::slot::SlotIcon;
 use crate::ui::widgets::tooltip::TooltipRoot;
 
@@ -83,7 +83,7 @@ fn ringed_cells(h: &mut Harness) -> Vec<u32> {
     let mut cells = h.world_mut().query::<(&InventoryCell, &Outline)>();
     cells
         .iter(h.world())
-        .filter(|(_, outline)| outline.color == ACCENT)
+        .filter(|(_, outline)| outline.color == theme::accent())
         .map(|(cell, _)| cell.id)
         .collect()
 }

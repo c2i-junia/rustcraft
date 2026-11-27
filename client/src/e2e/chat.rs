@@ -16,13 +16,13 @@ use super::locator::{is_inside, Locator as L};
 use super::seed::GameFolder;
 use crate::network::CachedChatConversation;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
-use crate::ui::hud::chat::{ChatInput, ChatLine, ChatLog, ChatRoot, CHAT_LINE_HEIGHT, CHAT_WIDTH};
+use crate::ui::hud::chat::{chat_line_height, ChatInput, ChatLine, ChatLog, ChatRoot, CHAT_WIDTH};
 use crate::ui::hud::chat_completion::{Ghost, SuggestionPanel};
 use crate::ui::hud::debug::{DebugOptions, HudRoot};
 use crate::ui::hud::fps_counter::FpsCounter;
 use crate::ui::hud::hotbar::{Hotbar, HotbarItemName};
 use crate::ui::hud::{InventoryRoot, UIMode};
-use crate::ui::theme::{SPACE_L, SPACE_S};
+use crate::ui::theme;
 
 impl Harness {
     /// Whether a visible line of the chat contains `part`. The lines stay on screen for a
@@ -276,7 +276,7 @@ fn the_chat_keeps_its_history_with_times_and_scrolls() {
     let scrolled = h.center_of(&L::text("<Bot> line 29"));
     assert_eq!(
         scrolled.y - before.y,
-        3.0 * CHAT_LINE_HEIGHT,
+        3.0 * chat_line_height(),
         "{before} then {scrolled}"
     );
     // the field keeps the focus, and PageUp and PageDown scroll by the log less a line
@@ -374,7 +374,7 @@ fn the_chat_sits_above_the_hotbar_and_its_item_name() {
         }
         let scale = h.world().resource::<UiScale>().0;
         assert!(
-            name.min.y - chat.max.y >= SPACE_S * scale - 0.5,
+            name.min.y - chat.max.y >= theme::space_s() * scale - 0.5,
             "{chat:?} above {name:?} at {width}x{height}"
         );
         let window = Rect::new(0., 0., width as f32, height as f32);
@@ -385,7 +385,7 @@ fn the_chat_sits_above_the_hotbar_and_its_item_name() {
         // never as far as the reticle, at the centre; as wide as it may be when there is room
         if width == 800 {
             assert!(
-                chat.max.x <= width as f32 / 2.0 - SPACE_L * scale + 0.5,
+                chat.max.x <= width as f32 / 2.0 - theme::space_l() * scale + 0.5,
                 "{chat:?} reaches the reticle at {width}x{height}"
             );
         } else {

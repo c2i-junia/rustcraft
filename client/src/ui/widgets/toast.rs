@@ -8,9 +8,7 @@ use accesskit::Role;
 use bevy::{a11y::AccessibilityNode, prelude::*, ui::UiSystems};
 
 use super::raised_bevel;
-use crate::ui::theme::{
-    ACCENT, BEVEL_WIDTH, DANGER, FONT_S, OK, PANEL, SPACE_L, SPACE_M, SPACE_S, TEXT,
-};
+use crate::ui::theme;
 
 /// How long a toast shows.
 pub const TOAST_DURATION: Duration = Duration::from_secs(3);
@@ -66,9 +64,9 @@ pub fn show_toast(
     font: Handle<Font>,
 ) -> Entity {
     let (role, edge) = match kind {
-        ToastKind::Info => (Role::Status, OK),
-        ToastKind::Error => (Role::Alert, DANGER),
-        ToastKind::Achievement => (Role::Status, ACCENT),
+        ToastKind::Info => (Role::Status, theme::ok()),
+        ToastKind::Error => (Role::Alert, theme::danger()),
+        ToastKind::Achievement => (Role::Status, theme::accent()),
     };
     let duration = match kind {
         ToastKind::Achievement => ACHIEVEMENT_DURATION,
@@ -81,14 +79,14 @@ pub fn show_toast(
             AccessibleLabel::new(text),
             Node {
                 max_width: px(TOAST_MAX_WIDTH),
-                padding: UiRect::axes(px(SPACE_M), px(SPACE_S)),
+                padding: UiRect::axes(px(theme::space_m()), px(theme::space_s())),
                 border: UiRect {
                     left: px(TOAST_EDGE),
-                    ..UiRect::all(px(BEVEL_WIDTH))
+                    ..UiRect::all(px(theme::bevel_width()))
                 },
                 ..default()
             },
-            BackgroundColor(PANEL),
+            BackgroundColor(theme::panel()),
             BorderColor {
                 left: edge,
                 ..raised_bevel()
@@ -98,10 +96,10 @@ pub fn show_toast(
                 Text::new(text),
                 TextFont {
                     font: font.into(),
-                    font_size: px(FONT_S).into(),
+                    font_size: px(theme::font_s()).into(),
                     ..default()
                 },
-                TextColor(TEXT),
+                TextColor(theme::text()),
                 TextLayout::linebreak(LineBreak::WordOrCharacter),
                 Pickable::IGNORE,
             )],
@@ -142,11 +140,11 @@ fn toast_stack() -> impl Bundle {
         ToastStack,
         Node {
             position_type: PositionType::Absolute,
-            top: px(SPACE_L),
-            right: px(SPACE_L),
+            top: px(theme::space_l()),
+            right: px(theme::space_l()),
             flex_direction: FlexDirection::Column,
             align_items: AlignItems::FlexEnd,
-            row_gap: px(SPACE_S),
+            row_gap: px(theme::space_s()),
             ..default()
         },
         GlobalZIndex(TOAST_Z),
@@ -154,13 +152,13 @@ fn toast_stack() -> impl Bundle {
     )
 }
 
-/// The top of the toast stack, in logical px: `SPACE_L` from the top of the window, or under
-/// the bottoms of the nodes it keeps below, also in logical px, when lower.
+/// The top of the toast stack, in logical px: `theme::space_l()` from the top of the window, or
+/// under the bottoms of the nodes it keeps below, also in logical px, when lower.
 fn toast_top(bottoms: impl IntoIterator<Item = f32>) -> f32 {
     bottoms
         .into_iter()
-        .map(|bottom| bottom + SPACE_S)
-        .fold(SPACE_L, f32::max)
+        .map(|bottom| bottom + theme::space_s())
+        .fold(theme::space_l(), f32::max)
 }
 
 /// Moves the toast stack below the nodes it keeps below, as they were laid out last frame.
@@ -205,10 +203,10 @@ mod tests {
 
     #[test]
     fn the_toasts_stay_below_the_top_right_corner_of_the_game() {
-        assert_eq!(toast_top([]), SPACE_L);
+        assert_eq!(toast_top([]), theme::space_l());
         // a node that ends higher leaves the toasts where they are
-        assert_eq!(toast_top([4.0]), SPACE_L);
-        assert_eq!(toast_top([170.0, 40.0]), 170.0 + SPACE_S);
+        assert_eq!(toast_top([4.0]), theme::space_l());
+        assert_eq!(toast_top([170.0, 40.0]), 170.0 + theme::space_s());
     }
 
     #[test]

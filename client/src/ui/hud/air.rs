@@ -8,10 +8,10 @@ use shared::players::air::{bubble, Bubble, BUBBLES, MAX_AIR};
 use shared::players::Player;
 
 use crate::player::CurrentPlayerMarker;
-use crate::ui::hud::food::FOOD_BAND;
+use crate::ui::hud::food::food_band;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::InventoryRoot;
-use crate::ui::theme::SPACE_XS;
+use crate::ui::theme;
 
 pub const AIR_PATH: &str = "./graphics/hud/air.png";
 pub const AIR_BURSTING_PATH: &str = "./graphics/hud/air_bursting.png";
@@ -56,7 +56,7 @@ pub fn spawn_air_bar(
                 position_type: PositionType::Absolute,
                 right: px(0.),
                 bottom: percent(100.),
-                margin: UiRect::bottom(px(FOOD_BAND + SPACE_XS)),
+                margin: UiRect::bottom(px(food_band() + theme::space_xs())),
                 // The first bubble on the right
                 flex_direction: FlexDirection::RowReverse,
                 ..default()

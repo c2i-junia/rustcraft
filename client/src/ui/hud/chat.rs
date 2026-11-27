@@ -21,11 +21,11 @@ use bevy_renet::RenetClient;
 use chrono::{DateTime, FixedOffset, Local, TimeZone};
 use shared::messages::{ChatMessageRequest, ClientToServerMessage, FullChatMessage};
 
-use super::armour::ARMOUR_BAND;
+use super::armour::armour_band;
 use super::chat_completion::{spawn_command_completion, CommandCompletion};
-use super::health::HEALTH_BAND;
-use super::hotbar::ITEM_NAME_BAND;
-use super::inventory::HOTBAR_TOP;
+use super::health::health_band;
+use super::hotbar::item_name_band;
+use super::inventory::hotbar_top;
 use super::UIMode;
 use crate::input::data::GameAction;
 use crate::network::CachedChatConversation;
@@ -34,7 +34,7 @@ use crate::state::KeyMap;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::hud::UiDialog;
 use crate::ui::menus::pause::{overlay_open, Overlays};
-use crate::ui::theme::{BEVEL_WIDTH, FONT_S, MUTED, PANEL, SPACE_L, SPACE_S, SPACE_XS, TEXT};
+use crate::ui::theme;
 use crate::ui::widgets::list::{spawn_scroll_list, WheelStep};
 use crate::ui::widgets::text_field::{set_text, spawn_text_field, Cancel, Submit, TextField};
 
@@ -43,7 +43,9 @@ pub const CHAT_MAX_MESSAGES: usize = 100;
 /// The width of the log and the field of the chat, when the window has room for it.
 pub const CHAT_WIDTH: f32 = 420.0;
 /// The room between the left edge of the window and the chat.
-const CHAT_LEFT: f32 = SPACE_L;
+fn chat_left() -> f32 {
+    theme::space_l()
+}
 /// The lines the open log shows, and the most recent lines the closed chat shows.
 pub const CHAT_LOG_LINES: usize = 10;
 /// How long a line stays whole over the game once received, before it fades.
@@ -52,7 +54,9 @@ pub const CHAT_FADE_AFTER: Duration = Duration::from_secs(7);
 pub const CHAT_FADE: Duration = Duration::from_secs(1);
 
 /// The height of a line of the log: whole pixels at every `UiScale`.
-pub const CHAT_LINE_HEIGHT: f32 = FONT_S + SPACE_XS;
+pub fn chat_line_height() -> f32 {
+    theme::font_s() + theme::space_xs()
+}
 /// The opacity of the well of the open log: the game stays readable through it.
 const LOG_ALPHA: f32 = 0.75;
 /// The opacity of the strip under a line shown over the game.
@@ -157,12 +161,16 @@ pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
             TabGroup::modal(),
             Node {
                 position_type: PositionType::Absolute,
-                left: px(CHAT_LEFT),
+                left: px(chat_left()),
                 // above the hotbar, the hearts, the armour and the name of its item, at every size
-                bottom: px(HOTBAR_TOP + HEALTH_BAND + ARMOUR_BAND + ITEM_NAME_BAND + SPACE_S),
+                bottom: px(hotbar_top()
+                    + health_band()
+                    + armour_band()
+                    + item_name_band()
+                    + theme::space_s()),
                 width: px(CHAT_WIDTH),
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_XS),
+                row_gap: px(theme::space_xs()),
                 ..default()
             },
             Visibility::Hidden,
@@ -172,10 +180,10 @@ pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
 
     // a well of `CHAT_LOG_LINES` lines, translucent over the game, with its scrollbar
     // three lines a notch of the wheel
-    let log = spawn_scroll_list(&mut commands, WheelStep::Px(3.0 * CHAT_LINE_HEIGHT));
+    let log = spawn_scroll_list(&mut commands, WheelStep::Px(3.0 * chat_line_height()));
     commands
         .entity(log.well)
-        .insert(BackgroundColor(PANEL.with_alpha(LOG_ALPHA)));
+        .insert(BackgroundColor(theme::panel().with_alpha(LOG_ALPHA)));
     commands.entity(log.list).insert(ChatLog);
     // the lines sit at the bottom of the log while they are few
     commands.spawn((
@@ -193,7 +201,7 @@ pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
         .spawn((
             Node {
-                height: px(CHAT_LOG_LINES as f32 * CHAT_LINE_HEIGHT + 2.0 * BEVEL_WIDTH),
+                height: px(CHAT_LOG_LINES as f32 * chat_line_height() + 2.0 * theme::bevel_width()),
                 ..default()
             },
             ChildOf(root),
@@ -207,7 +215,7 @@ pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
             placeholder: tr("chat.placeholder"),
             max_characters: Some(256),
             font: asset_server.load(FONT_PATH),
-            font_size: FONT_S,
+            font_size: theme::font_s(),
             reserve_error: false,
         },
     );
@@ -282,9 +290,9 @@ fn font_for(text: &str) -> &'static str {
 }
 
 /// The width of the chat in a UI `ui_width` logical px wide: `CHAT_WIDTH`, or less, so that it
-/// ends `SPACE_L` before the centre of the window, where the reticle is.
+/// ends `theme::space_l()` before the centre of the window, where the reticle is.
 fn chat_width(ui_width: f32) -> f32 {
-    CHAT_WIDTH.min(ui_width / 2.0 - CHAT_LEFT - SPACE_L)
+    CHAT_WIDTH.min(ui_width / 2.0 - chat_left() - theme::space_l())
 }
 
 /// Fits the chat to the window, as it is resized or the UI scale changes: the log and the field
@@ -443,7 +451,7 @@ pub fn fade_chat_messages_system(
                 !open && !dialog_open && index >= recent && age < CHAT_FADE_AFTER + CHAT_FADE;
             let (shown, alpha, ground) = if over_the_game {
                 let alpha = line_alpha(age);
-                let ground = PANEL.with_alpha(STRIP_ALPHA * alpha);
+                let ground = theme::panel().with_alpha(STRIP_ALPHA * alpha);
                 (Visibility::Visible, alpha, ground)
             } else {
                 (Visibility::Inherited, 1.0, Color::NONE)
@@ -500,8 +508,8 @@ pub fn display_chat_messages_system(
         commands.spawn((
             ChatLine { received: now },
             Node {
-                column_gap: px(SPACE_S),
-                padding: UiRect::horizontal(px(SPACE_XS)),
+                column_gap: px(theme::space_s()),
+                padding: UiRect::horizontal(px(theme::space_xs())),
                 ..default()
             },
             // the strip under the line over the game, drawn by `fade_chat_messages_system`
@@ -512,14 +520,18 @@ pub fn display_chat_messages_system(
             ChildOf(column),
             children![
                 (
-                    line_text(time, asset_server.load(FONT_PATH), MUTED),
+                    line_text(time, asset_server.load(FONT_PATH), theme::muted()),
                     Node {
                         flex_shrink: 0.0,
                         ..default()
                     },
                 ),
                 (
-                    line_text(said.clone(), asset_server.load(font_for(&said)), TEXT),
+                    line_text(
+                        said.clone(),
+                        asset_server.load(font_for(&said)),
+                        theme::text()
+                    ),
                     TextLayout {
                         linebreak: LineBreak::WordOrCharacter,
                         ..default()
@@ -545,10 +557,10 @@ fn line_text(text: String, font: Handle<Font>, color: Color) -> impl Bundle {
         Text::new(text),
         TextFont {
             font: FontSource::Handle(font),
-            font_size: px(FONT_S).into(),
+            font_size: px(theme::font_s()).into(),
             ..default()
         },
-        LineHeight::Px(CHAT_LINE_HEIGHT),
+        LineHeight::Px(chat_line_height()),
         TextColor(color),
         Pickable::IGNORE,
     )
@@ -598,7 +610,7 @@ fn page_the_log(
     if key.state != ButtonState::Pressed {
         return;
     }
-    let page = (CHAT_LOG_LINES - 1) as f32 * CHAT_LINE_HEIGHT;
+    let page = (CHAT_LOG_LINES - 1) as f32 * chat_line_height();
     let step = match key.key_code {
         KeyCode::PageUp => -page,
         KeyCode::PageDown => page,

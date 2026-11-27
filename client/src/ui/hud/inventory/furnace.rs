@@ -14,7 +14,7 @@ use shared::world::{Furnace, Station};
 
 use super::setup::icon;
 use super::{FurnaceRow, InventoryCell};
-use crate::ui::theme::{BEVEL_HI, SPACE_L, SPACE_S, SPACE_XS};
+use crate::ui::theme;
 use crate::ui::widgets::slot::{slot, slot_node, SLOT_SIZE};
 use crate::ui::widgets::tooltip::Tooltip;
 use crate::world::{AtlasWrapper, ClientWorldMap};
@@ -42,7 +42,9 @@ const ARROW_TEXELS: UVec2 = UVec2::new(24, 16);
 const TEXEL: f32 = 2.0;
 
 /// The side of the output slot, larger than the others like Minecraft's, in logical px.
-pub const OUTPUT_SIZE: f32 = SLOT_SIZE + 2.0 * SPACE_S;
+pub fn output_size() -> f32 {
+    SLOT_SIZE + 2.0 * theme::space_s()
+}
 
 /// A gauge of the open furnace: the flame, which burns down with the fuel, or the arrow, which
 /// fills as the input cooks. Its children are the empty sprite, then the lit one, `GaugeFill`.
@@ -103,8 +105,8 @@ impl FurnaceGauge {
     }
 }
 
-/// A gauge, `Role::ProgressIndicator` from 0 to 100: the silhouette of its sprite in `BEVEL_HI`,
-/// and the lit sprite over it, of which nothing shows yet.
+/// A gauge, `Role::ProgressIndicator` from 0 to 100: the silhouette of its sprite in
+/// `theme::bevel_hi()`, and the lit sprite over it, of which nothing shows yet.
 fn gauge(gauge: FurnaceGauge, assets: &AssetServer) -> impl Bundle {
     let (empty, lit) = match gauge {
         FurnaceGauge::Flame => (FLAME_EMPTY_PATH, FLAME_PATH),
@@ -130,7 +132,7 @@ fn gauge(gauge: FurnaceGauge, assets: &AssetServer) -> impl Bundle {
             (
                 ImageNode {
                     image: assets.load(empty),
-                    color: BEVEL_HI,
+                    color: theme::bevel_hi(),
                     ..default()
                 },
                 Node {
@@ -195,7 +197,7 @@ pub(super) fn spawn_furnace_row(
                 // In the middle of the panel, Minecraft's place
                 align_self: AlignSelf::Center,
                 align_items: AlignItems::Center,
-                column_gap: px(SPACE_L),
+                column_gap: px(theme::space_l()),
                 ..default()
             },
         ))
@@ -203,7 +205,7 @@ pub(super) fn spawn_furnace_row(
             row.spawn(Node {
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
-                row_gap: px(SPACE_XS),
+                row_gap: px(theme::space_xs()),
                 ..default()
             })
             .with_children(|column| {
@@ -214,8 +216,8 @@ pub(super) fn spawn_furnace_row(
             row.spawn(gauge(FurnaceGauge::Arrow, assets));
             row.spawn(cell(FURNACE_OUTPUT_SLOT, tr("furnace.output")))
                 .insert(Node {
-                    width: px(OUTPUT_SIZE),
-                    height: px(OUTPUT_SIZE),
+                    width: px(output_size()),
+                    height: px(output_size()),
                     ..slot_node()
                 });
         });

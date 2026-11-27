@@ -83,6 +83,7 @@ pub fn add_client(app: &mut App, settings: ClientSettings) {
     let (render_distance, clouds, biome_blend, graphics) = load_video_settings(&game_folder_paths);
     let interface = load_interface_settings(&game_folder_paths);
     crate::i18n::load(&game_folder_paths.assets_folder_path);
+    crate::ui::theme::load(&game_folder_paths.assets_folder_path);
     crate::i18n::set_language(interface.language());
     app.insert_resource(get_bindings(&game_folder_paths))
         .insert_resource(load_audio_settings(&game_folder_paths))

@@ -18,7 +18,7 @@ use super::solo::SelectedWorld;
 use super::MenuState;
 use crate::network::session::SessionOrigin;
 use crate::state::GameState;
-use crate::ui::theme::{RAISE, THUMBNAIL_COLORS};
+use crate::ui::theme;
 use shared::{DAY_DURATION_IN_TICKS, NEW_WORLD_TIME};
 
 /// What the menus show of a saved world.
@@ -362,8 +362,8 @@ pub fn played_ago(elapsed: Duration) -> String {
 
 /// The colour of a world's thumbnail, which its seed picks; a world of unknown seed is grey.
 pub fn thumbnail_color(seed: Option<u32>) -> Color {
-    seed.map_or(RAISE, |seed| {
-        THUMBNAIL_COLORS[seed as usize % THUMBNAIL_COLORS.len()]
+    seed.map_or(theme::raise(), |seed| {
+        theme::thumbnail_colors()[seed as usize % theme::thumbnail_colors().len()]
     })
 }
 
@@ -510,7 +510,7 @@ mod tests {
                 assert_ne!(a, b, "two seeds share a colour");
             }
         }
-        assert_eq!(thumbnail_color(None), RAISE);
+        assert_eq!(thumbnail_color(None), theme::raise());
     }
 
     /// The names of the worlds `list_worlds` gives, in its order.

@@ -37,10 +37,7 @@ use crate::ui::menus::progress::{OpenProgress, ProgressRoot};
 use crate::ui::menus::settings::controls::KeyCapture;
 use crate::ui::menus::settings::{close_settings, spawn_settings, SettingsContext, SettingsRoot};
 use crate::ui::quit::QuittingCard;
-use crate::ui::theme::{
-    BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_S, FONT_XL, MUTED, PANEL, SPACE_L, SPACE_S, SPACE_XL,
-    SPACE_XS, TEXT,
-};
+use crate::ui::theme;
 use crate::ui::widgets::button::{button, set_label, ButtonVariant};
 use crate::ui::widgets::focus::{keep_focus_inside, ArrowNav};
 use crate::ui::widgets::hints::{hint_bar, Hint, HintBar, HINT_BAR_HEIGHT};
@@ -310,7 +307,7 @@ pub(crate) fn spawn_pause_menu(
                 padding: UiRect::bottom(px(HINT_BAR_HEIGHT)),
                 ..default()
             },
-            BackgroundColor(BEVEL_LO.with_alpha(0.6)),
+            BackgroundColor(theme::bevel_lo().with_alpha(0.6)),
             Visibility::Visible,
             GlobalZIndex(5),
             DespawnOnExit(GameState::Game),
@@ -320,19 +317,19 @@ pub(crate) fn spawn_pause_menu(
         .spawn((
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_L),
-                padding: UiRect::all(px(SPACE_XL)),
-                border: UiRect::all(px(BEVEL_WIDTH)),
+                row_gap: px(theme::space_l()),
+                padding: UiRect::all(px(theme::space_xl())),
+                border: UiRect::all(px(theme::bevel_width())),
                 width: px(PANEL_WIDTH),
                 max_width: percent(90),
                 ..default()
             },
-            BackgroundColor(PANEL),
+            BackgroundColor(theme::panel()),
             BorderColor {
-                top: BEVEL_HI,
-                left: BEVEL_HI,
-                bottom: BEVEL_LO,
-                right: BEVEL_LO,
+                top: theme::bevel_hi(),
+                left: theme::bevel_hi(),
+                bottom: theme::bevel_lo(),
+                right: theme::bevel_lo(),
             },
             ChildOf(root),
         ))
@@ -341,7 +338,7 @@ pub(crate) fn spawn_pause_menu(
         .spawn((
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_XS),
+                row_gap: px(theme::space_xs()),
                 ..default()
             },
             ChildOf(panel),
@@ -351,10 +348,10 @@ pub(crate) fn spawn_pause_menu(
         Text::new(tr(PAUSE_TITLE)),
         TextFont {
             font: font.clone().into(),
-            font_size: px(FONT_XL).into(),
+            font_size: px(theme::font_xl()).into(),
             ..default()
         },
-        TextColor(TEXT),
+        TextColor(theme::text()),
         ChildOf(header),
     ));
     if let Some(origin) = origin {
@@ -362,10 +359,10 @@ pub(crate) fn spawn_pause_menu(
             Text::new(origin.name()),
             TextFont {
                 font: font.clone().into(),
-                font_size: px(FONT_S).into(),
+                font_size: px(theme::font_s()).into(),
                 ..default()
             },
-            TextColor(MUTED),
+            TextColor(theme::muted()),
             // a long name without spaces breaks rather than leave the panel
             TextLayout::linebreak(LineBreak::WordOrCharacter),
             ChildOf(header),
@@ -376,7 +373,7 @@ pub(crate) fn spawn_pause_menu(
             ArrowNav,
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_S),
+                row_gap: px(theme::space_s()),
                 ..default()
             },
             ChildOf(panel),
@@ -397,7 +394,7 @@ pub(crate) fn spawn_pause_menu(
         if action.leaves() {
             entity
                 .entry::<Node>()
-                .and_modify(|mut node| node.margin = UiRect::top(px(SPACE_L)));
+                .and_modify(|mut node| node.margin = UiRect::top(px(theme::space_l())));
         }
     }
     commands.spawn((
@@ -959,7 +956,7 @@ mod tests {
             .spawn((HudBottom, Visibility::Inherited))
             .id();
         let reticle = app.world_mut().spawn((Reticle, Visibility::Inherited)).id();
-        let text = app.world_mut().spawn(TextColor(TEXT)).id();
+        let text = app.world_mut().spawn(TextColor(theme::text())).id();
         let line = app
             .world_mut()
             .spawn((

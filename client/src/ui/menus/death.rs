@@ -21,7 +21,7 @@ use crate::state::{GameSet, GameState};
 use crate::ui::assets::FONT_PATH;
 use crate::ui::hud::{InventoryRoot, UiDialog};
 use crate::ui::menus::pause::{act_on_pause_button, pause_buttons};
-use crate::ui::theme::{FONT_L, FONT_XL, SPACE_L, SPACE_S, SPACE_XL, TEXT};
+use crate::ui::theme;
 use crate::ui::widgets::button::{button, set_label, ButtonVariant};
 use crate::ui::widgets::focus::{keep_focus_inside, ArrowNav};
 
@@ -106,7 +106,7 @@ fn spawn_death_screen(
                 flex_direction: FlexDirection::Column,
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
-                row_gap: px(SPACE_L),
+                row_gap: px(theme::space_l()),
                 ..default()
             },
             BackgroundColor(Color::srgba(0.35, 0.02, 0.0, 0.6)),
@@ -120,10 +120,10 @@ fn spawn_death_screen(
         Text::new(crate::i18n::tr(DEATH_TITLE)),
         TextFont {
             font: font.clone().into(),
-            font_size: px(FONT_XL * 1.5).into(),
+            font_size: px(theme::font_xl() * 1.5).into(),
             ..default()
         },
-        TextColor(TEXT),
+        TextColor(theme::text()),
         TextShadow::default(),
         ChildOf(root),
     ));
@@ -132,13 +132,13 @@ fn spawn_death_screen(
             Text::new(cause),
             TextFont {
                 font: font.clone().into(),
-                font_size: px(FONT_L).into(),
+                font_size: px(theme::font_l()).into(),
                 ..default()
             },
-            TextColor(TEXT),
+            TextColor(theme::text()),
             TextShadow::default(),
             Node {
-                margin: UiRect::bottom(px(SPACE_XL)),
+                margin: UiRect::bottom(px(theme::space_xl())),
                 ..default()
             },
             ChildOf(root),
@@ -149,7 +149,7 @@ fn spawn_death_screen(
             ArrowNav,
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_S),
+                row_gap: px(theme::space_s()),
                 width: px(BUTTON_WIDTH),
                 max_width: percent(90),
                 ..default()

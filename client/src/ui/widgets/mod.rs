@@ -4,7 +4,7 @@
 use bevy::prelude::*;
 
 use crate::ui::settings::InterfaceSettings;
-use crate::ui::theme::{BEVEL_HI, BEVEL_LO};
+use crate::ui::theme;
 
 pub mod button;
 pub mod dialog;
@@ -25,20 +25,20 @@ pub mod tooltip;
 /// The bevel of a raised surface: light at the top and left, dark at the bottom and right.
 pub(super) fn raised_bevel() -> BorderColor {
     BorderColor {
-        top: BEVEL_HI,
-        left: BEVEL_HI,
-        bottom: BEVEL_LO,
-        right: BEVEL_LO,
+        top: theme::bevel_hi(),
+        left: theme::bevel_hi(),
+        bottom: theme::bevel_lo(),
+        right: theme::bevel_lo(),
     }
 }
 
 /// The bevel of a recessed surface: dark at the top and left, light at the bottom and right.
 pub(super) fn sunken_bevel() -> BorderColor {
     BorderColor {
-        top: BEVEL_LO,
-        left: BEVEL_LO,
-        bottom: BEVEL_HI,
-        right: BEVEL_HI,
+        top: theme::bevel_lo(),
+        left: theme::bevel_lo(),
+        bottom: theme::bevel_hi(),
+        right: theme::bevel_hi(),
     }
 }
 

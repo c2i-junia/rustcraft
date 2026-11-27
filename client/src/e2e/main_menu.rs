@@ -25,7 +25,7 @@ use crate::ui::menus::solo::WORLDS_TITLE;
 use crate::ui::menus::MenuState;
 use crate::ui::menus::{BUTTON_COLUMN_WIDTH, CREDITS_LABEL, QUIT_TITLE, SKIN_SHIFT_VH};
 use crate::ui::quit::QuittingCard;
-use crate::ui::theme::{ACCENT, RAISE_HOVER};
+use crate::ui::theme;
 use crate::ui::widgets::hints::HintBar;
 
 #[test]
@@ -177,7 +177,10 @@ fn escape_asks_before_quitting_with_cancel_focused() {
     // opened from the keyboard, the dialog shows where Enter goes
     h.frames(1);
     let cancel = h.get(&L::role(Role::Button, "Cancel"));
-    assert_eq!(h.world().get::<Outline>(cancel).unwrap().color, ACCENT);
+    assert_eq!(
+        h.world().get::<Outline>(cancel).unwrap().color,
+        theme::accent()
+    );
     // and its own key hints, in place of the menu's
     let hints = L::marker::<HintBar>();
     assert_eq!(h.text_of(&hints), "Tab Move Enter Select Esc Cancel");
@@ -295,7 +298,7 @@ fn the_keyboard_alone_opens_a_screen() {
     }
     h.key_up(KeyCode::ShiftLeft);
     assert_eq!(h.focus_label().as_deref(), Some("Settings"));
-    assert_eq!(ring(&mut h, "Settings"), ACCENT);
+    assert_eq!(ring(&mut h, "Settings"), theme::accent());
 
     h.press(KeyCode::Enter);
     h.wait_for(&L::text("Controls"), SCREEN);
@@ -312,7 +315,7 @@ fn hovering_a_button_lightens_it() {
     let button = h.get(&singleplayer);
     assert_eq!(
         h.world().get::<BackgroundColor>(button).unwrap().0,
-        RAISE_HOVER
+        theme::raise_hover()
     );
 }
 

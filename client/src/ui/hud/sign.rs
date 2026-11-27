@@ -11,7 +11,7 @@ use crate::i18n::{tr, trf};
 use crate::network::SendGameMessageExtension;
 use crate::state::GameState;
 use crate::ui::assets::FONT_PATH;
-use crate::ui::theme::FONT_M;
+use crate::ui::theme;
 use crate::ui::widgets::button::ButtonVariant;
 use crate::ui::widgets::dialog::{
     close_dialog, spawn_form_dialog, CloseRequest, Dialog, DialogSubmit,
@@ -82,7 +82,7 @@ fn open_sign_editor(
                 placeholder: "",
                 max_characters: Some(SIGN_LINE_LENGTH),
                 font: font.clone(),
-                font_size: FONT_M,
+                font_size: theme::font_m(),
                 reserve_error: false,
             },
         );

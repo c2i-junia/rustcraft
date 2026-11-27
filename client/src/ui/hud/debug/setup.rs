@@ -8,7 +8,7 @@ use crate::state::{GameState, KeyMap};
 use crate::ui::assets::MONO_FONT_PATH;
 use crate::ui::hud::corner::TopLeftColumn;
 use crate::ui::hud::UIMode;
-use crate::ui::theme::{FONT_S, PANEL, SPACE_XS, TEXT};
+use crate::ui::theme;
 use bevy::prelude::*;
 
 /// Marker to find the container entity so we can show/hide the FPS counter
@@ -19,7 +19,7 @@ pub struct HudRoot;
 pub(crate) fn debug_font(assets: &AssetServer) -> TextFont {
     TextFont {
         font: assets.load(MONO_FONT_PATH).into(),
-        ..TextFont::from_font_size(FONT_S)
+        ..TextFont::from_font_size(theme::font_s())
     }
 }
 
@@ -40,7 +40,7 @@ pub fn setup_hud(
         .spawn((
             HudRoot,
             DespawnOnExit(GameState::Game),
-            BackgroundColor(PANEL),
+            BackgroundColor(theme::panel()),
             // Hidden until F3, and under the HUD panel (1), the held stack (3), the pause menu
             // (5) and the chat
             Visibility::Hidden,
@@ -50,7 +50,7 @@ pub fn setup_hud(
             Node {
                 // Out of the layout while hidden, so the rest of the column moves up
                 display: Display::None,
-                padding: UiRect::all(px(SPACE_XS)),
+                padding: UiRect::all(px(theme::space_xs())),
                 flex_direction: FlexDirection::Column,
                 ..default()
             },
@@ -58,29 +58,46 @@ pub fn setup_hud(
         .id();
 
     let text_fps = commands
-        .spawn(debug_line("FPS: ", TEXT, font.clone()))
-        .with_child((FpsText, TextSpan::new("N/A"), font.clone(), TextColor(TEXT)))
+        .spawn(debug_line("FPS: ", theme::text(), font.clone()))
+        .with_child((
+            FpsText,
+            TextSpan::new("N/A"),
+            font.clone(),
+            TextColor(theme::text()),
+        ))
         .id();
     let coords_text = commands
-        .spawn((CoordsText, debug_line("...", TEXT, font.clone())))
+        .spawn((CoordsText, debug_line("...", theme::text(), font.clone())))
         .id();
     let biome_text = commands
-        .spawn((BiomeText, debug_line("Biome: N/A", TEXT, font.clone())))
+        .spawn((
+            BiomeText,
+            debug_line("Biome: N/A", theme::text(), font.clone()),
+        ))
         .id();
     let chunks_number_text = commands
-        .spawn((ChunksNumberText, debug_line("...", TEXT, font.clone())))
+        .spawn((
+            ChunksNumberText,
+            debug_line("...", theme::text(), font.clone()),
+        ))
         .id();
     let block_text = commands
         .spawn((
             BlockText,
-            debug_line("Selected block : ", TEXT, font.clone()),
+            debug_line("Selected block : ", theme::text(), font.clone()),
         ))
         .id();
     let time_text = commands
-        .spawn((TimeText, debug_line("Time: N/A", TEXT, font.clone())))
+        .spawn((
+            TimeText,
+            debug_line("Time: N/A", theme::text(), font.clone()),
+        ))
         .id();
     let weather_text = commands
-        .spawn((WeatherText, debug_line("Weather: N/A", TEXT, font.clone())))
+        .spawn((
+            WeatherText,
+            debug_line("Weather: N/A", theme::text(), font.clone()),
+        ))
         .id();
 
     commands.entity(root).add_children(&[

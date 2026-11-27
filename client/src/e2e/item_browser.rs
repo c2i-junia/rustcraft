@@ -38,7 +38,7 @@ use crate::ui::hud::{
 };
 use crate::ui::menus::pause::PauseMenu;
 use crate::ui::menus::MenuState;
-use crate::ui::theme::ACCENT;
+use crate::ui::theme;
 use crate::ui::widgets::slot::{RefusalShake, SlotIcon};
 use crate::ui::widgets::tooltip::TooltipRoot;
 use crate::world::MaterialResource;
@@ -399,7 +399,10 @@ fn the_keyboard_reaches_the_item_browser_and_typing_in_it_moves_nothing() {
     h.frames(1);
     let oak_planks = h.get(&catalog_slot("Oak Planks"));
     assert_eq!(focused(&h), Some(oak_planks));
-    assert_eq!(h.world().get::<Outline>(oak_planks).unwrap().color, ACCENT);
+    assert_eq!(
+        h.world().get::<Outline>(oak_planks).unwrap().color,
+        theme::accent()
+    );
     h.wait_for(
         &L::text("Oak Planks").within(L::marker::<TooltipRoot>()),
         SCREEN,

@@ -13,7 +13,7 @@ use crate::network::address::parse_server_address;
 use crate::network::status::{latency_bars, InFlight, ServerStatus, StatusProbe};
 use crate::ui::assets::FONT_PATH;
 use crate::ui::menus::modal_open;
-use crate::ui::theme::{BEVEL_HI, DANGER, FONT_S, MUTED, OK, SPACE_S, TEXT};
+use crate::ui::theme;
 use crate::ui::widgets::text_field::text_field_focused;
 
 /// The side of the status dot of a card.
@@ -115,12 +115,21 @@ pub fn card_status(status: &ServerStatus) -> (String, Color) {
             players,
             max_players,
             ..
-        } => (format!("{players} / {max_players}"), TEXT),
-        ServerStatus::Pinging => (tr("servers.status.pinging").to_string(), MUTED),
-        ServerStatus::Offline => (tr("servers.status.offline").to_string(), MUTED),
-        ServerStatus::Incompatible => (tr("servers.status.incompatible").to_string(), DANGER),
-        ServerStatus::UnknownHost => (tr("servers.status.unknown_host").to_string(), DANGER),
-        ServerStatus::BadAddress => (tr("servers.status.bad_address").to_string(), DANGER),
+        } => (format!("{players} / {max_players}"), theme::text()),
+        ServerStatus::Pinging => (tr("servers.status.pinging").to_string(), theme::muted()),
+        ServerStatus::Offline => (tr("servers.status.offline").to_string(), theme::muted()),
+        ServerStatus::Incompatible => (
+            tr("servers.status.incompatible").to_string(),
+            theme::danger(),
+        ),
+        ServerStatus::UnknownHost => (
+            tr("servers.status.unknown_host").to_string(),
+            theme::danger(),
+        ),
+        ServerStatus::BadAddress => (
+            tr("servers.status.bad_address").to_string(),
+            theme::danger(),
+        ),
     }
 }
 
@@ -137,27 +146,27 @@ pub fn pane_status(status: &ServerStatus) -> (String, Color, String) {
                 &[("players", players), ("max_players", max_players)],
             );
             let ms = format!("{} ms", latency.as_millis());
-            return (headline, OK, ms);
+            return (headline, theme::ok(), ms);
         }
-        ServerStatus::Pinging => (tr("servers.status.pinging"), MUTED, ""),
+        ServerStatus::Pinging => (tr("servers.status.pinging"), theme::muted(), ""),
         ServerStatus::Offline => (
             tr("servers.status.offline"),
-            MUTED,
+            theme::muted(),
             tr("servers.status.offline.note"),
         ),
         ServerStatus::Incompatible => (
             tr("servers.status.incompatible_version"),
-            DANGER,
+            theme::danger(),
             tr("servers.status.incompatible.note"),
         ),
         ServerStatus::UnknownHost => (
             tr("servers.status.unknown_host"),
-            DANGER,
+            theme::danger(),
             tr("servers.status.unknown_host.note"),
         ),
         ServerStatus::BadAddress => (
             tr("servers.status.bad_address"),
-            DANGER,
+            theme::danger(),
             tr("servers.status.bad_address.note"),
         ),
     };
@@ -168,9 +177,11 @@ pub fn pane_status(status: &ServerStatus) -> (String, Color, String) {
 /// the server cannot be joined as it is.
 fn dot_color(status: &ServerStatus) -> Color {
     match status {
-        ServerStatus::Online { .. } => OK,
-        ServerStatus::Pinging | ServerStatus::Offline => MUTED,
-        ServerStatus::Incompatible | ServerStatus::UnknownHost | ServerStatus::BadAddress => DANGER,
+        ServerStatus::Online { .. } => theme::ok(),
+        ServerStatus::Pinging | ServerStatus::Offline => theme::muted(),
+        ServerStatus::Incompatible | ServerStatus::UnknownHost | ServerStatus::BadAddress => {
+            theme::danger()
+        }
     }
 }
 
@@ -206,7 +217,7 @@ pub(super) fn show_card_status(
 ) {
     commands.entity(side).despawn_related::<Children>();
     let (word, color) = card_status(status);
-    commands.spawn((text(&word, FONT_S, color, font), ChildOf(side)));
+    commands.spawn((text(&word, theme::font_s(), color, font), ChildOf(side)));
     if let ServerStatus::Online { latency, .. } = status {
         commands.spawn((
             latency_bars_of(LatencyBars(latency_bars(*latency))),
@@ -226,7 +237,11 @@ fn latency_bars_of(bars: LatencyBars) -> impl Bundle {
             ..default()
         },
         Children::spawn(SpawnIter((0..BAR_COUNT).map(move |bar| {
-            let fill = if bar < filled { OK } else { BEVEL_HI };
+            let fill = if bar < filled {
+                theme::ok()
+            } else {
+                theme::bevel_hi()
+            };
             (
                 Node {
                     width: px(BAR_STEP),
@@ -246,7 +261,7 @@ pub(super) fn card_status_node() -> impl Bundle {
         Node {
             flex_shrink: 0.0,
             align_items: AlignItems::Center,
-            column_gap: px(SPACE_S),
+            column_gap: px(theme::space_s()),
             ..default()
         },
     )
@@ -357,19 +372,19 @@ mod tests {
     fn each_status_reads_as_a_word_and_a_colour() {
         assert_eq!(
             card_status(&online(3, 20, 42)),
-            ("3 / 20".to_string(), TEXT)
+            ("3 / 20".to_string(), theme::text())
         );
         assert_eq!(
             card_status(&ServerStatus::Pinging),
-            ("Pinging...".to_string(), MUTED)
+            ("Pinging...".to_string(), theme::muted())
         );
-        assert_eq!(card_status(&ServerStatus::Offline).1, MUTED);
+        assert_eq!(card_status(&ServerStatus::Offline).1, theme::muted());
         for status in [
             ServerStatus::Incompatible,
             ServerStatus::UnknownHost,
             ServerStatus::BadAddress,
         ] {
-            assert_eq!(card_status(&status).1, DANGER, "{status:?}");
+            assert_eq!(card_status(&status).1, theme::danger(), "{status:?}");
         }
         let (headline, _, line) = pane_status(&online(3, 20, 42));
         assert!(headline.contains("3 / 20 players"), "{headline}");

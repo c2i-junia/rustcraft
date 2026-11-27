@@ -2,17 +2,17 @@ use bevy::diagnostic::DiagnosticsStore;
 use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy::prelude::*;
 
-use crate::ui::theme::{DANGER, OK, TEXT};
+use crate::ui::theme;
 
 /// Marker to find the text entity so we can update it
 #[derive(Component)]
 pub struct FpsText;
 
-/// The colour of the frame rate `fps`: `DANGER` at 30 and below, `OK` at 120 and above, and a
-/// blend of the two between.
+/// The colour of the frame rate `fps`: `theme::danger()` at 30 and below, `theme::ok()` at 120 and
+/// above, and a blend of the two between.
 pub(crate) fn fps_color(fps: f64) -> Color {
     let ok = ((fps - 30.0) / (120.0 - 30.0)).clamp(0.0, 1.0) as f32;
-    DANGER.mix(&OK, ok)
+    theme::danger().mix(&theme::ok(), ok)
 }
 
 /// Whether a frame rate is on screen, in the debug overlay or the FPS counter: the run
@@ -49,7 +49,7 @@ pub fn fps_text_update_system(
             // Display "N/A" if we can't get a FPS measurement
             **span = " N/A".into();
 
-            color.0 = TEXT;
+            color.0 = theme::text();
         }
     }
 }
@@ -57,7 +57,7 @@ pub fn fps_text_update_system(
 #[cfg(test)]
 mod tests {
     use super::{fps_color, fps_text_shown, FpsText};
-    use crate::ui::theme::{DANGER, OK};
+    use crate::ui::theme;
     use bevy::ecs::system::RunSystemOnce;
     use bevy::prelude::*;
 
@@ -86,11 +86,11 @@ mod tests {
 
     #[test]
     fn the_fps_go_from_the_danger_colour_to_the_ok_one() {
-        assert_eq!(fps_color(120.0), OK);
-        assert_eq!(fps_color(200.0), OK);
-        assert_eq!(fps_color(30.0), DANGER);
-        assert_eq!(fps_color(10.0), DANGER);
-        assert_ne!(fps_color(60.0), OK);
-        assert_ne!(fps_color(60.0), DANGER);
+        assert_eq!(fps_color(120.0), theme::ok());
+        assert_eq!(fps_color(200.0), theme::ok());
+        assert_eq!(fps_color(30.0), theme::danger());
+        assert_eq!(fps_color(10.0), theme::danger());
+        assert_ne!(fps_color(60.0), theme::ok());
+        assert_ne!(fps_color(60.0), theme::danger());
     }
 }

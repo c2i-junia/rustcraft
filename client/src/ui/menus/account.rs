@@ -28,9 +28,7 @@ use crate::network::status::InFlight;
 use crate::network::CurrentPlayerProfile;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::menus::player_name::{open_player_name_dialog, PlayerNameButton};
-use crate::ui::theme::{
-    ACCENT, BEVEL_WIDTH, FONT_L, FONT_M, FONT_S, FONT_XL, MUTED, SPACE_L, SPACE_S, TEXT,
-};
+use crate::ui::theme;
 use crate::ui::widgets::button::{button, set_label, ButtonVariant};
 use crate::ui::widgets::dialog::{
     apply_form_check, close_dialog, dismiss_dialog, set_dialog_width, spawn_dialog,
@@ -278,7 +276,7 @@ fn field(
             placeholder: "",
             max_characters: Some(max_characters),
             font: font.clone(),
-            font_size: FONT_M,
+            font_size: theme::font_m(),
             reserve_error: true,
         },
     );
@@ -289,18 +287,18 @@ fn field(
                 Text::default(),
                 TextFont {
                     font: font.clone().into(),
-                    font_size: px(FONT_M).into(),
+                    font_size: px(theme::font_m()).into(),
                     ..default()
                 },
-                TextColor(TEXT),
+                TextColor(theme::text()),
                 TextLayout {
                     linebreak: LineBreak::NoWrap,
                     ..default()
                 },
                 Node {
                     position_type: PositionType::Absolute,
-                    left: px(SPACE_S),
-                    top: px(SPACE_S),
+                    left: px(theme::space_s()),
+                    top: px(theme::space_s()),
                     ..default()
                 },
                 // a click on the bullets reaches the field under them
@@ -432,7 +430,7 @@ fn open_form(commands: &mut Commands, kind: FormKind, font: Handle<Font>, focus:
             .and_modify(|mut node| {
                 node.align_self = AlignSelf::FlexStart;
                 // the padding and bevel of the button do not push its text off the fields
-                node.margin = UiRect::left(px(-SPACE_L - BEVEL_WIDTH));
+                node.margin = UiRect::left(px(-theme::space_l() - theme::bevel_width()));
             });
         forgot = Some(link);
     }
@@ -804,8 +802,8 @@ fn open_recovery_code(
     let shown = commands
         .spawn(text_bundle(
             &code,
-            FONT_XL,
-            ACCENT,
+            theme::font_xl(),
+            theme::accent(),
             assets.load(MONO_FONT_PATH),
         ))
         .id();
@@ -885,19 +883,29 @@ fn open_signed_in(
     let root = spawn_dialog(commands, &dialog, font.clone(), focus);
     let lines = [
         commands
-            .spawn(text_bundle(&file.username, FONT_L, TEXT, font.clone()))
+            .spawn(text_bundle(
+                &file.username,
+                theme::font_l(),
+                theme::text(),
+                font.clone(),
+            ))
             .id(),
         commands
             .spawn(text_bundle(
                 &format!("Signed in to {}", host_of(&file.hub)),
-                FONT_M,
-                MUTED,
+                theme::font_m(),
+                theme::muted(),
                 font.clone(),
             ))
             .id(),
         commands
             .spawn((
-                text_bundle(&certificate_line(file), FONT_S, MUTED, font),
+                text_bundle(
+                    &certificate_line(file),
+                    theme::font_s(),
+                    theme::muted(),
+                    font,
+                ),
                 CertificateLine,
             ))
             .id(),

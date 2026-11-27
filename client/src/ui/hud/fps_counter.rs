@@ -14,7 +14,7 @@ use crate::input::keyboard::is_action_just_pressed;
 use crate::state::KeyMap;
 use crate::ui::hud::corner::TopRightColumn;
 use crate::ui::settings::{write_interface_settings, FpsCounterChoice, InterfaceSettings};
-use crate::ui::theme::{BEVEL_HI, MUTED, PANEL, SLOT, SPACE_S, SPACE_XS, TEXT};
+use crate::ui::theme;
 
 /// The time a bar of the graph covers, in ms. A bar shows the worst frame of its time, so that
 /// no stutter is averaged away, and many frames share a bar at a high frame rate.
@@ -137,27 +137,27 @@ pub fn spawn_fps_counter(
     column: Single<Entity, With<TopRightColumn>>,
 ) {
     let font = debug_font(&assets);
-    let muted = |text: String| (Text::new(text), font.clone(), TextColor(MUTED));
+    let muted = |text: String| (Text::new(text), font.clone(), TextColor(theme::muted()));
     let root = commands
         .spawn((
             FpsCounter,
-            BackgroundColor(PANEL),
+            BackgroundColor(theme::panel()),
             // Shown by `show_fps_counter`, under the minimap
             Visibility::Hidden,
             Node {
                 display: Display::None,
-                padding: UiRect::all(px(SPACE_XS)),
+                padding: UiRect::all(px(theme::space_xs())),
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_S),
+                row_gap: px(theme::space_s()),
                 ..default()
             },
             children![(
-                debug_line("FPS: ", TEXT, font.clone()),
+                debug_line("FPS: ", theme::text(), font.clone()),
                 children![(
                     FpsText,
                     TextSpan::new(" N/A"),
                     font.clone(),
-                    TextColor(TEXT)
+                    TextColor(theme::text())
                 )],
             )],
             ChildOf(*column),
@@ -169,7 +169,7 @@ pub fn spawn_fps_counter(
             Node {
                 display: Display::None,
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_XS),
+                row_gap: px(theme::space_xs()),
                 ..default()
             },
             ChildOf(root),
@@ -183,7 +183,7 @@ pub fn spawn_fps_counter(
                 align_items: AlignItems::FlexEnd,
                 ..default()
             },
-            BackgroundColor(SLOT),
+            BackgroundColor(theme::slot()),
             ChildOf(graph),
         ))
         .id();
@@ -198,14 +198,14 @@ pub fn spawn_fps_counter(
                 height: px(1),
                 ..default()
             },
-            BackgroundColor(BEVEL_HI),
+            BackgroundColor(theme::bevel_hi()),
             ChildOf(plot),
         ));
         commands.spawn((
             muted(format!("{fps:.0} FPS · {:.0} ms", 1000.0 / fps)),
             Node {
                 position_type: PositionType::Absolute,
-                left: px(SPACE_XS),
+                left: px(theme::space_xs()),
                 bottom: px(height + 1.0),
                 ..default()
             },
@@ -220,7 +220,7 @@ pub fn spawn_fps_counter(
                 height: px(0),
                 ..default()
             },
-            BackgroundColor(TEXT),
+            BackgroundColor(theme::text()),
             ChildOf(plot),
         ));
     }
@@ -241,7 +241,7 @@ pub fn spawn_fps_counter(
             Node {
                 display: Display::Grid,
                 grid_template_columns: RepeatedGridTrack::flex(3, 1.0),
-                column_gap: px(SPACE_S),
+                column_gap: px(theme::space_s()),
                 ..default()
             },
             ChildOf(graph),
@@ -260,7 +260,12 @@ pub fn spawn_fps_counter(
             ChildOf(stats),
             children![
                 muted(label.into()),
-                (stat, Text::new("N/A"), font.clone(), TextColor(TEXT)),
+                (
+                    stat,
+                    Text::new("N/A"),
+                    font.clone(),
+                    TextColor(theme::text())
+                ),
             ],
         ));
     }
@@ -339,7 +344,7 @@ pub fn draw_fps_graph(
     for (FrameBar(n), mut node, mut color) in &mut bars {
         let (height, bar_color) = match graph.bars[*n] {
             Some(ms) => (bar_height(ms), fps_color(1000.0 / ms as f64)),
-            None => (0.0, TEXT),
+            None => (0.0, theme::text()),
         };
         node.height = px(height);
         color.0 = bar_color;
@@ -347,7 +352,7 @@ pub fn draw_fps_graph(
     for (stat, mut text, mut color) in &mut stats {
         let Some(values) = &graph.stats else {
             text.0 = "N/A".into();
-            color.0 = TEXT;
+            color.0 = theme::text();
             continue;
         };
         let (shown, fps) = match stat {

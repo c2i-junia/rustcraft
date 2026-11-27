@@ -25,7 +25,7 @@ use super::WorldCard;
 use crate::constants::SAVE_PATH;
 use crate::ui::assets::FONT_PATH;
 use crate::ui::menus::modal_open;
-use crate::ui::theme::{FONT_M, FONT_S, MUTED, SPACE_M};
+use crate::ui::theme;
 use crate::ui::widgets::button::ButtonVariant;
 use crate::ui::widgets::dialog::{
     apply_form_check, close_dialog, spawn_dialog, spawn_form_dialog, CloseRequest, Dialog,
@@ -129,7 +129,7 @@ pub(crate) fn spawn_world_choice<C: Component<Mutability = Mutable>>(
         .spawn((
             Node {
                 align_items: AlignItems::Center,
-                column_gap: px(SPACE_M),
+                column_gap: px(theme::space_m()),
                 ..default()
             },
             ChildOf(form),
@@ -139,10 +139,10 @@ pub(crate) fn spawn_world_choice<C: Component<Mutability = Mutable>>(
         Text::new(label),
         TextFont {
             font: font.clone().into(),
-            font_size: px(FONT_S).into(),
+            font_size: px(theme::font_s()).into(),
             ..default()
         },
-        TextColor(MUTED),
+        TextColor(theme::muted()),
         TextLayout::no_wrap(),
         Node {
             width: px(CHOICE_LABEL_WIDTH),
@@ -232,7 +232,7 @@ pub fn open_new_world_dialog(
                 placeholder,
                 max_characters: Some(max_characters),
                 font: font.clone(),
-                font_size: FONT_M,
+                font_size: theme::font_m(),
                 reserve_error: true,
             },
         )
@@ -344,7 +344,7 @@ pub fn open_rename_dialog(
             placeholder: "",
             max_characters: Some(MAX_WORLD_NAME_LENGTH),
             font: font.clone(),
-            font_size: FONT_M,
+            font_size: theme::font_m(),
             reserve_error: true,
         },
     );
@@ -667,7 +667,7 @@ mod tests {
                 placeholder: "",
                 max_characters: Some(MAX_WORLD_NAME_LENGTH),
                 font: Handle::default(),
-                font_size: FONT_M,
+                font_size: theme::font_m(),
                 reserve_error: true,
             },
         );

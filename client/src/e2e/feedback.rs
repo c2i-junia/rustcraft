@@ -11,7 +11,7 @@ use super::harness::{Harness, SCREEN, SERVER};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::ui::hud::{CraftResultCell, InventoryRoot};
-use crate::ui::theme::DANGER;
+use crate::ui::theme;
 use crate::ui::widgets::slot::RefusalShake;
 
 /// The files of the sounds played since `listen`, in order.
@@ -76,7 +76,7 @@ fn a_click_on_the_result_of_an_empty_grid_shakes_it_red_with_a_thud() {
     let mut moves = Vec::new();
     while h.world().get::<RefusalShake>(result).is_some() {
         let (x, border) = result_look(&mut h);
-        assert_eq!(border, BorderColor::all(DANGER));
+        assert_eq!(border, BorderColor::all(theme::danger()));
         moves.push(x);
         h.frames(1);
     }
@@ -90,7 +90,7 @@ fn a_click_on_the_result_of_an_empty_grid_shakes_it_red_with_a_thud() {
     );
     let (x, border) = result_look(&mut h);
     assert_eq!(x, Val::Px(0.0));
-    assert_ne!(border, BorderColor::all(DANGER));
+    assert_ne!(border, BorderColor::all(theme::danger()));
     // Heard once, though the server's updates replay the click until it acknowledges it
     h.world_mut().insert_resource(TimeUpdateStrategy::Automatic);
     h.frames(30);

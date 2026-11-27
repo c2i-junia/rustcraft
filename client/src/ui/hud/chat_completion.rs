@@ -21,10 +21,7 @@ use shared::commands::{complete, Completion, Suggestion};
 use super::chat::ChatInput;
 use crate::state::GameState;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
-use crate::ui::theme::{
-    ACCENT, BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, DANGER, FONT_S, MUTED, PANEL, RAISE, SPACE_L, SPACE_S,
-    SPACE_XS, TEXT,
-};
+use crate::ui::theme;
 use crate::ui::widgets::hints::key_cap;
 use crate::ui::widgets::text_field::TextFieldParts;
 
@@ -233,7 +230,7 @@ pub fn spawn_command_completion(
     let font: Handle<Font> = asset_server.load(FONT_PATH);
     let text_font = TextFont {
         font: font.clone().into(),
-        font_size: px(FONT_S).into(),
+        font_size: px(theme::font_s()).into(),
         ..default()
     };
     let text = |color: Color| {
@@ -260,15 +257,15 @@ pub fn spawn_command_completion(
     let ghost = commands
         .spawn((
             Ghost,
-            text(MUTED),
+            text(theme::muted()),
             TextLayout {
                 linebreak: LineBreak::NoWrap,
                 ..default()
             },
             Node {
                 position_type: PositionType::Absolute,
-                left: px(SPACE_S),
-                top: px(SPACE_S),
+                left: px(theme::space_s()),
+                top: px(theme::space_s()),
                 ..default()
             },
             Visibility::Hidden,
@@ -284,22 +281,22 @@ pub fn spawn_command_completion(
                 position_type: PositionType::Absolute,
                 // just above the field, over the bottom of the log
                 bottom: percent(100),
-                margin: UiRect::bottom(px(SPACE_XS)),
+                margin: UiRect::bottom(px(theme::space_xs())),
                 left: px(0),
                 min_width: px(200),
                 max_width: percent(100),
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_XS),
-                padding: UiRect::all(px(SPACE_XS)),
-                border: UiRect::all(px(BEVEL_WIDTH)),
+                row_gap: px(theme::space_xs()),
+                padding: UiRect::all(px(theme::space_xs())),
+                border: UiRect::all(px(theme::bevel_width())),
                 ..default()
             },
-            BackgroundColor(PANEL),
+            BackgroundColor(theme::panel()),
             BorderColor {
-                top: BEVEL_HI,
-                left: BEVEL_HI,
-                bottom: BEVEL_LO,
-                right: BEVEL_LO,
+                top: theme::bevel_hi(),
+                left: theme::bevel_hi(),
+                bottom: theme::bevel_lo(),
+                right: theme::bevel_lo(),
             },
             ChildOf(field.root),
         ))
@@ -308,17 +305,21 @@ pub fn spawn_command_completion(
         .spawn((
             Node {
                 justify_content: JustifyContent::SpaceBetween,
-                column_gap: px(SPACE_L),
-                padding: UiRect::horizontal(px(SPACE_XS)),
+                column_gap: px(theme::space_l()),
+                padding: UiRect::horizontal(px(theme::space_xs())),
                 ..default()
             },
             Pickable::IGNORE,
             ChildOf(panel),
         ))
         .id();
-    let header = commands.spawn((text(MUTED), ChildOf(top))).id();
-    let usage = spans(commands, header, [MUTED, ACCENT, MUTED]);
-    let counter = commands.spawn((text(MUTED), ChildOf(top))).id();
+    let header = commands.spawn((text(theme::muted()), ChildOf(top))).id();
+    let usage = spans(
+        commands,
+        header,
+        [theme::muted(), theme::accent(), theme::muted()],
+    );
+    let counter = commands.spawn((text(theme::muted()), ChildOf(top))).id();
 
     let column = commands
         .spawn((
@@ -335,7 +336,7 @@ pub fn spawn_command_completion(
                 SuggestionRow(slot),
                 Node {
                     display: Display::None,
-                    padding: UiRect::horizontal(px(SPACE_XS)),
+                    padding: UiRect::horizontal(px(theme::space_xs())),
                     border: UiRect::left(px(MARK_WIDTH)),
                     ..default()
                 },
@@ -346,9 +347,13 @@ pub fn spawn_command_completion(
             .observe(choose_on_hover)
             .observe(take_on_click)
             .id();
-        let label = commands.spawn((text(TEXT), ChildOf(row))).id();
-        let [before, matched, after] = spans(commands, label, [TEXT, ACCENT, TEXT]);
-        let [detail, ..] = spans(commands, label, [MUTED; 3]);
+        let label = commands.spawn((text(theme::text()), ChildOf(row))).id();
+        let [before, matched, after] = spans(
+            commands,
+            label,
+            [theme::text(), theme::accent(), theme::text()],
+        );
+        let [detail, ..] = spans(commands, label, [theme::muted(); 3]);
         RowParts {
             row,
             spans: [before, matched, after, detail],
@@ -359,7 +364,7 @@ pub fn spawn_command_completion(
     let hint = |keys: &'static str, action: &'static str| {
         (
             Node {
-                column_gap: px(SPACE_XS),
+                column_gap: px(theme::space_xs()),
                 align_items: AlignItems::Center,
                 ..default()
             },
@@ -369,7 +374,7 @@ pub fn spawn_command_completion(
                 (
                     Text::new(action),
                     text_font.clone(),
-                    TextColor(MUTED),
+                    TextColor(theme::muted()),
                     Pickable::IGNORE
                 ),
             ],
@@ -378,8 +383,8 @@ pub fn spawn_command_completion(
     let hints = commands
         .spawn((
             Node {
-                column_gap: px(SPACE_S),
-                padding: UiRect::horizontal(px(SPACE_XS)),
+                column_gap: px(theme::space_s()),
+                padding: UiRect::horizontal(px(theme::space_xs())),
                 ..default()
             },
             Pickable::IGNORE,
@@ -484,7 +489,11 @@ fn draw_the_suggestions(
         write(&mut text.0, &header);
     }
     if let Ok(mut color) = colors.get_mut(parts.header) {
-        color.0 = if shown.error.is_some() { DANGER } else { MUTED };
+        color.0 = if shown.error.is_some() {
+            theme::danger()
+        } else {
+            theme::muted()
+        };
     }
     let usage = if shown.error.is_some() {
         &[][..]
@@ -526,8 +535,8 @@ fn draw_the_suggestions(
         display(row.row, true);
         let chosen = index == completion.selected;
         if let Ok((mut ground, mut mark)) = grounds.get_mut(row.row) {
-            ground.0 = if chosen { RAISE } else { Color::NONE };
-            *mark = BorderColor::all(if chosen { ACCENT } else { Color::NONE });
+            ground.0 = if chosen { theme::raise() } else { Color::NONE };
+            *mark = BorderColor::all(if chosen { theme::accent() } else { Color::NONE });
         }
         let (text, matched) = (&suggestion.text, suggestion.matched.clone());
         span(row.spans[0], &text[..matched.start]);
@@ -591,7 +600,7 @@ fn place_the_ghost(
         return;
     };
     let scale = field.inverse_scale_factor;
-    let left = SPACE_S + caret * scale;
+    let left = theme::space_s() + caret * scale;
     let Val::Px(laid_out) = node.left else {
         return;
     };

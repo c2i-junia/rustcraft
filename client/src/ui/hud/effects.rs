@@ -11,7 +11,7 @@ use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
 use crate::ui::assets::FONT_PATH;
 use crate::ui::hud::corner::TopLeftColumn;
-use crate::ui::theme::{ACCENT, BEVEL_LO, FONT_S, OK, PANEL, SPACE_XS, TEXT};
+use crate::ui::theme;
 
 /// The side of an icon on screen, in logical px: twice its texture.
 const ICON_SIZE: f32 = 36.0;
@@ -66,7 +66,7 @@ pub fn spawn_effects_column(mut commands: Commands, corner: Single<Entity, With<
         ChildOf(*corner),
         Node {
             flex_direction: FlexDirection::Column,
-            row_gap: px(SPACE_XS),
+            row_gap: px(theme::space_xs()),
             ..default()
         },
         Pickable::IGNORE,
@@ -96,14 +96,14 @@ pub fn update_effects_column(
     commands.entity(column).despawn_related::<Children>();
     let font = TextFont {
         font: assets.load(FONT_PATH).into(),
-        font_size: px(FONT_S).into(),
+        font_size: px(theme::font_s()).into(),
         ..default()
     };
     for effect in effects {
         let frame = if effect.kind.is_beneficial() {
-            OK
+            theme::ok()
         } else {
-            ACCENT
+            theme::accent()
         };
         let row = commands
             .spawn((
@@ -112,13 +112,13 @@ pub fn update_effects_column(
                 Node {
                     flex_direction: FlexDirection::Row,
                     align_items: AlignItems::Center,
-                    column_gap: px(SPACE_XS),
+                    column_gap: px(theme::space_xs()),
                     padding: UiRect::all(px(2.0)),
                     border: UiRect::all(px(2.0)),
                     ..default()
                 },
                 BorderColor::all(frame),
-                BackgroundColor(PANEL.with_alpha(0.75)),
+                BackgroundColor(theme::panel().with_alpha(0.75)),
                 Pickable::IGNORE,
             ))
             .with_children(|row| {
@@ -140,10 +140,10 @@ pub fn update_effects_column(
                 row.spawn((
                     Text::new(format!("{level}{}", time_left(effect.seconds_left()))),
                     font.clone(),
-                    TextColor(TEXT),
+                    TextColor(theme::text()),
                     TextShadow {
                         offset: Vec2::splat(2.0),
-                        color: BEVEL_LO,
+                        color: theme::bevel_lo(),
                     },
                     Pickable::IGNORE,
                 ));

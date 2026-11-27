@@ -7,10 +7,10 @@ use shared::players::armour::MAX_ARMOUR_POINTS;
 use shared::players::{Inventory, Player};
 
 use crate::player::CurrentPlayerMarker;
-use crate::ui::hud::health::{heart, Heart, HEALTH_BAND};
+use crate::ui::hud::health::{health_band, heart, Heart};
 use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::InventoryRoot;
-use crate::ui::theme::SPACE_XS;
+use crate::ui::theme;
 
 const EMPTY_PATH: &str = "./graphics/hud/armour_empty.png";
 const HALF_PATH: &str = "./graphics/hud/armour_half.png";
@@ -23,7 +23,9 @@ const SHIELD_SIZE: f32 = 18.0;
 const SHIELDS: u32 = MAX_ARMOUR_POINTS / 2;
 
 /// The height the shields take above the hearts, in logical px: their margin and a shield.
-pub const ARMOUR_BAND: f32 = SPACE_XS + SHIELD_SIZE;
+pub fn armour_band() -> f32 {
+    theme::space_xs() + SHIELD_SIZE
+}
 
 /// The row of shields.
 #[derive(Component)]
@@ -64,7 +66,7 @@ pub fn spawn_armour_bar(
                 position_type: PositionType::Absolute,
                 left: px(0.),
                 bottom: percent(100.),
-                margin: UiRect::bottom(px(HEALTH_BAND + SPACE_XS)),
+                margin: UiRect::bottom(px(health_band() + theme::space_xs())),
                 ..default()
             },
             Visibility::Hidden,

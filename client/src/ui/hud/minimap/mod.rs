@@ -16,7 +16,7 @@ use crate::ui::hud::corner::TopRightColumn;
 use crate::ui::hud::debug::debug_font;
 use crate::ui::hud::debug::in_gameplay;
 use crate::ui::settings::{InterfaceSettings, MinimapChoice};
-use crate::ui::theme::{ACCENT, BEVEL_WIDTH, PANEL, SPACE_XS, TEXT};
+use crate::ui::theme;
 use crate::ui::widgets::raised_bevel;
 use crate::world::{BlockChanged, ChunkLoadEvent, ClientWorldMap};
 use shared::CHUNK_SIZE;
@@ -169,12 +169,12 @@ pub fn spawn_minimap(
             Node {
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
-                row_gap: px(SPACE_XS),
-                padding: UiRect::all(px(SPACE_XS)),
-                border: UiRect::all(px(BEVEL_WIDTH)),
+                row_gap: px(theme::space_xs()),
+                padding: UiRect::all(px(theme::space_xs())),
+                border: UiRect::all(px(theme::bevel_width())),
                 ..default()
             },
-            BackgroundColor(PANEL),
+            BackgroundColor(theme::panel()),
             raised_bevel(),
             ChildOf(*column),
         ))
@@ -195,7 +195,7 @@ pub fn spawn_minimap(
     commands.spawn((
         Text::new("N"),
         font.clone(),
-        TextColor(ACCENT),
+        TextColor(theme::accent()),
         Node {
             position_type: PositionType::Absolute,
             top: px(0),
@@ -210,7 +210,7 @@ pub fn spawn_minimap(
         MinimapCoords,
         Text::default(),
         font,
-        TextColor(TEXT),
+        TextColor(theme::text()),
         ChildOf(root),
     ));
 }

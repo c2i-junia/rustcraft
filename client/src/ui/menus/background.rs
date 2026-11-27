@@ -4,7 +4,7 @@
 use bevy::prelude::*;
 
 use crate::ui::assets::BACKGROUND_IMAGE_PATH;
-use crate::ui::theme::{BEVEL_LO, DIRT_TINT};
+use crate::ui::theme;
 
 /// The size of a texel of the dirt texture, in logical pixels. Bevy measures the tiles in the
 /// units of the scaled UI, so a texel covers `BACKGROUND_TEXEL_PX × UiScale` physical pixels: a
@@ -22,7 +22,7 @@ pub fn menu_background(assets: &AssetServer) -> impl Bundle {
         },
         ImageNode {
             image: assets.load(BACKGROUND_IMAGE_PATH),
-            color: DIRT_TINT,
+            color: theme::dirt_tint(),
             image_mode: NodeImageMode::Tiled {
                 tile_x: true,
                 tile_y: true,
@@ -40,7 +40,7 @@ pub fn menu_background(assets: &AssetServer) -> impl Bundle {
             BackgroundGradient::from(RadialGradient {
                 stops: vec![
                     ColorStop::percent(Color::NONE, 45),
-                    ColorStop::percent(BEVEL_LO.with_alpha(0.85), 100),
+                    ColorStop::percent(theme::bevel_lo().with_alpha(0.85), 100),
                 ],
                 ..default()
             }),

@@ -7,7 +7,7 @@ use shared::players::Inventory;
 
 use super::setup::icon;
 use crate::ui::hud::InventoryCell;
-use crate::ui::theme::{BEVEL_WIDTH, SPACE_XS};
+use crate::ui::theme;
 use crate::ui::widgets::slot::{slot, ICON_SIZE, SLOT_SIZE};
 use crate::ui::widgets::tooltip::Tooltip;
 use crate::world::AtlasWrapper;
@@ -27,13 +27,13 @@ pub(super) fn spawn_armour_slots(
     font: &Handle<Font>,
     assets: &AssetServer,
 ) {
-    let inset = px((SLOT_SIZE - 2.0 * BEVEL_WIDTH - ICON_SIZE) / 2.0);
+    let inset = px((SLOT_SIZE - 2.0 * theme::bevel_width() - ICON_SIZE) / 2.0);
     parent
         .spawn(Node {
             display: Display::Grid,
             grid_template_columns: RepeatedGridTrack::auto(2),
-            row_gap: px(SPACE_XS),
-            column_gap: px(SPACE_XS),
+            row_gap: px(theme::space_xs()),
+            column_gap: px(theme::space_xs()),
             margin: UiRect::left(auto()),
             ..default()
         })

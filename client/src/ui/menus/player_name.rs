@@ -17,7 +17,7 @@ use shared::GameFolderPaths;
 use crate::constants::PLAYER_NAME_PATH;
 use crate::network::{hash_string_to_u64, CurrentPlayerProfile};
 use crate::ui::assets::FONT_PATH;
-use crate::ui::theme::FONT_M;
+use crate::ui::theme;
 use crate::ui::widgets::button::{set_label, ButtonVariant};
 use crate::ui::widgets::dialog::{
     apply_form_check, close_dialog, spawn_form_dialog, CloseRequest, Dialog, DialogSubmit,
@@ -126,7 +126,7 @@ pub fn open_player_name_dialog(
             placeholder: DEFAULT_PLAYER_NAME,
             max_characters: Some(MAX_USERNAME_LENGTH),
             font: font.clone(),
-            font_size: FONT_M,
+            font_size: theme::font_m(),
             reserve_error: true,
         },
     );

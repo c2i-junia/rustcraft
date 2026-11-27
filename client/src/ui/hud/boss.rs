@@ -8,7 +8,7 @@ use shared::messages::BossBar;
 use crate::audio::music::{MusicMood, MusicMoodOverride};
 use crate::state::GameState;
 use crate::ui::assets::FONT_PATH;
-use crate::ui::theme::{BEVEL_LO, FONT_L, SLOT, SPACE_L, SPACE_XS, TEXT};
+use crate::ui::theme;
 
 const WIDTH: f32 = 360.0;
 const HEIGHT: f32 = 14.0;
@@ -67,12 +67,12 @@ pub fn show_boss_bar(
         Name::new(tr("hud.boss_bar")),
         Node {
             position_type: PositionType::Absolute,
-            top: px(SPACE_L),
+            top: px(theme::space_l()),
             left: px(0.),
             right: px(0.),
             flex_direction: FlexDirection::Column,
             align_items: AlignItems::Center,
-            row_gap: px(SPACE_XS),
+            row_gap: px(theme::space_xs()),
             ..default()
         },
         Pickable::IGNORE,
@@ -82,13 +82,13 @@ pub fn show_boss_bar(
                 Text::new(crate::i18n::mob_name(bar.kind)),
                 TextFont {
                     font: assets.load(FONT_PATH).into(),
-                    font_size: px(FONT_L).into(),
+                    font_size: px(theme::font_l()).into(),
                     ..default()
                 },
-                TextColor(TEXT),
+                TextColor(theme::text()),
                 TextShadow {
                     offset: Vec2::splat(2.0),
-                    color: BEVEL_LO,
+                    color: theme::bevel_lo(),
                 },
                 Pickable::IGNORE,
             ),
@@ -100,8 +100,8 @@ pub fn show_boss_bar(
                     border: UiRect::all(px(2.)),
                     ..default()
                 },
-                BackgroundColor(SLOT),
-                BorderColor::all(BEVEL_LO),
+                BackgroundColor(theme::slot()),
+                BorderColor::all(theme::bevel_lo()),
                 Pickable::IGNORE,
                 children![(
                     BossBarFill,

@@ -33,9 +33,7 @@ use crate::state::{GameState, KeyMap};
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::hud::debug::debug_font;
 use crate::ui::hud::{UIMode, UiDialog};
-use crate::ui::theme::{
-    ACCENT, BEVEL_LO, BEVEL_WIDTH, DANGER, FONT_L, PANEL, SLOT, SPACE_L, SPACE_XS, TEXT,
-};
+use crate::ui::theme;
 use crate::ui::widgets::hints::{hint_bar, Hint, HINT_BAR_HEIGHT};
 use crate::ui::widgets::raised_bevel;
 use crate::ui::widgets::scroll::scroll_steps;
@@ -210,7 +208,7 @@ pub fn spawn_world_map(commands: &mut Commands, assets: &AssetServer, map: &Worl
                 ..default()
             },
             // what is not loaded, all around the world
-            BackgroundColor(SLOT),
+            BackgroundColor(theme::slot()),
             Visibility::Visible,
             GlobalZIndex(4),
             DespawnOnExit(GameState::Game),
@@ -273,15 +271,15 @@ pub fn spawn_world_map(commands: &mut Commands, assets: &AssetServer, map: &Worl
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
-                left: px(SPACE_L),
-                top: px(SPACE_L),
+                left: px(theme::space_l()),
+                top: px(theme::space_l()),
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_XS),
-                padding: UiRect::axes(px(SPACE_L), px(SPACE_XS)),
-                border: UiRect::all(px(BEVEL_WIDTH)),
+                row_gap: px(theme::space_xs()),
+                padding: UiRect::axes(px(theme::space_l()), px(theme::space_xs())),
+                border: UiRect::all(px(theme::bevel_width())),
                 ..default()
             },
-            BackgroundColor(PANEL),
+            BackgroundColor(theme::panel()),
             raised_bevel(),
             Pickable::IGNORE,
             ChildOf(root),
@@ -291,10 +289,10 @@ pub fn spawn_world_map(commands: &mut Commands, assets: &AssetServer, map: &Worl
         Text::new(crate::i18n::tr(WORLD_MAP_TITLE)),
         TextFont {
             font: font.clone().into(),
-            font_size: px(FONT_L).into(),
+            font_size: px(theme::font_l()).into(),
             ..default()
         },
-        TextColor(TEXT),
+        TextColor(theme::text()),
         Pickable::IGNORE,
         ChildOf(header),
     ));
@@ -302,7 +300,7 @@ pub fn spawn_world_map(commands: &mut Commands, assets: &AssetServer, map: &Worl
         MinimapCoords,
         Text::default(),
         debug_font(assets),
-        TextColor(TEXT),
+        TextColor(theme::text()),
         Pickable::IGNORE,
         ChildOf(header),
     ));
@@ -311,13 +309,13 @@ pub fn spawn_world_map(commands: &mut Commands, assets: &AssetServer, map: &Worl
         Text::new("N"),
         TextFont {
             font: font.clone().into(),
-            font_size: px(FONT_L).into(),
+            font_size: px(theme::font_l()).into(),
             ..default()
         },
-        TextColor(ACCENT),
+        TextColor(theme::accent()),
         Node {
             position_type: PositionType::Absolute,
-            top: px(SPACE_L),
+            top: px(theme::space_l()),
             left: percent(50),
             ..default()
         },
@@ -524,10 +522,10 @@ pub fn place_world_map(
 
     let targets: Vec<(Entity, Vec3, Color)> = others
         .iter()
-        .map(|(entity, transform)| (entity, transform.translation(), TEXT))
+        .map(|(entity, transform)| (entity, transform.translation(), theme::text()))
         .chain(
             mobs.iter()
-                .map(|(entity, transform)| (entity, transform.translation(), DANGER)),
+                .map(|(entity, transform)| (entity, transform.translation(), theme::danger())),
         )
         .collect();
     let mut placed = Vec::new();
@@ -563,7 +561,7 @@ pub fn place_world_map(
             },
             UiTransform::from_translation(Val2::percent(-50., -50.)),
             BackgroundColor(color),
-            BorderColor::all(BEVEL_LO),
+            BorderColor::all(theme::bevel_lo()),
             if on_the_world(percent) {
                 Visibility::Inherited
             } else {

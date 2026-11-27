@@ -20,7 +20,7 @@ use super::setup::icon;
 use super::{item_name, AnvilRow, InventoryCell};
 use crate::network::buffered_client::CurrentFrameInputs;
 use crate::player::CurrentPlayerMarker;
-use crate::ui::theme::{DANGER, EXPERIENCE_HI, FONT_L, FONT_S, MUTED, SPACE_L, SPACE_S, TEXT};
+use crate::ui::theme;
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::slot::slot;
 use crate::ui::widgets::text_field::{set_text, spawn_text_field, Cancel, Submit, TextField};
@@ -60,7 +60,7 @@ pub(super) fn spawn_anvil_row(
             Text::new(""),
             TextFont {
                 font: font.clone().into(),
-                font_size: px(FONT_S).into(),
+                font_size: px(theme::font_s()).into(),
                 ..default()
             },
             TextColor(color),
@@ -73,7 +73,7 @@ pub(super) fn spawn_anvil_row(
             Node {
                 display: Display::None,
                 align_items: AlignItems::Center,
-                column_gap: px(SPACE_L),
+                column_gap: px(theme::space_l()),
                 ..default()
             },
         ))
@@ -89,10 +89,10 @@ pub(super) fn spawn_anvil_row(
                 Text::new("+"),
                 TextFont {
                     font: font.clone().into(),
-                    font_size: px(FONT_L).into(),
+                    font_size: px(theme::font_l()).into(),
                     ..default()
                 },
-                TextColor(MUTED),
+                TextColor(theme::muted()),
                 Pickable::IGNORE,
             ));
             row.spawn((
@@ -107,23 +107,23 @@ pub(super) fn spawn_anvil_row(
                 Node {
                     flex_grow: 1.0,
                     flex_direction: FlexDirection::Column,
-                    row_gap: px(SPACE_S),
+                    row_gap: px(theme::space_s()),
                     min_width: px(220),
                     ..default()
                 },
             ))
             .with_children(|column| {
-                column.spawn((AnvilWork, text(TEXT)));
+                column.spawn((AnvilWork, text(theme::text())));
                 column
                     .spawn(Node {
                         align_items: AlignItems::Center,
-                        column_gap: px(SPACE_S),
+                        column_gap: px(theme::space_s()),
                         ..default()
                     })
                     .with_children(|line| {
                         line.spawn((
                             AnvilCost,
-                            text(EXPERIENCE_HI),
+                            text(theme::experience_hi()),
                             Node {
                                 flex_grow: 1.0,
                                 ..default()
@@ -155,7 +155,7 @@ pub fn spawn_anvil_name_field(
                 placeholder: tr("anvil.name"),
                 max_characters: Some(MAX_ITEM_NAME_CHARS),
                 font,
-                font_size: FONT_S,
+                font_size: theme::font_s(),
                 reserve_error: false,
             },
         );
@@ -268,9 +268,9 @@ pub fn display_anvil(
                 ForgeWork::Merge => trf("anvil.merge", &numbers),
                 ForgeWork::Rename => tr("anvil.rename").to_string(),
             };
-            (line, TEXT)
+            (line, theme::text())
         }
-        Err(ForgeRefusal::NothingToWork) => (tr("anvil.put_in").to_string(), MUTED),
+        Err(ForgeRefusal::NothingToWork) => (tr("anvil.put_in").to_string(), theme::muted()),
         Err(ForgeRefusal::WrongMaterial) => {
             let material = left
                 .and_then(|left| repair_material(left.item_id))
@@ -278,31 +278,35 @@ pub fn display_anvil(
                 .unwrap_or_default();
             (
                 trf("anvil.wrong_material", &[("material", &material)]),
-                MUTED,
+                theme::muted(),
             )
         }
-        Err(ForgeRefusal::Unchanged) => (tr("anvil.unchanged").to_string(), MUTED),
+        Err(ForgeRefusal::Unchanged) => (tr("anvil.unchanged").to_string(), theme::muted()),
         Err(ForgeRefusal::TooExpensive(levels_needed)) => (
             trf("anvil.too_expensive", &[("levels", &levels(levels_needed))]),
-            DANGER,
+            theme::danger(),
         ),
     };
     let (cost_line, cost_color, possible) = match forging {
-        Ok(_) if creative => (tr("anvil.free_creative").to_string(), EXPERIENCE_HI, true),
+        Ok(_) if creative => (
+            tr("anvil.free_creative").to_string(),
+            theme::experience_hi(),
+            true,
+        ),
         Ok(forging) if experience < forging.cost => (
             trf(
                 "anvil.not_enough",
                 &[("levels", &levels(forging.cost)), ("have", &experience)],
             ),
-            DANGER,
+            theme::danger(),
             false,
         ),
         Ok(forging) => (
             trf("anvil.cost", &[("levels", &levels(forging.cost))]),
-            EXPERIENCE_HI,
+            theme::experience_hi(),
             true,
         ),
-        Err(_) => (String::new(), MUTED, false),
+        Err(_) => (String::new(), theme::muted(), false),
     };
     if let Ok((mut text, mut color)) = work.single_mut() {
         if text.0 != work_line {

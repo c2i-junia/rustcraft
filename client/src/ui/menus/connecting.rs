@@ -22,10 +22,7 @@ use crate::network::LastWorldClosing;
 use crate::state::GameState;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::menus::modal_open;
-use crate::ui::theme::{
-    BEVEL_HI, BEVEL_WIDTH, FONT_L, FONT_M, FONT_S, MUTED, OK, PANEL, SPACE_L, SPACE_S, SPACE_XL,
-    SPACE_XS, TEXT,
-};
+use crate::ui::theme;
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::hints::{hint_bar, Hint};
 use crate::ui::widgets::progress::{progress_bar, ProgressBar};
@@ -178,12 +175,12 @@ pub fn setup_connecting_card(
                 flex_direction: FlexDirection::Column,
                 width: px(CARD_WIDTH),
                 max_width: percent(90),
-                padding: UiRect::all(px(SPACE_XL)),
-                row_gap: px(SPACE_L),
-                border: UiRect::all(px(BEVEL_WIDTH)),
+                padding: UiRect::all(px(theme::space_xl())),
+                row_gap: px(theme::space_l()),
+                border: UiRect::all(px(theme::bevel_width())),
                 ..default()
             },
-            BackgroundColor(PANEL),
+            BackgroundColor(theme::panel()),
             raised_bevel(),
             ChildOf(centre),
         ))
@@ -192,24 +189,27 @@ pub fn setup_connecting_card(
         .spawn((
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_XS),
+                row_gap: px(theme::space_xs()),
                 ..default()
             },
             ChildOf(card),
-            children![text(&title, FONT_L, TEXT, &font)],
+            children![text(&title, theme::font_l(), theme::text(), &font)],
         ))
         .id();
     // a hosted world being started has no address yet
     if let SessionOrigin::Server { ip, .. } = &*origin {
         if !ip.is_empty() {
-            commands.spawn((text(ip, FONT_S, MUTED, &font), ChildOf(heading)));
+            commands.spawn((
+                text(ip, theme::font_s(), theme::muted(), &font),
+                ChildOf(heading),
+            ));
         }
     }
     let steps = commands
         .spawn((
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_S),
+                row_gap: px(theme::space_s()),
                 ..default()
             },
             ChildOf(card),
@@ -226,7 +226,7 @@ pub fn setup_connecting_card(
                 StepRow(index),
                 Node {
                     align_items: AlignItems::Center,
-                    column_gap: px(SPACE_S),
+                    column_gap: px(theme::space_s()),
                     ..default()
                 },
                 ChildOf(steps),
@@ -237,19 +237,22 @@ pub fn setup_connecting_card(
                             width: px(MARKER_SIDE),
                             height: px(MARKER_SIDE),
                             flex_shrink: 0.0,
-                            border: UiRect::all(px(BEVEL_WIDTH)),
+                            border: UiRect::all(px(theme::bevel_width())),
                             ..default()
                         },
-                        BorderColor::all(BEVEL_HI),
+                        BorderColor::all(theme::bevel_hi()),
                     ),
-                    (StepLabel, text(label, FONT_M, MUTED, &font)),
+                    (
+                        StepLabel,
+                        text(label, theme::font_m(), theme::muted(), &font)
+                    ),
                 ],
             ))
             .id();
         if index == CHUNKS_ROW {
             commands.spawn((
                 ChunkCount,
-                text("", FONT_M, MUTED, &font),
+                text("", theme::font_m(), theme::muted(), &font),
                 Node {
                     margin: UiRect::left(auto()),
                     ..default()
@@ -292,20 +295,20 @@ fn show_step(
     for (child_of, mut background, mut border) in &mut markers {
         let row = row_of(child_of);
         let (fill, edge) = if row < current {
-            (OK, OK)
+            (theme::ok(), theme::ok())
         } else if row == current {
-            (TEXT, TEXT)
+            (theme::text(), theme::text())
         } else {
-            (Color::NONE, BEVEL_HI)
+            (Color::NONE, theme::bevel_hi())
         };
         background.0 = fill;
         *border = BorderColor::all(edge);
     }
     for (child_of, mut color) in &mut labels {
         color.0 = if row_of(child_of) == current {
-            TEXT
+            theme::text()
         } else {
-            MUTED
+            theme::muted()
         };
     }
     let count = match watch.step {

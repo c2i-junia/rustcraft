@@ -33,10 +33,7 @@ use crate::player::skin::{
     skin_texture, write_skin_choice, ChosenSkin, SkinChoice,
 };
 use crate::ui::assets::FONT_PATH;
-use crate::ui::theme::{
-    BEVEL_WIDTH, DANGER, FONT_M, FONT_S, FONT_XL, MUTED, PANEL, SLOT, SPACE_L, SPACE_M, SPACE_XL,
-    TEXT,
-};
+use crate::ui::theme;
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::hints::{Hint, HINT_BAR_HEIGHT};
 use crate::ui::widgets::list::{spawn_list_card, spawn_scroll_list, CardSelected, WheelStep};
@@ -177,19 +174,19 @@ fn skins_setup(
                 height: percent(100),
                 flex_direction: FlexDirection::Column,
                 padding: UiRect {
-                    left: px(SPACE_XL),
-                    right: px(SPACE_XL),
-                    top: px(SPACE_XL),
-                    bottom: px(HINT_BAR_HEIGHT + SPACE_XL),
+                    left: px(theme::space_xl()),
+                    right: px(theme::space_xl()),
+                    top: px(theme::space_xl()),
+                    bottom: px(HINT_BAR_HEIGHT + theme::space_xl()),
                 },
-                row_gap: px(SPACE_M),
+                row_gap: px(theme::space_m()),
                 ..default()
             },
             ChildOf(root),
         ))
         .id();
     commands.spawn((
-        text(tr(SKINS_TITLE), FONT_XL, TEXT, &font),
+        text(tr(SKINS_TITLE), theme::font_xl(), theme::text(), &font),
         ChildOf(content),
     ));
     let body = commands
@@ -197,7 +194,7 @@ fn skins_setup(
             Node {
                 flex_grow: 1.0,
                 min_height: px(0),
-                column_gap: px(SPACE_L),
+                column_gap: px(theme::space_l()),
                 ..default()
             },
             ChildOf(content),
@@ -243,22 +240,22 @@ fn skins_setup(
                 flex_shrink: 0.0,
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
-                padding: UiRect::all(px(SPACE_L)),
-                border: UiRect::all(px(BEVEL_WIDTH)),
-                row_gap: px(SPACE_M),
+                padding: UiRect::all(px(theme::space_l())),
+                border: UiRect::all(px(theme::bevel_width())),
+                row_gap: px(theme::space_m()),
                 ..default()
             },
-            BackgroundColor(PANEL),
+            BackgroundColor(theme::panel()),
             raised_bevel(),
             ChildOf(body),
         ))
         .id();
     commands.spawn((
         Node {
-            border: UiRect::all(px(BEVEL_WIDTH)),
+            border: UiRect::all(px(theme::bevel_width())),
             ..default()
         },
-        BackgroundColor(SLOT),
+        BackgroundColor(theme::slot()),
         sunken_bevel(),
         ChildOf(pane),
         children![(
@@ -273,13 +270,16 @@ fn skins_setup(
     ));
     commands.spawn((
         SkinName,
-        text(chosen.choice.label(), FONT_M, TEXT, &font),
+        text(chosen.choice.label(), theme::font_m(), theme::text(), &font),
         ChildOf(pane),
     ));
-    commands.spawn((text(tr(IMPORT_NOTE), FONT_S, MUTED, &font), ChildOf(pane)));
+    commands.spawn((
+        text(tr(IMPORT_NOTE), theme::font_s(), theme::muted(), &font),
+        ChildOf(pane),
+    ));
     commands.spawn((
         SkinMessage,
-        text("", FONT_S, DANGER, &font),
+        text("", theme::font_s(), theme::danger(), &font),
         Node {
             display: Display::None,
             ..default()
@@ -462,9 +462,9 @@ fn show_skins(
                     min_width: px(0),
                     ..default()
                 },
-                children![text(choice.label(), FONT_M, TEXT, &font)],
+                children![text(choice.label(), theme::font_m(), theme::text(), &font)],
             ),
-            text(kind, FONT_S, MUTED, &font),
+            text(kind, theme::font_s(), theme::muted(), &font),
         ]);
         if choice == chosen.choice {
             selected = Some((card, texture.clone()));

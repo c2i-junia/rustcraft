@@ -17,10 +17,7 @@ use super::{
     focus::FocusRing,
     segmented::{check_chosen, style_options, ChoiceOption, OptionLook},
 };
-use crate::ui::theme::{
-    ACCENT, BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_M, MUTED, PANEL, RAISE, RAISE_HOVER, SPACE_L,
-    SPACE_S, SPACE_XS, TEXT,
-};
+use crate::ui::theme;
 
 /// What `spawn_tabs` builds.
 pub struct Tabs<'a> {
@@ -53,7 +50,7 @@ pub fn spawn_tabs(commands: &mut Commands, tabs: &Tabs, font: Handle<Font>) -> E
             TabIndex(0),
             FocusRing,
             Node {
-                column_gap: px(SPACE_XS),
+                column_gap: px(theme::space_xs()),
                 ..default()
             },
         ))
@@ -69,8 +66,8 @@ pub fn spawn_tabs(commands: &mut Commands, tabs: &Tabs, font: Handle<Font>) -> E
             TabButton(index),
             Hovered::default(),
             Node {
-                border: UiRect::all(px(BEVEL_WIDTH)),
-                padding: UiRect::axes(px(SPACE_L), px(SPACE_S)),
+                border: UiRect::all(px(theme::bevel_width())),
+                padding: UiRect::axes(px(theme::space_l()), px(theme::space_s())),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
                 ..default()
@@ -82,7 +79,7 @@ pub fn spawn_tabs(commands: &mut Commands, tabs: &Tabs, font: Handle<Font>) -> E
                 Text::new(*label),
                 TextFont {
                     font: font.clone().into(),
-                    font_size: px(FONT_M).into(),
+                    font_size: px(theme::font_m()).into(),
                     ..default()
                 },
                 TextColor(look.text),
@@ -121,26 +118,30 @@ impl ChoiceOption for TabButton {
 
     fn look(checked: bool, hovered: bool) -> OptionLook {
         let raised = BorderColor {
-            top: BEVEL_HI,
-            left: BEVEL_HI,
-            bottom: BEVEL_LO,
-            right: BEVEL_LO,
+            top: theme::bevel_hi(),
+            left: theme::bevel_hi(),
+            bottom: theme::bevel_lo(),
+            right: theme::bevel_lo(),
         };
         if checked {
             // the checked tab opens onto the panel under it, underlined in the accent
             OptionLook {
-                background: PANEL,
+                background: theme::panel(),
                 border: BorderColor {
-                    bottom: ACCENT,
+                    bottom: theme::accent(),
                     ..raised
                 },
-                text: TEXT,
+                text: theme::text(),
             }
         } else {
             OptionLook {
-                background: if hovered { RAISE_HOVER } else { RAISE },
+                background: if hovered {
+                    theme::raise_hover()
+                } else {
+                    theme::raise()
+                },
                 border: raised,
-                text: MUTED,
+                text: theme::muted(),
             }
         }
     }

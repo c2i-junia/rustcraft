@@ -18,13 +18,10 @@ use super::{
 };
 use crate::ui::assets::{load_font, MONO_FONT_PATH};
 use crate::ui::hud::{item_name, HudBottom};
-use crate::ui::theme::{
-    BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, DANGER, FONT_L, FONT_S, MUTED, OK, PANEL, RAISE, SPACE_L,
-    SPACE_S, SPACE_XS, TEXT,
-};
+use crate::ui::theme;
 use crate::ui::widgets::focus::{ArrowNav, FocusRing};
 use crate::ui::widgets::hints::key_cap;
-use crate::ui::widgets::list::{spawn_scroll_list, ScrollListParts, WheelStep, RING_ROOM};
+use crate::ui::widgets::list::{ring_room, spawn_scroll_list, ScrollListParts, WheelStep};
 use crate::ui::widgets::slot::{slot, SLOT_SIZE};
 use crate::ui::widgets::text_field::{set_text, spawn_text_field, TextField};
 use crate::ui::widgets::tooltip::Tooltip;
@@ -36,8 +33,8 @@ const SEARCH_MAX_CHARACTERS: usize = 32;
 pub const CRAFTABLE_CHIP: &str = "browser.craftable";
 /// The side of the dot of a craftable item, its border included.
 const DOT_SIZE: f32 = 8.0;
-/// The room above and below the label of a chip; beside it, `SPACE_XS`, so that the chips take
-/// three rows in four columns.
+/// The room above and below the label of a chip; beside it, `theme::space_xs()`, so that the chips
+/// take three rows in four columns.
 const CHIP_PADDING_Y: f32 = 2.0;
 /// The width of the handle of the drawer.
 const HANDLE_WIDTH: f32 = 34.0;
@@ -88,21 +85,21 @@ pub fn setup_item_browser(
             AccessibleLabel::new(crate::i18n::tr(ITEM_BROWSER_TITLE)),
             Node {
                 position_type: PositionType::Absolute,
-                top: px(SPACE_L),
-                bottom: px(SPACE_L),
-                right: px(SPACE_L),
+                top: px(theme::space_l()),
+                bottom: px(theme::space_l()),
+                right: px(theme::space_l()),
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_S),
-                padding: UiRect::all(px(SPACE_S)),
-                border: UiRect::all(px(BEVEL_WIDTH)),
+                row_gap: px(theme::space_s()),
+                padding: UiRect::all(px(theme::space_s())),
+                border: UiRect::all(px(theme::bevel_width())),
                 ..default()
             },
-            BackgroundColor(PANEL),
+            BackgroundColor(theme::panel()),
             BorderColor {
-                top: BEVEL_HI,
-                left: BEVEL_HI,
-                bottom: BEVEL_LO,
-                right: BEVEL_LO,
+                top: theme::bevel_hi(),
+                left: theme::bevel_hi(),
+                bottom: theme::bevel_lo(),
+                right: theme::bevel_lo(),
             },
             // A click outside it closes the drawer
             Hovered::default(),
@@ -117,16 +114,21 @@ pub fn setup_item_browser(
         Node {
             justify_content: JustifyContent::SpaceBetween,
             align_items: AlignItems::Baseline,
-            column_gap: px(SPACE_S),
+            column_gap: px(theme::space_s()),
             ..default()
         },
         ChildOf(panel),
         children![
             (
                 BrowserTitle,
-                label(crate::i18n::tr(ITEM_BROWSER_TITLE), &font, FONT_L, TEXT)
+                label(
+                    crate::i18n::tr(ITEM_BROWSER_TITLE),
+                    &font,
+                    theme::font_l(),
+                    theme::text()
+                )
             ),
-            (ItemCount, label("", &font, FONT_S, MUTED)),
+            (ItemCount, label("", &font, theme::font_s(), theme::muted())),
         ],
     ));
 
@@ -154,11 +156,11 @@ fn spawn_footer(
         .spawn((
             Node {
                 flex_direction: FlexDirection::Column,
-                padding: UiRect::top(px(SPACE_S)),
-                border: UiRect::top(px(BEVEL_WIDTH)),
+                padding: UiRect::top(px(theme::space_s())),
+                border: UiRect::top(px(theme::bevel_width())),
                 ..default()
             },
-            BorderColor::all(BEVEL_LO),
+            BorderColor::all(theme::bevel_lo()),
             Pickable::IGNORE,
             ChildOf(panel),
         ))
@@ -169,8 +171,8 @@ fn spawn_footer(
             Node {
                 flex_wrap: FlexWrap::Wrap,
                 align_items: AlignItems::Center,
-                column_gap: px(SPACE_XS),
-                row_gap: px(SPACE_XS),
+                column_gap: px(theme::space_xs()),
+                row_gap: px(theme::space_xs()),
                 ..default()
             },
             Pickable::IGNORE,
@@ -188,14 +190,17 @@ fn spawn_footer(
         if index > 0 {
             commands.spawn((
                 Node {
-                    width: px(SPACE_S),
+                    width: px(theme::space_s()),
                     ..default()
                 },
                 ChildOf(row),
             ));
         }
         commands.spawn((key_cap(key, font.clone(), glyph_font.clone()), ChildOf(row)));
-        commands.spawn((label(tr(action), font, FONT_S, MUTED), ChildOf(row)));
+        commands.spawn((
+            label(tr(action), font, theme::font_s(), theme::muted()),
+            ChildOf(row),
+        ));
     }
 
     let creative = commands
@@ -204,7 +209,7 @@ fn spawn_footer(
             Node {
                 display: Display::None,
                 align_items: AlignItems::Center,
-                column_gap: px(SPACE_S),
+                column_gap: px(theme::space_s()),
                 ..default()
             },
             Pickable::IGNORE,
@@ -223,14 +228,19 @@ fn spawn_footer(
             ChildOf(creative),
         ))
         .with_child((
-            label("X", font, FONT_L, DANGER),
+            label("X", font, theme::font_l(), theme::danger()),
             Node {
                 position_type: PositionType::Absolute,
                 ..default()
             },
         ));
     commands.spawn((
-        label(crate::i18n::tr(TRASH_HINT), font, FONT_S, MUTED),
+        label(
+            crate::i18n::tr(TRASH_HINT),
+            font,
+            theme::font_s(),
+            theme::muted(),
+        ),
         ChildOf(creative),
     ));
 }
@@ -259,24 +269,24 @@ fn spawn_handle(
                 width: px(HANDLE_WIDTH),
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
-                row_gap: px(SPACE_S),
-                padding: UiRect::vertical(px(SPACE_S)),
+                row_gap: px(theme::space_s()),
+                padding: UiRect::vertical(px(theme::space_s())),
                 // against the edge of the window: no bevel on that side
                 border: UiRect {
-                    left: px(BEVEL_WIDTH),
+                    left: px(theme::bevel_width()),
                     right: px(0),
-                    top: px(BEVEL_WIDTH),
-                    bottom: px(BEVEL_WIDTH),
+                    top: px(theme::bevel_width()),
+                    bottom: px(theme::bevel_width()),
                 },
                 ..default()
             },
             UiTransform::from_translation(Val2::percent(0.0, -50.0)),
-            BackgroundColor(PANEL),
+            BackgroundColor(theme::panel()),
             BorderColor {
-                top: BEVEL_HI,
-                left: BEVEL_HI,
-                bottom: BEVEL_LO,
-                right: BEVEL_LO,
+                top: theme::bevel_hi(),
+                left: theme::bevel_hi(),
+                bottom: theme::bevel_lo(),
+                right: theme::bevel_lo(),
             },
             Visibility::Hidden,
             ChildOf(bottom),
@@ -284,13 +294,18 @@ fn spawn_handle(
                 key_cap("B", font.clone(), glyph_font.clone()),
                 (
                     Node {
-                        width: px(FONT_S),
+                        width: px(theme::font_s()),
                         height: px(HANDLE_TITLE_LENGTH),
                         ..default()
                     },
                     Pickable::IGNORE,
                     children![(
-                        label(crate::i18n::tr(ITEM_BROWSER_TITLE), font, FONT_S, TEXT),
+                        label(
+                            crate::i18n::tr(ITEM_BROWSER_TITLE),
+                            font,
+                            theme::font_s(),
+                            theme::text()
+                        ),
                         Node {
                             position_type: PositionType::Absolute,
                             left: percent(50),
@@ -324,7 +339,7 @@ fn spawn_search_field(
             placeholder: crate::i18n::tr(SEARCH_LABEL),
             max_characters: Some(SEARCH_MAX_CHARACTERS),
             font: font.clone(),
-            font_size: FONT_S,
+            font_size: theme::font_s(),
             reserve_error: false,
         },
     );
@@ -369,8 +384,8 @@ fn spawn_chips(commands: &mut Commands, panel: Entity, font: &Handle<Font>) {
             Node {
                 flex_shrink: 0.0,
                 flex_wrap: FlexWrap::Wrap,
-                column_gap: px(SPACE_XS),
-                row_gap: px(SPACE_XS),
+                column_gap: px(theme::space_xs()),
+                row_gap: px(theme::space_xs()),
                 ..default()
             },
             ChildOf(panel),
@@ -390,19 +405,19 @@ fn spawn_chips(commands: &mut Commands, panel: Entity, font: &Handle<Font>) {
                 Hovered::default(),
                 Node {
                     flex_shrink: 0.0,
-                    padding: UiRect::axes(px(SPACE_XS), px(CHIP_PADDING_Y)),
-                    border: UiRect::all(px(BEVEL_WIDTH)),
+                    padding: UiRect::axes(px(theme::space_xs()), px(CHIP_PADDING_Y)),
+                    border: UiRect::all(px(theme::bevel_width())),
                     ..default()
                 },
-                BackgroundColor(RAISE),
+                BackgroundColor(theme::raise()),
                 BorderColor {
-                    top: BEVEL_HI,
-                    left: BEVEL_HI,
-                    bottom: BEVEL_LO,
-                    right: BEVEL_LO,
+                    top: theme::bevel_hi(),
+                    left: theme::bevel_hi(),
+                    bottom: theme::bevel_lo(),
+                    right: theme::bevel_lo(),
                 },
                 ChildOf(row),
-                children![label(name, font, FONT_S, MUTED)],
+                children![label(name, font, theme::font_s(), theme::muted())],
             ))
             .observe(choose_category);
     }
@@ -417,19 +432,24 @@ fn spawn_chips(commands: &mut Commands, panel: Entity, font: &Handle<Font>) {
             Hovered::default(),
             Node {
                 flex_shrink: 0.0,
-                padding: UiRect::axes(px(SPACE_XS), px(CHIP_PADDING_Y)),
-                border: UiRect::all(px(BEVEL_WIDTH)),
+                padding: UiRect::axes(px(theme::space_xs()), px(CHIP_PADDING_Y)),
+                border: UiRect::all(px(theme::bevel_width())),
                 ..default()
             },
-            BackgroundColor(RAISE),
+            BackgroundColor(theme::raise()),
             BorderColor {
-                top: BEVEL_HI,
-                left: BEVEL_HI,
-                bottom: BEVEL_LO,
-                right: BEVEL_LO,
+                top: theme::bevel_hi(),
+                left: theme::bevel_hi(),
+                bottom: theme::bevel_lo(),
+                right: theme::bevel_lo(),
             },
             ChildOf(row),
-            children![label(crate::i18n::tr(CRAFTABLE_CHIP), font, FONT_S, MUTED)],
+            children![label(
+                crate::i18n::tr(CRAFTABLE_CHIP),
+                font,
+                theme::font_s(),
+                theme::muted()
+            )],
         ))
         .observe(toggle_craftable);
 }
@@ -469,8 +489,8 @@ pub(super) fn spawn_catalog_slot(
                 border: UiRect::all(px(1)),
                 ..default()
             },
-            BackgroundColor(OK),
-            BorderColor::all(BEVEL_LO),
+            BackgroundColor(theme::ok()),
+            BorderColor::all(theme::bevel_lo()),
             Pickable::IGNORE,
         ))
         .id()
@@ -516,12 +536,12 @@ fn spawn_shelf_bar(
             display: Display::None,
             flex_shrink: 0.0,
             flex_direction: FlexDirection::Column,
-            row_gap: px(SPACE_XS),
+            row_gap: px(theme::space_xs()),
             ..default()
         },
         ChildOf(panel),
         children![
-            label(name, font, FONT_S, MUTED),
+            label(name, font, theme::font_s(), theme::muted()),
             (
                 row,
                 // the role before the label: the label's default node must not win
@@ -529,10 +549,10 @@ fn spawn_shelf_bar(
                 AccessibleLabel::new(name),
                 Node {
                     flex_wrap: FlexWrap::Wrap,
-                    column_gap: px(SPACE_XS),
-                    row_gap: px(SPACE_XS),
+                    column_gap: px(theme::space_xs()),
+                    row_gap: px(theme::space_xs()),
                     // under the grid's columns, which leave room for the focus ring
-                    padding: UiRect::horizontal(px(RING_ROOM)),
+                    padding: UiRect::horizontal(px(ring_room())),
                     ..default()
                 },
             ),
@@ -543,7 +563,7 @@ fn spawn_shelf_bar(
 /// The scrolling grid of the catalog, a slot per item, and what it says when nothing matches.
 fn spawn_grid(commands: &mut Commands, panel: Entity, atlas: &AtlasWrapper, font: &Handle<Font>) {
     let ScrollListParts { frame, well, list } =
-        spawn_scroll_list(commands, WheelStep::Px(SLOT_SIZE + SPACE_XS));
+        spawn_scroll_list(commands, WheelStep::Px(SLOT_SIZE + theme::space_xs()));
     commands
         .entity(frame)
         .insert((CatalogPart, CatalogList, Hovered::default(), ChildOf(panel)));
@@ -563,9 +583,9 @@ fn spawn_grid(commands: &mut Commands, panel: Entity, atlas: &AtlasWrapper, font
             Node {
                 display: Display::Grid,
                 grid_template_columns: RepeatedGridTrack::px(1, SLOT_SIZE),
-                row_gap: px(SPACE_XS),
-                column_gap: px(SPACE_XS),
-                padding: UiRect::vertical(px(RING_ROOM)),
+                row_gap: px(theme::space_xs()),
+                column_gap: px(theme::space_xs()),
+                padding: UiRect::vertical(px(ring_room())),
                 ..default()
             },
             ChildOf(list),
@@ -579,16 +599,24 @@ fn spawn_grid(commands: &mut Commands, panel: Entity, atlas: &AtlasWrapper, font
         Node {
             display: Display::None,
             flex_direction: FlexDirection::Column,
-            row_gap: px(SPACE_XS),
-            padding: UiRect::vertical(px(SPACE_S)),
+            row_gap: px(theme::space_xs()),
+            padding: UiRect::vertical(px(theme::space_s())),
             ..default()
         },
         ChildOf(list),
         children![
-            (NoMatchMessage, label("", font, FONT_S, TEXT)),
+            (
+                NoMatchMessage,
+                label("", font, theme::font_s(), theme::text())
+            ),
             (
                 NoMatchHint,
-                label(crate::i18n::tr(NO_MATCH_HINT), font, FONT_S, MUTED)
+                label(
+                    crate::i18n::tr(NO_MATCH_HINT),
+                    font,
+                    theme::font_s(),
+                    theme::muted()
+                )
             ),
         ],
     ));

@@ -9,16 +9,18 @@ use shared::players::Player;
 use crate::player::CurrentPlayerMarker;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::InventoryRoot;
-use crate::ui::theme::{
-    BEVEL_LO, BEVEL_WIDTH, EXPERIENCE, EXPERIENCE_HI, EXPERIENCE_LO, FONT_M, SLOT, SPACE_XS,
-};
+use crate::ui::theme;
 
 /// The height of the bar, in logical px: its border and 4 px of fill.
-const BAR_HEIGHT: f32 = 2.0 * BEVEL_WIDTH + 4.0;
+fn bar_height() -> f32 {
+    2.0 * theme::bevel_width() + 4.0
+}
 
 /// The height the bar takes above the hotbar, in logical px: its margin and itself. The hearts
 /// and the drumsticks sit on top of it.
-pub const EXPERIENCE_BAND: f32 = SPACE_XS + BAR_HEIGHT;
+pub fn experience_band() -> f32 {
+    theme::space_xs() + bar_height()
+}
 
 /// The bar, shown in survival only.
 #[derive(Component)]
@@ -58,13 +60,13 @@ pub fn spawn_experience_bar(
             left: px(0.),
             right: px(0.),
             bottom: percent(100.),
-            height: px(BAR_HEIGHT),
-            margin: UiRect::bottom(px(SPACE_XS)),
-            border: UiRect::all(px(BEVEL_WIDTH)),
+            height: px(bar_height()),
+            margin: UiRect::bottom(px(theme::space_xs())),
+            border: UiRect::all(px(theme::bevel_width())),
             ..default()
         },
-        BackgroundColor(SLOT),
-        BorderColor::all(BEVEL_LO),
+        BackgroundColor(theme::slot()),
+        BorderColor::all(theme::bevel_lo()),
         Visibility::Hidden,
         Pickable::IGNORE,
         ChildOf(hotbar),
@@ -78,10 +80,10 @@ pub fn spawn_experience_bar(
                     border: UiRect::vertical(px(1.)),
                     ..default()
                 },
-                BackgroundColor(EXPERIENCE),
+                BackgroundColor(theme::experience()),
                 BorderColor {
-                    top: EXPERIENCE_HI,
-                    bottom: EXPERIENCE_LO,
+                    top: theme::experience_hi(),
+                    bottom: theme::experience_lo(),
                     ..default()
                 },
                 Pickable::IGNORE,
@@ -91,14 +93,14 @@ pub fn spawn_experience_bar(
                 Text::new(""),
                 TextFont {
                     font: assets.load(crate::ui::assets::FONT_PATH).into(),
-                    font_size: px(FONT_M).into(),
+                    font_size: px(theme::font_m()).into(),
                     ..default()
                 },
-                TextColor(EXPERIENCE_HI),
+                TextColor(theme::experience_hi()),
                 TextLayout::justify(Justify::Center),
                 TextShadow {
                     offset: Vec2::splat(2.0),
-                    color: BEVEL_LO,
+                    color: theme::bevel_lo(),
                 },
                 Node {
                     position_type: PositionType::Absolute,

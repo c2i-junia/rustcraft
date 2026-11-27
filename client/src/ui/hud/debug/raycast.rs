@@ -3,7 +3,7 @@ use shared::players::ViewMode;
 use shared::world::{raycast, FaceDirectionExt};
 
 use crate::camera::CameraController;
-use crate::ui::theme::DANGER;
+use crate::ui::theme;
 use crate::world::ClientWorldMap;
 
 use super::DebugOptions;
@@ -41,6 +41,6 @@ pub fn raycast_debug_update_system(
         let start = raycast_response.position.as_vec3();
         let end = start + normal;
 
-        gizmos.line(start, end, DANGER);
+        gizmos.line(start, end, theme::danger());
     }
 }

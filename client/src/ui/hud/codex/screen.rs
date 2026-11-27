@@ -22,9 +22,7 @@ use crate::state::KeyMap;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::hud::progress::PlayerProgress;
 use crate::ui::hud::{InventoryRoot, UIMode, UiDialog};
-use crate::ui::theme::{
-    ACCENT, BEVEL_LO, BEVEL_WIDTH, FONT_S, FONT_XL, MUTED, PANEL, SPACE_L, SPACE_M, SPACE_S, TEXT,
-};
+use crate::ui::theme;
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::focus::keep_focus_inside;
 use crate::ui::widgets::hints::{hint_bar, Hint, HINT_BAR_HEIGHT};
@@ -201,14 +199,14 @@ fn spawn_codex(
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
                 padding: UiRect {
-                    top: px(SPACE_L),
-                    bottom: px(HINT_BAR_HEIGHT + SPACE_L),
-                    left: px(SPACE_L),
-                    right: px(SPACE_L),
+                    top: px(theme::space_l()),
+                    bottom: px(HINT_BAR_HEIGHT + theme::space_l()),
+                    left: px(theme::space_l()),
+                    right: px(theme::space_l()),
                 },
                 ..default()
             },
-            BackgroundColor(BEVEL_LO.with_alpha(0.75)),
+            BackgroundColor(theme::bevel_lo().with_alpha(0.75)),
             Visibility::Visible,
             // over the pause menu (5)
             GlobalZIndex(6),
@@ -224,12 +222,12 @@ fn spawn_codex(
                 height: px(PANEL_HEIGHT),
                 max_height: percent(100),
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_M),
-                padding: UiRect::all(px(SPACE_L)),
-                border: UiRect::all(px(BEVEL_WIDTH)),
+                row_gap: px(theme::space_m()),
+                padding: UiRect::all(px(theme::space_l())),
+                border: UiRect::all(px(theme::bevel_width())),
                 ..default()
             },
-            BackgroundColor(PANEL),
+            BackgroundColor(theme::panel()),
             raised_bevel(),
             ChildOf(root),
         ))
@@ -240,14 +238,14 @@ fn spawn_codex(
         .spawn((
             Node {
                 align_items: AlignItems::Center,
-                column_gap: px(SPACE_S),
+                column_gap: px(theme::space_s()),
                 ..default()
             },
             ChildOf(panel),
         ))
         .id();
     commands.spawn((
-        text(tr(CODEX_TITLE), FONT_XL, ACCENT, &font),
+        text(tr(CODEX_TITLE), theme::font_xl(), theme::accent(), &font),
         Node {
             flex_grow: 1.0,
             ..default()
@@ -288,7 +286,7 @@ fn spawn_codex(
             Node {
                 flex_grow: 1.0,
                 min_height: px(0),
-                column_gap: px(SPACE_L),
+                column_gap: px(theme::space_l()),
                 ..default()
             },
             ChildOf(panel),
@@ -302,7 +300,7 @@ fn spawn_codex(
             width: px(NAV_WIDTH),
             flex_shrink: 0.0,
             flex_direction: FlexDirection::Column,
-            row_gap: px(SPACE_S),
+            row_gap: px(theme::space_s()),
             ..default()
         },
         ChildOf(body),
@@ -314,7 +312,7 @@ fn spawn_codex(
                 width: px(LIST_WIDTH),
                 flex_shrink: 0.0,
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_S),
+                row_gap: px(theme::space_s()),
                 ..default()
             },
             ChildOf(body),
@@ -327,7 +325,7 @@ fn spawn_codex(
             placeholder: tr("codex.search"),
             max_characters: Some(40),
             font: font.clone(),
-            font_size: FONT_S,
+            font_size: theme::font_s(),
             reserve_error: false,
         },
     );
@@ -356,7 +354,7 @@ fn spawn_codex(
         ))
         .observe(select_entry);
 
-    let (page_frame, page_column) = spawn_scroll_page(commands, SPACE_S);
+    let (page_frame, page_column) = spawn_scroll_page(commands, theme::space_s());
     commands.entity(page_frame).insert((
         Node {
             flex_grow: 1.0,
@@ -494,9 +492,9 @@ pub fn show_codex_list(
             trf("codex.no_match", &[("query", &state.query)])
         };
         commands.spawn((
-            text(message, FONT_S, MUTED, &font),
+            text(message, theme::font_s(), theme::muted(), &font),
             Node {
-                margin: UiRect::all(px(SPACE_M)),
+                margin: UiRect::all(px(theme::space_m())),
                 ..default()
             },
             ChildOf(*list),
@@ -511,12 +509,12 @@ pub fn show_codex_list(
             commands.entity(card).insert(Selected);
         }
         commands.entity(card).insert(Node {
-            border: UiRect::all(px(BEVEL_WIDTH)),
-            padding: UiRect::axes(px(SPACE_M), px(SPACE_S)),
+            border: UiRect::all(px(theme::bevel_width())),
+            padding: UiRect::axes(px(theme::space_m()), px(theme::space_s())),
             align_items: AlignItems::Center,
             ..default()
         });
-        commands.spawn((text(name, FONT_S, TEXT, &font), ChildOf(card)));
+        commands.spawn((text(name, theme::font_s(), theme::text(), &font), ChildOf(card)));
     }
 }
 
@@ -573,7 +571,7 @@ pub fn show_codex_page(
     }
     let font: Handle<Font> = assets.load(FONT_PATH);
     let Some(page) = &state.page else {
-        commands.spawn((text(tr("codex.pick"), FONT_S, MUTED, &font), ChildOf(body)));
+        commands.spawn((text(tr("codex.pick"), theme::font_s(), theme::muted(), &font), ChildOf(body)));
         return;
     };
     let seen = seen_by(&progress);

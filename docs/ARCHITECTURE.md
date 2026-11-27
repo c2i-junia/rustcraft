@@ -1490,7 +1490,10 @@ goes from `Menu` to `PreGameLoading` (connection and textures) to `Game`.
 
 ## UI widgets
 
-`ui/theme.rs` holds the tokens of the visual system: colours, spacing, font sizes and bevels.
+`ui/theme.rs` holds the tokens of the visual system: colours, spacing, font sizes and bevels,
+read from `data/ui/theme.ron` at start-up (a copy built into the game stands in when the file is
+missing) and through a function each, `theme::accent()`. A dev build reads the file again when it
+is saved (`ui/theme/watch.rs`) and rebuilds the screens shown (`RebuildScreens`).
 `ui/widgets/` holds one file per widget, plus `focus.rs` (Tab navigation, the focus ring, arrow
 navigation) and `scale.rs` (the UI scale that follows the window height); `widgets_plugin` adds
 them all, in `app::add_client`. A widget is a headless `bevy::ui_widgets` widget, or

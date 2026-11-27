@@ -10,7 +10,7 @@ use crate::mob::{Mob, MobEntities};
 use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
 use crate::ui::assets::FONT_PATH;
-use crate::ui::theme::{BEVEL_LO, FONT_S, TEXT};
+use crate::ui::theme;
 
 /// How far above the bottom of the screen the line is, over the bars of the player.
 const BOTTOM: f32 = 112.0;
@@ -36,13 +36,13 @@ pub fn spawn_mount_line(mut commands: Commands, assets: Res<AssetServer>) {
             Text::new(""),
             TextFont {
                 font: assets.load(FONT_PATH).into(),
-                font_size: px(FONT_S).into(),
+                font_size: px(theme::font_s()).into(),
                 ..default()
             },
-            TextColor(TEXT),
+            TextColor(theme::text()),
             TextShadow {
                 offset: Vec2::splat(2.0),
-                color: BEVEL_LO,
+                color: theme::bevel_lo(),
             },
             Pickable::IGNORE,
         )],

@@ -46,10 +46,7 @@ use crate::state::GameState;
 use crate::ui::assets::FONT_PATH;
 use crate::ui::menus::account::{end_revoked_session, NextDialog, Screen};
 use crate::ui::menus::modal_open;
-use crate::ui::theme::{
-    ACCENT, BEVEL_WIDTH, DANGER, FONT_L, FONT_M, FONT_S, MUTED, OK, PANEL, SPACE_L, SPACE_M,
-    SPACE_S, SPACE_XL, SPACE_XS, TEXT,
-};
+use crate::ui::theme;
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::dialog::dismiss_dialog;
 use crate::ui::widgets::focus::ArrowNav;
@@ -240,12 +237,12 @@ pub fn standing(realm: &Realm, account: Uuid) -> Standing {
 /// The word and colour of a state, on a card and in the pane; the colour is the card's dot.
 pub fn state_look(state: RealmState) -> (&'static str, Color) {
     match state {
-        RealmState::Stopped => ("Stopped", MUTED),
-        RealmState::Starting => ("Starting...", ACCENT),
-        RealmState::Running => ("Running", OK),
-        RealmState::Stopping => ("Stopping...", MUTED),
-        RealmState::Failed => ("Failed", DANGER),
-        RealmState::Archived => ("Archived", MUTED),
+        RealmState::Stopped => ("Stopped", theme::muted()),
+        RealmState::Starting => ("Starting...", theme::accent()),
+        RealmState::Running => ("Running", theme::ok()),
+        RealmState::Stopping => ("Stopping...", theme::muted()),
+        RealmState::Failed => ("Failed", theme::danger()),
+        RealmState::Archived => ("Archived", theme::muted()),
     }
 }
 
@@ -389,12 +386,12 @@ fn hosted_setup(
                 height: percent(100),
                 flex_direction: FlexDirection::Column,
                 padding: UiRect {
-                    left: px(SPACE_XL),
-                    right: px(SPACE_XL),
-                    top: px(SPACE_XL),
-                    bottom: px(HINT_BAR_HEIGHT + SPACE_XL),
+                    left: px(theme::space_xl()),
+                    right: px(theme::space_xl()),
+                    top: px(theme::space_xl()),
+                    bottom: px(HINT_BAR_HEIGHT + theme::space_xl()),
                 },
-                row_gap: px(SPACE_M),
+                row_gap: px(theme::space_m()),
                 ..default()
             },
             ChildOf(root),
@@ -404,7 +401,7 @@ fn hosted_setup(
         .spawn((
             Node {
                 align_items: AlignItems::Center,
-                column_gap: px(SPACE_S),
+                column_gap: px(theme::space_s()),
                 ..default()
             },
             ChildOf(content),
@@ -426,7 +423,7 @@ fn hosted_setup(
     let actions = commands
         .spawn((
             Node {
-                column_gap: px(SPACE_S),
+                column_gap: px(theme::space_s()),
                 ..default()
             },
             ChildOf(title),
@@ -437,7 +434,7 @@ fn hosted_setup(
             Node {
                 flex_grow: 1.0,
                 min_height: px(0),
-                column_gap: px(SPACE_L),
+                column_gap: px(theme::space_l()),
                 ..default()
             },
             ChildOf(content),
@@ -505,19 +502,19 @@ fn show_notice(
                 flex_direction: FlexDirection::Column,
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
-                row_gap: px(SPACE_M),
-                padding: UiRect::all(px(SPACE_XL)),
-                border: UiRect::all(px(BEVEL_WIDTH)),
+                row_gap: px(theme::space_m()),
+                padding: UiRect::all(px(theme::space_xl())),
+                border: UiRect::all(px(theme::bevel_width())),
                 ..default()
             },
-            BackgroundColor(PANEL),
+            BackgroundColor(theme::panel()),
             raised_bevel(),
             ChildOf(body),
-            children![text(title, FONT_L, TEXT, font)],
+            children![text(title, theme::font_l(), theme::text(), font)],
         ))
         .id();
     if !line.is_empty() {
-        commands.spawn((text(line, FONT_S, color, font), ChildOf(notice)));
+        commands.spawn((text(line, theme::font_s(), color, font), ChildOf(notice)));
     }
     notice
 }
@@ -531,7 +528,7 @@ fn show_logged_out_or_loading(
 ) {
     match account {
         Account::LoggedOut => {
-            let notice = show_notice(commands, body, (LOGGED_OUT, "", MUTED), font);
+            let notice = show_notice(commands, body, (LOGGED_OUT, "", theme::muted()), font);
             commands.spawn((
                 button("Log in", ButtonVariant::Primary, font.clone()),
                 ChildOf(notice),
@@ -541,7 +538,12 @@ fn show_logged_out_or_loading(
             ));
         }
         Account::LoggedIn(_) => {
-            show_notice(commands, body, ("Asking the hub...", "", MUTED), font);
+            show_notice(
+                commands,
+                body,
+                ("Asking the hub...", "", theme::muted()),
+                font,
+            );
         }
     }
 }
@@ -783,7 +785,7 @@ fn show_board(
         show_notice(
             commands,
             parts.body,
-            ("Cannot list your hosted worlds", error, DANGER),
+            ("Cannot list your hosted worlds", error, theme::danger()),
             font,
         );
         return;
@@ -797,7 +799,7 @@ fn show_board(
         show_notice(
             commands,
             parts.body,
-            ("No hosted worlds yet", line, MUTED),
+            ("No hosted worlds yet", line, theme::muted()),
             font,
         );
         return;
@@ -822,12 +824,12 @@ fn show_board(
                 flex_shrink: 0.0,
                 flex_direction: FlexDirection::Column,
                 justify_content: JustifyContent::SpaceBetween,
-                padding: UiRect::all(px(SPACE_L)),
-                border: UiRect::all(px(BEVEL_WIDTH)),
-                row_gap: px(SPACE_L),
+                padding: UiRect::all(px(theme::space_l())),
+                border: UiRect::all(px(theme::bevel_width())),
+                row_gap: px(theme::space_l()),
                 ..default()
             },
-            BackgroundColor(PANEL),
+            BackgroundColor(theme::panel()),
             raised_bevel(),
             ChildOf(parts.body),
         ))
@@ -885,15 +887,15 @@ fn spawn_card(
                     flex_direction: FlexDirection::Column,
                     flex_grow: 1.0,
                     min_width: px(0),
-                    row_gap: px(SPACE_XS),
+                    row_gap: px(theme::space_xs()),
                     ..default()
                 },
                 children![
-                    boxed(text(&realm.name, FONT_M, TEXT, font)),
+                    boxed(text(&realm.name, theme::font_m(), theme::text(), font)),
                     boxed(text(
                         &owner_line(realm, standing(realm, account)),
-                        FONT_S,
-                        MUTED,
+                        theme::font_s(),
+                        theme::muted(),
                         font
                     )),
                 ],
@@ -903,7 +905,7 @@ fn spawn_card(
                     flex_shrink: 0.0,
                     ..default()
                 },
-                children![text(word, FONT_S, color, font)],
+                children![text(word, theme::font_s(), color, font)],
             ),
         ],
     ));
@@ -926,29 +928,42 @@ fn show_pane(
         .spawn((
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_XS),
+                row_gap: px(theme::space_xs()),
                 min_width: px(0),
                 ..default()
             },
             ChildOf(pane),
         ))
         .id();
-    commands.spawn((text(&realm.name, FONT_L, TEXT, font), ChildOf(facts)));
     commands.spawn((
-        text(&owner_line(realm, standing), FONT_S, MUTED, font),
+        text(&realm.name, theme::font_l(), theme::text(), font),
         ChildOf(facts),
     ));
     commands.spawn((
-        text(word, FONT_M, color, font),
+        text(
+            &owner_line(realm, standing),
+            theme::font_s(),
+            theme::muted(),
+            font,
+        ),
+        ChildOf(facts),
+    ));
+    commands.spawn((
+        text(word, theme::font_m(), color, font),
         Node {
-            margin: UiRect::top(px(SPACE_S)),
+            margin: UiRect::top(px(theme::space_s())),
             ..default()
         },
         ChildOf(facts),
     ));
     if let Some(address) = &realm.address {
         commands.spawn((
-            text(&typed_address(address), FONT_S, MUTED, font),
+            text(
+                &typed_address(address),
+                theme::font_s(),
+                theme::muted(),
+                font,
+            ),
             ChildOf(facts),
         ));
     }
@@ -957,7 +972,7 @@ fn show_pane(
             ArrowNav,
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_S),
+                row_gap: px(theme::space_s()),
                 ..default()
             },
             ChildOf(pane),
@@ -985,7 +1000,7 @@ fn show_pane(
     let pair = commands
         .spawn((
             Node {
-                column_gap: px(SPACE_S),
+                column_gap: px(theme::space_s()),
                 ..default()
             },
             ChildOf(buttons),
@@ -1238,8 +1253,8 @@ mod tests {
 
     #[test]
     fn each_state_has_its_word_and_colour() {
-        assert_eq!(state_look(RealmState::Running), ("Running", OK));
-        assert_eq!(state_look(RealmState::Failed).1, DANGER);
-        assert_eq!(state_look(RealmState::Stopped).1, MUTED);
+        assert_eq!(state_look(RealmState::Running), ("Running", theme::ok()));
+        assert_eq!(state_look(RealmState::Failed).1, theme::danger());
+        assert_eq!(state_look(RealmState::Stopped).1, theme::muted());
     }
 }

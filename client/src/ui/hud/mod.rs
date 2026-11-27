@@ -21,7 +21,7 @@ use crate::ui::hud::minimap::{minimap_plugin, spawn_minimap};
 use crate::ui::hud::reticle::spawn_reticle;
 use crate::ui::menus::death::death_plugin;
 use crate::ui::menus::pause::pause_plugin;
-use crate::ui::theme::WIREFRAME;
+use crate::ui::theme;
 use bevy::ui::UiSystems;
 
 pub mod air;
@@ -67,7 +67,7 @@ pub fn hud_plugin(app: &mut App) {
             global: false,
             // Controls the default color of all wireframes. Used as the default color for global wireframes.
             // Can be changed per mesh using the `WireframeColor` component.
-            default_color: WIREFRAME,
+            default_color: theme::wireframe(),
             ..default()
         })
         .insert_resource(UIMode::Closed)

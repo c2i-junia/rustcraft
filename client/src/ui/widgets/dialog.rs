@@ -29,10 +29,7 @@ use super::button::{button, ButtonVariant};
 use super::focus::keep_focus_inside;
 use super::hints::{hint_bar, Hint, HintBar};
 use super::text_field::{Cancel, FieldError, Submit, TextFieldParts, TextFieldSystems};
-use crate::ui::theme::{
-    BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_L, FONT_M, FONT_S, MUTED, PANEL, SPACE_L, SPACE_M,
-    SPACE_S, SPACE_XL, SPACE_XS, TEXT,
-};
+use crate::ui::theme;
 
 /// The z-index of a dialog: over the screens and the in-game overlays.
 pub const DIALOG_Z: i32 = 50;
@@ -318,7 +315,7 @@ fn build_dialog(
             height: percent(100),
             ..default()
         },
-        BackgroundColor(BEVEL_LO.with_alpha(0.6)),
+        BackgroundColor(theme::bevel_lo().with_alpha(0.6)),
         ChildOf(root),
     ));
     commands.spawn((
@@ -331,19 +328,19 @@ fn build_dialog(
             DialogPanel,
             Node {
                 flex_direction: FlexDirection::Column,
-                padding: UiRect::all(px(SPACE_XL)),
-                row_gap: px(SPACE_L),
-                border: UiRect::all(px(BEVEL_WIDTH)),
+                padding: UiRect::all(px(theme::space_xl())),
+                row_gap: px(theme::space_l()),
+                border: UiRect::all(px(theme::bevel_width())),
                 min_width: px(DIALOG_MIN_WIDTH),
                 max_width: percent(90),
                 ..default()
             },
-            BackgroundColor(PANEL),
+            BackgroundColor(theme::panel()),
             BorderColor {
-                top: BEVEL_HI,
-                left: BEVEL_HI,
-                bottom: BEVEL_LO,
-                right: BEVEL_LO,
+                top: theme::bevel_hi(),
+                left: theme::bevel_hi(),
+                bottom: theme::bevel_lo(),
+                right: theme::bevel_lo(),
             },
             ChildOf(root),
         ))
@@ -361,9 +358,15 @@ fn build_dialog(
             TextLayout::linebreak(LineBreak::WordOrCharacter),
         )
     };
-    commands.spawn((text(dialog.title, FONT_L, TEXT), ChildOf(panel)));
+    commands.spawn((
+        text(dialog.title, theme::font_l(), theme::text()),
+        ChildOf(panel),
+    ));
     if !dialog.body.is_empty() {
-        commands.spawn((text(dialog.body, FONT_M, MUTED), ChildOf(panel)));
+        commands.spawn((
+            text(dialog.body, theme::font_m(), theme::muted()),
+            ChildOf(panel),
+        ));
     }
     let mut form_column = None;
     if !fields.is_empty() {
@@ -371,7 +374,7 @@ fn build_dialog(
             .spawn((
                 Node {
                     flex_direction: FlexDirection::Column,
-                    row_gap: px(SPACE_M),
+                    row_gap: px(theme::space_m()),
                     ..default()
                 },
                 ChildOf(panel),
@@ -382,13 +385,16 @@ fn build_dialog(
                 .spawn((
                     Node {
                         flex_direction: FlexDirection::Column,
-                        row_gap: px(SPACE_XS),
+                        row_gap: px(theme::space_xs()),
                         ..default()
                     },
                     ChildOf(form),
                 ))
                 .id();
-            commands.spawn((text(caption, FONT_S, MUTED), ChildOf(column)));
+            commands.spawn((
+                text(caption, theme::font_s(), theme::muted()),
+                ChildOf(column),
+            ));
             commands.entity(field.root).insert(ChildOf(column));
         }
         form_column = Some(form);
@@ -397,7 +403,7 @@ fn build_dialog(
         .spawn((
             Node {
                 justify_content: JustifyContent::FlexEnd,
-                column_gap: px(SPACE_S),
+                column_gap: px(theme::space_s()),
                 ..default()
             },
             ChildOf(panel),
@@ -716,7 +722,7 @@ mod tests {
                     placeholder: "",
                     max_characters: None,
                     font: Handle::default(),
-                    font_size: FONT_M,
+                    font_size: theme::font_m(),
                     reserve_error: true,
                 },
             )

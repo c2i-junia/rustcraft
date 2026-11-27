@@ -16,10 +16,7 @@ use super::setup::icon;
 use super::{EngravingRow, InventoryCell};
 use crate::network::buffered_client::CurrentFrameInputs;
 use crate::player::CurrentPlayerMarker;
-use crate::ui::theme::{
-    BEVEL_LO, BEVEL_WIDTH, EXPERIENCE, EXPERIENCE_HI, FONT_S, MUTED, SLOT, SPACE_L, SPACE_S,
-    SPACE_XS, TEXT,
-};
+use crate::ui::theme;
 use crate::ui::widgets::button::{ButtonVariant, ThemedButton};
 use crate::ui::widgets::focus::FocusRing;
 use crate::ui::widgets::slot::slot;
@@ -64,7 +61,7 @@ pub(super) fn spawn_engraving_row(
             Text::new(""),
             TextFont {
                 font: font.clone().into(),
-                font_size: px(FONT_S).into(),
+                font_size: px(theme::font_s()).into(),
                 ..default()
             },
             TextColor(color),
@@ -73,7 +70,7 @@ pub(super) fn spawn_engraving_row(
     };
     let column = || Node {
         flex_direction: FlexDirection::Column,
-        row_gap: px(SPACE_XS),
+        row_gap: px(theme::space_xs()),
         ..default()
     };
     parent
@@ -82,7 +79,7 @@ pub(super) fn spawn_engraving_row(
             Node {
                 display: Display::None,
                 align_items: AlignItems::Center,
-                column_gap: px(SPACE_L),
+                column_gap: px(theme::space_l()),
                 ..default()
             },
         ))
@@ -110,10 +107,10 @@ pub(super) fn spawn_engraving_row(
                             ThemedButton(ButtonVariant::Default),
                             Node {
                                 height: px(ROW_HEIGHT),
-                                border: UiRect::all(px(BEVEL_WIDTH)),
-                                padding: UiRect::horizontal(px(SPACE_S)),
+                                border: UiRect::all(px(theme::bevel_width())),
+                                padding: UiRect::horizontal(px(theme::space_s())),
                                 align_items: AlignItems::Center,
-                                column_gap: px(SPACE_S),
+                                column_gap: px(theme::space_s()),
                                 ..default()
                             },
                             Visibility::Hidden,
@@ -122,7 +119,7 @@ pub(super) fn spawn_engraving_row(
                         .with_children(|choice| {
                             choice.spawn((
                                 ChoiceText::Name,
-                                text(TEXT),
+                                text(theme::text()),
                                 Node {
                                     width: px(90),
                                     ..default()
@@ -138,25 +135,25 @@ pub(super) fn spawn_engraving_row(
                                         flex_shrink: 0.0,
                                         ..default()
                                     },
-                                    BackgroundColor(SLOT),
-                                    BorderColor::all(BEVEL_LO),
+                                    BackgroundColor(theme::slot()),
+                                    BorderColor::all(theme::bevel_lo()),
                                     UiTransform::from_rotation(Rot2::degrees(45.0)),
                                     Pickable::IGNORE,
                                 ));
                             }
                             choice.spawn((
                                 ChoiceText::Effect,
-                                text(MUTED),
+                                text(theme::muted()),
                                 Node {
                                     flex_grow: 1.0,
-                                    margin: UiRect::left(px(SPACE_S)),
+                                    margin: UiRect::left(px(theme::space_s())),
                                     ..default()
                                 },
                             ));
-                            choice.spawn((ChoiceText::Cost, text(EXPERIENCE_HI)));
+                            choice.spawn((ChoiceText::Cost, text(theme::experience_hi())));
                         });
                 }
-                choices.spawn((EngravingStatus, text(MUTED)));
+                choices.spawn((EngravingStatus, text(theme::muted())));
             });
         });
 }
@@ -283,7 +280,11 @@ pub fn display_engraving(
                 }
             }
             if let Ok((&ChoicePip(mark), mut color)) = pips.get_mut(child) {
-                let lit = if mark <= level { EXPERIENCE } else { SLOT };
+                let lit = if mark <= level {
+                    theme::experience()
+                } else {
+                    theme::slot()
+                };
                 color.set_if_neq(BackgroundColor(lit));
             }
         }

@@ -13,7 +13,7 @@ use crate::ui::assets::FONT_PATH;
 use crate::ui::hud::progress::PlayerProgress;
 use crate::ui::hud::UiDialog;
 use crate::ui::menus::progress::stat_values;
-use crate::ui::theme::{ACCENT, FONT_L, FONT_M, FONT_XL, MUTED, SPACE_L, SPACE_S, TEXT};
+use crate::ui::theme;
 
 const CREDITS: &str = include_str!("../../../data/credits.txt");
 
@@ -164,7 +164,7 @@ pub fn spawn_credits(
                 top: percent(100),
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
-                row_gap: px(SPACE_S),
+                row_gap: px(theme::space_s()),
                 max_width: percent(100),
                 ..default()
             },
@@ -176,40 +176,50 @@ pub fn spawn_credits(
     for (i, line) in lines().enumerate() {
         if line == CreditsLine::Space && std::mem::take(&mut stats_due) {
             let space = Node {
-                height: px(SPACE_L * 2.0),
+                height: px(theme::space_l() * 2.0),
                 ..default()
             };
             commands.spawn((space, ChildOf(roll)));
             commands.spawn((
-                text(crate::i18n::tr(STATS_TITLE), FONT_L, ACCENT),
+                text(
+                    crate::i18n::tr(STATS_TITLE),
+                    theme::font_l(),
+                    theme::accent(),
+                ),
                 ChildOf(roll),
             ));
             for stat in 0..Stats::LABELS.len() {
                 let line = stat_line(progress, stat);
-                commands.spawn((CreditsStat(stat), text(&line, FONT_M, TEXT), ChildOf(roll)));
+                commands.spawn((
+                    CreditsStat(stat),
+                    text(&line, theme::font_m(), theme::text()),
+                    ChildOf(roll),
+                ));
             }
         }
         let mut entity = match line {
             CreditsLine::Title(title) if i == 0 => {
-                commands.spawn(text(title, FONT_XL * 2.0, ACCENT))
+                commands.spawn(text(title, theme::font_xl() * 2.0, theme::accent()))
             }
-            CreditsLine::Title(title) => {
-                commands.spawn(text(tr_as("credits", title), FONT_L, ACCENT))
-            }
-            CreditsLine::Text(line) => commands.spawn(text(line, FONT_M, TEXT)),
+            CreditsLine::Title(title) => commands.spawn(text(
+                tr_as("credits", title),
+                theme::font_l(),
+                theme::accent(),
+            )),
+            CreditsLine::Text(line) => commands.spawn(text(line, theme::font_m(), theme::text())),
             CreditsLine::Space => commands.spawn(Node {
-                height: px(SPACE_L * 2.0),
+                height: px(theme::space_l() * 2.0),
                 ..default()
             }),
         };
         entity.insert(ChildOf(roll));
     }
     commands.spawn((
-        text(crate::i18n::tr(SKIP_HINT), FONT_M, MUTED),
+        text(crate::i18n::tr(SKIP_HINT), theme::font_m(), theme::muted()),
         Node {
             position_type: PositionType::Absolute,
-            right: px(SPACE_L),
-            bottom: px(SPACE_L),
+            right: px(theme::space_l()),
+            bottom: px(theme::space_l()),
             ..default()
         },
         ChildOf(root),

@@ -11,7 +11,7 @@ use super::interface::spawn_row;
 use super::{SettingsContext, SettingsRoot};
 use crate::camera::{write_view_settings, ViewSettings, MAX_FOV_DEGREES, MIN_FOV_DEGREES};
 use crate::constants::MAX_CHUNK_RENDER_DISTANCE_RADIUS;
-use crate::ui::theme::{FONT_S, MUTED, SPACE_M, SPACE_XL, SPACE_XS};
+use crate::ui::theme;
 use crate::ui::widgets::list::spawn_scroll_page;
 use crate::ui::widgets::segmented::{spawn_segmented, SegmentChange, Segmented};
 use crate::ui::widgets::slider::{spawn_slider, SliderField, SliderScale, LABEL_WIDTH};
@@ -85,7 +85,7 @@ fn clouds_note(style: CloudStyle) -> &'static str {
 fn note_font(font: &Handle<Font>) -> TextFont {
     TextFont {
         font: font.clone().into(),
-        font_size: px(FONT_S).into(),
+        font_size: px(theme::font_s()).into(),
         ..default()
     }
 }
@@ -180,14 +180,14 @@ pub fn spawn_video_tab(
     font: Handle<Font>,
 ) {
     // the controls scroll when they are taller than the panel
-    let (frame, panel) = spawn_scroll_page(commands, SPACE_XL);
+    let (frame, panel) = spawn_scroll_page(commands, theme::space_xl());
     commands.entity(frame).insert(ChildOf(panel_of_tab));
     // The window, closer together
     let column = commands
         .spawn((
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_M),
+                row_gap: px(theme::space_m()),
                 ..default()
             },
             ChildOf(panel),
@@ -216,7 +216,7 @@ pub fn spawn_video_tab(
         .spawn((
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_XS),
+                row_gap: px(theme::space_xs()),
                 ..default()
             },
             ChildOf(panel),
@@ -236,14 +236,14 @@ pub fn spawn_video_tab(
         .observe(save_on_release);
     // under the slider, written by `show_render_distance_note`
     let note_node = || Node {
-        margin: UiRect::left(px(LABEL_WIDTH + SPACE_M)),
+        margin: UiRect::left(px(LABEL_WIDTH + theme::space_m())),
         ..default()
     };
     commands.spawn((
         RenderDistanceNote,
         Text::default(),
         note_font(&font),
-        TextColor(MUTED),
+        TextColor(theme::muted()),
         note_node(),
         ChildOf(column),
     ));
@@ -253,7 +253,7 @@ pub fn spawn_video_tab(
         .spawn((
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_XS),
+                row_gap: px(theme::space_xs()),
                 ..default()
             },
             ChildOf(panel),
@@ -278,7 +278,7 @@ pub fn spawn_video_tab(
         CloudsNote,
         Text::new(clouds_note(clouds)),
         note_font(&font),
-        TextColor(MUTED),
+        TextColor(theme::muted()),
         note_node(),
         ChildOf(column),
     ));
@@ -301,7 +301,7 @@ pub fn spawn_video_tab(
         .spawn((
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_XS),
+                row_gap: px(theme::space_xs()),
                 ..default()
             },
             ChildOf(panel),
@@ -326,7 +326,7 @@ pub fn spawn_video_tab(
         ShadersNote,
         Text::new(shaders_note(graphics.shaders)),
         note_font(&font),
-        TextColor(MUTED),
+        TextColor(theme::muted()),
         note_node(),
         ChildOf(column),
     ));
@@ -336,7 +336,7 @@ pub fn spawn_video_tab(
         .spawn((
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_M),
+                row_gap: px(theme::space_m()),
                 ..default()
             },
             ChildOf(panel),

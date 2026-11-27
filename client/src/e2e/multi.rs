@@ -40,7 +40,7 @@ use crate::ui::menus::servers::{
     read_servers, ServerItem, EMPTY_SERVER_NAME, SERVER_EXISTS, SERVER_NAME_EXISTS,
 };
 use crate::ui::menus::MenuState;
-use crate::ui::theme::RAISE_HOVER;
+use crate::ui::theme;
 use crate::ui::widgets::dialog::DialogRoot;
 use crate::ui::widgets::hints::HintBar;
 use crate::ui::widgets::list::cards_of;
@@ -772,11 +772,11 @@ fn hovering_a_card_or_a_button_lightens_it() {
     };
     h.hover(&card("Creative"));
     h.frames(1);
-    assert_eq!(background(&mut h, &card("Creative")), RAISE_HOVER);
+    assert_eq!(background(&mut h, &card("Creative")), theme::raise_hover());
     let add_server = L::role(Role::Button, "Add server");
     h.hover(&add_server);
     h.frames(1);
-    assert_eq!(background(&mut h, &add_server), RAISE_HOVER);
+    assert_eq!(background(&mut h, &add_server), theme::raise_hover());
 }
 
 #[test]

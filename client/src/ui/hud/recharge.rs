@@ -10,7 +10,7 @@ use crate::i18n::{tr, trf};
 use crate::network::buffered_client::CurrentFrameInputs;
 use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
-use crate::ui::theme::{BEVEL_LO, RETICLE};
+use crate::ui::theme;
 
 /// The size of the gauge, in logical px, and how far under the middle of the screen it is.
 const GAUGE_WIDTH: f32 = 24.0;
@@ -53,7 +53,7 @@ pub fn spawn_recharge_gauge(mut commands: Commands) {
             padding: UiRect::all(px(1.0)),
             ..default()
         },
-        BackgroundColor(BEVEL_LO),
+        BackgroundColor(theme::bevel_lo()),
         Visibility::Hidden,
         Pickable::IGNORE,
         children![(
@@ -63,7 +63,7 @@ pub fn spawn_recharge_gauge(mut commands: Commands) {
                 height: percent(100.),
                 ..default()
             },
-            BackgroundColor(RETICLE),
+            BackgroundColor(theme::reticle()),
             Pickable::IGNORE,
         )],
     ));

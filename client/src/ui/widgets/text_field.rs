@@ -17,10 +17,12 @@ use bevy::{
 };
 
 use super::{focus::FocusRing, sunken_bevel};
-use crate::ui::theme::{ACCENT, BEVEL_WIDTH, DANGER, FONT_S, MUTED, SLOT, SPACE_S, SPACE_XS, TEXT};
+use crate::ui::theme;
 
-/// The height of the line a field keeps for its error: one line of `FONT_S`.
-const ERROR_LINE_HEIGHT: f32 = FONT_S * 1.2;
+/// The height of the line a field keeps for its error: one line of `theme::font_s()`.
+fn error_line_height() -> f32 {
+    theme::font_s() * 1.2
+}
 
 /// What `spawn_text_field` builds.
 pub struct TextField<'a> {
@@ -90,7 +92,7 @@ pub fn spawn_text_field(commands: &mut Commands, field: &TextField) -> TextField
         .spawn(Node {
             width: percent(100),
             flex_direction: FlexDirection::Column,
-            row_gap: px(SPACE_XS),
+            row_gap: px(theme::space_xs()),
             ..default()
         })
         .id();
@@ -98,11 +100,11 @@ pub fn spawn_text_field(commands: &mut Commands, field: &TextField) -> TextField
         .spawn((
             FocusRing,
             Node {
-                border: UiRect::all(px(BEVEL_WIDTH)),
-                padding: UiRect::all(px(SPACE_S)),
+                border: UiRect::all(px(theme::bevel_width())),
+                padding: UiRect::all(px(theme::space_s())),
                 ..default()
             },
-            BackgroundColor(SLOT),
+            BackgroundColor(theme::slot()),
             sunken_bevel(),
             ChildOf(root),
         ))
@@ -118,10 +120,10 @@ pub fn spawn_text_field(commands: &mut Commands, field: &TextField) -> TextField
                 ..default()
             },
             font.clone(),
-            TextColor(TEXT),
+            TextColor(theme::text()),
             TextCursorStyle {
-                color: TEXT,
-                selection_color: ACCENT.with_alpha(0.4),
+                color: theme::text(),
+                selection_color: theme::accent().with_alpha(0.4),
                 unfocused_selection_color: Color::NONE,
                 selected_text_color: None,
             },
@@ -142,11 +144,11 @@ pub fn spawn_text_field(commands: &mut Commands, field: &TextField) -> TextField
         .spawn((
             Text::new(field.placeholder),
             font,
-            TextColor(MUTED),
+            TextColor(theme::muted()),
             Node {
                 position_type: PositionType::Absolute,
-                left: px(SPACE_S),
-                top: px(SPACE_S),
+                left: px(theme::space_s()),
+                top: px(theme::space_s()),
                 ..default()
             },
             // a click on the placeholder reaches the field under it
@@ -159,10 +161,10 @@ pub fn spawn_text_field(commands: &mut Commands, field: &TextField) -> TextField
             Text::default(),
             TextFont {
                 font: field.font.clone().into(),
-                font_size: px(FONT_S).into(),
+                font_size: px(theme::font_s()).into(),
                 ..default()
             },
-            TextColor(DANGER),
+            TextColor(theme::danger()),
         ))
         .id();
     if field.reserve_error {
@@ -171,7 +173,7 @@ pub fn spawn_text_field(commands: &mut Commands, field: &TextField) -> TextField
         let line = commands
             .spawn((
                 Node {
-                    height: px(ERROR_LINE_HEIGHT),
+                    height: px(error_line_height()),
                     overflow: Overflow::clip(),
                     ..default()
                 },
@@ -179,7 +181,7 @@ pub fn spawn_text_field(commands: &mut Commands, field: &TextField) -> TextField
             ))
             .id();
         commands.entity(message).insert((
-            LineHeight::Px(ERROR_LINE_HEIGHT),
+            LineHeight::Px(error_line_height()),
             TextLayout {
                 linebreak: LineBreak::NoWrap,
                 ..default()
@@ -330,7 +332,7 @@ fn show_errors(
     for (error, parts) in &fields {
         if let Ok(mut border) = borders.get_mut(parts.frame) {
             *border = match error.0 {
-                Some(_) => BorderColor::all(DANGER),
+                Some(_) => BorderColor::all(theme::danger()),
                 None => sunken_bevel(),
             };
         }

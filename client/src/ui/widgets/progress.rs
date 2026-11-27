@@ -5,7 +5,7 @@ use accesskit::Role;
 use bevy::{a11y::AccessibilityNode, prelude::*, ui::UiSystems};
 
 use super::sunken_bevel;
-use crate::ui::theme::{BEVEL_WIDTH, OK, SLOT};
+use crate::ui::theme;
 
 /// The height of a progress bar, its bevel included.
 const PROGRESS_HEIGHT: f32 = 12.0;
@@ -18,7 +18,8 @@ pub struct ProgressBar(pub f32);
 #[derive(Component)]
 struct ProgressFill;
 
-/// A 12 px sunken `SLOT` track with an `OK` fill, `Role::ProgressIndicator` labelled `label`.
+/// A 12 px sunken `theme::slot()` track with an `theme::ok()` fill, `Role::ProgressIndicator`
+/// labelled `label`.
 pub fn progress_bar(label: &str) -> impl Bundle {
     let mut node = accesskit::Node::new(Role::ProgressIndicator);
     node.set_min_numeric_value(0.0);
@@ -30,10 +31,10 @@ pub fn progress_bar(label: &str) -> impl Bundle {
         AccessibleLabel::new(label),
         Node {
             height: px(PROGRESS_HEIGHT),
-            border: UiRect::all(px(BEVEL_WIDTH)),
+            border: UiRect::all(px(theme::bevel_width())),
             ..default()
         },
-        BackgroundColor(SLOT),
+        BackgroundColor(theme::slot()),
         sunken_bevel(),
         children![(
             ProgressFill,
@@ -42,7 +43,7 @@ pub fn progress_bar(label: &str) -> impl Bundle {
                 height: percent(100),
                 ..default()
             },
-            BackgroundColor(OK),
+            BackgroundColor(theme::ok()),
         )],
     )
 }

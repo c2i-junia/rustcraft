@@ -12,7 +12,7 @@ use super::{column_of, MinimapCoords, MinimapImage, MinimapView};
 use crate::camera::CameraController;
 use crate::mob::MobRoot;
 use crate::player::CurrentPlayerMarker;
-use crate::ui::theme::{ACCENT, BEVEL_LO, DANGER, TEXT};
+use crate::ui::theme;
 
 /// The arrow of the player pointing north, from its top row: `#` its outline, `a` its fill.
 const ARROW: [&str; 9] = [
@@ -46,8 +46,8 @@ pub fn arrow_image(images: &mut Assets<Image>) -> (Handle<Image>, Vec2) {
         .iter()
         .flat_map(|row| row.chars())
         .flat_map(|pixel| match pixel {
-            '#' => srgba(BEVEL_LO),
-            'a' => srgba(ACCENT),
+            '#' => srgba(theme::bevel_lo()),
+            'a' => srgba(theme::accent()),
             _ => [0; 4],
         })
         .collect();
@@ -178,7 +178,7 @@ pub fn place_minimap_dots(
             continue;
         }
         let corner = dot_corner(map_offset(position, center, zoom), held);
-        let color = if held { TEXT } else { DANGER };
+        let color = if held { theme::text() } else { theme::danger() };
         commands.spawn((
             MinimapDot { target },
             Node {
@@ -191,7 +191,7 @@ pub fn place_minimap_dots(
                 ..default()
             },
             BackgroundColor(color),
-            BorderColor::all(BEVEL_LO),
+            BorderColor::all(theme::bevel_lo()),
             if corner.is_some() {
                 Visibility::Inherited
             } else {

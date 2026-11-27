@@ -15,15 +15,15 @@ use bevy::{
     prelude::*,
 };
 
-use crate::ui::theme::{ACCENT, FOCUS_RING_OFFSET, FOCUS_RING_WIDTH};
+use crate::ui::theme;
 
 /// A ring around the entity while the focus is on it or on one of its descendants and the focus
 /// is visible (after a key, not after a click). The ring is the `Outline`, whose colour is
 /// toggled, because Bevy asks not to add and remove the component.
 #[derive(Component)]
 #[require(Outline = Outline {
-    width: px(FOCUS_RING_WIDTH),
-    offset: px(FOCUS_RING_OFFSET),
+    width: px(theme::focus_ring_width()),
+    offset: px(theme::focus_ring_offset()),
     color: Color::NONE,
 })]
 pub struct FocusRing;
@@ -65,7 +65,7 @@ fn show_focus_ring(
 ) {
     for (entity, mut outline) in &mut rings {
         let color = if focus.is_focus_within_visible(entity) {
-            ACCENT
+            theme::accent()
         } else {
             Color::NONE
         };
@@ -133,7 +133,7 @@ mod tests {
     use bevy::input_focus::{InputFocus, InputFocusVisible};
 
     use super::*;
-    use crate::ui::theme::ACCENT;
+    use crate::ui::theme;
 
     fn ring_color(app: &App, entity: Entity) -> Color {
         app.world().get::<Outline>(entity).unwrap().color
@@ -152,7 +152,7 @@ mod tests {
 
         app.insert_resource(InputFocus::from_entity(child));
         app.update();
-        assert_eq!(ring_color(&app, parent), ACCENT);
+        assert_eq!(ring_color(&app, parent), theme::accent());
 
         app.world_mut().resource_mut::<InputFocusVisible>().0 = false;
         app.update();

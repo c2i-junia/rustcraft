@@ -9,7 +9,7 @@ use bevy::{
 use shared::world::{ItemId, ItemType, DROPPED_ITEM_SIZE};
 use std::collections::HashMap;
 
-use crate::ui::theme::EXPERIENCE;
+use crate::ui::theme;
 use crate::world::{meshing::block_item_mesh, ChunkMaterial, GlobalMaterial, MaterialResource};
 
 /// Edge of the picture of an item that is not drawn as a cube, in blocks.
@@ -64,8 +64,8 @@ impl OrbLook {
                     mesh.merge(&bar).expect("cuboids share their attributes");
                 }
                 let material = StandardMaterial {
-                    base_color: EXPERIENCE,
-                    emissive: EXPERIENCE.to_linear() * 0.6,
+                    base_color: theme::experience(),
+                    emissive: theme::experience().to_linear() * 0.6,
                     ..default()
                 };
                 (meshes.add(mesh), materials.add(material))

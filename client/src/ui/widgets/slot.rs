@@ -13,10 +13,7 @@ use bevy::{
 };
 
 use super::focus::FocusRing;
-use crate::ui::theme::{
-    ACCENT, BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, DANGER, EXPERIENCE_HI, EXPERIENCE_LO, FONT_S, MUTED,
-    OK, RAISE_HOVER, SLOT, TEXT,
-};
+use crate::ui::theme;
 use shared::world::ItemStack;
 
 /// The side of a slot, in logical px.
@@ -63,7 +60,7 @@ pub fn slot_node() -> Node {
     Node {
         width: px(SLOT_SIZE),
         height: px(SLOT_SIZE),
-        border: UiRect::all(px(BEVEL_WIDTH)),
+        border: UiRect::all(px(theme::bevel_width())),
         justify_content: JustifyContent::Center,
         align_items: AlignItems::Center,
         ..default()
@@ -92,18 +89,18 @@ pub fn slot_count(font: Handle<Font>) -> impl Bundle {
         Text::new(""),
         TextFont {
             font: font.into(),
-            font_size: px(FONT_S).into(),
+            font_size: px(theme::font_s()).into(),
             ..default()
         },
-        TextColor(TEXT),
+        TextColor(theme::text()),
         TextShadow {
             offset: Vec2::splat(2.0),
-            color: BEVEL_LO,
+            color: theme::bevel_lo(),
         },
         Node {
             position_type: PositionType::Absolute,
-            right: px(BEVEL_WIDTH),
-            bottom: px(BEVEL_WIDTH),
+            right: px(theme::bevel_width()),
+            bottom: px(theme::bevel_width()),
             ..default()
         },
         Pickable::IGNORE,
@@ -116,13 +113,13 @@ pub fn slot_durability() -> impl Bundle {
         SlotDurability,
         Node {
             position_type: PositionType::Absolute,
-            left: px((SLOT_SIZE - 2.0 * BEVEL_WIDTH - ICON_SIZE) / 2.0),
-            bottom: px(BEVEL_WIDTH),
+            left: px((SLOT_SIZE - 2.0 * theme::bevel_width() - ICON_SIZE) / 2.0),
+            bottom: px(theme::bevel_width()),
             width: px(ICON_SIZE),
             height: px(DURABILITY_BAR_HEIGHT),
             ..default()
         },
-        BackgroundColor(OK),
+        BackgroundColor(theme::ok()),
         Visibility::Hidden,
         Pickable::IGNORE,
     )
@@ -134,15 +131,15 @@ pub fn slot_gem() -> impl Bundle {
         SlotGem,
         Node {
             position_type: PositionType::Absolute,
-            right: px(BEVEL_WIDTH + 2.0),
-            top: px(BEVEL_WIDTH + 2.0),
+            right: px(theme::bevel_width() + 2.0),
+            top: px(theme::bevel_width() + 2.0),
             width: px(GEM_SIZE),
             height: px(GEM_SIZE),
             border: UiRect::all(px(1.0)),
             ..default()
         },
-        BackgroundColor(EXPERIENCE_HI),
-        BorderColor::all(EXPERIENCE_LO),
+        BackgroundColor(theme::experience_hi()),
+        BorderColor::all(theme::experience_lo()),
         UiTransform::from_rotation(Rot2::degrees(45.0)),
         Visibility::Hidden,
         Pickable::IGNORE,
@@ -160,11 +157,11 @@ pub fn durability_bar(stack: &ItemStack) -> Option<(f32, Color)> {
     let (wear, durability) = tool_wear(stack).filter(|&(wear, _)| wear > 0)?;
     let left = durability.saturating_sub(wear) as f32 / durability as f32;
     let color = if left > 0.5 {
-        OK
+        theme::ok()
     } else if left > 0.25 {
-        ACCENT
+        theme::accent()
     } else {
-        DANGER
+        theme::danger()
     };
     Some((left, color))
 }
@@ -186,19 +183,19 @@ pub fn slot(label: &str, number: Option<u32>, icon: ImageNode, font: Handle<Font
             Text::new(number.to_string()),
             TextFont {
                 font: font.clone().into(),
-                font_size: px(FONT_S).into(),
+                font_size: px(theme::font_s()).into(),
                 ..default()
             },
-            TextColor(MUTED),
+            TextColor(theme::muted()),
             // Read over any icon, as the count is
             TextShadow {
                 offset: Vec2::splat(2.0),
-                color: BEVEL_LO,
+                color: theme::bevel_lo(),
             },
             Node {
                 position_type: PositionType::Absolute,
-                left: px(BEVEL_WIDTH),
-                top: px(BEVEL_WIDTH),
+                left: px(theme::bevel_width()),
+                top: px(theme::bevel_width()),
                 ..default()
             },
             Pickable::IGNORE,
@@ -244,7 +241,7 @@ pub struct ActionRefused {
 
 /// How far a refused slot moves to each side, in logical px.
 pub const SHAKE_AMPLITUDE: f32 = 3.0;
-/// How long a refused slot shakes, its border in `DANGER`.
+/// How long a refused slot shakes, its border in `theme::danger()`.
 pub const SHAKE_DURATION: Duration = Duration::from_millis(240);
 /// One move left and right: three of them in a shake.
 const SHAKE_PERIOD: Duration = Duration::from_millis(80);
@@ -278,8 +275,8 @@ fn start_refusal_shakes(
     }
 }
 
-/// Moves the shaking slots and keeps their border in `DANGER`; once a shake is over, the slot
-/// goes back to its place and its look.
+/// Moves the shaking slots and keeps their border in `theme::danger()`; once a shake is over, the
+/// slot goes back to its place and its look.
 fn shake_refused_slots(
     time: Res<Time<Real>>,
     mut commands: Commands,
@@ -302,22 +299,26 @@ fn shake_refused_slots(
             border.set_if_neq(slot_colors(hovered.0, selected.0).1);
             commands.entity(slot).try_remove::<RefusalShake>();
         } else {
-            border.set_if_neq(BorderColor::all(DANGER));
+            border.set_if_neq(BorderColor::all(theme::danger()));
         }
     }
 }
 
 /// The background and the border of a slot in a given state.
 fn slot_colors(hovered: bool, selected: bool) -> (Color, BorderColor) {
-    let background = if hovered { RAISE_HOVER } else { SLOT };
+    let background = if hovered {
+        theme::raise_hover()
+    } else {
+        theme::slot()
+    };
     let border = if selected {
-        BorderColor::all(ACCENT)
+        BorderColor::all(theme::accent())
     } else {
         BorderColor {
-            top: BEVEL_LO,
-            left: BEVEL_LO,
-            bottom: BEVEL_HI,
-            right: BEVEL_HI,
+            top: theme::bevel_lo(),
+            left: theme::bevel_lo(),
+            bottom: theme::bevel_hi(),
+            right: theme::bevel_hi(),
         }
     };
     (background, border)
@@ -381,21 +382,29 @@ mod tests {
     fn the_durability_bar_turns_from_green_to_red() {
         let durability = tool(0).item_id.tool().unwrap().durability;
         let color = |wear| durability_bar(&tool(wear)).unwrap().1;
-        assert_eq!(color(1), OK);
-        assert_eq!(color(durability * 2 / 3), ACCENT);
-        assert_eq!(color(durability - 1), DANGER);
+        assert_eq!(color(1), theme::ok());
+        assert_eq!(color(durability * 2 / 3), theme::accent());
+        assert_eq!(color(durability - 1), theme::danger());
     }
 
     #[test]
     fn a_slot_is_sunken_lightens_on_hover_and_takes_the_accent_when_selected() {
         let (background, border) = slot_colors(false, false);
-        assert_eq!(background, SLOT);
+        assert_eq!(background, theme::slot());
         assert_eq!(
             [border.top, border.left, border.bottom, border.right],
-            [BEVEL_LO, BEVEL_LO, BEVEL_HI, BEVEL_HI]
+            [
+                theme::bevel_lo(),
+                theme::bevel_lo(),
+                theme::bevel_hi(),
+                theme::bevel_hi()
+            ]
         );
-        assert_eq!(slot_colors(true, false).0, RAISE_HOVER);
-        assert_eq!(slot_colors(false, true).1, BorderColor::all(ACCENT));
+        assert_eq!(slot_colors(true, false).0, theme::raise_hover());
+        assert_eq!(
+            slot_colors(false, true).1,
+            BorderColor::all(theme::accent())
+        );
     }
 
     #[test]
@@ -404,7 +413,10 @@ mod tests {
             assert_eq!((ICON_SIZE * scale) % 16.0, 0.0, "scale {scale}");
         }
         // the icon is centred on whole pixels
-        assert_eq!((SLOT_SIZE - ICON_SIZE - 2.0 * BEVEL_WIDTH) % 2.0, 0.0);
+        assert_eq!(
+            (SLOT_SIZE - ICON_SIZE - 2.0 * theme::bevel_width()) % 2.0,
+            0.0
+        );
     }
 
     #[test]
@@ -465,11 +477,20 @@ mod tests {
         run_for(&mut app, 20);
 
         // A quarter of a period in: the furthest right
-        assert_eq!(look_of(&app, slot), (3.0, BorderColor::all(DANGER)));
+        assert_eq!(
+            look_of(&app, slot),
+            (3.0, BorderColor::all(theme::danger()))
+        );
         run_for(&mut app, 40);
-        assert_eq!(look_of(&app, slot), (-3.0, BorderColor::all(DANGER)));
+        assert_eq!(
+            look_of(&app, slot),
+            (-3.0, BorderColor::all(theme::danger()))
+        );
         run_for(&mut app, 180);
-        assert_eq!(look_of(&app, slot), (0.0, BorderColor::all(ACCENT)));
+        assert_eq!(
+            look_of(&app, slot),
+            (0.0, BorderColor::all(theme::accent()))
+        );
         assert!(app.world().get::<RefusalShake>(slot).is_none());
     }
 
@@ -492,7 +513,10 @@ mod tests {
         app.world_mut()
             .write_message(ActionRefused { slot: Some(slot) });
         run_for(&mut app, 20);
-        assert_eq!(look_of(&app, slot), (3.0, BorderColor::all(DANGER)));
+        assert_eq!(
+            look_of(&app, slot),
+            (3.0, BorderColor::all(theme::danger()))
+        );
     }
 
     #[test]

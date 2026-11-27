@@ -32,9 +32,7 @@ use crate::ui::menus::MenuState;
 use crate::ui::settings::{
     FpsCounterChoice, InterfaceSettings, InventoryTweaksChoice, UiScaleChoice,
 };
-use crate::ui::theme::{
-    BEVEL_HI, BEVEL_LO, DANGER, FOCUS_RING_OFFSET, FOCUS_RING_WIDTH, MUTED, RAISE_HOVER,
-};
+use crate::ui::theme;
 use crate::ui::widgets::hints::HintBar;
 use crate::world::clouds::mesh::CloudStyle;
 use crate::world::clouds::Clouds;
@@ -807,15 +805,15 @@ fn every_control_of_the_settings_lightens_on_hover() {
     let audio = L::role(Role::Tab, "Audio");
     h.hover(&audio);
     h.frames(2);
-    assert_eq!(background(&mut h, &audio), RAISE_HOVER);
+    assert_eq!(background(&mut h, &audio), theme::raise_hover());
     let back = L::role(Role::Button, "Back");
     h.hover(&back);
     h.frames(2);
-    assert_eq!(background(&mut h, &back), RAISE_HOVER);
+    assert_eq!(background(&mut h, &back), theme::raise_hover());
     let slot = L::role(Role::Button, "Jump, primary key");
     h.hover(&slot);
     h.frames(2);
-    assert_eq!(background(&mut h, &slot), RAISE_HOVER);
+    assert_eq!(background(&mut h, &slot), theme::raise_hover());
 }
 
 #[test]
@@ -1003,14 +1001,24 @@ fn a_key_slot_sinks_while_pressed_and_space_starts_its_capture_like_a_button() {
         [border.top, border.left, border.bottom, border.right]
     };
     let secondary = key_slot("Move forward", "secondary");
-    let raised = [BEVEL_HI, BEVEL_HI, BEVEL_LO, BEVEL_LO];
+    let raised = [
+        theme::bevel_hi(),
+        theme::bevel_hi(),
+        theme::bevel_lo(),
+        theme::bevel_lo(),
+    ];
     assert_eq!(edges(&mut h, &secondary), raised);
     // the bevel inverts while the button is down, and the release starts the capture
     h.mouse_down(&secondary);
     h.frames(1);
     assert_eq!(
         edges(&mut h, &secondary),
-        [BEVEL_LO, BEVEL_LO, BEVEL_HI, BEVEL_HI]
+        [
+            theme::bevel_lo(),
+            theme::bevel_lo(),
+            theme::bevel_hi(),
+            theme::bevel_hi()
+        ]
     );
     h.mouse_up();
     h.wait_for(&L::text(PRESS_A_KEY), SCREEN);
@@ -1159,9 +1167,18 @@ fn a_key_bound_twice_is_shown_on_both_rows_and_reset_restores_the_defaults() {
         h.world().get::<BorderColor>(entity).unwrap().top
     };
     h.frames(2);
-    assert_eq!(border(&mut h, &key_slot("Jump", "secondary")), DANGER);
-    assert_eq!(border(&mut h, &key_slot("Move forward", "primary")), DANGER);
-    assert_ne!(border(&mut h, &key_slot("Jump", "primary")), DANGER);
+    assert_eq!(
+        border(&mut h, &key_slot("Jump", "secondary")),
+        theme::danger()
+    );
+    assert_eq!(
+        border(&mut h, &key_slot("Move forward", "primary")),
+        theme::danger()
+    );
+    assert_ne!(
+        border(&mut h, &key_slot("Jump", "primary")),
+        theme::danger()
+    );
     // and shown again when the tab is; the reset button is only on the Controls tab
     let reset = L::role(Role::Button, "Reset to defaults");
     h.open_tab_showing("Audio", &master());
@@ -1171,7 +1188,10 @@ fn a_key_bound_twice_is_shown_on_both_rows_and_reset_restores_the_defaults() {
         &L::text("W is also bound to Move forward").within(L::row("Jump")),
     );
     h.frames(2);
-    assert_eq!(border(&mut h, &key_slot("Jump", "secondary")), DANGER);
+    assert_eq!(
+        border(&mut h, &key_slot("Jump", "secondary")),
+        theme::danger()
+    );
     // beside Back, on the right
     let (reset_at, back_at) = (
         h.center_of(&reset),
@@ -1214,7 +1234,10 @@ fn a_key_bound_twice_is_shown_on_both_rows_and_reset_restores_the_defaults() {
     assert!(!h.is_visible(&dialog()));
     assert_eq!(h.focus_label().as_deref(), Some("Reset to defaults"));
     assert!(!h.is_visible(&any_conflict));
-    assert_ne!(border(&mut h, &key_slot("Jump", "secondary")), DANGER);
+    assert_ne!(
+        border(&mut h, &key_slot("Jump", "secondary")),
+        theme::danger()
+    );
     let saved: KeyMap = h.saved(BINDS_PATH);
     assert_eq!(saved.map, default_bindings().map);
 }
@@ -1389,7 +1412,7 @@ fn the_focused_slot_and_its_ring_stay_in_view() {
     h.frames(2);
     assert_eq!(h.focus_label().as_deref(), Some("Inventory, primary key"));
     let scale = h.world().resource::<UiScale>().0;
-    let ring = (FOCUS_RING_WIDTH + FOCUS_RING_OFFSET) * scale;
+    let ring = (theme::focus_ring_width() + theme::focus_ring_offset()) * scale;
     let slot = rect_of(&mut h, &key_slot("Inventory", "primary")).inflate(ring);
     let list = rect_of(&mut h, &L::marker::<ScrollArea>());
     let inside = |r: Rect| list.contains(r.min + 0.5) && list.contains(r.max - 0.5);
@@ -1427,10 +1450,10 @@ fn the_wheel_scrolls_the_controls_list_under_the_cursor() {
     let moved = thumb_rect(&mut h);
     assert!(moved.min.y > thumb.min.y, "{thumb:?} then {moved:?}");
     // the thumb stands out from its track, and lightens under the cursor
-    assert_eq!(thumb_fill(&mut h), BEVEL_HI);
+    assert_eq!(thumb_fill(&mut h), theme::bevel_hi());
     h.hover_at(moved.center());
     h.frames(2);
-    assert_eq!(thumb_fill(&mut h), MUTED);
+    assert_eq!(thumb_fill(&mut h), theme::muted());
 
     // over the tabs, the wheel moves nothing
     h.hover(&L::role(Role::Tab, "Audio"));

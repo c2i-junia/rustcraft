@@ -22,7 +22,7 @@ use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::menus::pause::PauseMenu;
 use crate::ui::menus::settings::controls::key_label;
 use crate::ui::settings::{HintsChoice, InterfaceSettings};
-use crate::ui::theme::{FONT_S, PANEL, SPACE_S, SPACE_XS, TEXT};
+use crate::ui::theme;
 use crate::ui::widgets::hints::key_cap;
 
 const FADE_SECONDS: f32 = 0.6;
@@ -207,12 +207,12 @@ fn show_step(
             ChildOf(*corner),
             Node {
                 width: px(WIDTH),
-                padding: UiRect::all(px(SPACE_S)),
+                padding: UiRect::all(px(theme::space_s())),
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_XS),
+                row_gap: px(theme::space_xs()),
                 ..default()
             },
-            BackgroundColor(PANEL.with_alpha(0.0)),
+            BackgroundColor(theme::panel().with_alpha(0.0)),
             Pickable::IGNORE,
             DespawnOnExit(GameState::Game),
         ))
@@ -220,7 +220,7 @@ fn show_step(
     let caps = commands
         .spawn((
             Node {
-                column_gap: px(SPACE_XS),
+                column_gap: px(theme::space_xs()),
                 ..default()
             },
             Pickable::IGNORE,
@@ -250,10 +250,10 @@ fn show_step(
                     Text::new(tr(text)),
                     TextFont {
                         font: font.clone().into(),
-                        font_size: px(FONT_S).into(),
+                        font_size: px(theme::font_s()).into(),
                         ..default()
                     },
-                    TextColor(TEXT),
+                    TextColor(theme::text()),
                     Pickable::IGNORE,
                     ChildOf(hint),
                 ));

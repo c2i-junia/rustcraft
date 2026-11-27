@@ -43,10 +43,7 @@ use crate::network::{TargetServer, TargetServerState};
 use crate::state::GameState;
 use crate::ui::assets::FONT_PATH;
 use crate::ui::menus::modal_open;
-use crate::ui::theme::{
-    BEVEL_WIDTH, DANGER, FONT_L, FONT_M, FONT_S, MUTED, PANEL, SPACE_L, SPACE_M, SPACE_S, SPACE_XL,
-    SPACE_XS, TEXT,
-};
+use crate::ui::theme;
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::focus::ArrowNav;
 use crate::ui::widgets::hints::{Hint, HINT_BAR_HEIGHT};
@@ -89,8 +86,8 @@ pub enum ServerAction {
     Remove,
 }
 
-/// The line under the buttons of the detail pane: why an action failed (`DANGER`), or the host a
-/// join is looking up (`MUTED`); hidden while it is empty.
+/// The line under the buttons of the detail pane: why an action failed (`theme::danger()`), or the
+/// host a join is looking up (`theme::muted()`); hidden while it is empty.
 #[derive(Component)]
 pub struct ServerError;
 
@@ -250,12 +247,12 @@ fn multi_setup(end: Option<Res<SessionEnd>>, mut commands: Commands, assets: Res
                 height: percent(100),
                 flex_direction: FlexDirection::Column,
                 padding: UiRect {
-                    left: px(SPACE_XL),
-                    right: px(SPACE_XL),
-                    top: px(SPACE_XL),
-                    bottom: px(HINT_BAR_HEIGHT + SPACE_XL),
+                    left: px(theme::space_xl()),
+                    right: px(theme::space_xl()),
+                    top: px(theme::space_xl()),
+                    bottom: px(HINT_BAR_HEIGHT + theme::space_xl()),
                 },
-                row_gap: px(SPACE_M),
+                row_gap: px(theme::space_m()),
                 ..default()
             },
             ChildOf(root),
@@ -266,7 +263,7 @@ fn multi_setup(end: Option<Res<SessionEnd>>, mut commands: Commands, assets: Res
         .spawn((
             Node {
                 align_items: AlignItems::Center,
-                column_gap: px(SPACE_S),
+                column_gap: px(theme::space_s()),
                 ..default()
             },
             ChildOf(content),
@@ -297,7 +294,7 @@ fn multi_setup(end: Option<Res<SessionEnd>>, mut commands: Commands, assets: Res
             Node {
                 flex_grow: 1.0,
                 min_height: px(0),
-                column_gap: px(SPACE_L),
+                column_gap: px(theme::space_l()),
                 ..default()
             },
             ChildOf(content),
@@ -347,12 +344,12 @@ fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>)
                 flex_shrink: 0.0,
                 flex_direction: FlexDirection::Column,
                 justify_content: JustifyContent::SpaceBetween,
-                padding: UiRect::all(px(SPACE_L)),
-                border: UiRect::all(px(BEVEL_WIDTH)),
-                row_gap: px(SPACE_L),
+                padding: UiRect::all(px(theme::space_l())),
+                border: UiRect::all(px(theme::bevel_width())),
+                row_gap: px(theme::space_l()),
                 ..default()
             },
-            BackgroundColor(PANEL),
+            BackgroundColor(theme::panel()),
             raised_bevel(),
             ChildOf(body),
         ))
@@ -361,7 +358,7 @@ fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>)
         ServerFacts,
         Node {
             flex_direction: FlexDirection::Column,
-            row_gap: px(SPACE_XS),
+            row_gap: px(theme::space_xs()),
             min_width: px(0),
             ..default()
         },
@@ -371,7 +368,7 @@ fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>)
         .spawn((
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_S),
+                row_gap: px(theme::space_s()),
                 ..default()
             },
             ChildOf(pane),
@@ -382,7 +379,7 @@ fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>)
             ArrowNav,
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_S),
+                row_gap: px(theme::space_s()),
                 ..default()
             },
             ChildOf(actions),
@@ -396,7 +393,7 @@ fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>)
     let pair = commands
         .spawn((
             Node {
-                column_gap: px(SPACE_S),
+                column_gap: px(theme::space_s()),
                 ..default()
             },
             ChildOf(buttons),
@@ -422,7 +419,7 @@ fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>)
     }
     commands.spawn((
         ServerError,
-        text("", FONT_S, DANGER, font),
+        text("", theme::font_s(), theme::danger(), font),
         Node {
             display: Display::None,
             ..default()
@@ -448,18 +445,21 @@ fn show_empty(
                 flex_direction: FlexDirection::Column,
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
-                row_gap: px(SPACE_S),
+                row_gap: px(theme::space_s()),
                 ..default()
             },
             ChildOf(list),
             children![
-                text(title, FONT_L, TEXT, font),
-                text(line, FONT_S, MUTED, font),
+                text(title, theme::font_l(), theme::text(), font),
+                text(line, theme::font_s(), theme::muted(), font),
             ],
         ))
         .id();
     if let Some(message) = error {
-        commands.spawn((text(message, FONT_S, DANGER, font), ChildOf(empty)));
+        commands.spawn((
+            text(message, theme::font_s(), theme::danger(), font),
+            ChildOf(empty),
+        ));
     }
 }
 
@@ -504,12 +504,12 @@ fn show_servers(
                             flex_direction: FlexDirection::Column,
                             flex_grow: 1.0,
                             min_width: px(0),
-                            row_gap: px(SPACE_XS),
+                            row_gap: px(theme::space_xs()),
                             ..default()
                         },
                         children![
-                            boxed(text(&server.name, FONT_M, TEXT, font)),
-                            boxed(text(&server.ip, FONT_S, MUTED, font)),
+                            boxed(text(&server.name, theme::font_m(), theme::text(), font)),
+                            boxed(text(&server.ip, theme::font_s(), theme::muted(), font)),
                         ],
                     ),
                 ],
@@ -536,14 +536,14 @@ fn show_detail(
             .spawn((text(content, size, color, font), ChildOf(facts)))
             .id()
     };
-    show(&server.name, FONT_L, TEXT);
-    show(&server.ip, FONT_S, MUTED);
-    let headline = show(&headline, FONT_M, color);
+    show(&server.name, theme::font_l(), theme::text());
+    show(&server.ip, theme::font_s(), theme::muted());
+    let headline = show(&headline, theme::font_m(), color);
     if !line.is_empty() {
-        show(&line, FONT_S, MUTED);
+        show(&line, theme::font_s(), theme::muted());
     }
     commands.entity(headline).insert(Node {
-        margin: UiRect::top(px(SPACE_S)),
+        margin: UiRect::top(px(theme::space_s())),
         ..default()
     });
 }
@@ -586,7 +586,7 @@ fn show_server_error(errors: &mut ErrorLines, message: Option<(String, Color)>) 
         } else {
             Display::None
         };
-        let (content, tint) = message.clone().unwrap_or((String::new(), DANGER));
+        let (content, tint) = message.clone().unwrap_or((String::new(), theme::danger()));
         text.0 = content;
         color.0 = tint;
     }
@@ -712,7 +712,9 @@ fn show_changed_servers(
     }
     show_server_error(
         &mut errors,
-        changed.error.map(|error| (error.to_string(), DANGER)),
+        changed
+            .error
+            .map(|error| (error.to_string(), theme::danger())),
     );
 }
 
@@ -756,8 +758,12 @@ fn start_join(
     let Ok(address) = parse_server_address(&server.ip) else {
         return;
     };
-    let looking_up =
-        (!address.is_ip()).then(|| (trf("servers.looking_up", &[("host", &address.host)]), MUTED));
+    let looking_up = (!address.is_ip()).then(|| {
+        (
+            trf("servers.looking_up", &[("host", &address.host)]),
+            theme::muted(),
+        )
+    });
     show_server_error(errors, looking_up);
     let host = address.host.clone();
     commands.entity(root).insert(PendingJoin {
@@ -820,7 +826,7 @@ fn finish_join(
             Err(e) => {
                 warn!("Cannot find the server {:?}: {e}", join.host);
                 let message = trf("servers.cannot_find", &[("host", &join.host)]);
-                show_server_error(&mut errors, Some((message, DANGER)));
+                show_server_error(&mut errors, Some((message, theme::danger())));
             }
         }
     }

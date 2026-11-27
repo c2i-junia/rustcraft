@@ -33,14 +33,11 @@ use crate::ui::hud::codex::text::LinkHost;
 use crate::ui::hud::codex::CodexPage;
 use crate::ui::hud::inventory::{grid_in_use, lit_flame, stack_in};
 use crate::ui::hud::{item_name, CraftResultCell, InventoryCell, InventoryRoot, UIMode};
-use crate::ui::theme::{
-    BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, DANGER, DISABLED_ALPHA, FONT_M, FONT_S, MUTED, OK, PANEL,
-    RAISE, SLOT, SPACE_S, SPACE_XS, TEXT,
-};
+use crate::ui::theme;
 use crate::ui::widgets::button::set_label;
 use crate::ui::widgets::focus::FocusRing;
 use crate::ui::widgets::hints::key_cap;
-use crate::ui::widgets::list::{spawn_scroll_list, ScrollListParts, WheelStep, RING_ROOM};
+use crate::ui::widgets::list::{ring_room, spawn_scroll_list, ScrollListParts, WheelStep};
 use crate::ui::widgets::slot::{slot, SlotIcon, ICON_SIZE, SLOT_SIZE};
 use crate::ui::widgets::toast::{show_toast, ToastKind};
 use crate::ui::widgets::tooltip::Tooltip;
@@ -64,7 +61,7 @@ pub const MISSING_TINT: Color = Color::srgba(0.89, 0.35, 0.25, 0.32);
 pub const FILL_GRID: &str = "browser.fill_grid";
 /// The text of a disabled `+ Fill grid`.
 fn fill_disabled_text() -> Color {
-    MUTED.with_alpha(DISABLED_ALPHA * 2.0)
+    theme::muted().with_alpha(theme::disabled_alpha() * 2.0)
 }
 /// The fill of an enabled `+ Fill grid` under the cursor, as the mockup.
 const OK_HOVER: Color = Color::srgb_u8(0x8F, 0xD8, 0x77);
@@ -102,18 +99,18 @@ fn small_button(text: &str, color: Color, font: &Handle<Font>) -> impl Bundle {
         Hovered::default(),
         Node {
             flex_shrink: 0.0,
-            padding: UiRect::axes(px(SPACE_S), px(2)),
-            border: UiRect::all(px(BEVEL_WIDTH)),
+            padding: UiRect::axes(px(theme::space_s()), px(2)),
+            border: UiRect::all(px(theme::bevel_width())),
             ..default()
         },
-        BackgroundColor(RAISE),
+        BackgroundColor(theme::raise()),
         BorderColor {
-            top: BEVEL_HI,
-            left: BEVEL_HI,
-            bottom: BEVEL_LO,
-            right: BEVEL_LO,
+            top: theme::bevel_hi(),
+            left: theme::bevel_hi(),
+            bottom: theme::bevel_lo(),
+            right: theme::bevel_lo(),
         },
-        children![label(text, font, FONT_S, color)],
+        children![label(text, font, theme::font_s(), color)],
     )
 }
 
@@ -134,7 +131,7 @@ pub fn spawn_recipe_panel(
                 flex_direction: FlexDirection::Column,
                 flex_grow: 1.0,
                 min_height: px(0),
-                row_gap: px(SPACE_S),
+                row_gap: px(theme::space_s()),
                 ..default()
             },
             ChildOf(panel),
@@ -144,10 +141,10 @@ pub fn spawn_recipe_panel(
     commands.spawn((
         Node {
             align_items: AlignItems::Center,
-            column_gap: px(SPACE_S),
+            column_gap: px(theme::space_s()),
             // the room of the focus ring of the back button
-            padding: UiRect::all(px(RING_ROOM)),
-            margin: UiRect::all(px(-RING_ROOM)),
+            padding: UiRect::all(px(ring_room())),
+            margin: UiRect::all(px(-ring_room())),
             ..default()
         },
         ChildOf(view),
@@ -155,7 +152,7 @@ pub fn spawn_recipe_panel(
             (
                 BackButton,
                 RecipeStop,
-                small_button(tr("browser.back_to_items"), TEXT, font)
+                small_button(tr("browser.back_to_items"), theme::text(), font)
             ),
             key_cap("Esc", font.clone(), glyph_font.clone()),
         ],
@@ -165,7 +162,7 @@ pub fn spawn_recipe_panel(
         .with_child((
             Node {
                 align_items: AlignItems::Center,
-                column_gap: px(SPACE_S),
+                column_gap: px(theme::space_s()),
                 ..default()
             },
             Pickable::IGNORE,
@@ -188,43 +185,49 @@ pub fn spawn_recipe_panel(
                     },
                     Pickable::IGNORE,
                     children![
-                        (ViewedItemName, label("", font, FONT_M, TEXT)),
-                        (ViewedItemCategory, label("", font, FONT_S, MUTED)),
+                        (
+                            ViewedItemName,
+                            label("", font, theme::font_m(), theme::text())
+                        ),
+                        (
+                            ViewedItemCategory,
+                            label("", font, theme::font_s(), theme::muted())
+                        ),
                     ],
                 ),
             ],
         ))
         .with_child((
             Node {
-                column_gap: px(SPACE_XS),
-                row_gap: px(SPACE_XS),
+                column_gap: px(theme::space_xs()),
+                row_gap: px(theme::space_xs()),
                 // three tabs in a narrow drawer, or in French
                 flex_wrap: FlexWrap::Wrap,
-                padding: UiRect::all(px(RING_ROOM)),
-                margin: UiRect::all(px(-RING_ROOM)),
+                padding: UiRect::all(px(ring_room())),
+                margin: UiRect::all(px(-ring_room())),
                 ..default()
             },
             children![
                 (
                     RecipeTabChip(RecipeTab::Recipes),
                     RecipeStop,
-                    small_button(tr("browser.recipes"), MUTED, font),
+                    small_button(tr("browser.recipes"), theme::muted(), font),
                 ),
                 (
                     RecipeTabChip(RecipeTab::Uses),
                     RecipeStop,
-                    small_button(tr("browser.uses"), MUTED, font)
+                    small_button(tr("browser.uses"), theme::muted(), font)
                 ),
                 (
                     RecipeTabChip(RecipeTab::Sheet),
                     RecipeStop,
-                    small_button(tr("browser.sheet"), MUTED, font)
+                    small_button(tr("browser.sheet"), theme::muted(), font)
                 ),
             ],
         ));
 
     let ScrollListParts { frame, well, list } =
-        spawn_scroll_list(commands, WheelStep::Px(SLOT_SIZE + SPACE_XS));
+        spawn_scroll_list(commands, WheelStep::Px(SLOT_SIZE + theme::space_xs()));
     commands.entity(frame).insert(ChildOf(view));
     // the cards sit on the panel: no well around them
     commands
@@ -240,8 +243,8 @@ pub fn spawn_recipe_panel(
         LinkHost::Browser,
         Node {
             flex_direction: FlexDirection::Column,
-            row_gap: px(SPACE_S),
-            padding: UiRect::vertical(px(RING_ROOM)),
+            row_gap: px(theme::space_s()),
+            padding: UiRect::vertical(px(ring_room())),
             ..default()
         },
         ChildOf(list),
@@ -253,7 +256,7 @@ fn dashes() -> impl Iterator<Item = (Node, BackgroundColor, Pickable)> {
     (0..5).flat_map(|index| {
         let along = px(index as f32 * DASH_PERIOD);
         let dash = |node: Node| (node, BackgroundColor(DASH), Pickable::IGNORE);
-        let (long, thin) = (px(DASH_LENGTH), px(BEVEL_WIDTH));
+        let (long, thin) = (px(DASH_LENGTH), px(theme::bevel_width()));
         [
             dash(Node {
                 position_type: PositionType::Absolute,
@@ -354,7 +357,7 @@ fn empty_cell() -> impl Bundle {
             flex_shrink: 0.0,
             ..default()
         },
-        BackgroundColor(SLOT.with_alpha(0.5)),
+        BackgroundColor(theme::slot().with_alpha(0.5)),
         Pickable::IGNORE,
         Children::spawn(SpawnIter(dashes())),
     )
@@ -370,17 +373,17 @@ fn spawn_card_frame(commands: &mut Commands, cards: Entity, name: String) -> (En
             AccessibleLabel::new(name),
             Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(SPACE_S),
-                padding: UiRect::axes(px(SPACE_XS), px(SPACE_S)),
-                border: UiRect::all(px(BEVEL_WIDTH)),
+                row_gap: px(theme::space_s()),
+                padding: UiRect::axes(px(theme::space_xs()), px(theme::space_s())),
+                border: UiRect::all(px(theme::bevel_width())),
                 ..default()
             },
             BackgroundColor(CARD),
             BorderColor {
-                top: BEVEL_LO,
-                left: BEVEL_LO,
-                bottom: BEVEL_HI,
-                right: BEVEL_HI,
+                top: theme::bevel_lo(),
+                left: theme::bevel_lo(),
+                bottom: theme::bevel_hi(),
+                right: theme::bevel_hi(),
             },
             ChildOf(cards),
         ))
@@ -389,7 +392,7 @@ fn spawn_card_frame(commands: &mut Commands, cards: Entity, name: String) -> (En
         .spawn((
             Node {
                 align_items: AlignItems::Center,
-                column_gap: px(SPACE_XS),
+                column_gap: px(theme::space_xs()),
                 ..default()
             },
             ChildOf(card),
@@ -401,7 +404,7 @@ fn spawn_card_frame(commands: &mut Commands, cards: Entity, name: String) -> (En
 /// The arrow of a card, from its ingredients to its output.
 fn card_arrow(font: &Handle<Font>) -> impl Bundle {
     (
-        label("->", font, FONT_M, MUTED),
+        label("->", font, theme::font_m(), theme::muted()),
         TextLayout {
             linebreak: LineBreak::NoWrap,
             ..default()
@@ -477,15 +480,15 @@ fn spawn_card(
             flex_wrap: FlexWrap::Wrap,
             justify_content: JustifyContent::SpaceBetween,
             align_items: AlignItems::Center,
-            column_gap: px(SPACE_S),
-            row_gap: px(SPACE_XS),
+            column_gap: px(theme::space_s()),
+            row_gap: px(theme::space_xs()),
             ..default()
         },
         ChildOf(card),
         children![
             (
                 RecipeNote(recipe.index),
-                label(station_label(recipe), font, FONT_S, MUTED),
+                label(station_label(recipe), font, theme::font_s(), theme::muted()),
             ),
             (
                 FillGridButton(recipe.index),
@@ -579,7 +582,10 @@ fn spawn_smelting_card(
         atlas,
         font,
     );
-    commands.spawn((label(&smelting_note(), font, FONT_S, MUTED), ChildOf(card)));
+    commands.spawn((
+        label(&smelting_note(), font, theme::font_s(), theme::muted()),
+        ChildOf(card),
+    ));
 }
 
 /// A card of `item` burning in the furnace, `ticks` long: how many items it smelts after the
@@ -595,8 +601,14 @@ fn spawn_fuel_card(
     let name = card_label(&BrowserCard::Fuel { item, ticks });
     let (card, body) =
         spawn_furnace_card(commands, cards, name, None, Some(item), atlas, font, assets);
-    commands.spawn((label(&burns_for(ticks), font, FONT_S, TEXT), ChildOf(body)));
-    commands.spawn((label(&fuel_note(ticks), font, FONT_S, MUTED), ChildOf(card)));
+    commands.spawn((
+        label(&burns_for(ticks), font, theme::font_s(), theme::text()),
+        ChildOf(body),
+    ));
+    commands.spawn((
+        label(&fuel_note(ticks), font, theme::font_s(), theme::muted()),
+        ChildOf(card),
+    ));
 }
 
 /// A card of the alembic making `output` of `vial` with `ingredient`: the ingredient over the
@@ -640,7 +652,7 @@ fn spawn_distilling_card(
     commands.spawn((card_arrow(font), ChildOf(body)));
     slot(commands, output);
     commands.spawn((
-        label(&distilling_note(ingredient), font, FONT_S, MUTED),
+        label(&distilling_note(ingredient), font, theme::font_s(), theme::muted()),
         ChildOf(card),
     ));
 }
@@ -817,7 +829,12 @@ pub fn show_view(
     let shown = cards_of(view);
     if shown.is_empty() {
         commands.spawn((
-            label(&empty_view_message(view), &font, FONT_S, TEXT),
+            label(
+                &empty_view_message(view),
+                &font,
+                theme::font_s(),
+                theme::text(),
+            ),
             ChildOf(cards),
         ));
     }
@@ -908,8 +925,8 @@ pub fn style_recipe_cards(
     for (note, mut text, mut color) in &mut notes {
         let recipe = &all[note.0 as usize];
         let (content, tone) = match recipe_problem(&inventory, recipe, grid_size) {
-            Some(problem) => (problem, DANGER),
-            None => (station_label(recipe).to_string(), MUTED),
+            Some(problem) => (problem, theme::danger()),
+            None => (station_label(recipe).to_string(), theme::muted()),
         };
         if text.0 != content {
             text.0 = content;
@@ -950,11 +967,15 @@ pub fn style_fill_buttons(
 ) {
     for (hovered, disabled, mut background, mut border, children) in &mut buttons {
         let (fill, edge, text) = if disabled {
-            (RAISE, bevel(BEVEL_HI, BEVEL_LO), fill_disabled_text())
+            (
+                theme::raise(),
+                bevel(theme::bevel_hi(), theme::bevel_lo()),
+                fill_disabled_text(),
+            )
         } else if hovered.get() {
-            (OK_HOVER, bevel(OK_HI, OK_LO), PANEL)
+            (OK_HOVER, bevel(OK_HI, OK_LO), theme::panel())
         } else {
-            (OK, bevel(OK_HI, OK_LO), PANEL)
+            (theme::ok(), bevel(OK_HI, OK_LO), theme::panel())
         };
         background.set_if_neq(BackgroundColor(fill));
         border.set_if_neq(edge);
@@ -1276,7 +1297,11 @@ mod tests {
                 Node::default(),
             ));
         }
-        world.spawn((RecipeNote(pickaxe.index), Text::default(), TextColor(TEXT)));
+        world.spawn((
+            RecipeNote(pickaxe.index),
+            Text::default(),
+            TextColor(theme::text()),
+        ));
         let (planks, stick) = (
             Ingredient::Tag(ItemTag::Planks),
             Ingredient::Item(ItemId::Stick),
@@ -1290,25 +1315,33 @@ mod tests {
             (
                 vec![planks, planks, planks, stick, stick],
                 "Missing 1 Planks, 2 Stick".to_string(),
-                DANGER
+                theme::danger()
             )
         );
         put(&mut world, 5, ItemId::OakPlanks, 5);
         assert_eq!(
             styled(&mut world),
-            (vec![stick, stick], "Missing 2 Stick".to_string(), DANGER)
+            (
+                vec![stick, stick],
+                "Missing 2 Stick".to_string(),
+                theme::danger()
+            )
         );
 
         put(&mut world, grid_slot(0, 0), ItemId::Stick, 2);
         assert_eq!(
             styled(&mut world),
-            (vec![], "Needs a Crafting Table".to_string(), DANGER)
+            (
+                vec![],
+                "Needs a Crafting Table".to_string(),
+                theme::danger()
+            )
         );
 
         world.resource_mut::<Inventory>().open_table = Some(IVec3::ZERO);
         assert_eq!(
             styled(&mut world),
-            (vec![], "Crafting Table 3x3".to_string(), MUTED)
+            (vec![], "Crafting Table 3x3".to_string(), theme::muted())
         );
     }
 

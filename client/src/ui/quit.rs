@@ -19,9 +19,7 @@ use crate::network::{finish_stopping_local_server, LocalServerHandle};
 use crate::state::GameState;
 use crate::ui::assets::FONT_PATH;
 use crate::ui::hud::UiDialog;
-use crate::ui::theme::{
-    BEVEL_LO, BEVEL_WIDTH, FONT_L, FONT_S, MUTED, PANEL, SPACE_S, SPACE_XL, TEXT,
-};
+use crate::ui::theme;
 use crate::ui::widgets::dialog::DIALOG_Z;
 use crate::ui::widgets::raised_bevel;
 
@@ -192,25 +190,33 @@ pub fn spawn_quitting_card(commands: &mut Commands, assets: &AssetServer) -> Ent
                 align_items: AlignItems::Center,
                 ..default()
             },
-            BackgroundColor(BEVEL_LO.with_alpha(0.7)),
+            BackgroundColor(theme::bevel_lo().with_alpha(0.7)),
             GlobalZIndex(DIALOG_Z + 10),
         ))
         .id();
     commands.spawn((
         Node {
             flex_direction: FlexDirection::Column,
-            row_gap: px(SPACE_S),
-            padding: UiRect::all(px(SPACE_XL)),
-            border: UiRect::all(px(BEVEL_WIDTH)),
+            row_gap: px(theme::space_s()),
+            padding: UiRect::all(px(theme::space_xl())),
+            border: UiRect::all(px(theme::bevel_width())),
             max_width: percent(90),
             ..default()
         },
-        BackgroundColor(PANEL),
+        BackgroundColor(theme::panel()),
         raised_bevel(),
         ChildOf(root),
         children![
-            text(crate::i18n::tr(QUITTING_TITLE), FONT_L, TEXT),
-            text(crate::i18n::tr(QUIT_NOW_NOTE), FONT_S, MUTED),
+            text(
+                crate::i18n::tr(QUITTING_TITLE),
+                theme::font_l(),
+                theme::text()
+            ),
+            text(
+                crate::i18n::tr(QUIT_NOW_NOTE),
+                theme::font_s(),
+                theme::muted()
+            ),
         ],
     ));
     root

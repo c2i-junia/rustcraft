@@ -19,7 +19,7 @@ use crate::player::skin::{load_skin_choice, ChosenSkin, SkinChoice};
 use crate::player::CurrentPlayerMarker;
 use crate::ui::menus::skins::{SkinName, SkinPreview, SkinPreviewModel, IMPORT_NOTE, SKINS_TITLE};
 use crate::ui::menus::MenuState;
-use crate::ui::theme::SLOT;
+use crate::ui::theme;
 
 fn chosen(h: &Harness) -> SkinChoice {
     h.world().resource::<ChosenSkin>().choice.clone()
@@ -33,7 +33,12 @@ fn paths(h: &Harness) -> GameFolderPaths {
 fn model_pixels(h: &mut Harness) -> usize {
     let rect = h.rect_of(&L::marker::<SkinPreview>());
     let shot = h.screenshot();
-    let ground = Vec3::from_array(SLOT.to_srgba().to_u8_array_no_alpha().map(f32::from));
+    let ground = Vec3::from_array(
+        theme::slot()
+            .to_srgba()
+            .to_u8_array_no_alpha()
+            .map(f32::from),
+    );
     let mut count = 0;
     for y in rect.min.y as u32..rect.max.y as u32 {
         for x in rect.min.x as u32..rect.max.x as u32 {

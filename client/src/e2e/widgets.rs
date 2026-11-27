@@ -27,7 +27,7 @@ use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::menus::QUIT_TITLE;
-use crate::ui::theme::{ACCENT, BEVEL_HI, BEVEL_LO, DANGER, RAISE_HOVER, SPACE_L, SPACE_S};
+use crate::ui::theme;
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::dialog::{
     close_dialog, spawn_dialog, spawn_form_dialog, Dialog, DialogClosed, DialogParts, DialogRoot,
@@ -36,7 +36,7 @@ use crate::ui::widgets::dialog::{
 use crate::ui::widgets::focus::{ArrowNav, FocusRing};
 use crate::ui::widgets::hints::{key_cap, Hint, HintBar};
 use crate::ui::widgets::list::{
-    spawn_list_card, spawn_scroll_list, CardSelected, ListCard, WheelStep, RING_ROOM,
+    ring_room, spawn_list_card, spawn_scroll_list, CardSelected, ListCard, WheelStep,
 };
 use crate::ui::widgets::segmented::{spawn_segmented, Segment, SegmentChange, Segmented};
 use crate::ui::widgets::slider::{
@@ -164,7 +164,7 @@ fn the_focus_ring_follows_tab_and_hides_on_click() {
             .query_filtered::<(Entity, &Outline), With<FocusRing>>();
         outlines
             .iter(h.world())
-            .filter(|(_, o)| o.color == ACCENT)
+            .filter(|(_, o)| o.color == theme::accent())
             .map(|(e, _)| e)
             .collect()
     };
@@ -310,7 +310,7 @@ fn hovering_a_themed_button_lightens_it() {
     h.frames(2);
     assert_eq!(
         h.world().get::<BackgroundColor>(play).unwrap().0,
-        RAISE_HOVER
+        theme::raise_hover()
     );
 }
 
@@ -470,7 +470,7 @@ fn an_error_shows_under_the_field_with_a_red_bevel() {
         .entity_mut(parts.input)
         .insert(FieldError(Some("Bad name".into())));
     h.wait_for(&L::text("Bad name"), SCREEN);
-    assert_eq!(border_of(&mut h, frame), [DANGER; 4]);
+    assert_eq!(border_of(&mut h, frame), [theme::danger(); 4]);
     h.world_mut()
         .entity_mut(parts.input)
         .insert(FieldError(None));
@@ -478,7 +478,12 @@ fn an_error_shows_under_the_field_with_a_red_bevel() {
     assert!(!h.is_visible(&L::text("Bad name")));
     assert_eq!(
         border_of(&mut h, frame),
-        [BEVEL_LO, BEVEL_LO, BEVEL_HI, BEVEL_HI]
+        [
+            theme::bevel_lo(),
+            theme::bevel_lo(),
+            theme::bevel_hi(),
+            theme::bevel_hi()
+        ]
     );
 }
 
@@ -500,7 +505,7 @@ fn a_click_focuses_the_field_and_shows_its_ring_after_tab() {
     h.press(KeyCode::Tab);
     h.frames(1);
     assert_eq!(focused(&mut h), parts.input);
-    assert_eq!(ring(&mut h), ACCENT);
+    assert_eq!(ring(&mut h), theme::accent());
 }
 
 #[test]
@@ -597,11 +602,11 @@ fn hovering_a_slot_lightens_it() {
     h.frames(2);
     assert_eq!(
         h.world().get::<BackgroundColor>(slot).unwrap().0,
-        RAISE_HOVER
+        theme::raise_hover()
     );
     h.world_mut().entity_mut(slot).insert(SlotSelected(true));
     h.frames(1);
-    assert_eq!(border_of(&mut h, slot), [ACCENT; 4]);
+    assert_eq!(border_of(&mut h, slot), [theme::accent(); 4]);
 }
 
 #[test]
@@ -660,7 +665,7 @@ fn a_screenshot_shows_the_tooltip_of_the_hovered_element() {
     let shot = h.screenshot();
     // The middle of the top bevel of the tooltip
     let pixel = shot.get_pixel(center.x as u32, (center.y - size.y / 2.0) as u32 + 1);
-    assert_eq!(pixel.0, BEVEL_HI.to_srgba().to_u8_array_no_alpha());
+    assert_eq!(pixel.0, theme::bevel_hi().to_srgba().to_u8_array_no_alpha());
 }
 
 #[test]
@@ -1390,7 +1395,10 @@ fn a_segment_is_chosen_by_click_and_by_arrows() {
     let checked: Vec<_> = checked.iter(h.world()).map(|s| s.0).collect();
     assert_eq!(checked, [3]);
     let two = h.get(&L::role(Role::RadioButton, "2"));
-    assert_eq!(h.world().get::<BackgroundColor>(two).unwrap().0, ACCENT);
+    assert_eq!(
+        h.world().get::<BackgroundColor>(two).unwrap().0,
+        theme::accent()
+    );
     h.press(KeyCode::ArrowLeft);
     h.frames(1);
     assert_eq!(changes(&mut h), [3, 2]);
@@ -1399,7 +1407,7 @@ fn a_segment_is_chosen_by_click_and_by_arrows() {
     let three = h.get(&L::role(Role::RadioButton, "3"));
     assert_eq!(
         h.world().get::<BackgroundColor>(three).unwrap().0,
-        RAISE_HOVER
+        theme::raise_hover()
     );
 }
 
@@ -1431,7 +1439,10 @@ fn tabs_switch_by_click_and_by_arrows() {
     h.hover(&L::role(Role::Tab, "C"));
     h.frames(2);
     let c = h.get(&L::role(Role::Tab, "C"));
-    assert_eq!(h.world().get::<BackgroundColor>(c).unwrap().0, RAISE_HOVER);
+    assert_eq!(
+        h.world().get::<BackgroundColor>(c).unwrap().0,
+        theme::raise_hover()
+    );
 }
 
 /// The labels of the cards the card list of a test reported as selected.
@@ -1530,7 +1541,7 @@ fn rect_of_entity(h: &Harness, entity: Entity) -> Rect {
 /// Asserts that card `n` and its focus ring lie inside the list.
 #[track_caller]
 fn assert_ring_in_list(h: &mut Harness, n: usize, list: Entity) {
-    let ring = RING_ROOM * h.world().resource::<UiScale>().0;
+    let ring = ring_room() * h.world().resource::<UiScale>().0;
     let entity = h.get(&card(n));
     let (card, list) = (
         rect_of_entity(h, entity).inflate(ring),
@@ -1629,9 +1640,9 @@ fn hovering_a_card_lightens_it_and_the_selected_one_has_an_accent_border() {
     h.frames(2);
     assert_eq!(
         h.world().get::<BackgroundColor>(three).unwrap().0,
-        RAISE_HOVER
+        theme::raise_hover()
     );
-    assert_eq!(border_of(&mut h, two), [ACCENT; 4]);
+    assert_eq!(border_of(&mut h, two), [theme::accent(); 4]);
 }
 
 #[test]
@@ -1687,8 +1698,8 @@ fn toast(h: &mut Harness, text: &'static str, kind: ToastKind) -> Entity {
     toast
 }
 
-/// Checks that the toast `first` shows `SPACE_L` from the top-right corner of the window, and
-/// `second` `SPACE_S` below it.
+/// Checks that the toast `first` shows `theme::space_l()` from the top-right corner of the window,
+/// and `second` `theme::space_s()` below it.
 #[track_caller]
 fn assert_toasts_top_right(h: &mut Harness, first: Entity, second: Entity) {
     assert!(h.is_visible(&L::role(Role::Status, "Hello")));
@@ -1702,17 +1713,17 @@ fn assert_toasts_top_right(h: &mut Harness, first: Entity, second: Entity) {
         .physical_width() as f32;
     let first_rect = rect_of_entity(h, first);
     assert!(
-        (window - first_rect.max.x - SPACE_L * scale).abs() < 1.0,
+        (window - first_rect.max.x - theme::space_l() * scale).abs() < 1.0,
         "{first_rect:?} in a window {window} px wide"
     );
     assert!(
-        (first_rect.min.y - SPACE_L * scale).abs() < 1.0,
+        (first_rect.min.y - theme::space_l() * scale).abs() < 1.0,
         "{first_rect:?}"
     );
     let second_rect = rect_of_entity(h, second);
     assert!(first_rect.intersect(second_rect).is_empty());
     assert!(
-        (second_rect.min.y - first_rect.max.y - SPACE_S * scale).abs() < 1.0,
+        (second_rect.min.y - first_rect.max.y - theme::space_s() * scale).abs() < 1.0,
         "{first_rect:?} then {second_rect:?}"
     );
 }

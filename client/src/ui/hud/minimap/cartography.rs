@@ -34,9 +34,7 @@ use crate::state::GameState;
 use crate::ui::assets::FONT_PATH;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::UiDialog;
-use crate::ui::theme::{
-    ACCENT, BEVEL_LO, BEVEL_WIDTH, DANGER, FONT_M, FONT_S, PANEL, SPACE_S, TEXT,
-};
+use crate::ui::theme;
 use crate::ui::widgets::button::ButtonVariant;
 use crate::ui::widgets::dialog::{
     close_dialog, spawn_form_dialog, CloseRequest, Dialog, DialogSubmit,
@@ -167,7 +165,7 @@ pub fn marks_of(view: &WaypointsView) -> Vec<Mark> {
     let mut marks = vec![Mark {
         kind: MarkKind::Home,
         at: centre(view.home),
-        color: ACCENT,
+        color: theme::accent(),
         label: tr(if view.bedroll {
             "waypoint.bedroll"
         } else {
@@ -180,7 +178,7 @@ pub fn marks_of(view: &WaypointsView) -> Vec<Mark> {
         marks.push(Mark {
             kind: MarkKind::Death,
             at: centre(death),
-            color: DANGER,
+            color: theme::danger(),
             label: tr("waypoint.death").to_string(),
         });
     }
@@ -225,7 +223,7 @@ fn mark_node(mark: &Mark) -> impl Bundle {
             ..default()
         },
         BackgroundColor(mark.color),
-        BorderColor::all(BEVEL_LO),
+        BorderColor::all(theme::bevel_lo()),
     )
 }
 
@@ -294,10 +292,10 @@ fn spawn_held_map(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
         Name::new("Held map"),
         Node {
             position_type: PositionType::Absolute,
-            right: px(SPACE_S * 2.0),
-            bottom: px(SPACE_S * 2.0),
-            padding: UiRect::all(px(SPACE_S)),
-            border: UiRect::all(px(BEVEL_WIDTH)),
+            right: px(theme::space_s() * 2.0),
+            bottom: px(theme::space_s() * 2.0),
+            padding: UiRect::all(px(theme::space_s())),
+            border: UiRect::all(px(theme::bevel_width())),
             display: Display::None,
             ..default()
         },
@@ -563,13 +561,13 @@ fn place_world_map_marks(
                     Text::new(mark.label.clone()),
                     TextFont {
                         font: font.clone().into(),
-                        font_size: px(FONT_S).into(),
+                        font_size: px(theme::font_s()).into(),
                         ..default()
                     },
-                    TextColor(TEXT),
+                    TextColor(theme::text()),
                     TextShadow {
                         offset: Vec2::splat(1.0),
-                        color: BEVEL_LO,
+                        color: theme::bevel_lo(),
                     },
                     Node {
                         position_type: PositionType::Absolute,
@@ -678,7 +676,7 @@ fn open_marker_editor(
             placeholder: "",
             max_characters: Some(MAX_MARKER_NAME),
             font: font.clone(),
-            font_size: FONT_M,
+            font_size: theme::font_m(),
             reserve_error: false,
         },
     );
@@ -705,7 +703,7 @@ fn open_marker_editor(
             .spawn((
                 Node {
                     flex_direction: FlexDirection::Row,
-                    column_gap: px(SPACE_S),
+                    column_gap: px(theme::space_s()),
                     ..default()
                 },
                 AccessibleLabel::new(tr("marker.color")),
@@ -720,11 +718,11 @@ fn open_marker_editor(
                     Node {
                         width: px(24),
                         height: px(24),
-                        border: UiRect::all(px(BEVEL_WIDTH)),
+                        border: UiRect::all(px(theme::bevel_width())),
                         ..default()
                     },
                     BackgroundColor(Color::srgb_u8(r, g, b)),
-                    BorderColor::all(if index == 0 { TEXT } else { PANEL }),
+                    BorderColor::all(if index == 0 { theme::text() } else { theme::panel() }),
                     ChildOf(row),
                 ))
                 .observe(
@@ -736,9 +734,9 @@ fn open_marker_editor(
                         }
                         for (entity, mut border) in &mut swatches {
                             *border = BorderColor::all(if entity == click.entity {
-                                TEXT
+                                theme::text()
                             } else {
-                                PANEL
+                                theme::panel()
                             });
                         }
                     },
