@@ -22,6 +22,7 @@ uuid = { version = "1", default-features = false }
 
 [dev-dependencies]
 ron = "0.6"
+serde_json = "1"
 
 [features]
 # Fixtures to build worlds in the tests of the crates that depend on this one.
