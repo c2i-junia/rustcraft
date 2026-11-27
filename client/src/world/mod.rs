@@ -85,7 +85,10 @@ pub fn world_plugin(app: &mut App) {
         // Whatever the state: the first chunks arrive while the game loads
         .add_systems(
             Update,
-            (update_climate_map_system, apply_graphics_settings_system),
+            (
+                update_climate_map_system,
+                (apply_graphics_settings_system, night_vision_system).chain(),
+            ),
         )
         .add_systems(
             OnEnter(GameState::Game),
