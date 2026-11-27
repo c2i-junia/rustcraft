@@ -41,28 +41,28 @@
 		</table>
 	</div>
 	<ul>
-		<li>Swords sweep: a full blow on the ground also hits the creatures within 2 blocks in front, for a third of the damage.</li>
+		<li>Swords sweep: a full blow on the ground also hits the creatures within 2 blocks of the target, in front of you, for a third of the damage.</li>
 		<li>The <ItemLink id="Spear" /> reaches 5 blocks instead of 3.</li>
 		<li>The <ItemLink id="Mace" /> knocks creatures back more than twice as far.</li>
-		<li>Axes do half again their damage to Stumplings, and knock a raised shield down.</li>
+		<li>Axes do half again their damage to Stumplings, and knock their guard aside for four seconds.</li>
 	</ul>
 
 	<h2>Ranged weapons</h2>
 	<dl class="ranged">
 		<dt><ItemLink id="Bow" /></dt>
 		<dd>
-			Hold to draw, up to one second, then release. A full draw does 9 damage, a quick one as little as 1;
+			Hold to draw, up to one second, then release. A full draw does 9 damage, a quick one as little as 2;
 			<a href="/enchanting">Bow Power</a> adds 1 per level. Each shot uses an <ItemLink id="Arrow" />, and
 			you walk slower while drawing.
 		</dd>
 		<dt><ItemLink id="Crossbow" /></dt>
 		<dd>Loads in 1.25 s and shoots a <ItemLink id="Bolt" /> for 11 damage, which pierces two creatures.</dd>
 		<dt><ItemLink id="ThrowingAxe" /></dt>
-		<dd>Wind up for 0.6 s and throw it for 3 to 8 damage; pick it up where it lands.</dd>
+		<dd>Wind up for 0.6 s and throw it for 4 to 8 damage; pick it up where it lands.</dd>
 		<dt><ItemLink id="Shield" /></dt>
 		<dd>
 			Raised with the use button, it stops the blows and arrows that come from the front. It wears by the
-			damage it stops, and an axe or a Roller's charge knocks it down for five seconds.
+			damage it stops, and a Roller's charge or the Ember Mother's blow knocks it down for five seconds.
 		</dd>
 	</dl>
 </Page>

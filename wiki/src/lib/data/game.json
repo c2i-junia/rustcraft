@@ -20948,7 +20948,7 @@
       "foodEffect": {
         "effect": "Regeneration",
         "level": 1,
-        "seconds": 160
+        "seconds": 8.0
       },
       "fuelSeconds": null,
       "horseArmour": null,
@@ -21250,7 +21250,7 @@
       "foodEffect": {
         "effect": "Regeneration",
         "level": 2,
-        "seconds": 200
+        "seconds": 10.0
       },
       "fuelSeconds": null,
       "horseArmour": null,

@@ -55,7 +55,7 @@
 	</p>
 
 	<h2>Horse armour</h2>
-	<p>A tamed horse wears it in the armour slot of its inventory. Each point absorbs 4 % of the damage it takes.</p>
+	<p>Use it on a horse you tamed to put it on. Each point absorbs 4 % of the damage it takes.</p>
 	<table>
 		<thead><tr><th>Armour</th><th class="n">Points</th><th class="n">Absorbs</th></tr></thead>
 		<tbody>
@@ -64,7 +64,7 @@
 			{/each}
 		</tbody>
 	</table>
-	<p>Horse armour is not crafted: it is found in the chests of dungeons.</p>
+	<p>Horse armour is crafted, and some is found in the chests of dungeons.</p>
 </Page>
 
 <style>

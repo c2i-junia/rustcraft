@@ -73,7 +73,7 @@
 
 	<h2>Your name and skin</h2>
 	<p>
-		The game asks for your name on the first launch. The button under the version on the main menu
+		The game asks for your name on the first launch. The button with your name on the main menu
 		changes it. A name has 1 to 32 characters. Other players see it, and every world keeps your
 		inventory and position under it: a new name starts afresh.
 	</p>

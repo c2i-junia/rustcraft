@@ -71,7 +71,7 @@ fn main() {
                 "attackDamage": id.attack_damage(),
                 "durability": id.durability(),
                 "food": id.food_value().map(|(hunger, saturation)| json!({ "hunger": hunger, "saturation": saturation })),
-                "foodEffect": id.food_effect().map(|(kind, level, s)| json!({ "effect": format!("{kind:?}"), "level": level, "seconds": s })),
+                "foodEffect": id.food_effect().map(|(kind, level, ticks)| json!({ "effect": format!("{kind:?}"), "level": level, "seconds": seconds(ticks) })),
                 "eatenRemains": id.eaten_remains().map(|i| format!("{i:?}")),
                 "tool": id.tool().map(|t| json!({
                     "kind": format!("{:?}", t.kind),

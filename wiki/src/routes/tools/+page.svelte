@@ -11,7 +11,7 @@
 <Page
 	title="Tools"
 	description="Rustcraft's tool tiers from wood to diamond: mining speed, durability, which blocks each pickaxe harvests."
-	kicker="A tool breaks the blocks it is made for faster, and wears by 1 for each."
+	kicker="A tool breaks the blocks it is made for faster, and wears with each block it breaks."
 >
 	{#snippet icon()}<Slot id="IronPickaxe" big link={false} />{/snippet}
 

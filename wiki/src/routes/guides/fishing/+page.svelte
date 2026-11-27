@@ -29,7 +29,7 @@
 			Wait. A fish bites after <strong>5 to 25 seconds</strong>: the float dips under the surface.
 		</li>
 		<li>
-			Use the rod again <strong>during the bite</strong>, which lasts under a second. Too early or
+			Use the rod again <strong>during the bite</strong>, which lasts about a second. Too early or
 			too late, the line comes back empty.
 		</li>
 	</ol>
