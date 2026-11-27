@@ -10,7 +10,7 @@ use bevy::a11y::AccessibilityNode;
 use bevy::prelude::*;
 use shared::players::inventory::{FURNACE_FUEL_SLOT, FURNACE_INPUT_SLOT, FURNACE_OUTPUT_SLOT};
 use shared::players::Inventory;
-use shared::world::{Furnace, Station, COOK_TICKS};
+use shared::world::{Furnace, Station};
 
 use super::setup::icon;
 use super::{FurnaceRow, InventoryCell};
@@ -66,12 +66,6 @@ pub fn flame_rows(furnace: &Furnace) -> u32 {
     let total = furnace.burn_total.max(furnace.burn_left);
     let left = f32::from(furnace.burn_left) / f32::from(total);
     (left * (FLAME_TEXELS - 1) as f32).ceil() as u32 + 1
-}
-
-/// The columns of the arrow shown from its left, as Minecraft draws it: as far as the input has
-/// cooked.
-pub fn arrow_columns(furnace: &Furnace) -> u32 {
-    arrow_columns_of(furnace, COOK_TICKS)
 }
 
 /// The columns of the arrow of a furnace that makes a thing in `work_ticks`: an alembic's
@@ -282,7 +276,13 @@ pub fn display_furnace_system(
 mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
-    use shared::world::{BlockId, ChunkMap};
+    use shared::world::{BlockId, ChunkMap, COOK_TICKS};
+
+    /// The columns of the arrow of a furnace, shown from its left as Minecraft draws it: as far
+    /// as the input has cooked.
+    fn arrow_columns(furnace: &Furnace) -> u32 {
+        arrow_columns_of(furnace, COOK_TICKS)
+    }
 
     fn burning(burn_left: u16, burn_total: u16) -> Furnace {
         Furnace {
