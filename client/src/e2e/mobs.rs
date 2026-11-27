@@ -501,7 +501,8 @@ fn a_cow_held_rye_eats_one_and_hearts_rise_over_it() {
     });
     h.press(KeyCode::Digit2);
     h.frames(2);
-    // The cow may walk: it is looked at again before each try, for as long as a server may take
+    // The cow may walk: it is looked at again before each try, for as long as a server may take,
+    // and walked to when it went out of reach (3 blocks from the eye to its box)
     let start = Instant::now();
     while slot(h.world(), 1) != Some((ItemId::Rye, 4)) {
         assert!(start.elapsed() < SERVER, "no rye eaten");
@@ -511,6 +512,13 @@ fn a_cow_held_rye_eats_one_and_hearts_rise_over_it() {
             .unwrap()
             .1;
         look_at(&mut h, cow);
+        let me = player_position(h.world_mut());
+        if cow.xz().distance(me.xz()) > 2.0 {
+            h.key_down(KeyCode::KeyW);
+            h.frames(2);
+            h.key_up(KeyCode::KeyW);
+            continue;
+        }
         h.frames(2);
         right_click(&mut h);
         h.frames(10);
