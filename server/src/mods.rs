@@ -10,7 +10,7 @@ use bevy::math::{IVec3, Vec3};
 use bevy::prelude::*;
 use mlua::{AppDataRefMut, Function, Lua, Table};
 use shared::commands::COMMANDS;
-use shared::world::{BlockData, BlockDirection, BlockId, ItemId, ItemType};
+use shared::world::{BlockData, BlockDirection, BlockId};
 
 use crate::network::commands::OPEN_COMMANDS;
 use crate::world::data::ServerWorldMap;
@@ -180,13 +180,13 @@ fn player_position(lua: &Lua, name: String) -> mlua::Result<Option<Table>> {
         .transpose()
 }
 
-/// `rustcraft.set_block({x, y, z}, name)`: puts the block called `name`, like `oak_log`, at
-/// this position. Nothing happens where the world is not loaded.
+/// `rustcraft.set_block({x, y, z}, name)`: puts the block called `name` in the content, like
+/// `oak_log`, at this position, one that only the content files define included. Nothing
+/// happens where the world is not loaded.
 fn set_block(lua: &Lua, (pos, name): (Table, String)) -> mlua::Result<()> {
     let coordinate = |axis: &str| pos.get::<f64>(axis).map(|value| value.floor() as i32);
     let pos = IVec3::new(coordinate("x")?, coordinate("y")?, coordinate("z")?);
-    let Some(ItemType::Block(id)) = ItemId::from_name(&name).map(|item| item.get_default_type())
-    else {
+    let Some(id) = BlockId::from_name(&name) else {
         return Err(mlua::Error::runtime(format!("Unknown block: {name}")));
     };
     let mut host: AppDataRefMut<Host> = lua.app_data_mut().expect("the host is set");
