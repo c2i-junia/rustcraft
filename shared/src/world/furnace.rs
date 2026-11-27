@@ -4,7 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::world::{BlockId, Form, ItemId, ItemStack, ItemType};
+use crate::content::content;
+use crate::world::{ItemId, ItemStack};
 
 /// Ticks to smelt one item: 10 seconds, as in Minecraft.
 pub const COOK_TICKS: u16 = 200;
@@ -53,42 +54,15 @@ pub enum FurnaceChange {
     Toggled,
 }
 
-/// What a furnace makes of `item`, if it smelts. The server smelts by it and the client shows
-/// it, so both read this one table.
+/// What a furnace makes of `item`, if it smelts (`Crafting::smelting`). The server smelts by it
+/// and the client shows it, so both read this one table.
 pub fn smelting_result(item: ItemId) -> Option<ItemId> {
-    match item {
-        ItemId::Sand => Some(ItemId::Glass),
-        ItemId::Cobblestone => Some(ItemId::Stone),
-        ItemId::CobbledGloomrock => Some(ItemId::Gloomrock),
-        ItemId::IronOre => Some(ItemId::IronIngot),
-        ItemId::GoldOre => Some(ItemId::GoldIngot),
-        ItemId::DiamondOre => Some(ItemId::Diamond),
-        ItemId::OakLog
-        | ItemId::SpruceLog
-        | ItemId::JungleLog
-        | ItemId::WillowLog
-        | ItemId::AcaciaLog => Some(ItemId::Charcoal),
-        ItemId::Clay => Some(ItemId::FiredBrick),
-        ItemId::CopperOre => Some(ItemId::CopperIngot),
-        ItemId::TinOre => Some(ItemId::TinIngot),
-        ItemId::Mushroom => Some(ItemId::RoastMushroom),
-        ItemId::RawMutton => Some(ItemId::RoastMutton),
-        ItemId::RawPork => Some(ItemId::RoastPork),
-        ItemId::RawBeef => Some(ItemId::RoastBeef),
-        ItemId::RawChicken => Some(ItemId::RoastChicken),
-        ItemId::RawRabbit => Some(ItemId::RoastRabbit),
-        ItemId::Potato => Some(ItemId::BakedPotato),
-        ItemId::Cactus => Some(ItemId::GreenDye),
-        ItemId::RawRoach => Some(ItemId::GrilledRoach),
-        ItemId::RawPerch => Some(ItemId::GrilledPerch),
-        ItemId::RawPike => Some(ItemId::GrilledPike),
-        ItemId::RawEel => Some(ItemId::GrilledEel),
-        ItemId::RawGlowfin => Some(ItemId::GrilledGlowfin),
-        ItemId::Egg => Some(ItemId::FriedEgg),
-        ItemId::CakeBatter => Some(ItemId::CocoaCake),
-        ItemId::RawPie => Some(ItemId::ApplePie),
-        _ => None,
-    }
+    content()
+        .crafting
+        .smelting
+        .iter()
+        .find(|(input, _)| *input == item)
+        .map(|&(_, output)| output)
 }
 
 /// What a furnace makes `result` of, in the order of the items: the item browser lists them.
@@ -96,54 +70,14 @@ pub fn smelting_inputs(result: ItemId) -> impl Iterator<Item = ItemId> {
     ItemId::all().filter(move |&item| smelting_result(item) == Some(result))
 }
 
-/// How many ticks one `item` burns in a furnace, if it is a fuel: Minecraft's durations.
+/// How many ticks one `item` burns in a furnace, if it is a fuel (`Crafting::fuels`).
 pub fn fuel_ticks(item: ItemId) -> Option<u16> {
-    match item {
-        ItemId::Coal | ItemId::Charcoal => Some(1600),
-        // 80 items
-        ItemId::CoalBlock => Some(80 * COOK_TICKS),
-        ItemId::OakLog
-        | ItemId::SpruceLog
-        | ItemId::JungleLog
-        | ItemId::OakPlanks
-        | ItemId::SprucePlanks
-        | ItemId::JunglePlanks
-        | ItemId::WillowLog
-        | ItemId::WillowPlanks
-        | ItemId::AcaciaLog
-        | ItemId::AcaciaPlanks
-        | ItemId::CraftingTable
-        | ItemId::Chest => Some(300),
-        ItemId::WoodenPickaxe
-        | ItemId::WoodenAxe
-        | ItemId::WoodenShovel
-        | ItemId::WoodenHoe
-        | ItemId::WoodenSword => Some(200),
-        ItemId::Stick => Some(100),
-        ItemId::LavaBucket => Some(20000),
-        // The wooden blocks of the palette, as Minecraft's: a slab burns half as long
-        _ => match item.get_default_type() {
-            ItemType::Block(block) => match block.palette() {
-                Some(palette) if fire_wood(palette.base) => {
-                    Some(if palette.form == Form::Slab { 150 } else { 300 })
-                }
-                _ => None,
-            },
-            _ => None,
-        },
-    }
-}
-
-/// Whether `block` is planks, which the wooden blocks of the palette are made of.
-fn fire_wood(block: BlockId) -> bool {
-    matches!(
-        block,
-        BlockId::OakPlanks
-            | BlockId::SprucePlanks
-            | BlockId::JunglePlanks
-            | BlockId::WillowPlanks
-            | BlockId::AcaciaPlanks
-    )
+    content()
+        .crafting
+        .fuels
+        .iter()
+        .find(|(fuel, _)| *fuel == item)
+        .map(|&(_, ticks)| ticks)
 }
 
 /// What stays in the fuel slot once one `item` is burnt, for a fuel held in a container: the

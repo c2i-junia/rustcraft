@@ -1,12 +1,11 @@
 //! The recipes, and what the crafting grid makes.
 
-use std::sync::OnceLock;
-
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    content::{content, Recipe},
     players::Inventory,
-    world::{palette::WOOLS, DyeColor, ItemId, ItemStack, Rock, Wood},
+    world::{ItemId, ItemStack},
     MAX_INVENTORY_SLOTS,
 };
 
@@ -68,53 +67,33 @@ impl ItemTag {
         Self(index)
     }
 
-    /// The items of the family, in the order of its file. A new species of wood joins `Planks`
-    /// by being listed there.
+    /// The items of the family, in the order of its file: none for a number the content does
+    /// not define.
     pub fn members(self) -> &'static [ItemId] {
-        match self {
-            Self::Planks => &[
-                ItemId::OakPlanks,
-                ItemId::SprucePlanks,
-                ItemId::JunglePlanks,
-                ItemId::WillowPlanks,
-                ItemId::AcaciaPlanks,
-            ],
-            Self::Cobble => &[ItemId::Cobblestone, ItemId::CobbledGloomrock],
-            Self::Wool => &WOOLS,
-            Self::RawFish => &[
-                ItemId::RawRoach,
-                ItemId::RawPerch,
-                ItemId::RawPike,
-                ItemId::RawEel,
-                ItemId::RawGlowfin,
-            ],
-            Self::RoastMeat => &[
-                ItemId::RoastMutton,
-                ItemId::RoastPork,
-                ItemId::RoastBeef,
-                ItemId::RoastChicken,
-                ItemId::RoastRabbit,
-            ],
-            _ => &[],
-        }
+        content()
+            .crafting
+            .tags
+            .get(self.index())
+            .map_or(&[], |tag| &tag.members)
     }
 
-    /// The name of the family, as the UI writes it.
+    /// The name of the family in the files, without its `#`: `planks`.
     pub fn name(self) -> &'static str {
-        match self {
-            Self::Planks => "Planks",
-            Self::Cobble => "Cobble",
-            Self::Wool => "Wool",
-            Self::RawFish => "RawFish",
-            Self::RoastMeat => "RoastMeat",
-            _ => "Tag",
-        }
+        content()
+            .crafting
+            .tags
+            .get(self.index())
+            .map_or("", |tag| &tag.name)
     }
 }
 
+/// The Rust name of the family, which names it in the language files (`tag.Planks`).
 impl std::fmt::Debug for ItemTag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.name())
+        match self.name() {
+            "" => write!(f, "ItemTag({})", self.0),
+            name => f.write_str(&crate::utils::pascal_case(name)),
+        }
     }
 }
 
@@ -140,537 +119,10 @@ impl Ingredient {
     }
 }
 
-/// A shaped recipe: its cells, row after row, must match the filled part of the grid exactly,
-/// wherever that part sits in the grid, or match it mirrored left to right. A shapeless one only
-/// needs its ingredients in the grid, one per cell, anywhere.
-#[derive(Debug, Clone, Copy)]
-struct Recipe {
-    width: usize,
-    cells: &'static [Option<Ingredient>],
-    output: ItemId,
-    nb: u32,
-    shapeless: bool,
-}
-
-/// A cell of a recipe taking `item`.
-const fn item(item: ItemId) -> Option<Ingredient> {
-    Some(Ingredient::Item(item))
-}
-
-const OAK_LOG: Option<Ingredient> = item(ItemId::OakLog);
-const SPRUCE_LOG: Option<Ingredient> = item(ItemId::SpruceLog);
-const JUNGLE_LOG: Option<Ingredient> = item(ItemId::JungleLog);
-const PLANKS: Option<Ingredient> = Some(Ingredient::Tag(ItemTag::Planks));
-const COBBLE: Option<Ingredient> = Some(Ingredient::Tag(ItemTag::Cobble));
-const STICK: Option<Ingredient> = item(ItemId::Stick);
-const COAL: Option<Ingredient> = item(ItemId::Coal);
-const CHARCOAL: Option<Ingredient> = item(ItemId::Charcoal);
-const IRON: Option<Ingredient> = item(ItemId::IronIngot);
-const GOLD: Option<Ingredient> = item(ItemId::GoldIngot);
-const BRONZE: Option<Ingredient> = item(ItemId::BronzeIngot);
-const DIAMOND: Option<Ingredient> = item(ItemId::Diamond);
-const FLINT: Option<Ingredient> = item(ItemId::Flint);
-
-/// The tools' shapes, Minecraft's, made of `m` and sticks.
-const fn pickaxe(m: Option<Ingredient>) -> [Option<Ingredient>; 9] {
-    [m, m, m, None, STICK, None, None, STICK, None]
-}
-const fn axe(m: Option<Ingredient>) -> [Option<Ingredient>; 6] {
-    [m, m, m, STICK, None, STICK]
-}
-const fn shovel(m: Option<Ingredient>) -> [Option<Ingredient>; 3] {
-    [m, STICK, STICK]
-}
-const fn hoe(m: Option<Ingredient>) -> [Option<Ingredient>; 6] {
-    [m, m, None, STICK, None, STICK]
-}
-const fn sword(m: Option<Ingredient>) -> [Option<Ingredient>; 3] {
-    [m, m, STICK]
-}
-const LEATHER: Option<Ingredient> = item(ItemId::Leather);
-
-/// The armour's shapes, the pieces as they are worn, made of `m`.
-const fn helmet(m: Option<Ingredient>) -> [Option<Ingredient>; 6] {
-    [m, m, m, m, None, m]
-}
-const fn chestplate(m: Option<Ingredient>) -> [Option<Ingredient>; 9] {
-    [m, None, m, m, m, m, m, m, m]
-}
-const fn leggings(m: Option<Ingredient>) -> [Option<Ingredient>; 9] {
-    [m, m, m, m, None, m, m, None, m]
-}
-const fn boots(m: Option<Ingredient>) -> [Option<Ingredient>; 6] {
-    [m, None, m, m, None, m]
-}
-const GLASS: Option<Ingredient> = item(ItemId::Glass);
-const BOWL: Option<Ingredient> = item(ItemId::Bowl);
-const WOOL: Option<Ingredient> = Some(Ingredient::Tag(ItemTag::Wool));
-
-#[rustfmt::skip]
-const RECIPES: &[Recipe] = &[
-    Recipe { width: 1, cells: &[OAK_LOG], output: ItemId::OakPlanks, nb: 4, shapeless: false },
-    Recipe { width: 1, cells: &[SPRUCE_LOG], output: ItemId::SprucePlanks, nb: 4, shapeless: false },
-    Recipe { width: 1, cells: &[JUNGLE_LOG], output: ItemId::JunglePlanks, nb: 4, shapeless: false },
-    Recipe { width: 1, cells: &[PLANKS, PLANKS], output: ItemId::Stick, nb: 4, shapeless: false },
-    Recipe { width: 1, cells: &[COAL, STICK], output: ItemId::Torch, nb: 4, shapeless: false },
-    Recipe { width: 2, cells: &[PLANKS; 4], output: ItemId::CraftingTable, nb: 1, shapeless: false },
-    Recipe {
-        width: 3,
-        cells: &[
-            COBBLE, COBBLE, COBBLE,
-            COBBLE, None, COBBLE,
-            COBBLE, COBBLE, COBBLE,
-        ],
-        output: ItemId::Furnace,
-        nb: 1,
-        shapeless: false,
-    },
-    Recipe {
-        width: 3,
-        cells: &[
-            PLANKS, PLANKS, PLANKS,
-            PLANKS, None, PLANKS,
-            PLANKS, PLANKS, PLANKS,
-        ],
-        output: ItemId::Chest,
-        nb: 1,
-        shapeless: false,
-    },
-    Recipe { width: 3, cells: &pickaxe(PLANKS), output: ItemId::WoodenPickaxe, nb: 1, shapeless: false },
-    Recipe { width: 2, cells: &axe(PLANKS), output: ItemId::WoodenAxe, nb: 1, shapeless: false },
-    Recipe { width: 1, cells: &shovel(PLANKS), output: ItemId::WoodenShovel, nb: 1, shapeless: false },
-    Recipe { width: 2, cells: &hoe(PLANKS), output: ItemId::WoodenHoe, nb: 1, shapeless: false },
-    Recipe { width: 1, cells: &sword(PLANKS), output: ItemId::WoodenSword, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &pickaxe(COBBLE), output: ItemId::StonePickaxe, nb: 1, shapeless: false },
-    Recipe { width: 2, cells: &axe(COBBLE), output: ItemId::StoneAxe, nb: 1, shapeless: false },
-    Recipe { width: 1, cells: &shovel(COBBLE), output: ItemId::StoneShovel, nb: 1, shapeless: false },
-    Recipe { width: 2, cells: &hoe(COBBLE), output: ItemId::StoneHoe, nb: 1, shapeless: false },
-    Recipe { width: 1, cells: &sword(COBBLE), output: ItemId::StoneSword, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &pickaxe(IRON), output: ItemId::IronPickaxe, nb: 1, shapeless: false },
-    Recipe { width: 2, cells: &axe(IRON), output: ItemId::IronAxe, nb: 1, shapeless: false },
-    Recipe { width: 1, cells: &shovel(IRON), output: ItemId::IronShovel, nb: 1, shapeless: false },
-    Recipe { width: 2, cells: &hoe(IRON), output: ItemId::IronHoe, nb: 1, shapeless: false },
-    Recipe { width: 1, cells: &sword(IRON), output: ItemId::IronSword, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &pickaxe(GOLD), output: ItemId::GoldenPickaxe, nb: 1, shapeless: false },
-    Recipe { width: 2, cells: &axe(GOLD), output: ItemId::GoldenAxe, nb: 1, shapeless: false },
-    Recipe { width: 1, cells: &shovel(GOLD), output: ItemId::GoldenShovel, nb: 1, shapeless: false },
-    Recipe { width: 2, cells: &hoe(GOLD), output: ItemId::GoldenHoe, nb: 1, shapeless: false },
-    Recipe { width: 1, cells: &sword(GOLD), output: ItemId::GoldenSword, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &pickaxe(DIAMOND), output: ItemId::DiamondPickaxe, nb: 1, shapeless: false },
-    Recipe { width: 2, cells: &axe(DIAMOND), output: ItemId::DiamondAxe, nb: 1, shapeless: false },
-    Recipe { width: 1, cells: &shovel(DIAMOND), output: ItemId::DiamondShovel, nb: 1, shapeless: false },
-    Recipe { width: 2, cells: &hoe(DIAMOND), output: ItemId::DiamondHoe, nb: 1, shapeless: false },
-    Recipe { width: 1, cells: &sword(DIAMOND), output: ItemId::DiamondSword, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &[IRON; 9], output: ItemId::IronBlock, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &[GOLD; 9], output: ItemId::GoldBlock, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &[DIAMOND; 9], output: ItemId::DiamondBlock, nb: 1, shapeless: false },
-    Recipe { width: 1, cells: &[item(ItemId::IronBlock)], output: ItemId::IronIngot, nb: 9, shapeless: false },
-    Recipe { width: 1, cells: &[item(ItemId::GoldBlock)], output: ItemId::GoldIngot, nb: 9, shapeless: false },
-    Recipe { width: 1, cells: &[item(ItemId::DiamondBlock)], output: ItemId::Diamond, nb: 9, shapeless: false },
-    Recipe { width: 1, cells: &[CHARCOAL, STICK], output: ItemId::Torch, nb: 4, shapeless: false },
-    Recipe { width: 3, cells: &[IRON, None, IRON, None, IRON, None], output: ItemId::Bucket, nb: 1, shapeless: false },
-    Recipe { width: 1, cells: &[item(ItemId::WillowLog)], output: ItemId::WillowPlanks, nb: 4, shapeless: false },
-    Recipe { width: 1, cells: &[item(ItemId::AcaciaLog)], output: ItemId::AcaciaPlanks, nb: 4, shapeless: false },
-    Recipe { width: 1, cells: &[item(ItemId::Stone), item(ItemId::Stone)], output: ItemId::HewnStone, nb: 2, shapeless: false },
-    Recipe { width: 2, cells: &[item(ItemId::FiredBrick), item(ItemId::FiredBrick), item(ItemId::FiredBrick), item(ItemId::FiredBrick)], output: ItemId::BrickWall, nb: 1, shapeless: false },
-    Recipe { width: 1, cells: &[item(ItemId::Dirt), item(ItemId::Dirt), item(ItemId::Gravel)], output: ItemId::RammedEarth, nb: 2, shapeless: false },
-    Recipe { width: 2, cells: &[item(ItemId::Fiber), item(ItemId::Fiber), item(ItemId::Fiber), item(ItemId::Fiber)], output: ItemId::Thatch, nb: 1, shapeless: false },
-    Recipe { width: 1, cells: &[item(ItemId::Fiber), item(ItemId::Fiber), item(ItemId::Fiber)], output: ItemId::Rope, nb: 2, shapeless: false },
-    Recipe { width: 2, cells: &[item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::TinIngot)], output: ItemId::BronzeIngot, nb: 4, shapeless: false },
-    Recipe { width: 3, cells: &[item(ItemId::Coal), item(ItemId::Coal), item(ItemId::Coal), item(ItemId::Coal), item(ItemId::Coal), item(ItemId::Coal), item(ItemId::Coal), item(ItemId::Coal), item(ItemId::Coal)], output: ItemId::CoalBlock, nb: 1, shapeless: false },
-    Recipe { width: 1, cells: &[item(ItemId::CoalBlock)], output: ItemId::Coal, nb: 9, shapeless: false },
-    Recipe { width: 3, cells: &[item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot)], output: ItemId::CopperBlock, nb: 1, shapeless: false },
-    Recipe { width: 1, cells: &[item(ItemId::CopperBlock)], output: ItemId::CopperIngot, nb: 9, shapeless: false },
-    Recipe { width: 3, cells: &[item(ItemId::TinIngot), item(ItemId::TinIngot), item(ItemId::TinIngot), item(ItemId::TinIngot), item(ItemId::TinIngot), item(ItemId::TinIngot), item(ItemId::TinIngot), item(ItemId::TinIngot), item(ItemId::TinIngot)], output: ItemId::TinBlock, nb: 1, shapeless: false },
-    Recipe { width: 1, cells: &[item(ItemId::TinBlock)], output: ItemId::TinIngot, nb: 9, shapeless: false },
-    Recipe { width: 3, cells: &[item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot)], output: ItemId::BronzeBlock, nb: 1, shapeless: false },
-    Recipe { width: 1, cells: &[item(ItemId::BronzeBlock)], output: ItemId::BronzeIngot, nb: 9, shapeless: false },
-    Recipe { width: 3, cells: &[item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::HewnStone)], output: ItemId::HewnStoneSlab, nb: 6, shapeless: false },
-    Recipe { width: 3, cells: &[item(ItemId::BrickWall), item(ItemId::BrickWall), item(ItemId::BrickWall)], output: ItemId::BrickSlab, nb: 6, shapeless: false },
-    Recipe { width: 3, cells: &[None, item(ItemId::IronIngot), None, item(ItemId::IronIngot), item(ItemId::Torch), item(ItemId::IronIngot), None, item(ItemId::IronIngot), None], output: ItemId::Lantern, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &pickaxe(BRONZE), output: ItemId::BronzePickaxe, nb: 1, shapeless: false },
-    Recipe { width: 2, cells: &axe(BRONZE), output: ItemId::BronzeAxe, nb: 1, shapeless: false },
-    Recipe { width: 1, cells: &shovel(BRONZE), output: ItemId::BronzeShovel, nb: 1, shapeless: false },
-    Recipe { width: 2, cells: &hoe(BRONZE), output: ItemId::BronzeHoe, nb: 1, shapeless: false },
-    Recipe { width: 1, cells: &sword(BRONZE), output: ItemId::BronzeSword, nb: 1, shapeless: false },
-    Recipe { width: 2, cells: &[item(ItemId::HewnStone), None, item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::HewnStone)], output: ItemId::HewnStoneStairs, nb: 4, shapeless: false },
-    Recipe { width: 2, cells: &[item(ItemId::BrickWall), None, item(ItemId::BrickWall), item(ItemId::BrickWall), item(ItemId::BrickWall), item(ItemId::BrickWall)], output: ItemId::BrickStairs, nb: 4, shapeless: false },
-    Recipe { width: 3, cells: &[STICK, item(ItemId::Rope), STICK, STICK, STICK, STICK, None, item(ItemId::Rope), None], output: ItemId::Ladder, nb: 3, shapeless: false },
-    Recipe { width: 3, cells: &[STICK, PLANKS, STICK, STICK, PLANKS, STICK], output: ItemId::Fence, nb: 3, shapeless: false },
-    Recipe { width: 3, cells: &[item(ItemId::Glass), item(ItemId::Glass), item(ItemId::Glass)], output: ItemId::GlassPane, nb: 8, shapeless: false },
-    Recipe { width: 2, cells: &[item(ItemId::Flint), item(ItemId::Rope), STICK, None, STICK, None], output: ItemId::Spear, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &[item(ItemId::Rye), item(ItemId::Rye), item(ItemId::Rye)], output: ItemId::RyeBread, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &[item(ItemId::RedWool), item(ItemId::RedWool), item(ItemId::RedWool), item(ItemId::Rope), None, item(ItemId::Rope)], output: ItemId::Bedroll, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &[PLANKS, item(ItemId::Rope), PLANKS, PLANKS, None, PLANKS, PLANKS, item(ItemId::Rope), PLANKS], output: ItemId::Barrel, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &[item(ItemId::HewnStone), None, item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::Bucket), item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::HewnStone)], output: ItemId::RainCistern, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &[None, STICK, None, STICK, None, STICK, item(ItemId::OakLog), item(ItemId::OakLog), item(ItemId::OakLog)], output: ItemId::Campfire, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &[None, STICK, None, STICK, None, STICK, item(ItemId::SpruceLog), item(ItemId::SpruceLog), item(ItemId::SpruceLog)], output: ItemId::Campfire, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &[None, STICK, None, STICK, None, STICK, item(ItemId::JungleLog), item(ItemId::JungleLog), item(ItemId::JungleLog)], output: ItemId::Campfire, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &[None, STICK, None, STICK, None, STICK, item(ItemId::WillowLog), item(ItemId::WillowLog), item(ItemId::WillowLog)], output: ItemId::Campfire, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &[None, STICK, None, STICK, None, STICK, item(ItemId::AcaciaLog), item(ItemId::AcaciaLog), item(ItemId::AcaciaLog)], output: ItemId::Campfire, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &[PLANKS, PLANKS, PLANKS, PLANKS, PLANKS, PLANKS, None, STICK, None], output: ItemId::Sign, nb: 1, shapeless: false },
-    // A lens, a body of iron round a core of gold, and a handle
-    Recipe {
-        width: 3,
-        cells: &[
-            GLASS, IRON, IRON,
-            None, GOLD, IRON,
-            None, None, STICK,
-        ],
-        output: ItemId::PortalGun,
-        nb: 1,
-        shapeless: false,
-    },
-    Recipe {
-        width: 2,
-        cells: &[IRON, FLINT],
-        output: ItemId::FlintAndSteel,
-        nb: 1,
-        shapeless: true,
-    },
-    Recipe {
-        width: 3,
-        cells: &[
-            item(ItemId::CopperIngot), DIAMOND, item(ItemId::CopperIngot),
-            item(ItemId::HewnStone), item(ItemId::Obsidian), item(ItemId::HewnStone),
-            item(ItemId::HewnStone), None, item(ItemId::HewnStone),
-        ],
-        output: ItemId::EngravingTable,
-        nb: 1,
-        shapeless: false,
-    },
-    Recipe {
-        width: 3,
-        cells: &[
-            item(ItemId::IronBlock), item(ItemId::IronBlock), item(ItemId::IronBlock),
-            None, IRON, None,
-            IRON, IRON, IRON,
-        ],
-        output: ItemId::Anvil,
-        nb: 1,
-        shapeless: false,
-    },
-    // Minecraft's boat, of any planks
-    Recipe { width: 3, cells: &[PLANKS, None, PLANKS, PLANKS, PLANKS, PLANKS], output: ItemId::Boat, nb: 1, shapeless: false },
-    // Minecraft has none: leather over an iron tree, its girth of rope
-    Recipe {
-        width: 3,
-        cells: &[LEATHER, LEATHER, LEATHER, item(ItemId::Rope), IRON, item(ItemId::Rope)],
-        output: ItemId::Saddle,
-        nb: 1,
-        shapeless: false,
-    },
-    // Minecraft's lead, its slime ball a scrap of leather
-    Recipe {
-        width: 3,
-        cells: &[item(ItemId::Rope), item(ItemId::Rope), None, item(ItemId::Rope), LEATHER, None, None, None, item(ItemId::Rope)],
-        output: ItemId::Lead,
-        nb: 2,
-        shapeless: false,
-    },
-    // Minecraft's leather horse armour; the others, which it only finds, of their metal
-    Recipe { width: 3, cells: &[LEATHER, None, LEATHER, LEATHER, LEATHER, LEATHER, LEATHER, None, LEATHER], output: ItemId::LeatherHorseArmour, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &[IRON, None, IRON, IRON, LEATHER, IRON, IRON, None, IRON], output: ItemId::IronHorseArmour, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &[GOLD, None, GOLD, GOLD, LEATHER, GOLD, GOLD, None, GOLD], output: ItemId::GoldHorseArmour, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &[DIAMOND, None, DIAMOND, DIAMOND, LEATHER, DIAMOND, DIAMOND, None, DIAMOND], output: ItemId::DiamondHorseArmour, nb: 1, shapeless: false },
-    // Minecraft's shield, of any planks around an iron boss
-    Recipe { width: 3, cells: &[PLANKS, IRON, PLANKS, PLANKS, PLANKS, PLANKS, None, PLANKS, None], output: ItemId::Shield, nb: 1, shapeless: false },
-    // Minecraft's crossbow, its tripwire hook an iron latch, its strings of rope
-    Recipe {
-        width: 3,
-        cells: &[STICK, IRON, STICK, item(ItemId::Rope), IRON, item(ItemId::Rope), None, STICK, None],
-        output: ItemId::Crossbow,
-        nb: 1,
-        shapeless: false,
-    },
-    Recipe { width: 1, cells: &[IRON, STICK, item(ItemId::Feather)], output: ItemId::Bolt, nb: 8, shapeless: false },
-    Recipe { width: 2, cells: &[IRON, IRON, None, STICK], output: ItemId::ThrowingAxe, nb: 4, shapeless: false },
-    Recipe { width: 2, cells: &[IRON, IRON, IRON, IRON, None, STICK], output: ItemId::Mace, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &helmet(LEATHER), output: ItemId::LeatherHelmet, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &chestplate(LEATHER), output: ItemId::LeatherChestplate, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &leggings(LEATHER), output: ItemId::LeatherLeggings, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &boots(LEATHER), output: ItemId::LeatherBoots, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &helmet(BRONZE), output: ItemId::BronzeHelmet, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &chestplate(BRONZE), output: ItemId::BronzeChestplate, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &leggings(BRONZE), output: ItemId::BronzeLeggings, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &boots(BRONZE), output: ItemId::BronzeBoots, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &helmet(IRON), output: ItemId::IronHelmet, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &chestplate(IRON), output: ItemId::IronChestplate, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &leggings(IRON), output: ItemId::IronLeggings, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &boots(IRON), output: ItemId::IronBoots, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &helmet(DIAMOND), output: ItemId::DiamondHelmet, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &chestplate(DIAMOND), output: ItemId::DiamondChestplate, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &leggings(DIAMOND), output: ItemId::DiamondLeggings, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &boots(DIAMOND), output: ItemId::DiamondBoots, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &[STICK, STICK, None, item(ItemId::Rope), None, STICK, STICK, STICK, None], output: ItemId::Bow, nb: 1, shapeless: false },
-    Recipe { width: 1, cells: &[FLINT, STICK, item(ItemId::Feather)], output: ItemId::Arrow, nb: 4, shapeless: false },
-    Recipe { width: 3, cells: &[None, item(ItemId::GoldIngot), None, item(ItemId::GoldIngot), item(ItemId::Diamond), item(ItemId::GoldIngot), None, item(ItemId::GoldIngot), None], output: ItemId::DepthsCompass, nb: 1, shapeless: false },
-    // The farm: Minecraft's rod, its line of rope
-    Recipe { width: 3, cells: &[None, None, STICK, None, STICK, item(ItemId::Rope), STICK, None, item(ItemId::Rope)], output: ItemId::FishingRod, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &[PLANKS, None, PLANKS, None, PLANKS, None], output: ItemId::Bowl, nb: 4, shapeless: false },
-    Recipe { width: 2, cells: &[BOWL, item(ItemId::Mushroom), item(ItemId::Mushroom), None], output: ItemId::MushroomSoup, nb: 1, shapeless: true },
-    Recipe { width: 3, cells: &[BOWL, item(ItemId::Carrot), item(ItemId::Potato), item(ItemId::Mushroom), Some(Ingredient::Tag(ItemTag::RoastMeat)), None], output: ItemId::Stew, nb: 1, shapeless: true },
-    Recipe { width: 2, cells: &[BOWL, item(ItemId::Berries), item(ItemId::Berries), item(ItemId::Apple)], output: ItemId::BerrySalad, nb: 1, shapeless: true },
-    Recipe { width: 2, cells: &[BOWL, item(ItemId::MilkBucket), Some(Ingredient::Tag(ItemTag::RawFish)), item(ItemId::Potato)], output: ItemId::FishChowder, nb: 1, shapeless: true },
-    Recipe { width: 3, cells: &[item(ItemId::MilkBucket), item(ItemId::Egg), item(ItemId::CocoaBeans), item(ItemId::Rye), item(ItemId::Rye), None], output: ItemId::CakeBatter, nb: 1, shapeless: true },
-    Recipe { width: 2, cells: &[item(ItemId::Apple), item(ItemId::Apple), item(ItemId::Egg), item(ItemId::Rye)], output: ItemId::RawPie, nb: 1, shapeless: true },
-    Recipe { width: 2, cells: &[item(ItemId::Fiber), item(ItemId::Fiber), item(ItemId::Dirt), None], output: ItemId::Compost, nb: 2, shapeless: true },
-    // The oceans and the deep caves
-    Recipe { width: 2, cells: &[SHARD, SHARD, SHARD, SHARD], output: ItemId::Glowcrystal, nb: 1, shapeless: false },
-    Recipe { width: 2, cells: &[BASALT, BASALT, BASALT, BASALT], output: ItemId::PolishedBasalt, nb: 4, shapeless: false },
-    Recipe { width: 3, cells: &[KELP, KELP, KELP], output: ItemId::Paper, nb: 2, shapeless: false },
-];
-
-const SHARD: Option<Ingredient> = item(ItemId::CrystalShard);
-const BASALT: Option<Ingredient> = item(ItemId::Basalt);
-const KELP: Option<Ingredient> = item(ItemId::Kelp);
-
-/// The dyes a plant, a fuel or an ore gives, and how many: the green one is smelted from a
-/// cactus (`furnace::smelting_result`).
-const DYE_SOURCES: [(ItemId, ItemId, u32); 9] = [
-    (ItemId::Poppy, ItemId::RedDye, 2),
-    (ItemId::Berries, ItemId::RedDye, 1),
-    (ItemId::Dandelion, ItemId::YellowDye, 2),
-    (ItemId::CocoaBeans, ItemId::BrownDye, 1),
-    (ItemId::Heather, ItemId::MagentaDye, 2),
-    (ItemId::Coal, ItemId::BlackDye, 1),
-    (ItemId::Charcoal, ItemId::BlackDye, 1),
-    (ItemId::Limestone, ItemId::WhiteDye, 2),
-    // its azurite
-    (ItemId::CopperOre, ItemId::BlueDye, 2),
-];
-
-/// The dyes mixed from two others, two at a time.
-const DYE_MIXES: [(ItemId, ItemId, ItemId); 9] = [
-    (ItemId::RedDye, ItemId::YellowDye, ItemId::OrangeDye),
-    (ItemId::RedDye, ItemId::WhiteDye, ItemId::PinkDye),
-    (ItemId::GreenDye, ItemId::WhiteDye, ItemId::LimeDye),
-    (ItemId::BlueDye, ItemId::WhiteDye, ItemId::LightBlueDye),
-    (ItemId::BlueDye, ItemId::GreenDye, ItemId::CyanDye),
-    (ItemId::RedDye, ItemId::BlueDye, ItemId::PurpleDye),
-    (ItemId::PurpleDye, ItemId::PinkDye, ItemId::MagentaDye),
-    (ItemId::BlackDye, ItemId::WhiteDye, ItemId::GrayDye),
-    (ItemId::GrayDye, ItemId::WhiteDye, ItemId::LightGrayDye),
-];
-
-/// The recipes of the palette (`palette`), which follow those of `RECIPES`: the slabs, stairs,
-/// doors, trapdoors and fence gates of each wood from its own planks, the slabs, stairs and low
-/// walls of each rock, its polished and chiseled blocks, the dyes and what they colour.
-fn palette_recipes() -> Vec<Recipe> {
-    let mut recipes = Vec::new();
-    let mut add = |width, cells: Vec<Option<Ingredient>>, output, nb, shapeless| {
-        recipes.push(Recipe {
-            width,
-            cells: Vec::leak(cells),
-            output,
-            nb,
-            shapeless,
-        })
-    };
-    for wood in Wood::ALL {
-        let p = item(wood.planks());
-        add(3, vec![p; 3], wood.slab(), 6, false);
-        add(2, vec![p, None, p, p, p, p], wood.stairs(), 4, false);
-        add(2, vec![p; 6], wood.door(), 1, false);
-        add(3, vec![p; 6], wood.trapdoor(), 2, false);
-        add(
-            3,
-            vec![p, STICK, p, p, STICK, p],
-            wood.fence_gate(),
-            1,
-            false,
-        );
-    }
-    for rock in Rock::ALL {
-        let m = item(rock.material());
-        // the slabs and the stairs of hewn stone and of bricks are in `RECIPES`
-        if !matches!(rock, Rock::HewnStone | Rock::Brick) {
-            add(3, vec![m; 3], rock.slab(), 6, false);
-            add(2, vec![m, None, m, m, m, m], rock.stairs(), 4, false);
-        }
-        add(3, vec![m; 6], rock.low_wall(), 6, false);
-        if let Some((polished, chiseled)) = rock.polished_and_chiseled() {
-            add(2, vec![m; 4], polished, 4, false);
-            add(1, vec![item(rock.slab()); 2], chiseled, 1, false);
-        }
-    }
-    for (source, dye, nb) in DYE_SOURCES {
-        add(1, vec![item(source)], dye, nb, false);
-    }
-    for (a, b, dye) in DYE_MIXES {
-        add(2, vec![item(a), item(b)], dye, 2, true);
-    }
-    // eight blocks around a dye
-    let ring = |block: ItemId, dye: ItemId| {
-        let mut cells = vec![item(block); 9];
-        cells[4] = item(dye);
-        cells
-    };
-    for color in DyeColor::ALL {
-        let dye = color.dye();
-        add(2, vec![item(dye), WOOL], color.wool(), 1, true);
-        add(3, ring(ItemId::Glass, dye), color.stained_glass(), 8, false);
-        add(
-            3,
-            vec![item(color.stained_glass()); 3],
-            color.stained_glass_pane(),
-            8,
-            false,
-        );
-        add(
-            3,
-            ring(ItemId::Terracotta, dye),
-            color.terracotta(),
-            8,
-            false,
-        );
-        let mut powder = vec![item(dye)];
-        powder.extend([item(ItemId::Sand); 4]);
-        powder.extend([item(ItemId::Gravel); 4]);
-        add(3, powder, color.concrete_powder(), 8, true);
-    }
-    add(
-        2,
-        vec![item(ItemId::Clay), item(ItemId::FiredBrick)],
-        ItemId::Terracotta,
-        2,
-        true,
-    );
-    recipes
-}
-
-/// The recipes of the furniture (`decor`): a bedroll of each colour from its wool, a table and
-/// chairs of each wood, the book and the bookshelf, the carpets, the flower pot, the item frame,
-/// the paintings, a banner of each colour, and a lantern dyed of each colour.
-fn decor_recipes() -> Vec<Recipe> {
-    let mut recipes = Vec::new();
-    let mut add = |width, cells: Vec<Option<Ingredient>>, output, nb, shapeless| {
-        recipes.push(Recipe {
-            width,
-            cells: Vec::leak(cells),
-            output,
-            nb,
-            shapeless,
-        })
-    };
-    let rope = item(ItemId::Rope);
-    for color in DyeColor::ALL {
-        let wool = item(color.wool());
-        // the red one is in `RECIPES`, from before the colours
-        if color != DyeColor::Red {
-            add(
-                3,
-                vec![wool, wool, wool, rope, None, rope],
-                color.bedroll(),
-                1,
-                false,
-            );
-        }
-        add(2, vec![wool, wool], color.carpet(), 3, false);
-        add(
-            3,
-            vec![wool, wool, wool, wool, wool, wool, None, STICK, None],
-            color.banner(),
-            1,
-            false,
-        );
-        add(
-            2,
-            vec![item(ItemId::Lantern), item(color.dye())],
-            color.lantern(),
-            1,
-            true,
-        );
-    }
-    for wood in Wood::ALL {
-        let p = item(wood.planks());
-        add(3, vec![p, p, p, STICK, None, STICK], wood.table(), 1, false);
-        add(
-            3,
-            vec![STICK, None, None, p, p, p, STICK, None, STICK],
-            wood.chair(),
-            2,
-            false,
-        );
-    }
-    let book = item(ItemId::Book);
-    add(2, vec![PAPER, PAPER, PAPER, LEATHER], ItemId::Book, 1, true);
-    add(
-        3,
-        vec![
-            PLANKS, PLANKS, PLANKS, book, book, book, PLANKS, PLANKS, PLANKS,
-        ],
-        ItemId::Bookshelf,
-        1,
-        false,
-    );
-    let brick = item(ItemId::FiredBrick);
-    add(
-        3,
-        vec![brick, None, brick, None, brick, None],
-        ItemId::FlowerPot,
-        1,
-        false,
-    );
-    let ring = |centre| {
-        let mut cells = vec![STICK; 9];
-        cells[4] = centre;
-        cells
-    };
-    add(3, ring(WOOL), ItemId::ItemFrame, 1, false);
-    add(3, ring(PAPER), ItemId::Painting, 1, false);
-    add(
-        2,
-        vec![item(ItemId::Painting); 2],
-        ItemId::WidePainting,
-        1,
-        false,
-    );
-    recipes
-}
-
-/// The recipes of the maps (`cartography`): paper from reeds, the empty map, its copy, the
-/// compass and the frame of a map.
-#[rustfmt::skip]
-const MAP_RECIPES: &[Recipe] = &[
-    Recipe { width: 3, cells: &[item(ItemId::Reed), item(ItemId::Reed), item(ItemId::Reed)], output: ItemId::Paper, nb: 3, shapeless: false },
-    Recipe { width: 3, cells: &[PAPER, PAPER, PAPER, PAPER, COAL, PAPER, PAPER, PAPER, PAPER], output: ItemId::EmptyMap, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &[PAPER, PAPER, PAPER, PAPER, CHARCOAL, PAPER, PAPER, PAPER, PAPER], output: ItemId::EmptyMap, nb: 1, shapeless: false },
-    // A copy: the map drawn stays in the grid (`inventory::take_craft_result`)
-    Recipe { width: 2, cells: &[item(ItemId::FilledMap), item(ItemId::EmptyMap)], output: ItemId::FilledMap, nb: 1, shapeless: true },
-    Recipe { width: 3, cells: &[None, IRON, None, IRON, item(ItemId::CopperIngot), IRON, None, IRON, None], output: ItemId::Compass, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &[STICK, STICK, STICK, STICK, LEATHER, STICK, STICK, STICK, STICK], output: ItemId::MapFrame, nb: 1, shapeless: false },
-];
-
-const PAPER: Option<Ingredient> = item(ItemId::Paper);
-
-/// The recipes of alchemy (`alchemy`): the alembic, and the glass vials.
-#[rustfmt::skip]
-const ALCHEMY_RECIPES: &[Recipe] = &[
-    Recipe { width: 3, cells: &[None, GLASS, None, item(ItemId::CopperIngot), GLASS, item(ItemId::CopperIngot), COBBLE, COBBLE, COBBLE], output: ItemId::Alembic, nb: 1, shapeless: false },
-    Recipe { width: 3, cells: &[GLASS, None, GLASS, None, GLASS, None], output: ItemId::GlassVial, nb: 3, shapeless: false },
-];
-
 /// Whether the grid makes a copy of a paper map, which keeps the map in its cell.
 pub fn copies_a_map(grid: &CraftingGrid) -> bool {
     grid.iter().flatten().any(|&cell| cell == ItemId::FilledMap)
         && match_recipe(grid).is_some_and(|result| result.item_id == ItemId::FilledMap)
-}
-
-/// Every recipe: those of `RECIPES`, then those of the palette, then those of the maps. Made
-/// once.
-fn all_recipes() -> &'static [Recipe] {
-    static ALL: OnceLock<Vec<Recipe>> = OnceLock::new();
-    ALL.get_or_init(|| {
-        RECIPES
-            .iter()
-            .copied()
-            .chain(palette_recipes())
-            .chain(MAP_RECIPES.iter().copied())
-            .chain(decor_recipes())
-            .chain(ALCHEMY_RECIPES.iter().copied())
-            .collect()
-    })
 }
 
 /// What the grid makes, if it matches a recipe.
@@ -704,7 +156,7 @@ pub fn match_recipe(grid: &CraftingGrid) -> Option<ItemStack> {
         })
     };
     let filled: Vec<ItemId> = grid.iter().flatten().copied().collect();
-    let recipe = all_recipes().iter().find(|recipe| {
+    let recipe = content().crafting.recipes.iter().find(|recipe| {
         if recipe.shapeless {
             return matches_shapeless(recipe, &filled);
         }
@@ -735,8 +187,8 @@ fn matches_shapeless(recipe: &Recipe, filled: &[ItemId]) -> bool {
     })
 }
 
-/// A recipe as the item browser reads it. Its index is its position in the table, stable for a
-/// protocol version.
+/// A recipe as the item browser reads it. Its index is its position in the table of the content
+/// (`Crafting::recipes`), which a client takes from its server.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RecipeView {
     pub index: u16,
@@ -771,14 +223,16 @@ impl RecipeView {
 
 /// Every recipe, in the order of the table.
 pub fn recipes() -> impl Iterator<Item = RecipeView> {
-    all_recipes()
+    content()
+        .crafting
+        .recipes
         .iter()
         .enumerate()
         .map(|(index, recipe)| RecipeView {
             index: index as u16,
             width: recipe.width,
             height: recipe.cells.len() / recipe.width,
-            cells: recipe.cells,
+            cells: &recipe.cells,
             output: ItemStack {
                 item_id: recipe.output,
                 item_type: recipe.output.get_default_type(),
@@ -950,13 +404,10 @@ fn serve_cells(mut left: Vec<(ItemId, u32)>, recipe: &RecipeView, rounds: u32) -
 }
 
 #[cfg(test)]
-#[path = "crafting_dump.rs"]
-mod dump;
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use crate::players::Inventory;
+    use crate::world::{DyeColor, Rock, Wood};
 
     const LOG: Option<ItemId> = Some(ItemId::OakLog);
     const OAK: Option<ItemId> = Some(ItemId::OakPlanks);
@@ -1325,7 +776,13 @@ mod tests {
         // it fits the grid of the inventory, as a row of two
         let recipe = recipe_of(ItemId::FlintAndSteel);
         assert!(recipe.fits(2));
-        assert_eq!(recipe.cells, &[IRON, FLINT]);
+        assert_eq!(
+            recipe.cells,
+            &[
+                Some(Ingredient::Item(ItemId::IronIngot)),
+                Some(Ingredient::Item(ItemId::Flint))
+            ]
+        );
     }
 
     #[test]
@@ -1369,7 +826,7 @@ mod tests {
     fn every_recipe_is_listed_with_its_index_and_size() {
         let all: Vec<RecipeView> = recipes().collect();
         // + 3: the glowing crystal, the polished basalt and the paper of kelp; + 5: the lead and
-        // the four horse armours; + 79: the furniture (`decor_recipes`); + 2: the alembic and
+        // the four horse armours; + 79: the furniture; + 2: the alembic and
         // the glass vials
         assert_eq!(all.len(), 109 - 3 + 152 + 5 + 9 + 6 + 3 + 5 + 79 + 2);
         for (position, recipe) in all.iter().enumerate() {
@@ -1733,7 +1190,12 @@ mod tests {
                 ItemId::AcaciaPlanks
             ]
         );
-        assert_eq!(ItemTag::Planks.name(), "Planks");
+        assert_eq!(ItemTag::Planks.name(), "planks");
+        assert_eq!(
+            format!("{:?}", ItemTag::RoastMeat),
+            "RoastMeat",
+            "its key: tag.RoastMeat"
+        );
     }
 
     #[test]

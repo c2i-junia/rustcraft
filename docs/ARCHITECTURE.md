@@ -301,9 +301,12 @@ throws it faster, out of the player's reach, and it cannot be picked up for 40 t
 (`THROWN_PICKUP_DELAY_TICKS`, 2 s, as in Minecraft) where an overflow waits 10. The delay is
 not saved: a loaded item takes the shorter one.
 
+The recipes, the smelting, the fuels and the families of items are content: written in
+`data/content/rustcraft/recipes.ron`, read into `Content::crafting` (`shared/src/content/recipes.rs`)
+and reloaded with the rest of the content, so a recipe edited there applies after `/reload`.
 A recipe cell is an `Ingredient` (`shared/src/world/crafting.rs`): an item, or a family,
-`ItemTag`, whose members any one of fills it (`ItemTag::Planks`: every planks item), so that a
-recipe of planks is written once and its species mix in the grid. Every fill of the grid has a
+`ItemTag` (`#planks` in the files), whose members any one of fills it (`ItemTag::Planks`: every
+planks item), so that a recipe of planks is written once and its species mix in the grid. Every fill of the grid has a
 single entry point, `plan_grid_fill` (`shared/src/players/inventory.rs`): on a copy of the
 inventory, it puts the grid back and plans the rounds and the item of each cell, a single
 species of a family whenever one is enough, and which cells one round leaves without their
@@ -313,7 +316,7 @@ agree with the server.
 
 A furnace (`shared/src/world/furnace.rs`) holds an input, a fuel and an output stack, and how
 long its fuel still burns and its input has cooked; `Furnace::tick` applies Minecraft's rules
-to it, from the shared tables `smelting_result` and `fuel_ticks`, which the dialog and the item
+to it, from the content's tables `smelting_result` and `fuel_ticks`, which the dialog and the item
 browser read too. The `ChunkMap` keeps the chests' contents and the furnaces in one generic
 store, `Held<T>`, by position, with the positions whose value changed. An open furnace
 works as an open chest: its three stacks are lent to the inventory as slots 72 to 74 for the
@@ -1070,7 +1073,7 @@ grid centred on the origin, `paper_map_centre`, with a `Surface` per column seen
 found (`find`, one of a kind within 48 blocks) and its markers (`mark`, at most 64, names of 24
 characters). Paper (three reeds), the empty map (eight paper around coal or charcoal), the compass
 (four iron ingots around a copper ingot) and the frame of a map (eight sticks around leather) are
-crafted (`MAP_RECIPES`); a map drawn and an empty map make a copy, the map staying in its cell
+crafted (`recipes.ron`); a map drawn and an empty map make a copy, the map staying in its cell
 (`copies_a_map`, `craft_result`, `take_one_from_each_cell`). A filled map is `ItemType::Map { id }`.
 
 The simulation does not draw: a right click with an empty map, or on a frame of a map, is told
