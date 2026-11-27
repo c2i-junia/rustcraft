@@ -96,9 +96,7 @@ impl FurnaceGauge {
         let full = self.texels();
         match self {
             FurnaceGauge::Flame => URect::new(0, full.y - flame_rows(furnace), full.x, full.y),
-            FurnaceGauge::Arrow => {
-                URect::new(0, 0, arrow_columns_of(furnace, work_ticks), full.y)
-            }
+            FurnaceGauge::Arrow => URect::new(0, 0, arrow_columns_of(furnace, work_ticks), full.y),
         }
     }
 

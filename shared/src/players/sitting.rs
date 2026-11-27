@@ -118,7 +118,11 @@ mod tests {
 
     fn world_with_chair(at: IVec3) -> ChunkMap {
         let mut world = ChunkMap::with_loaded_region(IVec3::splat(-32), IVec3::splat(31));
-        world.fill_box(IVec3::new(-32, -8, -32), IVec3::new(31, -1, 31), BlockId::Stone);
+        world.fill_box(
+            IVec3::new(-32, -8, -32),
+            IVec3::new(31, -1, 31),
+            BlockId::Stone,
+        );
         world.set_block(at, BlockData::new(BlockId::OakChair, BlockDirection::Back));
         world
     }
@@ -135,23 +139,40 @@ mod tests {
     fn a_seated_player_stays_on_its_chair_and_stands_up_in_front_of_it_on_sneaking() {
         let at = IVec3::ZERO;
         let world = world_with_chair(at);
-        let mut player = Player::new(1, "sitter".into(), Vec3::new(0.5, 3.0, 2.5), Transform::default());
+        let mut player = Player::new(
+            1,
+            "sitter".into(),
+            Vec3::new(0.5, 3.0, 2.5),
+            Transform::default(),
+        );
         assert!(sit(&mut player, at, BlockDirection::Back));
         let seat = seated_centre(at, player.height);
         simulate_sitting(&mut player, &world, &input(&[NetworkAction::MoveForward]));
         assert_eq!(player.position, seat);
         assert!(player.sitting.is_some());
-        simulate_sitting(&mut player, &world, &input(&[NetworkAction::SneakOrFlyDown]));
+        simulate_sitting(
+            &mut player,
+            &world,
+            &input(&[NetworkAction::SneakOrFlyDown]),
+        );
         assert_eq!(player.sitting, None);
         // the chair faces +Z: its sitter stands up in the cell in front of it
-        assert_eq!(player.position.floor().as_ivec3().with_y(0), IVec3::new(0, 0, 1));
+        assert_eq!(
+            player.position.floor().as_ivec3().with_y(0),
+            IVec3::new(0, 0, 1)
+        );
     }
 
     #[test]
     fn a_player_stands_up_when_its_chair_is_broken() {
         let at = IVec3::ZERO;
         let mut world = world_with_chair(at);
-        let mut player = Player::new(1, "sitter".into(), Vec3::new(0.5, 3.0, 2.5), Transform::default());
+        let mut player = Player::new(
+            1,
+            "sitter".into(),
+            Vec3::new(0.5, 3.0, 2.5),
+            Transform::default(),
+        );
         sit(&mut player, at, BlockDirection::Front);
         world.remove_block(at);
         simulate_sitting(&mut player, &world, &input(&[]));

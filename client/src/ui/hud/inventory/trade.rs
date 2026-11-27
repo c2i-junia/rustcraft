@@ -270,7 +270,10 @@ pub fn display_trade(
             Goods::Items(item, nb) => counted((item, nb)),
             Goods::Directions => crate::i18n::tr(DIRECTIONS_TITLE).to_string(),
         };
-        let text = trf("trade.offer", &[("title", &title), ("cost", &counted(offer.cost))]);
+        let text = trf(
+            "trade.offer",
+            &[("title", &title), ("cost", &counted(offer.cost))],
+        );
         if label.0 != text {
             commands.entity(entity).insert(AccessibleLabel::new(text));
         }

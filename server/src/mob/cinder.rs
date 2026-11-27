@@ -12,9 +12,7 @@ use bevy::{
 use bevy_ecs::system::{Res, ResMut};
 use shared::{
     messages::PlayerId,
-    players::{
-        effects::EffectKind, game_mode::DamageSource, movement::is_terrain_loaded, Player,
-    },
+    players::{effects::EffectKind, game_mode::DamageSource, movement::is_terrain_loaded, Player},
     world::{
         depths::{strengthened, DepthTier},
         fire::flammability,

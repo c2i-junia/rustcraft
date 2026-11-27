@@ -148,7 +148,13 @@ pub fn act(
 /// A hostile that fears the cats (`companions::fears_cats`) keeps away from a tamed one: the
 /// Gnawer runs from it on foot, the Gust Owl flies off from over it, and neither strikes
 /// meanwhile. Returns whether it shunned one, which is all it did this step.
-fn shun_cats(mob: &mut ServerMob, chunks: &ChunkMap, cats: &[Vec3], speed: f32, delta: f32) -> bool {
+fn shun_cats(
+    mob: &mut ServerMob,
+    chunks: &ChunkMap,
+    cats: &[Vec3],
+    speed: f32,
+    delta: f32,
+) -> bool {
     if !super::companions::fears_cats(mob.kind) {
         return false;
     }
@@ -587,7 +593,14 @@ fn chase(
     delta: f32,
     pathing: &mut Pathing,
 ) {
-    chase_to(mob, chunks, (player.position, player.height), speed, delta, pathing);
+    chase_to(
+        mob,
+        chunks,
+        (player.position, player.height),
+        speed,
+        delta,
+        pathing,
+    );
 }
 
 /// `chase`, toward the box centred on `target.0`, `target.1` tall: a player, or the prey or
@@ -639,9 +652,7 @@ pub(super) fn chase_to(
         }
     }
     let Some(cell) = waypoint else {
-        let towards = (target - mob.position)
-            .with_y(0.0)
-            .normalize_or_zero();
+        let towards = (target - mob.position).with_y(0.0).normalize_or_zero();
         return walk(mob, chunks, towards, speed, delta);
     };
     let towards = (floor_centre(cell) - mob.position)

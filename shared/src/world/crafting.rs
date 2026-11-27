@@ -434,7 +434,13 @@ fn palette_recipes() -> Vec<Recipe> {
         add(2, vec![p, None, p, p, p, p], wood.stairs(), 4, false);
         add(2, vec![p; 6], wood.door(), 1, false);
         add(3, vec![p; 6], wood.trapdoor(), 2, false);
-        add(3, vec![p, STICK, p, p, STICK, p], wood.fence_gate(), 1, false);
+        add(
+            3,
+            vec![p, STICK, p, p, STICK, p],
+            wood.fence_gate(),
+            1,
+            false,
+        );
     }
     for rock in Rock::ALL {
         let m = item(rock.material());
@@ -465,14 +471,32 @@ fn palette_recipes() -> Vec<Recipe> {
         let dye = color.dye();
         add(2, vec![item(dye), WOOL], color.wool(), 1, true);
         add(3, ring(ItemId::Glass, dye), color.stained_glass(), 8, false);
-        add(3, vec![item(color.stained_glass()); 3], color.stained_glass_pane(), 8, false);
-        add(3, ring(ItemId::Terracotta, dye), color.terracotta(), 8, false);
+        add(
+            3,
+            vec![item(color.stained_glass()); 3],
+            color.stained_glass_pane(),
+            8,
+            false,
+        );
+        add(
+            3,
+            ring(ItemId::Terracotta, dye),
+            color.terracotta(),
+            8,
+            false,
+        );
         let mut powder = vec![item(dye)];
         powder.extend([item(ItemId::Sand); 4]);
         powder.extend([item(ItemId::Gravel); 4]);
         add(3, powder, color.concrete_powder(), 8, true);
     }
-    add(2, vec![item(ItemId::Clay), item(ItemId::FiredBrick)], ItemId::Terracotta, 2, true);
+    add(
+        2,
+        vec![item(ItemId::Clay), item(ItemId::FiredBrick)],
+        ItemId::Terracotta,
+        2,
+        true,
+    );
     recipes
 }
 
@@ -495,22 +519,60 @@ fn decor_recipes() -> Vec<Recipe> {
         let wool = item(color.wool());
         // the red one is in `RECIPES`, from before the colours
         if color != DyeColor::Red {
-            add(3, vec![wool, wool, wool, rope, None, rope], color.bedroll(), 1, false);
+            add(
+                3,
+                vec![wool, wool, wool, rope, None, rope],
+                color.bedroll(),
+                1,
+                false,
+            );
         }
         add(2, vec![wool, wool], color.carpet(), 3, false);
-        add(3, vec![wool, wool, wool, wool, wool, wool, None, STICK, None], color.banner(), 1, false);
-        add(2, vec![item(ItemId::Lantern), item(color.dye())], color.lantern(), 1, true);
+        add(
+            3,
+            vec![wool, wool, wool, wool, wool, wool, None, STICK, None],
+            color.banner(),
+            1,
+            false,
+        );
+        add(
+            2,
+            vec![item(ItemId::Lantern), item(color.dye())],
+            color.lantern(),
+            1,
+            true,
+        );
     }
     for wood in Wood::ALL {
         let p = item(wood.planks());
         add(3, vec![p, p, p, STICK, None, STICK], wood.table(), 1, false);
-        add(3, vec![STICK, None, None, p, p, p, STICK, None, STICK], wood.chair(), 2, false);
+        add(
+            3,
+            vec![STICK, None, None, p, p, p, STICK, None, STICK],
+            wood.chair(),
+            2,
+            false,
+        );
     }
     let book = item(ItemId::Book);
     add(2, vec![PAPER, PAPER, PAPER, LEATHER], ItemId::Book, 1, true);
-    add(3, vec![PLANKS, PLANKS, PLANKS, book, book, book, PLANKS, PLANKS, PLANKS], ItemId::Bookshelf, 1, false);
+    add(
+        3,
+        vec![
+            PLANKS, PLANKS, PLANKS, book, book, book, PLANKS, PLANKS, PLANKS,
+        ],
+        ItemId::Bookshelf,
+        1,
+        false,
+    );
     let brick = item(ItemId::FiredBrick);
-    add(3, vec![brick, None, brick, None, brick, None], ItemId::FlowerPot, 1, false);
+    add(
+        3,
+        vec![brick, None, brick, None, brick, None],
+        ItemId::FlowerPot,
+        1,
+        false,
+    );
     let ring = |centre| {
         let mut cells = vec![STICK; 9];
         cells[4] = centre;
@@ -518,7 +580,13 @@ fn decor_recipes() -> Vec<Recipe> {
     };
     add(3, ring(WOOL), ItemId::ItemFrame, 1, false);
     add(3, ring(PAPER), ItemId::Painting, 1, false);
-    add(2, vec![item(ItemId::Painting); 2], ItemId::WidePainting, 1, false);
+    add(
+        2,
+        vec![item(ItemId::Painting); 2],
+        ItemId::WidePainting,
+        1,
+        false,
+    );
     recipes
 }
 
@@ -1286,9 +1354,18 @@ mod tests {
         assert_eq!(counts(ItemId::SprucePlanks), (1, 14 + 5 + 3));
         assert_eq!(counts(ItemId::JunglePlanks), (1, 14 + 5 + 3));
         let uses = |item| uses_of(item).map(|r| r.index).collect::<Vec<_>>();
-        assert_eq!(uses(ItemId::OakPlanks)[..14], uses(ItemId::SprucePlanks)[..14]);
-        assert_eq!(uses(ItemId::OakPlanks)[..14], uses(ItemId::JunglePlanks)[..14]);
-        assert_ne!(uses(ItemId::OakPlanks)[14..], uses(ItemId::SprucePlanks)[14..]);
+        assert_eq!(
+            uses(ItemId::OakPlanks)[..14],
+            uses(ItemId::SprucePlanks)[..14]
+        );
+        assert_eq!(
+            uses(ItemId::OakPlanks)[..14],
+            uses(ItemId::JunglePlanks)[..14]
+        );
+        assert_ne!(
+            uses(ItemId::OakPlanks)[14..],
+            uses(ItemId::SprucePlanks)[14..]
+        );
         // the tools, the furnace, the alembic, and the slab, stairs and low wall
         assert_eq!(counts(ItemId::Cobblestone), (0, 6 + 1 + 3));
         assert_eq!(counts(ItemId::IronIngot), (1, 23));
@@ -1351,25 +1428,42 @@ mod tests {
         // the cocoa beans, of no use before
         assert_eq!(one(ItemId::CocoaBeans), made(ItemId::BrownDye, 1));
         let mix = |a, b| made_of(2, &[Some(b), Some(a)]);
-        assert_eq!(mix(ItemId::RedDye, ItemId::YellowDye), made(ItemId::OrangeDye, 2));
-        assert_eq!(mix(ItemId::BlueDye, ItemId::GreenDye), made(ItemId::CyanDye, 2));
+        assert_eq!(
+            mix(ItemId::RedDye, ItemId::YellowDye),
+            made(ItemId::OrangeDye, 2)
+        );
+        assert_eq!(
+            mix(ItemId::BlueDye, ItemId::GreenDye),
+            made(ItemId::CyanDye, 2)
+        );
         // every dye is made
         for color in DyeColor::ALL {
-            assert!(recipes_for(color.dye()).next().is_some()
-                || crate::world::furnace::smelting_inputs(color.dye()).next().is_some(),
-                "{color:?}");
+            assert!(
+                recipes_for(color.dye()).next().is_some()
+                    || crate::world::furnace::smelting_inputs(color.dye())
+                        .next()
+                        .is_some(),
+                "{color:?}"
+            );
         }
         for color in DyeColor::ALL {
             let dye = Some(color.dye());
             // any wool, of any colour, takes the dye
             for wool in [ItemId::Wool, ItemId::RedWool, ItemId::BlackWool] {
-                assert_eq!(made_of(2, &[Some(wool), dye]), made(color.wool(), 1), "{color:?}");
+                assert_eq!(
+                    made_of(2, &[Some(wool), dye]),
+                    made(color.wool(), 1),
+                    "{color:?}"
+                );
             }
             let glass = Some(ItemId::Glass);
             let ring = [glass, glass, glass, glass, dye, glass, glass, glass, glass];
             assert_eq!(made_of(3, &ring), made(color.stained_glass(), 8));
             let stained = Some(color.stained_glass());
-            assert_eq!(made_of(3, &[stained; 3]), made(color.stained_glass_pane(), 8));
+            assert_eq!(
+                made_of(3, &[stained; 3]),
+                made(color.stained_glass_pane(), 8)
+            );
             let t = Some(ItemId::Terracotta);
             assert_eq!(
                 made_of(3, &[t, t, t, t, dye, t, t, t, t]),
@@ -1377,7 +1471,10 @@ mod tests {
             );
             let (sand, gravel) = (Some(ItemId::Sand), Some(ItemId::Gravel));
             assert_eq!(
-                made_of(3, &[sand, gravel, sand, gravel, dye, gravel, sand, gravel, sand]),
+                made_of(
+                    3,
+                    &[sand, gravel, sand, gravel, dye, gravel, sand, gravel, sand]
+                ),
                 made(color.concrete_powder(), 8)
             );
         }

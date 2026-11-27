@@ -345,7 +345,11 @@ pub fn spawn_video_tab(
     spawn_choice(
         commands,
         (graphics_column, &font),
-        (tr("video.lighting"), &lighting_options(), !graphics.smooth_lighting),
+        (
+            tr("video.lighting"),
+            &lighting_options(),
+            !graphics.smooth_lighting,
+        ),
     )
     .observe(choose_lighting);
 
@@ -592,7 +596,9 @@ fn save_on_release(
 /// the game grants less, when its `limit` is below the `distance` chosen.
 fn render_distance_note(distance: u32, limit: Option<u32>) -> String {
     match limit {
-        Some(limit) if limit < distance => trf("video.render_distance.limited", &[("limit", &limit)]),
+        Some(limit) if limit < distance => {
+            trf("video.render_distance.limited", &[("limit", &limit)])
+        }
         _ => tr("video.render_distance.note").to_string(),
     }
 }

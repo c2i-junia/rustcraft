@@ -238,7 +238,11 @@ pub fn open_new_world_dialog(
         )
     };
     let name = field(tr("worlds.field.name"), "", MAX_WORLD_NAME_LENGTH);
-    let seed = field(tr("worlds.field.seed"), tr("worlds.field.seed_random"), SEED_DIGITS);
+    let seed = field(
+        tr("worlds.field.seed"),
+        tr("worlds.field.seed_random"),
+        SEED_DIGITS,
+    );
     let free = free_world_name(&others);
     commands
         .entity(name.input)
@@ -261,7 +265,10 @@ pub fn open_new_world_dialog(
     let parts = spawn_form_dialog(
         commands,
         &dialog,
-        &[(tr("worlds.field.name"), name), (tr("worlds.field.seed"), seed)],
+        &[
+            (tr("worlds.field.name"), name),
+            (tr("worlds.field.seed"), seed),
+        ],
         &NEW_WORLD_HINTS,
         font.clone(),
         focus,

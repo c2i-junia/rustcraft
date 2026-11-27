@@ -181,10 +181,7 @@ fn world_noises(
     match Biomes::from_defs(defs) {
         Ok(biomes) => {
             let warning = (!unknown.is_empty()).then(|| {
-                crate::i18n::trf(
-                    "connect.unknown_biomes",
-                    &[("biomes", &unknown.join(", "))],
-                )
+                crate::i18n::trf("connect.unknown_biomes", &[("biomes", &unknown.join(", "))])
             });
             (
                 TerrainNoises::with(seed, settings, Arc::new(biomes)),

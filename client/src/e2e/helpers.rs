@@ -44,7 +44,10 @@ pub fn ctrl(h: &mut Harness, key: KeyCode) {
 #[track_caller]
 pub fn ctrl_n(h: &mut Harness) {
     ctrl(h, KeyCode::KeyN);
-    h.wait_for(&L::role(Role::Dialog, crate::i18n::tr(NEW_WORLD_TITLE)), SCREEN);
+    h.wait_for(
+        &L::role(Role::Dialog, crate::i18n::tr(NEW_WORLD_TITLE)),
+        SCREEN,
+    );
 }
 
 /// Whether the game is in the state `state`.

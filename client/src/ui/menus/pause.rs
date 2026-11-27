@@ -478,7 +478,9 @@ fn watch_save_now(
         let mut button = commands.entity(entity);
         match outcome {
             None if !disabled => {
-                button.queue(set_label(tr(SAVING))).insert(InteractionDisabled);
+                button
+                    .queue(set_label(tr(SAVING)))
+                    .insert(InteractionDisabled);
             }
             None => {}
             Some(_) => {

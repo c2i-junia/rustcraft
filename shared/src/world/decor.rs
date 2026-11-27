@@ -34,11 +34,16 @@ pub enum DecorKind {
     ItemFrame,
     /// A canvas hung on a wall, of one block or of two (`wide`): `right` is the right half of
     /// one of two, as seen from in front of it.
-    Painting { wide: bool, right: bool },
+    Painting {
+        wide: bool,
+        right: bool,
+    },
     /// Hung on a wall, with the patterns dyed on it.
     Banner,
     /// Of a colour, standing or hung under a block.
-    Lantern { hanging: bool },
+    Lantern {
+        hanging: bool,
+    },
 }
 
 /// The box from `a` to `b`, in sixteenths of a block.
@@ -310,12 +315,20 @@ impl BlockId {
             Self::WhiteCarpet => (DecorKind::Carpet, Self::Wool, ItemId::WhiteCarpet),
             Self::OrangeCarpet => (DecorKind::Carpet, Self::OrangeWool, ItemId::OrangeCarpet),
             Self::MagentaCarpet => (DecorKind::Carpet, Self::MagentaWool, ItemId::MagentaCarpet),
-            Self::LightBlueCarpet => (DecorKind::Carpet, Self::LightBlueWool, ItemId::LightBlueCarpet),
+            Self::LightBlueCarpet => (
+                DecorKind::Carpet,
+                Self::LightBlueWool,
+                ItemId::LightBlueCarpet,
+            ),
             Self::YellowCarpet => (DecorKind::Carpet, Self::YellowWool, ItemId::YellowCarpet),
             Self::LimeCarpet => (DecorKind::Carpet, Self::LimeWool, ItemId::LimeCarpet),
             Self::PinkCarpet => (DecorKind::Carpet, Self::PinkWool, ItemId::PinkCarpet),
             Self::GrayCarpet => (DecorKind::Carpet, Self::GrayWool, ItemId::GrayCarpet),
-            Self::LightGrayCarpet => (DecorKind::Carpet, Self::LightGrayWool, ItemId::LightGrayCarpet),
+            Self::LightGrayCarpet => (
+                DecorKind::Carpet,
+                Self::LightGrayWool,
+                ItemId::LightGrayCarpet,
+            ),
             Self::CyanCarpet => (DecorKind::Carpet, Self::CyanWool, ItemId::CyanCarpet),
             Self::PurpleCarpet => (DecorKind::Carpet, Self::PurpleWool, ItemId::PurpleCarpet),
             Self::BlueCarpet => (DecorKind::Carpet, Self::BlueWool, ItemId::BlueCarpet),
@@ -325,25 +338,103 @@ impl BlockId {
             Self::BlackCarpet => (DecorKind::Carpet, Self::BlackWool, ItemId::BlackCarpet),
             Self::FlowerPot => (DecorKind::FlowerPot, Self::Clay, ItemId::FlowerPot),
             Self::ItemFrame => (DecorKind::ItemFrame, Self::OakPlanks, ItemId::ItemFrame),
-            Self::DawnPainting => (DecorKind::Painting { wide: false, right: false }, Self::OakPlanks, ItemId::Painting),
-            Self::MeadowPainting => (DecorKind::Painting { wide: false, right: false }, Self::OakPlanks, ItemId::Painting),
-            Self::HarbourPainting => (DecorKind::Painting { wide: false, right: false }, Self::OakPlanks, ItemId::Painting),
-            Self::StillLifePainting => (DecorKind::Painting { wide: false, right: false }, Self::OakPlanks, ItemId::Painting),
-            Self::ValleyPainting => (DecorKind::Painting { wide: true, right: false }, Self::OakPlanks, ItemId::WidePainting),
-            Self::ValleyPaintingRight => (DecorKind::Painting { wide: true, right: true }, Self::OakPlanks, ItemId::WidePainting),
-            Self::SeascapePainting => (DecorKind::Painting { wide: true, right: false }, Self::OakPlanks, ItemId::WidePainting),
-            Self::SeascapePaintingRight => (DecorKind::Painting { wide: true, right: true }, Self::OakPlanks, ItemId::WidePainting),
-            Self::ForestPainting => (DecorKind::Painting { wide: true, right: false }, Self::OakPlanks, ItemId::WidePainting),
-            Self::ForestPaintingRight => (DecorKind::Painting { wide: true, right: true }, Self::OakPlanks, ItemId::WidePainting),
+            Self::DawnPainting => (
+                DecorKind::Painting {
+                    wide: false,
+                    right: false,
+                },
+                Self::OakPlanks,
+                ItemId::Painting,
+            ),
+            Self::MeadowPainting => (
+                DecorKind::Painting {
+                    wide: false,
+                    right: false,
+                },
+                Self::OakPlanks,
+                ItemId::Painting,
+            ),
+            Self::HarbourPainting => (
+                DecorKind::Painting {
+                    wide: false,
+                    right: false,
+                },
+                Self::OakPlanks,
+                ItemId::Painting,
+            ),
+            Self::StillLifePainting => (
+                DecorKind::Painting {
+                    wide: false,
+                    right: false,
+                },
+                Self::OakPlanks,
+                ItemId::Painting,
+            ),
+            Self::ValleyPainting => (
+                DecorKind::Painting {
+                    wide: true,
+                    right: false,
+                },
+                Self::OakPlanks,
+                ItemId::WidePainting,
+            ),
+            Self::ValleyPaintingRight => (
+                DecorKind::Painting {
+                    wide: true,
+                    right: true,
+                },
+                Self::OakPlanks,
+                ItemId::WidePainting,
+            ),
+            Self::SeascapePainting => (
+                DecorKind::Painting {
+                    wide: true,
+                    right: false,
+                },
+                Self::OakPlanks,
+                ItemId::WidePainting,
+            ),
+            Self::SeascapePaintingRight => (
+                DecorKind::Painting {
+                    wide: true,
+                    right: true,
+                },
+                Self::OakPlanks,
+                ItemId::WidePainting,
+            ),
+            Self::ForestPainting => (
+                DecorKind::Painting {
+                    wide: true,
+                    right: false,
+                },
+                Self::OakPlanks,
+                ItemId::WidePainting,
+            ),
+            Self::ForestPaintingRight => (
+                DecorKind::Painting {
+                    wide: true,
+                    right: true,
+                },
+                Self::OakPlanks,
+                ItemId::WidePainting,
+            ),
             Self::WhiteBanner => (DecorKind::Banner, Self::Wool, ItemId::WhiteBanner),
             Self::OrangeBanner => (DecorKind::Banner, Self::OrangeWool, ItemId::OrangeBanner),
             Self::MagentaBanner => (DecorKind::Banner, Self::MagentaWool, ItemId::MagentaBanner),
-            Self::LightBlueBanner => (DecorKind::Banner, Self::LightBlueWool, ItemId::LightBlueBanner),
+            Self::LightBlueBanner => (
+                DecorKind::Banner,
+                Self::LightBlueWool,
+                ItemId::LightBlueBanner,
+            ),
             Self::YellowBanner => (DecorKind::Banner, Self::YellowWool, ItemId::YellowBanner),
             Self::LimeBanner => (DecorKind::Banner, Self::LimeWool, ItemId::LimeBanner),
             Self::PinkBanner => (DecorKind::Banner, Self::PinkWool, ItemId::PinkBanner),
             Self::GrayBanner => (DecorKind::Banner, Self::GrayWool, ItemId::GrayBanner),
-            Self::LightGrayBanner => (DecorKind::Banner, Self::LightGrayWool, ItemId::LightGrayBanner),
+            Self::LightGrayBanner => (
+                DecorKind::Banner,
+                Self::LightGrayWool,
+                ItemId::LightGrayBanner,
+            ),
             Self::CyanBanner => (DecorKind::Banner, Self::CyanWool, ItemId::CyanBanner),
             Self::PurpleBanner => (DecorKind::Banner, Self::PurpleWool, ItemId::PurpleBanner),
             Self::BlueBanner => (DecorKind::Banner, Self::BlueWool, ItemId::BlueBanner),
@@ -351,38 +442,166 @@ impl BlockId {
             Self::GreenBanner => (DecorKind::Banner, Self::GreenWool, ItemId::GreenBanner),
             Self::RedBanner => (DecorKind::Banner, Self::RedWool, ItemId::RedBanner),
             Self::BlackBanner => (DecorKind::Banner, Self::BlackWool, ItemId::BlackBanner),
-            Self::WhiteLantern => (DecorKind::Lantern { hanging: false }, Self::Lantern, ItemId::WhiteLantern),
-            Self::OrangeLantern => (DecorKind::Lantern { hanging: false }, Self::Lantern, ItemId::OrangeLantern),
-            Self::MagentaLantern => (DecorKind::Lantern { hanging: false }, Self::Lantern, ItemId::MagentaLantern),
-            Self::LightBlueLantern => (DecorKind::Lantern { hanging: false }, Self::Lantern, ItemId::LightBlueLantern),
-            Self::YellowLantern => (DecorKind::Lantern { hanging: false }, Self::Lantern, ItemId::YellowLantern),
-            Self::LimeLantern => (DecorKind::Lantern { hanging: false }, Self::Lantern, ItemId::LimeLantern),
-            Self::PinkLantern => (DecorKind::Lantern { hanging: false }, Self::Lantern, ItemId::PinkLantern),
-            Self::GrayLantern => (DecorKind::Lantern { hanging: false }, Self::Lantern, ItemId::GrayLantern),
-            Self::LightGrayLantern => (DecorKind::Lantern { hanging: false }, Self::Lantern, ItemId::LightGrayLantern),
-            Self::CyanLantern => (DecorKind::Lantern { hanging: false }, Self::Lantern, ItemId::CyanLantern),
-            Self::PurpleLantern => (DecorKind::Lantern { hanging: false }, Self::Lantern, ItemId::PurpleLantern),
-            Self::BlueLantern => (DecorKind::Lantern { hanging: false }, Self::Lantern, ItemId::BlueLantern),
-            Self::BrownLantern => (DecorKind::Lantern { hanging: false }, Self::Lantern, ItemId::BrownLantern),
-            Self::GreenLantern => (DecorKind::Lantern { hanging: false }, Self::Lantern, ItemId::GreenLantern),
-            Self::RedLantern => (DecorKind::Lantern { hanging: false }, Self::Lantern, ItemId::RedLantern),
-            Self::BlackLantern => (DecorKind::Lantern { hanging: false }, Self::Lantern, ItemId::BlackLantern),
-            Self::HangingWhiteLantern => (DecorKind::Lantern { hanging: true }, Self::Lantern, ItemId::WhiteLantern),
-            Self::HangingOrangeLantern => (DecorKind::Lantern { hanging: true }, Self::Lantern, ItemId::OrangeLantern),
-            Self::HangingMagentaLantern => (DecorKind::Lantern { hanging: true }, Self::Lantern, ItemId::MagentaLantern),
-            Self::HangingLightBlueLantern => (DecorKind::Lantern { hanging: true }, Self::Lantern, ItemId::LightBlueLantern),
-            Self::HangingYellowLantern => (DecorKind::Lantern { hanging: true }, Self::Lantern, ItemId::YellowLantern),
-            Self::HangingLimeLantern => (DecorKind::Lantern { hanging: true }, Self::Lantern, ItemId::LimeLantern),
-            Self::HangingPinkLantern => (DecorKind::Lantern { hanging: true }, Self::Lantern, ItemId::PinkLantern),
-            Self::HangingGrayLantern => (DecorKind::Lantern { hanging: true }, Self::Lantern, ItemId::GrayLantern),
-            Self::HangingLightGrayLantern => (DecorKind::Lantern { hanging: true }, Self::Lantern, ItemId::LightGrayLantern),
-            Self::HangingCyanLantern => (DecorKind::Lantern { hanging: true }, Self::Lantern, ItemId::CyanLantern),
-            Self::HangingPurpleLantern => (DecorKind::Lantern { hanging: true }, Self::Lantern, ItemId::PurpleLantern),
-            Self::HangingBlueLantern => (DecorKind::Lantern { hanging: true }, Self::Lantern, ItemId::BlueLantern),
-            Self::HangingBrownLantern => (DecorKind::Lantern { hanging: true }, Self::Lantern, ItemId::BrownLantern),
-            Self::HangingGreenLantern => (DecorKind::Lantern { hanging: true }, Self::Lantern, ItemId::GreenLantern),
-            Self::HangingRedLantern => (DecorKind::Lantern { hanging: true }, Self::Lantern, ItemId::RedLantern),
-            Self::HangingBlackLantern => (DecorKind::Lantern { hanging: true }, Self::Lantern, ItemId::BlackLantern),
+            Self::WhiteLantern => (
+                DecorKind::Lantern { hanging: false },
+                Self::Lantern,
+                ItemId::WhiteLantern,
+            ),
+            Self::OrangeLantern => (
+                DecorKind::Lantern { hanging: false },
+                Self::Lantern,
+                ItemId::OrangeLantern,
+            ),
+            Self::MagentaLantern => (
+                DecorKind::Lantern { hanging: false },
+                Self::Lantern,
+                ItemId::MagentaLantern,
+            ),
+            Self::LightBlueLantern => (
+                DecorKind::Lantern { hanging: false },
+                Self::Lantern,
+                ItemId::LightBlueLantern,
+            ),
+            Self::YellowLantern => (
+                DecorKind::Lantern { hanging: false },
+                Self::Lantern,
+                ItemId::YellowLantern,
+            ),
+            Self::LimeLantern => (
+                DecorKind::Lantern { hanging: false },
+                Self::Lantern,
+                ItemId::LimeLantern,
+            ),
+            Self::PinkLantern => (
+                DecorKind::Lantern { hanging: false },
+                Self::Lantern,
+                ItemId::PinkLantern,
+            ),
+            Self::GrayLantern => (
+                DecorKind::Lantern { hanging: false },
+                Self::Lantern,
+                ItemId::GrayLantern,
+            ),
+            Self::LightGrayLantern => (
+                DecorKind::Lantern { hanging: false },
+                Self::Lantern,
+                ItemId::LightGrayLantern,
+            ),
+            Self::CyanLantern => (
+                DecorKind::Lantern { hanging: false },
+                Self::Lantern,
+                ItemId::CyanLantern,
+            ),
+            Self::PurpleLantern => (
+                DecorKind::Lantern { hanging: false },
+                Self::Lantern,
+                ItemId::PurpleLantern,
+            ),
+            Self::BlueLantern => (
+                DecorKind::Lantern { hanging: false },
+                Self::Lantern,
+                ItemId::BlueLantern,
+            ),
+            Self::BrownLantern => (
+                DecorKind::Lantern { hanging: false },
+                Self::Lantern,
+                ItemId::BrownLantern,
+            ),
+            Self::GreenLantern => (
+                DecorKind::Lantern { hanging: false },
+                Self::Lantern,
+                ItemId::GreenLantern,
+            ),
+            Self::RedLantern => (
+                DecorKind::Lantern { hanging: false },
+                Self::Lantern,
+                ItemId::RedLantern,
+            ),
+            Self::BlackLantern => (
+                DecorKind::Lantern { hanging: false },
+                Self::Lantern,
+                ItemId::BlackLantern,
+            ),
+            Self::HangingWhiteLantern => (
+                DecorKind::Lantern { hanging: true },
+                Self::Lantern,
+                ItemId::WhiteLantern,
+            ),
+            Self::HangingOrangeLantern => (
+                DecorKind::Lantern { hanging: true },
+                Self::Lantern,
+                ItemId::OrangeLantern,
+            ),
+            Self::HangingMagentaLantern => (
+                DecorKind::Lantern { hanging: true },
+                Self::Lantern,
+                ItemId::MagentaLantern,
+            ),
+            Self::HangingLightBlueLantern => (
+                DecorKind::Lantern { hanging: true },
+                Self::Lantern,
+                ItemId::LightBlueLantern,
+            ),
+            Self::HangingYellowLantern => (
+                DecorKind::Lantern { hanging: true },
+                Self::Lantern,
+                ItemId::YellowLantern,
+            ),
+            Self::HangingLimeLantern => (
+                DecorKind::Lantern { hanging: true },
+                Self::Lantern,
+                ItemId::LimeLantern,
+            ),
+            Self::HangingPinkLantern => (
+                DecorKind::Lantern { hanging: true },
+                Self::Lantern,
+                ItemId::PinkLantern,
+            ),
+            Self::HangingGrayLantern => (
+                DecorKind::Lantern { hanging: true },
+                Self::Lantern,
+                ItemId::GrayLantern,
+            ),
+            Self::HangingLightGrayLantern => (
+                DecorKind::Lantern { hanging: true },
+                Self::Lantern,
+                ItemId::LightGrayLantern,
+            ),
+            Self::HangingCyanLantern => (
+                DecorKind::Lantern { hanging: true },
+                Self::Lantern,
+                ItemId::CyanLantern,
+            ),
+            Self::HangingPurpleLantern => (
+                DecorKind::Lantern { hanging: true },
+                Self::Lantern,
+                ItemId::PurpleLantern,
+            ),
+            Self::HangingBlueLantern => (
+                DecorKind::Lantern { hanging: true },
+                Self::Lantern,
+                ItemId::BlueLantern,
+            ),
+            Self::HangingBrownLantern => (
+                DecorKind::Lantern { hanging: true },
+                Self::Lantern,
+                ItemId::BrownLantern,
+            ),
+            Self::HangingGreenLantern => (
+                DecorKind::Lantern { hanging: true },
+                Self::Lantern,
+                ItemId::GreenLantern,
+            ),
+            Self::HangingRedLantern => (
+                DecorKind::Lantern { hanging: true },
+                Self::Lantern,
+                ItemId::RedLantern,
+            ),
+            Self::HangingBlackLantern => (
+                DecorKind::Lantern { hanging: true },
+                Self::Lantern,
+                ItemId::BlackLantern,
+            ),
             _ => return None,
         };
         Some(Decor { kind, base, item })
@@ -575,7 +794,9 @@ impl ItemId {
 
     /// The colour of a banner.
     pub fn banner_color(self) -> Option<DyeColor> {
-        DyeColor::ALL.into_iter().find(|color| color.banner() == self)
+        DyeColor::ALL
+            .into_iter()
+            .find(|color| color.banner() == self)
     }
 }
 
@@ -637,13 +858,18 @@ impl BannerPattern {
 
     /// The pattern whose dyes lie in exactly the cells `dyed` of a 3 by 3 grid.
     pub fn of_cells(dyed: &[usize]) -> Option<Self> {
-        Self::ALL.into_iter().find(|pattern| pattern.shape() == dyed)
+        Self::ALL
+            .into_iter()
+            .find(|pattern| pattern.shape() == dyed)
     }
 
     /// Whether the pixel at column `x` and row `y` (from the top) of a cloth `width` by
     /// `height` pixels is of the pattern.
     pub fn covers(self, x: u32, y: u32, width: u32, height: u32) -> bool {
-        let (fx, fy) = ((x as f32 + 0.5) / width as f32, (y as f32 + 0.5) / height as f32);
+        let (fx, fy) = (
+            (x as f32 + 0.5) / width as f32,
+            (y as f32 + 0.5) / height as f32,
+        );
         let near = |a: f32, b: f32, reach: f32| (a - b).abs() < reach;
         match self {
             Self::Chief => fy < 1.0 / 3.0,
@@ -671,10 +897,13 @@ pub struct BannerPatterns(pub [u8; MAX_BANNER_LAYERS]);
 impl BannerPatterns {
     /// The layers, from the first dyed.
     pub fn layers(&self) -> impl Iterator<Item = (BannerPattern, DyeColor)> + '_ {
-        self.0.iter().filter(|&&layer| layer != 0).filter_map(|&layer| {
-            let pattern = *BannerPattern::ALL.get(usize::from(layer >> 4).checked_sub(1)?)?;
-            Some((pattern, DyeColor::ALL[usize::from(layer & 0xF)]))
-        })
+        self.0
+            .iter()
+            .filter(|&&layer| layer != 0)
+            .filter_map(|&layer| {
+                let pattern = *BannerPattern::ALL.get(usize::from(layer >> 4).checked_sub(1)?)?;
+                Some((pattern, DyeColor::ALL[usize::from(layer & 0xF)]))
+            })
     }
 
     pub fn is_empty(&self) -> bool {
@@ -994,7 +1223,13 @@ mod tests {
         }
         assert_eq!(canvas, BlockId::DawnPainting);
         let (left, right) = BlockId::ValleyPaintingRight.next_canvas().unwrap();
-        assert_eq!((left, right), (BlockId::SeascapePainting, Some(BlockId::SeascapePaintingRight)));
+        assert_eq!(
+            (left, right),
+            (
+                BlockId::SeascapePainting,
+                Some(BlockId::SeascapePaintingRight)
+            )
+        );
     }
 
     #[test]
@@ -1031,14 +1266,21 @@ mod tests {
         assert_eq!(BlockId::RedLantern.light_emission(), 15);
         assert_eq!(BlockId::HangingBlueLantern.light_emission(), 15);
         assert!(matches!(BlockId::ItemFrame.get_hitbox(), BlockHitbox::None));
-        assert!(matches!(BlockId::ItemFrame.get_ray_hitbox(), BlockHitbox::Aabb(_)));
+        assert!(matches!(
+            BlockId::ItemFrame.get_ray_hitbox(),
+            BlockHitbox::Aabb(_)
+        ));
     }
 
     #[test]
     fn the_patterns_of_a_banner_are_dyed_one_over_the_other_up_to_six() {
         let mut patterns = BannerPatterns::default();
         assert!(patterns.is_empty());
-        for (n, pattern) in BannerPattern::ALL.into_iter().take(MAX_BANNER_LAYERS).enumerate() {
+        for (n, pattern) in BannerPattern::ALL
+            .into_iter()
+            .take(MAX_BANNER_LAYERS)
+            .enumerate()
+        {
             patterns = patterns.with(pattern, DyeColor::ALL[n]).unwrap();
         }
         assert_eq!(patterns.with(BannerPattern::Roundel, DyeColor::Red), None);

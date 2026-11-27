@@ -12,8 +12,7 @@ use bevy_renet::RenetServer;
 use shared::messages::ServerToClientMessage;
 use shared::players::blocks::BrokenBlock;
 use shared::world::{
-    global_block_to_chunk_pos, DecorKind, Decorations, DroppedItem, ItemStack,
-    ItemType, Shown,
+    global_block_to_chunk_pos, DecorKind, Decorations, DroppedItem, ItemStack, ItemType, Shown,
 };
 
 use super::data::ServerWorldMap;
@@ -27,7 +26,10 @@ const FRAME_TURNS: u8 = 8;
 /// The banner `broken` drops with its patterns, which leave the places, if it had some and was
 /// harvested.
 pub fn broken_banner(places: &mut Places, broken: &BrokenBlock) -> Option<DroppedItem> {
-    let decor = broken.block.decor().filter(|d| d.kind == DecorKind::Banner)?;
+    let decor = broken
+        .block
+        .decor()
+        .filter(|d| d.kind == DecorKind::Banner)?;
     let patterns = places.banners.remove(&broken.position)?;
     if !broken.harvested {
         return None;
@@ -62,7 +64,10 @@ pub fn decor_system(
     let mut changed = std::mem::take(&mut world_map.home.decorations_changed);
 
     for (id, at) in std::mem::take(&mut world_map.home.displayed) {
-        let kind = world_map.chunks.get_block(at).and_then(|b| b.id.decor_kind());
+        let kind = world_map
+            .chunks
+            .get_block(at)
+            .and_then(|b| b.id.decor_kind());
         let Some(player) = world_map.players.get_mut(&id) else {
             continue;
         };
@@ -79,7 +84,13 @@ pub fn decor_system(
                 {
                     // only a plain item: a frame keeps no wear, enchantment or map
                     player.inventory.remove_item_from_stack(slot, 1);
-                    displays.insert(at, Shown { item: stack.item_id, turn: 0 });
+                    displays.insert(
+                        at,
+                        Shown {
+                            item: stack.item_id,
+                            turn: 0,
+                        },
+                    );
                     changed = true;
                 }
             }
@@ -88,14 +99,22 @@ pub fn decor_system(
                     let left = player.inventory.add_item_to_inventory(one(shown.item));
                     if left > 0 {
                         let centre = at.as_vec3() + Vec3::new(0.5, 0.6, 0.5);
-                        world_map
-                            .dropped_items
-                            .spawn(DroppedItem::new(one(shown.item), centre, Vec3::Y * 2.0));
+                        world_map.dropped_items.spawn(DroppedItem::new(
+                            one(shown.item),
+                            centre,
+                            Vec3::Y * 2.0,
+                        ));
                     }
                     changed = true;
                 } else if let Some(stack) = held.filter(|stack| stack.item_id.fits_flower_pot()) {
                     player.inventory.remove_item_from_stack(slot, 1);
-                    displays.insert(at, Shown { item: stack.item_id, turn: 0 });
+                    displays.insert(
+                        at,
+                        Shown {
+                            item: stack.item_id,
+                            turn: 0,
+                        },
+                    );
                     changed = true;
                 }
             }

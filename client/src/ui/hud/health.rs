@@ -58,7 +58,10 @@ pub fn heart(health: u32, index: u32) -> Heart {
 /// The hearts as the accessibility tree and the tests read them.
 pub fn health_label(health: u32) -> String {
     let hearts = health as f32 / 2.0;
-    trf("hud.health.label", &[("hearts", &hearts), ("HEARTS", &HEARTS)])
+    trf(
+        "hud.health.label",
+        &[("hearts", &hearts), ("HEARTS", &HEARTS)],
+    )
 }
 
 /// Spawns the hearts over the hotbar, hidden until the local player is known to be in survival.

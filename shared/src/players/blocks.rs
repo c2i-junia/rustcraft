@@ -4,16 +4,16 @@ use crate::{
     messages::{NetworkAction, PlayerFrameInput},
     players::{hunger::MAX_FOOD, movement::MAX_FRAME_DELTA_MS, sitting, Player, ViewMode},
     world::{
+        decor::painting_right,
         fire::fire_can_stay,
-        growth::{is_sapling, next_stage},
         fit_portal,
         furnace::smelting_result,
         global_block_to_chunk_pos,
+        growth::{is_sapling, next_stage},
         liquid::{is_source, Liquid, LAVA, WATER},
-        raycast, BlockData, BlockDirection, BlockHitbox, BlockId, BlockTransparency, ChunkMap,
-        decor::painting_right, BannerPatterns, Container, DecorKind, FaceDirectionExt, Form,
-        Furnace, ItemId, ItemStack, ItemType, MobKind,
-        PortalColor, RaycastResponse, ServerMob, Tool, ToolKind,
+        raycast, BannerPatterns, BlockData, BlockDirection, BlockHitbox, BlockId,
+        BlockTransparency, ChunkMap, Container, DecorKind, FaceDirectionExt, Form, Furnace, ItemId,
+        ItemStack, ItemType, MobKind, PortalColor, RaycastResponse, ServerMob, Tool, ToolKind,
     },
     HALF_BLOCK, MAX_INVENTORY_SLOTS,
 };
@@ -218,9 +218,7 @@ pub fn simulate_player_block_interactions(
             ),
             NetworkAction::RightClick if !may_place => continue,
             // A bow being drawn uses nothing it is swept over
-            NetworkAction::RightClick if player.bow_draw_ms > 0 || player.shield_ms > 0 => {
-                continue
-            }
+            NetworkAction::RightClick if player.bow_draw_ms > 0 || player.shield_ms > 0 => continue,
             NetworkAction::RightClick
                 if use_block(
                     player,
@@ -283,8 +281,7 @@ pub fn simulate_player_block_interactions(
                 Some(potion) if potion.is_splash_potion() => continue,
                 Some(potion) if potion.potion().is_some() => (
                     "drink a potion",
-                    drink_potion(player, action)
-                        .map(|()| player.place_wait_ms = UNTIL_RELEASED_MS),
+                    drink_potion(player, action).map(|()| player.place_wait_ms = UNTIL_RELEASED_MS),
                 ),
                 // The server draws it, as it gives it an id
                 Some(ItemId::EmptyMap) => {
@@ -310,7 +307,10 @@ pub fn simulate_player_block_interactions(
                             spawned.extend(mob);
                             if let Some(at) = at {
                                 // A sign just placed is written on at once
-                                if world_map.get_block(at).is_some_and(|b| b.id == BlockId::Sign) {
+                                if world_map
+                                    .get_block(at)
+                                    .is_some_and(|b| b.id == BlockId::Sign)
+                                {
                                     signs.push(at);
                                 }
                                 // The patterns of a banner stay with it
@@ -886,7 +886,9 @@ fn place_block(
     let hangs = (block_id == BlockId::Lantern || block_id.hanging_lantern().is_some())
         && target.face.to_ivec3() == IVec3::NEG_Y;
     let block_id = if hangs {
-        block_id.hanging_lantern().unwrap_or(BlockId::HangingLantern)
+        block_id
+            .hanging_lantern()
+            .unwrap_or(BlockId::HangingLantern)
     } else {
         block_id
     };
@@ -1661,7 +1663,10 @@ mod tests {
         let stone = IVec3::new(0, 0, -3);
         let (mut world, mut player) = place_against(ItemId::WidePainting, stone, IVec3::Z);
         let left = world.get_block(stone + IVec3::Z).copied().unwrap();
-        let right = world.get_block(stone + IVec3::Z + IVec3::X).copied().unwrap();
+        let right = world
+            .get_block(stone + IVec3::Z + IVec3::X)
+            .copied()
+            .unwrap();
         assert_eq!(left.id, BlockId::ValleyPainting);
         assert_eq!(right.id, BlockId::ValleyPaintingRight);
         assert_eq!(left.direction, BlockDirection::Front);
@@ -1676,7 +1681,10 @@ mod tests {
             ..Default::default()
         };
         simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
-        assert_eq!(world.get_block(stone + IVec3::Z).unwrap().id, BlockId::SeascapePainting);
+        assert_eq!(
+            world.get_block(stone + IVec3::Z).unwrap().id,
+            BlockId::SeascapePainting
+        );
         assert_eq!(
             world.get_block(stone + IVec3::Z + IVec3::X).unwrap().id,
             BlockId::SeascapePaintingRight
@@ -1689,7 +1697,10 @@ mod tests {
         let (world, _) = place_against(ItemId::ItemFrame, stone, IVec3::Y);
         assert!(world.get_block(stone + IVec3::Y).is_none());
         let (mut world, mut player) = place_against(ItemId::ItemFrame, stone, IVec3::Z);
-        assert_eq!(world.get_block(stone + IVec3::Z).unwrap().id, BlockId::ItemFrame);
+        assert_eq!(
+            world.get_block(stone + IVec3::Z).unwrap().id,
+            BlockId::ItemFrame
+        );
         player.place_wait_ms = 0;
         let input = PlayerFrameInput {
             inputs: [NetworkAction::RightClick].into(),

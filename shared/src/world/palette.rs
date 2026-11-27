@@ -67,7 +67,13 @@ pub enum Wood {
 }
 
 impl Wood {
-    pub const ALL: [Wood; 5] = [Self::Oak, Self::Spruce, Self::Jungle, Self::Willow, Self::Acacia];
+    pub const ALL: [Wood; 5] = [
+        Self::Oak,
+        Self::Spruce,
+        Self::Jungle,
+        Self::Willow,
+        Self::Acacia,
+    ];
 
     /// The planks of the species.
     pub fn planks(self) -> ItemId {
@@ -134,7 +140,6 @@ impl Wood {
             Self::Acacia => ItemId::AcaciaFenceGate,
         }
     }
-
 }
 
 /// The rocks cut into slabs, stairs and low walls.
@@ -151,7 +156,16 @@ pub enum Rock {
 }
 
 impl Rock {
-    pub const ALL: [Rock; 8] = [Self::Stone, Self::Cobblestone, Self::HewnStone, Self::Limestone, Self::Slate, Self::Brick, Self::Gloomrock, Self::CobbledGloomrock];
+    pub const ALL: [Rock; 8] = [
+        Self::Stone,
+        Self::Cobblestone,
+        Self::HewnStone,
+        Self::Limestone,
+        Self::Slate,
+        Self::Brick,
+        Self::Gloomrock,
+        Self::CobbledGloomrock,
+    ];
 
     /// The block it is cut from.
     pub fn material(self) -> ItemId {
@@ -415,7 +429,6 @@ impl DyeColor {
             Self::Black => ItemId::BlackConcretePowder,
         }
     }
-
 }
 
 /// The wool of every colour, in the order of `DyeColor::ALL`.
@@ -448,10 +461,38 @@ impl BlockId {
             Self::OakStairs => (Form::Stairs, Self::OakPlanks, ItemId::OakStairs),
             Self::HewnStoneStairs => (Form::Stairs, Self::HewnStone, ItemId::HewnStoneStairs),
             Self::BrickStairs => (Form::Stairs, Self::BrickWall, ItemId::BrickStairs),
-            Self::Door => (Form::Door { top: false, open: false }, Self::OakPlanks, ItemId::Door),
-            Self::DoorTop => (Form::Door { top: true, open: false }, Self::OakPlanks, ItemId::Door),
-            Self::OpenDoor => (Form::Door { top: false, open: true }, Self::OakPlanks, ItemId::Door),
-            Self::OpenDoorTop => (Form::Door { top: true, open: true }, Self::OakPlanks, ItemId::Door),
+            Self::Door => (
+                Form::Door {
+                    top: false,
+                    open: false,
+                },
+                Self::OakPlanks,
+                ItemId::Door,
+            ),
+            Self::DoorTop => (
+                Form::Door {
+                    top: true,
+                    open: false,
+                },
+                Self::OakPlanks,
+                ItemId::Door,
+            ),
+            Self::OpenDoor => (
+                Form::Door {
+                    top: false,
+                    open: true,
+                },
+                Self::OakPlanks,
+                ItemId::Door,
+            ),
+            Self::OpenDoorTop => (
+                Form::Door {
+                    top: true,
+                    open: true,
+                },
+                Self::OakPlanks,
+                ItemId::Door,
+            ),
             Self::GlassPane => (Form::Pane, Self::Glass, ItemId::GlassPane),
             Self::SpruceSlab => (Form::Slab, Self::SprucePlanks, ItemId::SpruceSlab),
             Self::JungleSlab => (Form::Slab, Self::JunglePlanks, ItemId::JungleSlab),
@@ -461,62 +502,268 @@ impl BlockId {
             Self::JungleStairs => (Form::Stairs, Self::JunglePlanks, ItemId::JungleStairs),
             Self::WillowStairs => (Form::Stairs, Self::WillowPlanks, ItemId::WillowStairs),
             Self::AcaciaStairs => (Form::Stairs, Self::AcaciaPlanks, ItemId::AcaciaStairs),
-            Self::SpruceDoor => (Form::Door { top: false, open: false }, Self::SprucePlanks, ItemId::SpruceDoor),
-            Self::SpruceDoorTop => (Form::Door { top: true, open: false }, Self::SprucePlanks, ItemId::SpruceDoor),
-            Self::OpenSpruceDoor => (Form::Door { top: false, open: true }, Self::SprucePlanks, ItemId::SpruceDoor),
-            Self::OpenSpruceDoorTop => (Form::Door { top: true, open: true }, Self::SprucePlanks, ItemId::SpruceDoor),
-            Self::JungleDoor => (Form::Door { top: false, open: false }, Self::JunglePlanks, ItemId::JungleDoor),
-            Self::JungleDoorTop => (Form::Door { top: true, open: false }, Self::JunglePlanks, ItemId::JungleDoor),
-            Self::OpenJungleDoor => (Form::Door { top: false, open: true }, Self::JunglePlanks, ItemId::JungleDoor),
-            Self::OpenJungleDoorTop => (Form::Door { top: true, open: true }, Self::JunglePlanks, ItemId::JungleDoor),
-            Self::WillowDoor => (Form::Door { top: false, open: false }, Self::WillowPlanks, ItemId::WillowDoor),
-            Self::WillowDoorTop => (Form::Door { top: true, open: false }, Self::WillowPlanks, ItemId::WillowDoor),
-            Self::OpenWillowDoor => (Form::Door { top: false, open: true }, Self::WillowPlanks, ItemId::WillowDoor),
-            Self::OpenWillowDoorTop => (Form::Door { top: true, open: true }, Self::WillowPlanks, ItemId::WillowDoor),
-            Self::AcaciaDoor => (Form::Door { top: false, open: false }, Self::AcaciaPlanks, ItemId::AcaciaDoor),
-            Self::AcaciaDoorTop => (Form::Door { top: true, open: false }, Self::AcaciaPlanks, ItemId::AcaciaDoor),
-            Self::OpenAcaciaDoor => (Form::Door { top: false, open: true }, Self::AcaciaPlanks, ItemId::AcaciaDoor),
-            Self::OpenAcaciaDoorTop => (Form::Door { top: true, open: true }, Self::AcaciaPlanks, ItemId::AcaciaDoor),
-            Self::OakTrapdoor => (Form::Trapdoor { open: false }, Self::OakPlanks, ItemId::OakTrapdoor),
-            Self::OpenOakTrapdoor => (Form::Trapdoor { open: true }, Self::OakPlanks, ItemId::OakTrapdoor),
-            Self::SpruceTrapdoor => (Form::Trapdoor { open: false }, Self::SprucePlanks, ItemId::SpruceTrapdoor),
-            Self::OpenSpruceTrapdoor => (Form::Trapdoor { open: true }, Self::SprucePlanks, ItemId::SpruceTrapdoor),
-            Self::JungleTrapdoor => (Form::Trapdoor { open: false }, Self::JunglePlanks, ItemId::JungleTrapdoor),
-            Self::OpenJungleTrapdoor => (Form::Trapdoor { open: true }, Self::JunglePlanks, ItemId::JungleTrapdoor),
-            Self::WillowTrapdoor => (Form::Trapdoor { open: false }, Self::WillowPlanks, ItemId::WillowTrapdoor),
-            Self::OpenWillowTrapdoor => (Form::Trapdoor { open: true }, Self::WillowPlanks, ItemId::WillowTrapdoor),
-            Self::AcaciaTrapdoor => (Form::Trapdoor { open: false }, Self::AcaciaPlanks, ItemId::AcaciaTrapdoor),
-            Self::OpenAcaciaTrapdoor => (Form::Trapdoor { open: true }, Self::AcaciaPlanks, ItemId::AcaciaTrapdoor),
-            Self::OakFenceGate => (Form::FenceGate { open: false }, Self::OakPlanks, ItemId::OakFenceGate),
-            Self::OpenOakFenceGate => (Form::FenceGate { open: true }, Self::OakPlanks, ItemId::OakFenceGate),
-            Self::SpruceFenceGate => (Form::FenceGate { open: false }, Self::SprucePlanks, ItemId::SpruceFenceGate),
-            Self::OpenSpruceFenceGate => (Form::FenceGate { open: true }, Self::SprucePlanks, ItemId::SpruceFenceGate),
-            Self::JungleFenceGate => (Form::FenceGate { open: false }, Self::JunglePlanks, ItemId::JungleFenceGate),
-            Self::OpenJungleFenceGate => (Form::FenceGate { open: true }, Self::JunglePlanks, ItemId::JungleFenceGate),
-            Self::WillowFenceGate => (Form::FenceGate { open: false }, Self::WillowPlanks, ItemId::WillowFenceGate),
-            Self::OpenWillowFenceGate => (Form::FenceGate { open: true }, Self::WillowPlanks, ItemId::WillowFenceGate),
-            Self::AcaciaFenceGate => (Form::FenceGate { open: false }, Self::AcaciaPlanks, ItemId::AcaciaFenceGate),
-            Self::OpenAcaciaFenceGate => (Form::FenceGate { open: true }, Self::AcaciaPlanks, ItemId::AcaciaFenceGate),
+            Self::SpruceDoor => (
+                Form::Door {
+                    top: false,
+                    open: false,
+                },
+                Self::SprucePlanks,
+                ItemId::SpruceDoor,
+            ),
+            Self::SpruceDoorTop => (
+                Form::Door {
+                    top: true,
+                    open: false,
+                },
+                Self::SprucePlanks,
+                ItemId::SpruceDoor,
+            ),
+            Self::OpenSpruceDoor => (
+                Form::Door {
+                    top: false,
+                    open: true,
+                },
+                Self::SprucePlanks,
+                ItemId::SpruceDoor,
+            ),
+            Self::OpenSpruceDoorTop => (
+                Form::Door {
+                    top: true,
+                    open: true,
+                },
+                Self::SprucePlanks,
+                ItemId::SpruceDoor,
+            ),
+            Self::JungleDoor => (
+                Form::Door {
+                    top: false,
+                    open: false,
+                },
+                Self::JunglePlanks,
+                ItemId::JungleDoor,
+            ),
+            Self::JungleDoorTop => (
+                Form::Door {
+                    top: true,
+                    open: false,
+                },
+                Self::JunglePlanks,
+                ItemId::JungleDoor,
+            ),
+            Self::OpenJungleDoor => (
+                Form::Door {
+                    top: false,
+                    open: true,
+                },
+                Self::JunglePlanks,
+                ItemId::JungleDoor,
+            ),
+            Self::OpenJungleDoorTop => (
+                Form::Door {
+                    top: true,
+                    open: true,
+                },
+                Self::JunglePlanks,
+                ItemId::JungleDoor,
+            ),
+            Self::WillowDoor => (
+                Form::Door {
+                    top: false,
+                    open: false,
+                },
+                Self::WillowPlanks,
+                ItemId::WillowDoor,
+            ),
+            Self::WillowDoorTop => (
+                Form::Door {
+                    top: true,
+                    open: false,
+                },
+                Self::WillowPlanks,
+                ItemId::WillowDoor,
+            ),
+            Self::OpenWillowDoor => (
+                Form::Door {
+                    top: false,
+                    open: true,
+                },
+                Self::WillowPlanks,
+                ItemId::WillowDoor,
+            ),
+            Self::OpenWillowDoorTop => (
+                Form::Door {
+                    top: true,
+                    open: true,
+                },
+                Self::WillowPlanks,
+                ItemId::WillowDoor,
+            ),
+            Self::AcaciaDoor => (
+                Form::Door {
+                    top: false,
+                    open: false,
+                },
+                Self::AcaciaPlanks,
+                ItemId::AcaciaDoor,
+            ),
+            Self::AcaciaDoorTop => (
+                Form::Door {
+                    top: true,
+                    open: false,
+                },
+                Self::AcaciaPlanks,
+                ItemId::AcaciaDoor,
+            ),
+            Self::OpenAcaciaDoor => (
+                Form::Door {
+                    top: false,
+                    open: true,
+                },
+                Self::AcaciaPlanks,
+                ItemId::AcaciaDoor,
+            ),
+            Self::OpenAcaciaDoorTop => (
+                Form::Door {
+                    top: true,
+                    open: true,
+                },
+                Self::AcaciaPlanks,
+                ItemId::AcaciaDoor,
+            ),
+            Self::OakTrapdoor => (
+                Form::Trapdoor { open: false },
+                Self::OakPlanks,
+                ItemId::OakTrapdoor,
+            ),
+            Self::OpenOakTrapdoor => (
+                Form::Trapdoor { open: true },
+                Self::OakPlanks,
+                ItemId::OakTrapdoor,
+            ),
+            Self::SpruceTrapdoor => (
+                Form::Trapdoor { open: false },
+                Self::SprucePlanks,
+                ItemId::SpruceTrapdoor,
+            ),
+            Self::OpenSpruceTrapdoor => (
+                Form::Trapdoor { open: true },
+                Self::SprucePlanks,
+                ItemId::SpruceTrapdoor,
+            ),
+            Self::JungleTrapdoor => (
+                Form::Trapdoor { open: false },
+                Self::JunglePlanks,
+                ItemId::JungleTrapdoor,
+            ),
+            Self::OpenJungleTrapdoor => (
+                Form::Trapdoor { open: true },
+                Self::JunglePlanks,
+                ItemId::JungleTrapdoor,
+            ),
+            Self::WillowTrapdoor => (
+                Form::Trapdoor { open: false },
+                Self::WillowPlanks,
+                ItemId::WillowTrapdoor,
+            ),
+            Self::OpenWillowTrapdoor => (
+                Form::Trapdoor { open: true },
+                Self::WillowPlanks,
+                ItemId::WillowTrapdoor,
+            ),
+            Self::AcaciaTrapdoor => (
+                Form::Trapdoor { open: false },
+                Self::AcaciaPlanks,
+                ItemId::AcaciaTrapdoor,
+            ),
+            Self::OpenAcaciaTrapdoor => (
+                Form::Trapdoor { open: true },
+                Self::AcaciaPlanks,
+                ItemId::AcaciaTrapdoor,
+            ),
+            Self::OakFenceGate => (
+                Form::FenceGate { open: false },
+                Self::OakPlanks,
+                ItemId::OakFenceGate,
+            ),
+            Self::OpenOakFenceGate => (
+                Form::FenceGate { open: true },
+                Self::OakPlanks,
+                ItemId::OakFenceGate,
+            ),
+            Self::SpruceFenceGate => (
+                Form::FenceGate { open: false },
+                Self::SprucePlanks,
+                ItemId::SpruceFenceGate,
+            ),
+            Self::OpenSpruceFenceGate => (
+                Form::FenceGate { open: true },
+                Self::SprucePlanks,
+                ItemId::SpruceFenceGate,
+            ),
+            Self::JungleFenceGate => (
+                Form::FenceGate { open: false },
+                Self::JunglePlanks,
+                ItemId::JungleFenceGate,
+            ),
+            Self::OpenJungleFenceGate => (
+                Form::FenceGate { open: true },
+                Self::JunglePlanks,
+                ItemId::JungleFenceGate,
+            ),
+            Self::WillowFenceGate => (
+                Form::FenceGate { open: false },
+                Self::WillowPlanks,
+                ItemId::WillowFenceGate,
+            ),
+            Self::OpenWillowFenceGate => (
+                Form::FenceGate { open: true },
+                Self::WillowPlanks,
+                ItemId::WillowFenceGate,
+            ),
+            Self::AcaciaFenceGate => (
+                Form::FenceGate { open: false },
+                Self::AcaciaPlanks,
+                ItemId::AcaciaFenceGate,
+            ),
+            Self::OpenAcaciaFenceGate => (
+                Form::FenceGate { open: true },
+                Self::AcaciaPlanks,
+                ItemId::AcaciaFenceGate,
+            ),
             Self::StoneSlab => (Form::Slab, Self::Stone, ItemId::StoneSlab),
             Self::CobblestoneSlab => (Form::Slab, Self::Cobblestone, ItemId::CobblestoneSlab),
             Self::LimestoneSlab => (Form::Slab, Self::Limestone, ItemId::LimestoneSlab),
             Self::SlateSlab => (Form::Slab, Self::Slate, ItemId::SlateSlab),
             Self::GloomrockSlab => (Form::Slab, Self::Gloomrock, ItemId::GloomrockSlab),
-            Self::CobbledGloomrockSlab => (Form::Slab, Self::CobbledGloomrock, ItemId::CobbledGloomrockSlab),
+            Self::CobbledGloomrockSlab => (
+                Form::Slab,
+                Self::CobbledGloomrock,
+                ItemId::CobbledGloomrockSlab,
+            ),
             Self::StoneStairs => (Form::Stairs, Self::Stone, ItemId::StoneStairs),
             Self::CobblestoneStairs => (Form::Stairs, Self::Cobblestone, ItemId::CobblestoneStairs),
             Self::LimestoneStairs => (Form::Stairs, Self::Limestone, ItemId::LimestoneStairs),
             Self::SlateStairs => (Form::Stairs, Self::Slate, ItemId::SlateStairs),
             Self::GloomrockStairs => (Form::Stairs, Self::Gloomrock, ItemId::GloomrockStairs),
-            Self::CobbledGloomrockStairs => (Form::Stairs, Self::CobbledGloomrock, ItemId::CobbledGloomrockStairs),
+            Self::CobbledGloomrockStairs => (
+                Form::Stairs,
+                Self::CobbledGloomrock,
+                ItemId::CobbledGloomrockStairs,
+            ),
             Self::StoneLowWall => (Form::LowWall, Self::Stone, ItemId::StoneLowWall),
-            Self::CobblestoneLowWall => (Form::LowWall, Self::Cobblestone, ItemId::CobblestoneLowWall),
+            Self::CobblestoneLowWall => {
+                (Form::LowWall, Self::Cobblestone, ItemId::CobblestoneLowWall)
+            }
             Self::HewnStoneLowWall => (Form::LowWall, Self::HewnStone, ItemId::HewnStoneLowWall),
             Self::LimestoneLowWall => (Form::LowWall, Self::Limestone, ItemId::LimestoneLowWall),
             Self::SlateLowWall => (Form::LowWall, Self::Slate, ItemId::SlateLowWall),
             Self::BrickLowWall => (Form::LowWall, Self::BrickWall, ItemId::BrickLowWall),
             Self::GloomrockLowWall => (Form::LowWall, Self::Gloomrock, ItemId::GloomrockLowWall),
-            Self::CobbledGloomrockLowWall => (Form::LowWall, Self::CobbledGloomrock, ItemId::CobbledGloomrockLowWall),
+            Self::CobbledGloomrockLowWall => (
+                Form::LowWall,
+                Self::CobbledGloomrock,
+                ItemId::CobbledGloomrockLowWall,
+            ),
             Self::PolishedStone => (Form::Cube, Self::Stone, ItemId::PolishedStone),
             Self::PolishedLimestone => (Form::Cube, Self::Limestone, ItemId::PolishedLimestone),
             Self::PolishedSlate => (Form::Cube, Self::Slate, ItemId::PolishedSlate),
@@ -557,16 +804,28 @@ impl BlockId {
             Self::RedStainedGlass => (Form::Cube, Self::Glass, ItemId::RedStainedGlass),
             Self::BlackStainedGlass => (Form::Cube, Self::Glass, ItemId::BlackStainedGlass),
             Self::WhiteStainedGlassPane => (Form::Pane, Self::Glass, ItemId::WhiteStainedGlassPane),
-            Self::OrangeStainedGlassPane => (Form::Pane, Self::Glass, ItemId::OrangeStainedGlassPane),
-            Self::MagentaStainedGlassPane => (Form::Pane, Self::Glass, ItemId::MagentaStainedGlassPane),
-            Self::LightBlueStainedGlassPane => (Form::Pane, Self::Glass, ItemId::LightBlueStainedGlassPane),
-            Self::YellowStainedGlassPane => (Form::Pane, Self::Glass, ItemId::YellowStainedGlassPane),
+            Self::OrangeStainedGlassPane => {
+                (Form::Pane, Self::Glass, ItemId::OrangeStainedGlassPane)
+            }
+            Self::MagentaStainedGlassPane => {
+                (Form::Pane, Self::Glass, ItemId::MagentaStainedGlassPane)
+            }
+            Self::LightBlueStainedGlassPane => {
+                (Form::Pane, Self::Glass, ItemId::LightBlueStainedGlassPane)
+            }
+            Self::YellowStainedGlassPane => {
+                (Form::Pane, Self::Glass, ItemId::YellowStainedGlassPane)
+            }
             Self::LimeStainedGlassPane => (Form::Pane, Self::Glass, ItemId::LimeStainedGlassPane),
             Self::PinkStainedGlassPane => (Form::Pane, Self::Glass, ItemId::PinkStainedGlassPane),
             Self::GrayStainedGlassPane => (Form::Pane, Self::Glass, ItemId::GrayStainedGlassPane),
-            Self::LightGrayStainedGlassPane => (Form::Pane, Self::Glass, ItemId::LightGrayStainedGlassPane),
+            Self::LightGrayStainedGlassPane => {
+                (Form::Pane, Self::Glass, ItemId::LightGrayStainedGlassPane)
+            }
             Self::CyanStainedGlassPane => (Form::Pane, Self::Glass, ItemId::CyanStainedGlassPane),
-            Self::PurpleStainedGlassPane => (Form::Pane, Self::Glass, ItemId::PurpleStainedGlassPane),
+            Self::PurpleStainedGlassPane => {
+                (Form::Pane, Self::Glass, ItemId::PurpleStainedGlassPane)
+            }
             Self::BlueStainedGlassPane => (Form::Pane, Self::Glass, ItemId::BlueStainedGlassPane),
             Self::BrownStainedGlassPane => (Form::Pane, Self::Glass, ItemId::BrownStainedGlassPane),
             Self::GreenStainedGlassPane => (Form::Pane, Self::Glass, ItemId::GreenStainedGlassPane),
@@ -608,12 +867,16 @@ impl BlockId {
             Self::WhiteConcretePowder => (Form::Cube, Self::Sand, ItemId::WhiteConcretePowder),
             Self::OrangeConcretePowder => (Form::Cube, Self::Sand, ItemId::OrangeConcretePowder),
             Self::MagentaConcretePowder => (Form::Cube, Self::Sand, ItemId::MagentaConcretePowder),
-            Self::LightBlueConcretePowder => (Form::Cube, Self::Sand, ItemId::LightBlueConcretePowder),
+            Self::LightBlueConcretePowder => {
+                (Form::Cube, Self::Sand, ItemId::LightBlueConcretePowder)
+            }
             Self::YellowConcretePowder => (Form::Cube, Self::Sand, ItemId::YellowConcretePowder),
             Self::LimeConcretePowder => (Form::Cube, Self::Sand, ItemId::LimeConcretePowder),
             Self::PinkConcretePowder => (Form::Cube, Self::Sand, ItemId::PinkConcretePowder),
             Self::GrayConcretePowder => (Form::Cube, Self::Sand, ItemId::GrayConcretePowder),
-            Self::LightGrayConcretePowder => (Form::Cube, Self::Sand, ItemId::LightGrayConcretePowder),
+            Self::LightGrayConcretePowder => {
+                (Form::Cube, Self::Sand, ItemId::LightGrayConcretePowder)
+            }
             Self::CyanConcretePowder => (Form::Cube, Self::Sand, ItemId::CyanConcretePowder),
             Self::PurpleConcretePowder => (Form::Cube, Self::Sand, ItemId::PurpleConcretePowder),
             Self::BlueConcretePowder => (Form::Cube, Self::Sand, ItemId::BlueConcretePowder),
@@ -1240,13 +1503,29 @@ mod tests {
         assert_eq!(item(120), ItemId::OakStairs);
         // player files and worlds saved in RON hold the name of the variant
         let as_ron = ron::to_string(&ItemId::OakSlab).unwrap();
-        assert_eq!(ron::from_str::<ItemId>(&as_ron).unwrap(), ItemId::OakSlab, "{as_ron}");
+        assert_eq!(
+            ron::from_str::<ItemId>(&as_ron).unwrap(),
+            ItemId::OakSlab,
+            "{as_ron}"
+        );
         let old = ron::from_str::<ItemId>("WoodenSlab");
         assert!(old.is_ok(), "{old:?}");
-        assert_eq!(ron::from_str::<ItemId>("WoodenSlab").unwrap(), ItemId::OakSlab);
-        assert_eq!(ron::from_str::<ItemId>("WoodenStairs").unwrap(), ItemId::OakStairs);
-        assert_eq!(ron::from_str::<BlockId>("WoodenSlab").unwrap(), BlockId::OakSlab);
-        assert_eq!(ron::from_str::<BlockId>("WoodenStairs").unwrap(), BlockId::OakStairs);
+        assert_eq!(
+            ron::from_str::<ItemId>("WoodenSlab").unwrap(),
+            ItemId::OakSlab
+        );
+        assert_eq!(
+            ron::from_str::<ItemId>("WoodenStairs").unwrap(),
+            ItemId::OakStairs
+        );
+        assert_eq!(
+            ron::from_str::<BlockId>("WoodenSlab").unwrap(),
+            BlockId::OakSlab
+        );
+        assert_eq!(
+            ron::from_str::<BlockId>("WoodenStairs").unwrap(),
+            BlockId::OakStairs
+        );
         // and the commands, the name of the item
         assert_eq!(ItemId::from_name("wooden_slab"), Some(ItemId::OakSlab));
         assert_eq!(ItemId::from_name("wooden_stairs"), Some(ItemId::OakStairs));
@@ -1267,7 +1546,11 @@ mod tests {
                 ItemType::Block(placed) => placed,
                 other => panic!("{id:?}: {other:?}"),
             };
-            assert_eq!(placed.palette().map(|p| p.item), Some(palette.item), "{id:?}");
+            assert_eq!(
+                placed.palette().map(|p| p.item),
+                Some(palette.item),
+                "{id:?}"
+            );
             let drops = id.get_drop_table();
             if palette.base == BlockId::Glass {
                 assert!(drops.is_empty(), "{id:?}");

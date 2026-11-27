@@ -40,7 +40,13 @@ pub enum CreditsLine {
 struct CreditsStat(usize);
 
 fn stat_line(progress: &PlayerProgress, i: usize) -> String {
-    trf("credits.stat", &[("label", &tr_as("stat", Stats::LABELS[i])), ("value", &stat_values(progress)[i])])
+    trf(
+        "credits.stat",
+        &[
+            ("label", &tr_as("stat", Stats::LABELS[i])),
+            ("value", &stat_values(progress)[i]),
+        ],
+    )
 }
 
 fn show_stats(progress: Res<PlayerProgress>, mut stats: Query<(&CreditsStat, &mut Text)>) {
@@ -174,7 +180,10 @@ pub fn spawn_credits(
                 ..default()
             };
             commands.spawn((space, ChildOf(roll)));
-            commands.spawn((text(crate::i18n::tr(STATS_TITLE), FONT_L, ACCENT), ChildOf(roll)));
+            commands.spawn((
+                text(crate::i18n::tr(STATS_TITLE), FONT_L, ACCENT),
+                ChildOf(roll),
+            ));
             for stat in 0..Stats::LABELS.len() {
                 let line = stat_line(progress, stat);
                 commands.spawn((CreditsStat(stat), text(&line, FONT_M, TEXT), ChildOf(roll)));
@@ -184,7 +193,9 @@ pub fn spawn_credits(
             CreditsLine::Title(title) if i == 0 => {
                 commands.spawn(text(title, FONT_XL * 2.0, ACCENT))
             }
-            CreditsLine::Title(title) => commands.spawn(text(tr_as("credits", title), FONT_L, ACCENT)),
+            CreditsLine::Title(title) => {
+                commands.spawn(text(tr_as("credits", title), FONT_L, ACCENT))
+            }
             CreditsLine::Text(line) => commands.spawn(text(line, FONT_M, TEXT)),
             CreditsLine::Space => commands.spawn(Node {
                 height: px(SPACE_L * 2.0),

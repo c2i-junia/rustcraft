@@ -186,7 +186,10 @@ fn escape_asks_before_quitting_with_cancel_focused() {
     h.press(KeyCode::Escape);
     assert!(!h.is_visible(&L::text(crate::i18n::tr(QUIT_TITLE))));
     h.frames(2);
-    assert!(!h.is_visible(&L::text(crate::i18n::tr(QUIT_TITLE))), "the dialog reopened");
+    assert!(
+        !h.is_visible(&L::text(crate::i18n::tr(QUIT_TITLE))),
+        "the dialog reopened"
+    );
     assert!(!h.has_exited());
     assert_eq!(h.focus_label().as_deref(), Some("Singleplayer"));
     assert!(
@@ -237,8 +240,14 @@ fn the_credits_open_from_the_main_menu_and_escape_leaves_them() {
         h.press(KeyCode::Escape);
         h.frames(2);
         assert!(h.find(&L::marker::<Credits>()).is_empty());
-        assert!(!h.is_visible(&L::text(crate::i18n::tr(QUIT_TITLE))), "Escape asked to quit");
-        assert_eq!(h.focus_label().as_deref(), Some(crate::i18n::tr(CREDITS_LABEL)));
+        assert!(
+            !h.is_visible(&L::text(crate::i18n::tr(QUIT_TITLE))),
+            "Escape asked to quit"
+        );
+        assert_eq!(
+            h.focus_label().as_deref(),
+            Some(crate::i18n::tr(CREDITS_LABEL))
+        );
         assert_eq!(h.menu_state(), MenuState::Main);
     }
 }
@@ -276,7 +285,10 @@ fn the_keyboard_alone_opens_a_screen() {
     h.press(KeyCode::Tab);
     assert_eq!(h.focus_label().as_deref(), Some("Tester"));
     h.press(KeyCode::Tab);
-    assert_eq!(h.focus_label().as_deref(), Some(crate::i18n::tr(SKINS_TITLE)));
+    assert_eq!(
+        h.focus_label().as_deref(),
+        Some(crate::i18n::tr(SKINS_TITLE))
+    );
     h.key_down(KeyCode::ShiftLeft);
     for _ in 0..3 {
         h.press(KeyCode::Tab);
@@ -423,7 +435,10 @@ fn the_first_launch_asks_for_a_name_and_saves_it() {
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn a_first_launch_dismissed_plays_as_player_and_saves_nothing() {
     let mut h = first_launch(GameFolder::new());
-    h.wait_for(&L::role(Role::Dialog, crate::i18n::tr(CHOOSE_NAME_TITLE)), SCREEN);
+    h.wait_for(
+        &L::role(Role::Dialog, crate::i18n::tr(CHOOSE_NAME_TITLE)),
+        SCREEN,
+    );
     h.press(KeyCode::Escape);
     h.frames(3);
     assert!(!h.is_visible(&L::role(Role::Dialog, crate::i18n::tr(CHOOSE_NAME_TITLE))));
@@ -440,7 +455,9 @@ fn a_saved_name_is_used_without_asking() {
     let folder = GameFolder::new().with_file(PLAYER_NAME_PATH, "(name: \"Alex\")");
     let mut h = first_launch(folder);
     h.frames(5);
-    assert!(h.find(&L::role(Role::Dialog, crate::i18n::tr(CHOOSE_NAME_TITLE))).is_empty());
+    assert!(h
+        .find(&L::role(Role::Dialog, crate::i18n::tr(CHOOSE_NAME_TITLE)))
+        .is_empty());
     assert_eq!(h.world().resource::<CurrentPlayerProfile>().name, "Alex");
     assert!(h.is_visible(&L::role(Role::Button, "Alex")));
 }

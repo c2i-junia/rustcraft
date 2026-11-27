@@ -223,7 +223,7 @@ pub fn update_players_system(
             world_map.blocks.packs.insert(pack, (**contents).clone());
         }
         if let (Some(pos), Some(furnace)) = (server_inventory.open_furnace, &event.open_furnace) {
-            world_map.blocks.insert_furnace(pos, furnace.clone());
+            world_map.blocks.insert_furnace(pos, (**furnace).clone());
         }
         let not_applied = unacknowledged_inputs
             .0
@@ -841,7 +841,7 @@ mod tests {
             last_ack_time: 10,
             inventory: Some(server_inventory),
             open_chest: None,
-            open_furnace: Some(server_furnace),
+            open_furnace: Some(Box::new(server_furnace)),
             health: shared::players::game_mode::MAX_HEALTH,
             air: shared::players::air::MAX_AIR,
             food: shared::players::hunger::MAX_FOOD,

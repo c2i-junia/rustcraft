@@ -122,7 +122,10 @@ pub fn setup_item_browser(
         },
         ChildOf(panel),
         children![
-            (BrowserTitle, label(crate::i18n::tr(ITEM_BROWSER_TITLE), &font, FONT_L, TEXT)),
+            (
+                BrowserTitle,
+                label(crate::i18n::tr(ITEM_BROWSER_TITLE), &font, FONT_L, TEXT)
+            ),
             (ItemCount, label("", &font, FONT_S, MUTED)),
         ],
     ));
@@ -174,9 +177,13 @@ fn spawn_footer(
             ChildOf(footer),
         ))
         .id();
-    for (index, (key, action)) in [("LMB", "browser.footer.recipes"), ("RMB", "browser.footer.uses"), ("A", "browser.footer.bookmark")]
-        .into_iter()
-        .enumerate()
+    for (index, (key, action)) in [
+        ("LMB", "browser.footer.recipes"),
+        ("RMB", "browser.footer.uses"),
+        ("A", "browser.footer.bookmark"),
+    ]
+    .into_iter()
+    .enumerate()
     {
         if index > 0 {
             commands.spawn((
@@ -207,7 +214,12 @@ fn spawn_footer(
     commands
         .spawn((
             TrashSlot,
-            slot(crate::i18n::tr(TRASH_LABEL), None, ImageNode::default(), font.clone()),
+            slot(
+                crate::i18n::tr(TRASH_LABEL),
+                None,
+                ImageNode::default(),
+                font.clone(),
+            ),
             ChildOf(creative),
         ))
         .with_child((
@@ -217,7 +229,10 @@ fn spawn_footer(
                 ..default()
             },
         ));
-    commands.spawn((label(crate::i18n::tr(TRASH_HINT), font, FONT_S, MUTED), ChildOf(creative)));
+    commands.spawn((
+        label(crate::i18n::tr(TRASH_HINT), font, FONT_S, MUTED),
+        ChildOf(creative),
+    ));
 }
 
 /// The handle of the drawer, at mid-height of the right edge: a `B` key cap over the title of the
@@ -476,7 +491,14 @@ fn spawn_bookmark_bar(commands: &mut Commands, panel: Entity, font: &Handle<Font
 
 /// The recent crafts, under the bookmarks, hidden until there is one, as the bookmarks.
 fn spawn_recent_bar(commands: &mut Commands, panel: Entity, font: &Handle<Font>) {
-    spawn_shelf_bar(commands, panel, font, crate::i18n::tr(RECENT_LABEL), RecentBar, RecentRow);
+    spawn_shelf_bar(
+        commands,
+        panel,
+        font,
+        crate::i18n::tr(RECENT_LABEL),
+        RecentBar,
+        RecentRow,
+    );
 }
 
 /// A shelf of the catalog named `name`, hidden: `bar`, a label over `row`, which wraps.
@@ -564,7 +586,10 @@ fn spawn_grid(commands: &mut Commands, panel: Entity, atlas: &AtlasWrapper, font
         ChildOf(list),
         children![
             (NoMatchMessage, label("", font, FONT_S, TEXT)),
-            (NoMatchHint, label(crate::i18n::tr(NO_MATCH_HINT), font, FONT_S, MUTED)),
+            (
+                NoMatchHint,
+                label(crate::i18n::tr(NO_MATCH_HINT), font, FONT_S, MUTED)
+            ),
         ],
     ));
 }

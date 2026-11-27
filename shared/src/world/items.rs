@@ -1666,7 +1666,7 @@ impl ItemId {
             | Self::FilledMap
             | Self::TreasureMap
             | Self::Compass => ItemCategory::Tools,
-            | Self::FishingRod => ItemCategory::Tools,
+            Self::FishingRod => ItemCategory::Tools,
             Self::FoxSpawnEgg
             | Self::SheepSpawnEgg
             | Self::CowSpawnEgg
@@ -3224,7 +3224,10 @@ mod tests {
             ItemId::Egg,
         ];
         // The vials stack to 16, filled to one
-        let vials: Vec<ItemId> = ItemId::ALL.into_iter().filter(|item| item.is_vial()).collect();
+        let vials: Vec<ItemId> = ItemId::ALL
+            .into_iter()
+            .filter(|item| item.is_vial())
+            .collect();
         for vial in &vials {
             let max = if vial.is_vial_filled() { 1 } else { 16 };
             assert_eq!(vial.get_max_stack(), max, "{vial:?}");

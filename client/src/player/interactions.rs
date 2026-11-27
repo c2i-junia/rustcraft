@@ -65,7 +65,10 @@ pub fn handle_block_interactions(
 
     // A right click, sneaking, on a donkey or a mule of the player opens the chest on its back
     let sneaking = is_action_pressed(GameAction::FlyDown, &keyboard_input, &key_map);
-    if sneaking && mouse_input.just_pressed(MouseButton::Right) && !pressed_in_ui.contains(&MouseButton::Right) {
+    if sneaking
+        && mouse_input.just_pressed(MouseButton::Right)
+        && !pressed_in_ui.contains(&MouseButton::Right)
+    {
         let eye = match *view_mode {
             ViewMode::FirstPerson => camera_transform.translation,
             ViewMode::ThirdPerson => player_transform.translation,
@@ -81,7 +84,10 @@ pub fn handle_block_interactions(
         .map(|target| target.bbox);
         let pack = aimed_pack(ray, block, &player.name, mobs.iter());
         if let Some(id) = pack {
-            frame_inputs.0.inventory_actions.push(InventoryAction::OpenPack(id));
+            frame_inputs
+                .0
+                .inventory_actions
+                .push(InventoryAction::OpenPack(id));
             if let Ok(mut visibility) = inventory_root.single_mut() {
                 *visibility = Visibility::Visible;
             }
@@ -222,7 +228,10 @@ fn aimed_pack<'a>(
     };
     let block = block.as_ref().and_then(distance).unwrap_or(f32::INFINITY);
     mobs.filter_map(|(mob, at)| {
-        let hit = distance(&Aabb3d::new(at.translation, mob.kind.size() * mob.scale / 2.0))?;
+        let hit = distance(&Aabb3d::new(
+            at.translation,
+            mob.kind.size() * mob.scale / 2.0,
+        ))?;
         Some((mob, hit))
     })
     .filter(|&(_, hit)| hit <= PACK_REACH && hit < block)

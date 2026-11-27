@@ -49,7 +49,10 @@ pub fn creative_hint(item: ItemId) -> String {
 
 /// The toast saying that `stack` was destroyed.
 pub fn destroyed_message(stack: ItemStack) -> String {
-    trf("browser.destroyed", &[("count", &stack.nb), ("item", &item_name(stack.item_id))])
+    trf(
+        "browser.destroyed",
+        &[("count", &stack.nb), ("item", &item_name(stack.item_id))],
+    )
 }
 
 #[cfg(test)]

@@ -234,7 +234,11 @@ pub fn mark_craftable_items(
             Some(tag) => tag.0.members().iter().any(|m| craftable.items.contains(m)),
             None => craftable.items.contains(&item),
         };
-        let note = if now { crate::i18n::tr(CRAFTABLE_NOTE) } else { "" };
+        let note = if now {
+            crate::i18n::tr(CRAFTABLE_NOTE)
+        } else {
+            ""
+        };
         if tooltip.note != note {
             tooltip.note = note.to_string();
         }

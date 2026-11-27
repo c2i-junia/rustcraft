@@ -250,7 +250,6 @@ impl Furnace {
         self.burn_left = ticks;
         self.burn_total = ticks;
     }
-
 }
 
 /// `stack` with an item less, `None` once it is empty.

@@ -286,9 +286,18 @@ mod tests {
 
     #[test]
     fn a_horse_and_a_donkey_have_a_mule_and_a_mule_has_none() {
-        assert_eq!(young_kind(MobKind::Horse, MobKind::Donkey), Some(MobKind::Mule));
-        assert_eq!(young_kind(MobKind::Donkey, MobKind::Horse), Some(MobKind::Mule));
-        assert_eq!(young_kind(MobKind::Donkey, MobKind::Donkey), Some(MobKind::Donkey));
+        assert_eq!(
+            young_kind(MobKind::Horse, MobKind::Donkey),
+            Some(MobKind::Mule)
+        );
+        assert_eq!(
+            young_kind(MobKind::Donkey, MobKind::Horse),
+            Some(MobKind::Mule)
+        );
+        assert_eq!(
+            young_kind(MobKind::Donkey, MobKind::Donkey),
+            Some(MobKind::Donkey)
+        );
         assert_eq!(young_kind(MobKind::Mule, MobKind::Mule), None);
         assert_eq!(young_kind(MobKind::Cow, MobKind::Horse), None);
         let mut wolf = ServerMob::new(MobKind::Wolf, Vec3::ZERO);

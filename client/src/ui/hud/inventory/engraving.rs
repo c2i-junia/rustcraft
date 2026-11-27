@@ -265,7 +265,10 @@ pub fn display_engraving(
         };
         let effect = crate::i18n::enchantment_effect(enchantment, if full { level } else { next });
         let name = crate::i18n::enchantment_title(enchantment, if full { level } else { next });
-        let described = trf("engraving.choice", &[("name", &name), ("effect", &effect), ("price", &price)]);
+        let described = trf(
+            "engraving.choice",
+            &[("name", &name), ("effect", &effect), ("price", &price)],
+        );
         if label.0 != described {
             commands
                 .entity(entity)

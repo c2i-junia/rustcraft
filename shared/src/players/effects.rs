@@ -297,7 +297,9 @@ mod tests {
     #[test]
     fn poison_hurts_by_its_period_but_never_kills_and_burn_does() {
         let mut patient = player();
-        patient.effects.give(EffectKind::Poison, 1, POISON_PERIOD * 4);
+        patient
+            .effects
+            .give(EffectKind::Poison, 1, POISON_PERIOD * 4);
         for _ in 0..POISON_PERIOD * 4 {
             patient.invulnerable_ticks = 0;
             patient.tick_effects();

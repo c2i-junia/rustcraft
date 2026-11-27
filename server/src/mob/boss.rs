@@ -504,7 +504,10 @@ fn melt(chunks: &mut ChunkMap, mother: &ServerMob, floor: i32) {
                     !block.id.is_container()
                         && !matches!(
                             block.id,
-                            BlockId::Furnace | BlockId::LitFurnace | BlockId::Alembic | BlockId::Bedrock
+                            BlockId::Furnace
+                                | BlockId::LitFurnace
+                                | BlockId::Alembic
+                                | BlockId::Bedrock
                         )
                 });
                 if melts {

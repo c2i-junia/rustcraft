@@ -1039,19 +1039,27 @@ mod tests {
                     .chars()
                     .filter(|&c| !PIXEL_FONT_CHARS.contains(c) && !ACCENTS_FONT_CHARS.contains(c))
                     .collect();
-                assert!(missing.is_empty(), "{language} {key}: no glyph for {missing:?}");
+                assert!(
+                    missing.is_empty(),
+                    "{language} {key}: no glyph for {missing:?}"
+                );
             }
         }
     }
 
     #[test]
     fn the_characters_of_the_accents_font_are_those_of_its_file() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../data/fonts/RustCraftAccents.ttf");
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../data/fonts/RustCraftAccents.ttf"
+        );
         assert!(path.ends_with(ACCENTS_FONT_PATH));
         let font = std::fs::read(path).unwrap();
         let listed: std::collections::BTreeSet<char> = ACCENTS_FONT_CHARS.chars().collect();
         assert_eq!(listed, mapped_characters(&font));
         // and the pixel font lacks every one of them
-        assert!(!ACCENTS_FONT_CHARS.chars().any(|c| PIXEL_FONT_CHARS.contains(c)));
+        assert!(!ACCENTS_FONT_CHARS
+            .chars()
+            .any(|c| PIXEL_FONT_CHARS.contains(c)));
     }
 }

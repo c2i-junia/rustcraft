@@ -7,7 +7,7 @@ use shared::GameFolderPaths;
 use std::fs;
 
 use crate::constants::INTERFACE_SETTINGS_PATH;
-use crate::i18n::{Language, tr};
+use crate::i18n::{tr, Language};
 
 /// The UI scale the player asked for.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

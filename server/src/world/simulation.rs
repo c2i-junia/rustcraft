@@ -395,7 +395,12 @@ pub fn handle_player_inputs_system(
         // The chest on the back of a donkey the player uses is lent to the map meanwhile
         let pack = crate::mob::pack::lend(player, input, &world_map.mobs, chunks);
         let outcome = simulate_player_actions(player, chunks, input, CallerType::Server);
-        crate::mob::pack::take_back(pack, &mut world_map.mobs, &mut world_map.changed_mobs, chunks);
+        crate::mob::pack::take_back(
+            pack,
+            &mut world_map.mobs,
+            &mut world_map.changed_mobs,
+            chunks,
+        );
         let home = &mut world_map.home;
         home.read
             .extend(outcome.signs.iter().map(|&pos| (ev.client_id, pos)));
@@ -605,7 +610,7 @@ pub fn broadcast_player_updates_system(
         let open_furnace = player
             .inventory
             .open_furnace
-            .and_then(|furnace| world_map.chunks.furnace(furnace).cloned());
+            .and_then(|furnace| world_map.chunks.furnace(furnace).cloned().map(Box::new));
         server.broadcast_game_message_except(player.id, update(None, None, None));
         server.send_game_message(
             player.id,

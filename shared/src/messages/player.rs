@@ -59,8 +59,8 @@ pub struct PlayerUpdateEvent {
     /// every other message. Sent to that player only, as the inventory.
     pub open_chest: Option<Box<Container>>,
     /// What the furnace `inventory.open_furnace` holds once the server has simulated the input
-    /// `last_ack_time`, as `open_chest`.
-    pub open_furnace: Option<Furnace>,
+    /// `last_ack_time`, as `open_chest`, and boxed for the same reason.
+    pub open_furnace: Option<Box<Furnace>>,
     pub health: u32,
     /// The ticks of air the player has left (`Player::air`).
     pub air: u16,

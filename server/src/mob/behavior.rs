@@ -281,7 +281,15 @@ fn step_mob(
             return None;
         }
     }
-    let thrown = act((id, mob), chunks, players, difficulty, delta, rng, (pathing, pack));
+    let thrown = act(
+        (id, mob),
+        chunks,
+        players,
+        difficulty,
+        delta,
+        rng,
+        (pathing, pack),
+    );
     pass_through_portal(mob, chunks, start);
     thrown
 }
@@ -492,8 +500,7 @@ fn follow_owner(
         return false;
     }
     let distance = mob.position.distance(owner.position);
-    if distance > FOLLOW_TELEPORT && owner.on_ground && is_terrain_loaded(owner.position, chunks)
-    {
+    if distance > FOLLOW_TELEPORT && owner.on_ground && is_terrain_loaded(owner.position, chunks) {
         let feet = owner.position - Vec3::Y * (owner.height / 2.0);
         mob.position = beside(mob, chunks, feet).unwrap_or(feet + Vec3::Y * (mob.height / 2.0));
         mob.velocity = Vec3::ZERO;
@@ -523,14 +530,27 @@ fn follow_owner(
 /// them with ground under it and room for the mob.
 fn beside(mob: &ServerMob, chunks: &ChunkMap, feet: Vec3) -> Option<Vec3> {
     let cell = feet.floor().as_ivec3();
-    [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)]
-        .into_iter()
-        .filter_map(|(x, z)| {
-            let (x, z) = (cell.x + x, cell.z + z);
-            let ground = ground_under(chunks, x as f32 + 0.5, z as f32 + 0.5, cell.y)?;
-            Some(Vec3::new(x as f32 + 0.5, ground + mob.height / 2.0, z as f32 + 0.5))
-        })
-        .find(|&spot| !collides_at(mob, chunks, spot))
+    [
+        (1, 0),
+        (-1, 0),
+        (0, 1),
+        (0, -1),
+        (1, 1),
+        (-1, -1),
+        (1, -1),
+        (-1, 1),
+    ]
+    .into_iter()
+    .filter_map(|(x, z)| {
+        let (x, z) = (cell.x + x, cell.z + z);
+        let ground = ground_under(chunks, x as f32 + 0.5, z as f32 + 0.5, cell.y)?;
+        Some(Vec3::new(
+            x as f32 + 0.5,
+            ground + mob.height / 2.0,
+            z as f32 + 0.5,
+        ))
+    })
+    .find(|&spot| !collides_at(mob, chunks, spot))
 }
 
 /// What a mob that rests or walks somewhere does: afloat, it swims ashore (`swim_ashore`); it rests until its time is up, walks to a

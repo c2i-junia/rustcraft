@@ -2,11 +2,11 @@
 mod bench;
 pub mod broadcast_world;
 pub mod cartography;
-pub mod decor;
 mod caves;
 pub mod chunk_files;
 pub mod container_files;
 pub(crate) mod data;
+pub mod decor;
 pub mod depths;
 pub mod dropped_items;
 pub mod flow;

@@ -138,6 +138,6 @@ mod tests {
 
     #[test]
     fn the_wait_for_a_bite_is_longer_than_the_bite() {
-        assert!(BITE_TICKS.end < BITE_WAIT_TICKS.start);
+        const { assert!(BITE_TICKS.end < BITE_WAIT_TICKS.start) };
     }
 }

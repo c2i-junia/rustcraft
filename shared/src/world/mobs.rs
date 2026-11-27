@@ -149,7 +149,10 @@ impl MobKind {
     /// not walk, are not pushed nor struck, are not counted with the hostiles, and are not
     /// saved.
     pub fn is_projectile(self) -> bool {
-        matches!(self, MobKind::Ember | MobKind::Arrow | MobKind::Bobber | MobKind::ThrownPotion)
+        matches!(
+            self,
+            MobKind::Ember | MobKind::Arrow | MobKind::Bobber | MobKind::ThrownPotion
+        )
     }
 
     /// Whether mobs of this kind are villagers: they trade (`trade::offers`), live in a house,
@@ -834,7 +837,10 @@ mod tests {
     #[test]
     fn the_embers_and_the_arrows_are_the_projectiles_neither_hostile_nor_animals() {
         for kind in MobKind::ALL {
-            let expected = matches!(kind, MobKind::Ember | MobKind::Arrow | MobKind::Bobber | MobKind::ThrownPotion);
+            let expected = matches!(
+                kind,
+                MobKind::Ember | MobKind::Arrow | MobKind::Bobber | MobKind::ThrownPotion
+            );
             assert_eq!(kind.is_projectile(), expected, "{kind:?}");
         }
         assert!(!MobKind::Ember.is_hostile());

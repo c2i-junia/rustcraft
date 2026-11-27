@@ -1464,7 +1464,9 @@ impl BlockId {
             Self::Bedrock | Self::Water | Self::Lava => return None,
             // as the block they are made of
             crate::new_palette_blocks!() => {
-                return self.palette().and_then(|palette| palette.base.get_break_time())
+                return self
+                    .palette()
+                    .and_then(|palette| palette.base.get_break_time())
             }
             crate::new_decor_blocks!() => {
                 return self.decor().and_then(|decor| decor.base.get_break_time())
@@ -3068,8 +3070,15 @@ mod tests {
     fn stone_and_metal_blocks_need_a_pickaxe_of_their_level_and_the_others_nothing() {
         for id in ALL_BLOCKS {
             // a block of the palette needs what the block it is made of needs
-            if let Some(palette) = id.palette().filter(|_| matches!(id, crate::new_palette_blocks!())) {
-                assert_eq!(id.get_required_tool(), palette.base.get_required_tool(), "{id:?}");
+            if let Some(palette) = id
+                .palette()
+                .filter(|_| matches!(id, crate::new_palette_blocks!()))
+            {
+                assert_eq!(
+                    id.get_required_tool(),
+                    palette.base.get_required_tool(),
+                    "{id:?}"
+                );
                 continue;
             }
             let level = match id {

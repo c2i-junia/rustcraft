@@ -9,9 +9,8 @@ use shared::{
         blocks::{aim, held_item},
         hunger::BLOW_EXHAUSTION,
         melee::{self, Recharge, Strike, WeaponClass},
-        shield,
         progress::Achievement,
-        Player, ViewMode,
+        shield, Player, ViewMode,
     },
     world::{
         aabb_ray_hit, depths::DepthTier, DroppedItem, FaceDirectionExt, ItemId, ItemStack, Leash,
@@ -107,10 +106,8 @@ pub fn interact(
     // A bow being drawn is not let go by what it sweeps over
     let trades = right && villager && player.bow_draw_ms == 0;
     // A cow gives its milk to a bucket
-    let milks = right
-        && held == Some(ItemId::Bucket)
-        && mob.kind == MobKind::Cow
-        && !mob.is_young();
+    let milks =
+        right && held == Some(ItemId::Bucket) && mob.kind == MobKind::Cow && !mob.is_young();
     let mine = mob.owner.as_deref() == Some(player.name.as_str());
     let saddles = right
         && held == Some(ItemId::Saddle)
@@ -796,7 +793,11 @@ mod tests {
         let mut turned = ServerMob::new(MobKind::Stumpling, AHEAD);
         turned.rotation = Quat::from_rotation_y(std::f32::consts::PI);
         let mut arena = Arena::with(turned);
-        arena.click(&mut fighter(1, Some(ItemId::IronSword)), NetworkAction::LeftClick, 1);
+        arena.click(
+            &mut fighter(1, Some(ItemId::IronSword)),
+            NetworkAction::LeftClick,
+            1,
+        );
         assert!(arena.mobs[&7].damage > 0);
     }
 
@@ -807,14 +808,15 @@ mod tests {
         let mut player = fighter(1, Some(ItemId::IronSword));
         player.give_effect(EffectKind::Weakness, 1, 10);
         arena.tick(&mut player, &NetworkAction::LeftClick, true);
-        assert_eq!(
-            arena.mobs[&7].damage,
-            ItemId::IronSword.attack_damage() - 2
-        );
+        assert_eq!(arena.mobs[&7].damage, ItemId::IronSword.attack_damage() - 2);
         let sword_push = arena.mobs[&7].velocity.with_y(0.0).length();
 
         let mut arena = Arena::with(ServerMob::new(MobKind::Cow, AHEAD));
-        arena.tick(&mut fighter(1, Some(ItemId::Mace)), &NetworkAction::LeftClick, true);
+        arena.tick(
+            &mut fighter(1, Some(ItemId::Mace)),
+            &NetworkAction::LeftClick,
+            true,
+        );
         assert!(arena.mobs[&7].velocity.with_y(0.0).length() > sword_push * 2.0);
     }
 

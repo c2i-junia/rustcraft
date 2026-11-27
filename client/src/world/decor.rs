@@ -9,9 +9,7 @@ use bevy::asset::RenderAssetUsages;
 use bevy::image::ImageSampler;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use shared::world::{
-    BannerPatterns, BlockDirection, DecorKind, Decorations, Shown,
-};
+use shared::world::{BannerPatterns, BlockDirection, DecorKind, Decorations, Shown};
 
 use crate::dropped_items::mesh::{ItemLook, ItemLooks};
 use crate::state::GameState;
@@ -86,11 +84,7 @@ fn facing_out(direction: BlockDirection) -> Quat {
 }
 
 /// Spawns the meshes of `look` at each of `transforms` under a new entity.
-fn spawn_look(
-    commands: &mut Commands,
-    look: &ItemLook,
-    transforms: &[Transform],
-) -> Entity {
+fn spawn_look(commands: &mut Commands, look: &ItemLook, transforms: &[Transform]) -> Entity {
     let mut root = commands.spawn((
         DecorEntity,
         Transform::default(),
@@ -101,10 +95,18 @@ fn spawn_look(
         for &transform in transforms {
             match look {
                 ItemLook::Cube(mesh, material) => {
-                    root.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material.clone()), transform));
+                    root.spawn((
+                        Mesh3d(mesh.clone()),
+                        MeshMaterial3d(material.clone()),
+                        transform,
+                    ));
                 }
                 ItemLook::Sprite(mesh, material) => {
-                    root.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material.clone()), transform));
+                    root.spawn((
+                        Mesh3d(mesh.clone()),
+                        MeshMaterial3d(material.clone()),
+                        transform,
+                    ));
                 }
             }
         }
@@ -155,7 +157,10 @@ fn place_decorations(
         keep
     });
     // a new game left none of those drawn
-    if drawn.values().any(|(_, entity)| entities.get(*entity).is_err()) {
+    if drawn
+        .values()
+        .any(|(_, entity)| entities.get(*entity).is_err())
+    {
         drawn.clear();
     }
     for (at, what) in wanted {
@@ -181,7 +186,11 @@ fn place_decorations(
                     _ => {
                         let size = if cube { 0.3 } else { POTTED_SIZE };
                         let centre = at.as_vec3() + Vec3::new(0.5, 6.0 / 16.0 + size / 2.0, 0.5);
-                        let crossed: &[f32] = if cube { &[0.0] } else { &[FRAC_PI_4, -FRAC_PI_4] };
+                        let crossed: &[f32] = if cube {
+                            &[0.0]
+                        } else {
+                            &[FRAC_PI_4, -FRAC_PI_4]
+                        };
                         crossed
                             .iter()
                             .map(|&angle| {
@@ -218,18 +227,18 @@ fn place_decorations(
                 let centre = turned(Vec3::new(0.5, 7.0 / 16.0, 2.0 / 16.0 + 0.003), direction);
                 commands
                     .spawn((
-                    DecorEntity,
-                    Mesh3d(mesh),
-                    MeshMaterial3d(standard.add(StandardMaterial {
-                        base_color_texture: Some(images.add(image)),
-                        alpha_mode: AlphaMode::Mask(0.5),
-                        unlit: true,
-                        ..default()
-                    })),
-                    Transform::from_translation(at.as_vec3() + centre)
-                        .with_rotation(facing_out(direction)),
-                    DespawnOnExit(GameState::Game),
-                ))
+                        DecorEntity,
+                        Mesh3d(mesh),
+                        MeshMaterial3d(standard.add(StandardMaterial {
+                            base_color_texture: Some(images.add(image)),
+                            alpha_mode: AlphaMode::Mask(0.5),
+                            unlit: true,
+                            ..default()
+                        })),
+                        Transform::from_translation(at.as_vec3() + centre)
+                            .with_rotation(facing_out(direction)),
+                        DespawnOnExit(GameState::Game),
+                    ))
                     .id()
             }
         };
@@ -253,7 +262,9 @@ mod tests {
 
     #[test]
     fn a_banner_without_patterns_is_clear_and_a_stripe_colours_its_top() {
-        assert!(banner_pixels(&BannerPatterns::default()).iter().all(|&p| p == 0));
+        assert!(banner_pixels(&BannerPatterns::default())
+            .iter()
+            .all(|&p| p == 0));
         let striped = BannerPatterns::default()
             .with(BannerPattern::Chief, DyeColor::Red)
             .unwrap();
@@ -272,7 +283,10 @@ mod tests {
             BlockDirection::Left,
         ] {
             let face = facing_out(direction) * Vec3::Z;
-            assert!(face.distance(-direction.offset().as_vec3()) < 1e-5, "{direction:?}");
+            assert!(
+                face.distance(-direction.offset().as_vec3()) < 1e-5,
+                "{direction:?}"
+            );
             // the front of the plate lies toward the wall
             let near_wall = turned(Vec3::new(0.5, 0.5, 0.0), direction) - Vec3::splat(0.5);
             assert!((near_wall.with_y(0.0) - direction.offset().as_vec3() * 0.5).length() < 1e-5);

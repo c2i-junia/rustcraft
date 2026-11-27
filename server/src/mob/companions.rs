@@ -14,8 +14,7 @@ use shared::{
     messages::PlayerId,
     players::Player,
     world::{
-        armoured_damage, hostiles::distance_to_box, MobAction, MobId, MobKind, MobTarget,
-        ServerMob,
+        armoured_damage, hostiles::distance_to_box, MobAction, MobId, MobKind, MobTarget, ServerMob,
     },
 };
 
@@ -246,12 +245,7 @@ pub fn take_blow(mob: &mut ServerMob, damage: u32, push: Vec3) -> bool {
 
 /// What a mob killed by a wolf leaves: its loot and its experience where it was. The owner of
 /// the wolf, if there, is credited with it.
-fn fall(
-    mob: ServerMob,
-    owner: Option<&mut Player>,
-    items: &mut DroppedItems,
-    rng: &mut impl Rng,
-) {
+fn fall(mob: ServerMob, owner: Option<&mut Player>, items: &mut DroppedItems, rng: &mut impl Rng) {
     if let Some(owner) = owner {
         owner.beat(mob.kind);
     }
@@ -404,9 +398,11 @@ mod tests {
     #[test]
     fn a_wolf_guards_its_owner_from_a_hostile_that_hunts_it() {
         let mut players = HashMap::new();
-        let mut ann = Player::default();
-        ann.id = 7;
-        ann.name = "Ann".into();
+        let ann = Player {
+            id: 7,
+            name: "Ann".into(),
+            ..Default::default()
+        };
         players.insert(7, ann);
         let mut mobs = HashMap::new();
         mobs.insert(1, tamed(MobKind::Wolf, Vec3::X));

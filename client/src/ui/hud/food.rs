@@ -37,7 +37,10 @@ pub struct DrumstickFill {
 /// The drumsticks as the accessibility tree and the tests read them.
 pub fn food_label(food: u8) -> String {
     let drumsticks = food as f32 / 2.0;
-    trf("hud.food.label", &[("drumsticks", &drumsticks), ("DRUMSTICKS", &DRUMSTICKS)])
+    trf(
+        "hud.food.label",
+        &[("drumsticks", &drumsticks), ("DRUMSTICKS", &DRUMSTICKS)],
+    )
 }
 
 /// Spawns the drumsticks over the hotbar, hidden until the local player is known to be in

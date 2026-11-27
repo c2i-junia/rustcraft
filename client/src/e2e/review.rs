@@ -195,7 +195,10 @@ impl Harness {
         self.hover_at(Vec2::ZERO);
         self.settled_snapshot("multi");
         ctrl(self, KeyCode::KeyN);
-        self.wait_for(&L::role(Role::Dialog, crate::i18n::tr(ADD_SERVER_TITLE)), SCREEN);
+        self.wait_for(
+            &L::role(Role::Dialog, crate::i18n::tr(ADD_SERVER_TITLE)),
+            SCREEN,
+        );
         self.settled_snapshot("multi_add");
         self.press(KeyCode::Tab);
         self.type_text("10.0.0.2");

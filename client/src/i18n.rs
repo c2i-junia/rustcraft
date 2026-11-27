@@ -255,9 +255,7 @@ pub fn death_message(cause: DeathCause, shooter: Option<&str>) -> String {
     match (cause, shooter) {
         (DeathCause::Shot(_), Some(name)) => trf("death.shot_by", &[("name", &name)]),
         (DeathCause::Mob(kind), _) => tr_built(format!("death.mob.{kind:?}")).to_string(),
-        (DeathCause::ThrownOff(kind), _) => {
-            tr_built(format!("death.thrown.{kind:?}")).to_string()
-        }
+        (DeathCause::ThrownOff(kind), _) => tr_built(format!("death.thrown.{kind:?}")).to_string(),
         (DeathCause::Shot(_), None) => tr("death.Shot").to_string(),
         (cause, _) => tr_built(format!("death.{cause:?}")).to_string(),
     }
@@ -418,7 +416,10 @@ mod tests {
         for language in Language::ALL {
             let theirs = keys(language);
             let unknown: Vec<_> = theirs.difference(&english).collect();
-            assert!(unknown.is_empty(), "{language:?} has keys English lacks: {unknown:?}");
+            assert!(
+                unknown.is_empty(),
+                "{language:?} has keys English lacks: {unknown:?}"
+            );
             let missing: Vec<_> = english.difference(&theirs).collect();
             assert!(missing.is_empty(), "{language:?} lacks {missing:?}");
             for key in theirs {
@@ -449,7 +450,10 @@ mod tests {
 
     #[test]
     fn a_missing_key_falls_back_on_english_then_on_itself() {
-        assert_eq!(lookup(Language::French, "home.quit_confirm"), Some("Quitter"));
+        assert_eq!(
+            lookup(Language::French, "home.quit_confirm"),
+            Some("Quitter")
+        );
         // a key French would lack is looked up in English
         let english = &tables()[0].texts;
         let french = &tables()[1].texts;
@@ -495,8 +499,7 @@ mod tests {
                 Some("3 Bûche de chêne donnés")
             );
             assert_eq!(
-                translate_server_answer("Gave 3 OakLog, 2 did not fit in the inventory")
-                    .as_deref(),
+                translate_server_answer("Gave 3 OakLog, 2 did not fit in the inventory").as_deref(),
                 Some("3 Bûche de chêne donnés, 2 ne tenaient pas dans l’inventaire")
             );
             assert_eq!(

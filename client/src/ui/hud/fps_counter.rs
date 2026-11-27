@@ -231,7 +231,10 @@ pub fn spawn_fps_counter(
             ..default()
         },
         ChildOf(graph),
-        children![muted(format!("-{seconds} s")), muted(crate::i18n::tr("fps.now").into())],
+        children![
+            muted(format!("-{seconds} s")),
+            muted(crate::i18n::tr("fps.now").into())
+        ],
     ));
     let stats = commands
         .spawn((

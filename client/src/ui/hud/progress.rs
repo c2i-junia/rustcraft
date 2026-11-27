@@ -62,7 +62,12 @@ fn toasts(earned: &[Achievement]) -> Vec<String> {
     }
     let named = earned.iter();
     named
-        .map(|achievement| trf("achievement.toast", &[("title", &crate::i18n::achievement_title(*achievement))]))
+        .map(|achievement| {
+            trf(
+                "achievement.toast",
+                &[("title", &crate::i18n::achievement_title(*achievement))],
+            )
+        })
         .collect()
 }
 

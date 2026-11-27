@@ -176,15 +176,30 @@ mod tests {
             player.parry(Vec3::new(1.0, 1.0, -3.0), 4, false),
             Some(Parry::Blocked)
         );
-        assert_eq!(player.inventory.inner[&0].item_type, ItemType::Tool { wear: 4 });
-        assert_eq!(player.parry(Vec3::new(0.0, 0.0, 3.0), 4, false), None, "behind");
-        assert_eq!(player.parry(Vec3::new(3.0, 0.0, 0.1), 4, false), None, "beside");
+        assert_eq!(
+            player.inventory.inner[&0].item_type,
+            ItemType::Tool { wear: 4 }
+        );
+        assert_eq!(
+            player.parry(Vec3::new(0.0, 0.0, 3.0), 4, false),
+            None,
+            "behind"
+        );
+        assert_eq!(
+            player.parry(Vec3::new(3.0, 0.0, 0.1), 4, false),
+            None,
+            "beside"
+        );
         assert_eq!(player.parries, 1);
     }
 
     #[test]
     fn a_shield_in_the_hotbar_is_raised_beside_a_sword_but_not_beside_a_bow() {
-        let mut player = guard(&[(0, ItemId::IronSword), (1, ItemId::Bow), (5, ItemId::Shield)]);
+        let mut player = guard(&[
+            (0, ItemId::IronSword),
+            (1, ItemId::Bow),
+            (5, ItemId::Shield),
+        ]);
         assert_eq!(shield_slot(&player, 0), Some(5));
         assert_eq!(shield_slot(&player, 1), None);
         assert_eq!(shield_slot(&player, 2), Some(5), "an empty hand");

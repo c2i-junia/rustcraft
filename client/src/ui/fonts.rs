@@ -11,8 +11,7 @@ pub const ACCENTS_FONT_PATH: &str = "fonts/RustCraftAccents.ttf";
 const ACCENTS_FAMILY: &str = "RustCraft Accents";
 
 /// The characters of RustCraft Accents.
-pub const ACCENTS_FONT_CHARS: &str =
-    "\u{a0}°ÀÂÈÉÊËÎÏÔÙÛèéïŒœŸ‘’“”…\u{202f}";
+pub const ACCENTS_FONT_CHARS: &str = "\u{a0}°ÀÂÈÉÊËÎÏÔÙÛèéïŒœŸ‘’“”…\u{202f}";
 
 /// The accents font, kept loaded, and whether the text engine falls back on it yet.
 #[derive(Resource)]
@@ -24,7 +23,8 @@ struct AccentsFont {
 pub fn plugin(app: &mut App) {
     app.add_systems(Startup, load_accents).add_systems(
         Update,
-        register_accents.run_if(|font: Option<Res<AccentsFont>>| font.is_some_and(|f| !f.registered)),
+        register_accents
+            .run_if(|font: Option<Res<AccentsFont>>| font.is_some_and(|f| !f.registered)),
     );
 }
 

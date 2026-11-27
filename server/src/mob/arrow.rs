@@ -21,8 +21,8 @@ use shared::{
         movement::is_terrain_loaded,
     },
     world::{
-        alchemy, hostiles::is_prey, ArrowFlight, BlockHitbox, BlockTransparency, ChunkMap, DroppedItem,
-        ItemId, ItemStack, MobAction, MobKind, ServerMob,
+        alchemy, hostiles::is_prey, ArrowFlight, BlockHitbox, BlockTransparency, ChunkMap,
+        DroppedItem, ItemId, ItemStack, MobAction, MobKind, ServerMob,
     },
     TICKS_PER_SECOND,
 };
@@ -156,8 +156,11 @@ fn ammo_stack(ammo: ItemId) -> ItemStack {
 /// itself, an arrow parried by a shield falls off it.
 fn fall_as_item(flight: &ArrowFlight, at: Vec3, map: &mut ServerWorldMap) {
     if flight.shot.recoverable {
-        map.dropped_items
-            .spawn(DroppedItem::new(ammo_stack(flight.shot.ammo), at, Vec3::ZERO));
+        map.dropped_items.spawn(DroppedItem::new(
+            ammo_stack(flight.shot.ammo),
+            at,
+            Vec3::ZERO,
+        ));
     }
 }
 
@@ -283,7 +286,9 @@ fn fly(
             }
             return false;
         }
-        if is_in_block(&map.chunks, at) || flight.shot.ammo.is_splash_potion() && is_liquid(&map.chunks, at) {
+        if is_in_block(&map.chunks, at)
+            || flight.shot.ammo.is_splash_potion() && is_liquid(&map.chunks, at)
+        {
             if flight.shot.ammo.is_splash_potion() {
                 burst(&flight, at - direction * STUCK_BACK, map, rng);
                 return false;
@@ -536,8 +541,14 @@ mod tests {
         map_.mobs.insert(9, potion);
         run(&mut w, 20);
         assert!(map(&w).mobs.is_empty());
-        let hit = map(&w).players[&2].effects.get(EffectKind::Slowness).unwrap();
-        let near = map(&w).players[&3].effects.get(EffectKind::Slowness).unwrap();
+        let hit = map(&w).players[&2]
+            .effects
+            .get(EffectKind::Slowness)
+            .unwrap();
+        let near = map(&w).players[&3]
+            .effects
+            .get(EffectKind::Slowness)
+            .unwrap();
         assert_eq!(map(&w).players[&2].health, MAX_HEALTH, "it hurts nothing");
         assert!(near.ticks_left < hit.ticks_left);
         // The thrower, far away, is spared

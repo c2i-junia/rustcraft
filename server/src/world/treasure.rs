@@ -16,7 +16,7 @@ const TREASURE_COLOR: u8 = 0;
 
 /// Marks on the maps of each player the treasures of the treasure maps it holds, once each.
 pub fn treasure_maps_system(mut world_map: ResMut<ServerWorldMap>, time: Res<ServerTime>) {
-    if time.0 % LOOK_EVERY != 0 {
+    if !time.0.is_multiple_of(LOOK_EVERY) {
         return;
     }
     for player in world_map.players.values_mut() {

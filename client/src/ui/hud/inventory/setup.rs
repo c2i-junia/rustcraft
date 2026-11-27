@@ -1,11 +1,11 @@
-use crate::i18n::{tr, trf};
-use super::armour::spawn_armour_slots;
 use super::anvil::spawn_anvil_row;
+use super::armour::spawn_armour_slots;
 use super::engraving::spawn_engraving_row;
 use super::furnace::spawn_furnace_row;
 use super::ghost::{ghost_icon, ghost_tint};
 use super::trade::spawn_trade_grid;
 use crate::constants::MAX_HOTBAR_SLOTS;
+use crate::i18n::{tr, trf};
 use crate::state::GameState;
 use crate::ui::assets::load_font;
 use crate::ui::hud::hotbar::{Hotbar, HotbarItemName};
@@ -130,8 +130,10 @@ pub fn setup_inventory(
                             },
                         ))
                         .with_children(|inventory| {
-                            inventory
-                                .spawn((InventoryTitle, panel_text(crate::i18n::tr(INVENTORY_TITLE), &font, TEXT)));
+                            inventory.spawn((
+                                InventoryTitle,
+                                panel_text(crate::i18n::tr(INVENTORY_TITLE), &font, TEXT),
+                            ));
                             spawn_crafting_row(inventory, atlas, &font, &asset_server);
                             spawn_chest_grid(inventory, atlas, &font);
                             spawn_furnace_row(inventory, atlas, &font, &asset_server);
@@ -203,7 +205,10 @@ fn spawn_backpack(parent: &mut ChildSpawnerCommands, atlas: &AtlasWrapper, font:
         })
         .with_children(|grid| {
             for id in MAX_HOTBAR_SLOTS..MAX_INVENTORY_SLOTS {
-                let label = trf("inventory.slot.backpack", &[("n", &(id - MAX_HOTBAR_SLOTS + 1))]);
+                let label = trf(
+                    "inventory.slot.backpack",
+                    &[("n", &(id - MAX_HOTBAR_SLOTS + 1))],
+                );
                 grid.spawn((
                     InventoryCell { id },
                     Tooltip::default(),
@@ -289,7 +294,10 @@ fn spawn_crafting_row(
             .with_children(|grid| {
                 for row in 0..CRAFTING_GRID_SIZE {
                     for col in 0..CRAFTING_GRID_SIZE {
-                        let label = trf("inventory.slot.grid", &[("row", &(row + 1)), ("col", &(col + 1))]);
+                        let label = trf(
+                            "inventory.slot.grid",
+                            &[("row", &(row + 1)), ("col", &(col + 1))],
+                        );
                         // Placed by hand: a hidden cell leaves the grid, which would move
                         // the next ones in its place
                         grid.spawn((

@@ -137,7 +137,7 @@ impl Caverns {
         let bottom = chunk_pos.y * CHUNK_SIZE;
         underground == Underground::Deep
             && bottom <= BIOMES_TOP
-            && bottom + CHUNK_SIZE - 1 >= BIOMES_BOTTOM
+            && bottom + CHUNK_SIZE > BIOMES_BOTTOM
     }
 
     /// Changes the rock around the caves of the chunk at `chunk_pos`, carved as `mask`, and the

@@ -5,7 +5,7 @@
 //! The paper maps are kept in the folder `maps` of the world, one file each, written with the
 //! world (`save::queue_save`). The frames are kept with the signs, in `places.ron`.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::path::Path;
 
 use bevy::prelude::*;
@@ -304,7 +304,7 @@ pub fn cartography_system(
     }
 
     // The map in the hand fills around its holder
-    if time.0 % FILL_EVERY == 0 {
+    if time.0.is_multiple_of(FILL_EVERY) {
         for player in world_map.players.values() {
             if player.is_dead() {
                 continue;
@@ -329,7 +329,7 @@ pub fn cartography_system(
     }
 
     // The places near the players
-    if let Some(generator) = generator.filter(|_| time.0 % FIND_EVERY == 0) {
+    if let Some(generator) = generator.filter(|_| time.0.is_multiple_of(FIND_EVERY)) {
         for player in world_map.players.values_mut() {
             if player.is_dead() {
                 continue;
@@ -365,7 +365,7 @@ pub fn cartography_system(
             maps.sent_waypoints.insert(id, view.clone());
             server.send_game_message(id, ServerToClientMessage::Waypoints(view));
         }
-        if time.0 % SEND_EVERY != 0 {
+        if !time.0.is_multiple_of(SEND_EVERY) {
             continue;
         }
         let held = (0..MAX_INVENTORY_SLOTS)
@@ -380,8 +380,8 @@ pub fn cartography_system(
                 // a map read from the folder and not changed since: sent once
                 if let Some(map) = maps.maps.get(&map_id) {
                     let sent = maps.sent.entry(id).or_default();
-                    if !sent.contains_key(&map_id) {
-                        sent.insert(map_id, 0);
+                    if let Entry::Vacant(entry) = sent.entry(map_id) {
+                        entry.insert(0);
                         let map = map.clone();
                         server.send_game_message(
                             id,

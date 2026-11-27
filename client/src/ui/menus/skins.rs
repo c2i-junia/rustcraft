@@ -188,7 +188,10 @@ fn skins_setup(
             ChildOf(root),
         ))
         .id();
-    commands.spawn((text(tr(SKINS_TITLE), FONT_XL, TEXT, &font), ChildOf(content)));
+    commands.spawn((
+        text(tr(SKINS_TITLE), FONT_XL, TEXT, &font),
+        ChildOf(content),
+    ));
     let body = commands
         .spawn((
             Node {

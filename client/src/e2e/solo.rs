@@ -378,7 +378,10 @@ fn a_created_world_is_first_selected_and_focused() {
 fn closing_new_world_gives_the_focus_back_to_its_opener() {
     let mut h = world_list();
     h.click_when_ready(&new_world_button());
-    h.wait_for(&L::role(Role::Dialog, crate::i18n::tr(NEW_WORLD_TITLE)), SCREEN);
+    h.wait_for(
+        &L::role(Role::Dialog, crate::i18n::tr(NEW_WORLD_TITLE)),
+        SCREEN,
+    );
     h.press(KeyCode::Escape);
     assert!(!dialog_is_open(&mut h));
     assert_eq!(h.focus_label().as_deref(), Some("New world"));
@@ -553,7 +556,10 @@ fn new_world_opens_a_dialog_with_a_free_name_ready_to_replace() {
     let mut h = open_world_list(GameFolder::new().with_world("New world"));
     h.wait_for(&card("New world"), SCREEN);
     h.click(&new_world_button());
-    h.wait_for(&L::role(Role::Dialog, crate::i18n::tr(NEW_WORLD_TITLE)), SCREEN);
+    h.wait_for(
+        &L::role(Role::Dialog, crate::i18n::tr(NEW_WORLD_TITLE)),
+        SCREEN,
+    );
     h.frames(2);
     assert_eq!(h.focus_label().as_deref(), Some("Name"));
     assert_eq!(h.value_of::<WorldNameInput>(), "New world 2");
@@ -609,7 +615,10 @@ fn a_world_created_by_the_keyboard_has_the_focus_and_its_ring() {
 fn a_typed_name_and_create_add_a_world() {
     let mut h = world_list();
     h.click_when_ready(&new_world_button());
-    h.wait_for(&L::role(Role::Dialog, crate::i18n::tr(NEW_WORLD_TITLE)), SCREEN);
+    h.wait_for(
+        &L::role(Role::Dialog, crate::i18n::tr(NEW_WORLD_TITLE)),
+        SCREEN,
+    );
     h.type_text("Nouveau");
     h.click(&create_button());
     h.wait_for(&card("Nouveau"), SCREEN);
@@ -790,7 +799,10 @@ fn escape_cancels_the_dialog_and_stays_on_the_list() {
 fn after_a_create_new_world_opens_with_a_fresh_name() {
     let mut h = world_list();
     h.click_when_ready(&new_world_button());
-    h.wait_for(&L::role(Role::Dialog, crate::i18n::tr(NEW_WORLD_TITLE)), SCREEN);
+    h.wait_for(
+        &L::role(Role::Dialog, crate::i18n::tr(NEW_WORLD_TITLE)),
+        SCREEN,
+    );
     h.type_text("One");
     h.click(&create_button());
     h.wait_for(&card("One"), SCREEN);

@@ -99,7 +99,11 @@ pub fn update_effects_column(
         ..default()
     };
     for effect in effects {
-        let frame = if effect.kind.is_beneficial() { OK } else { ACCENT };
+        let frame = if effect.kind.is_beneficial() {
+            OK
+        } else {
+            ACCENT
+        };
         let row = commands
             .spawn((
                 Name::new(effect_name(effect.kind, effect.level)),

@@ -1,9 +1,10 @@
-use crate::i18n::{tr, trf};
 use super::gestures::{planned_drag, CellGestures};
 use super::{
-    ANVIL_TITLE, CHEST_TITLE, PACK_TITLE, CRAFTING_TABLE_TITLE, ENGRAVING_TITLE, FURNACE_TITLE, INVENTORY_TITLE,
+    ANVIL_TITLE, CHEST_TITLE, CRAFTING_TABLE_TITLE, ENGRAVING_TITLE, FURNACE_TITLE,
+    INVENTORY_TITLE, PACK_TITLE,
 };
 use crate::constants::MAX_HOTBAR_SLOTS;
+use crate::i18n::{tr, trf};
 use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_just_pressed;
 use crate::network::buffered_client::CurrentFrameInputs;
@@ -12,9 +13,9 @@ use crate::state::KeyMap;
 use crate::ui::hud::hotbar::{hotbar_key_index, Hotbar};
 use crate::ui::hud::item_browser::ItemBrowser;
 use crate::ui::hud::{
-    AnvilRow, ChestGrid, CraftResultCell, CraftingGridCell, CraftingRow, EngravingRow, FloatingStack,
-    FurnaceRow, InventoryCell, InventoryDialog, InventoryRoot, InventoryTitle, OpenTrade,
-    TradeGrid, UIMode,
+    AnvilRow, ChestGrid, CraftResultCell, CraftingGridCell, CraftingRow, EngravingRow,
+    FloatingStack, FurnaceRow, InventoryCell, InventoryDialog, InventoryRoot, InventoryTitle,
+    OpenTrade, TradeGrid, UIMode,
 };
 use crate::ui::theme::{ACCENT, BEVEL_HI, BEVEL_LO, PANEL, TEXT};
 use crate::ui::widgets::slot::{
@@ -471,7 +472,10 @@ pub(crate) fn stack_in(
 /// Whether a shift-click puts `stack` on the anvil: what wears while its first slot is empty, what
 /// works the item in it.
 fn goes_to_anvil(stack: &ItemStack, inventory: &Inventory) -> bool {
-    match inventory.inner.get(&shared::players::inventory::ANVIL_LEFT_SLOT) {
+    match inventory
+        .inner
+        .get(&shared::players::inventory::ANVIL_LEFT_SLOT)
+    {
         None => stack.item_id.durability().is_some(),
         Some(left) => {
             left.item_id == stack.item_id
@@ -643,7 +647,12 @@ pub fn display_crafting_system(
         .single()
         .is_ok_and(|visibility| *visibility == Visibility::Visible);
     for (children, mut tooltip) in &mut result {
-        tooltip.set_if_neq(tooltip_of(made, crate::i18n::tr(HINT_RESULT), is_open, &inventory));
+        tooltip.set_if_neq(tooltip_of(
+            made,
+            crate::i18n::tr(HINT_RESULT),
+            is_open,
+            &inventory,
+        ));
         show_stack(
             made,
             TEXT,
@@ -784,7 +793,10 @@ fn weapon_notes(item: shared::world::ItemId) -> Vec<String> {
 
 /// What a piece of armour of `points` does, in words.
 fn armour_note(points: u32) -> String {
-    trf("inventory.absorbs", &[("percent", &(points * ABSORBED_PER_POINT))])
+    trf(
+        "inventory.absorbs",
+        &[("percent", &(points * ABSORBED_PER_POINT))],
+    )
 }
 
 /// The count of a stack in words.
@@ -799,7 +811,10 @@ fn count_detail(nb: u32) -> String {
 fn durability_detail(wear: u32, durability: u32) -> String {
     trf(
         "inventory.durability",
-        &[("left", &durability.saturating_sub(wear)), ("durability", &durability)],
+        &[
+            ("left", &durability.saturating_sub(wear)),
+            ("durability", &durability),
+        ],
     )
 }
 
@@ -1594,13 +1609,19 @@ mod tests {
 
         open_chest(&mut hud, Default::default());
         hud.show_crafting();
-        assert_eq!(hud.world.get::<Text>(title).unwrap().0, crate::i18n::tr(CHEST_TITLE));
+        assert_eq!(
+            hud.world.get::<Text>(title).unwrap().0,
+            crate::i18n::tr(CHEST_TITLE)
+        );
         assert_eq!(display(&hud, crafting), Display::None);
         assert_eq!(display(&hud, chest), Display::Grid);
 
         hud.world.resource_mut::<Inventory>().open_chest = None;
         hud.show_crafting();
-        assert_eq!(hud.world.get::<Text>(title).unwrap().0, crate::i18n::tr(INVENTORY_TITLE));
+        assert_eq!(
+            hud.world.get::<Text>(title).unwrap().0,
+            crate::i18n::tr(INVENTORY_TITLE)
+        );
         assert_eq!(display(&hud, crafting), Display::Flex);
         assert_eq!(display(&hud, chest), Display::None);
     }
@@ -1686,14 +1707,20 @@ mod tests {
 
         open_furnace(&mut hud, Furnace::default());
         hud.show_crafting();
-        assert_eq!(hud.world.get::<Text>(title).unwrap().0, crate::i18n::tr(FURNACE_TITLE));
+        assert_eq!(
+            hud.world.get::<Text>(title).unwrap().0,
+            crate::i18n::tr(FURNACE_TITLE)
+        );
         assert_eq!(display(&hud, crafting), Display::None);
         assert_eq!(display(&hud, chest), Display::None);
         assert_eq!(display(&hud, furnace), Display::Flex);
 
         hud.world.resource_mut::<Inventory>().open_furnace = None;
         hud.show_crafting();
-        assert_eq!(hud.world.get::<Text>(title).unwrap().0, crate::i18n::tr(INVENTORY_TITLE));
+        assert_eq!(
+            hud.world.get::<Text>(title).unwrap().0,
+            crate::i18n::tr(INVENTORY_TITLE)
+        );
         assert_eq!(display(&hud, crafting), Display::Flex);
         assert_eq!(display(&hud, furnace), Display::None);
     }

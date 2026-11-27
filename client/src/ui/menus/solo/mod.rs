@@ -401,14 +401,12 @@ fn show_worlds(
         .map(|world| {
             let card = spawn_list_card(commands, list, &world.name);
             let details = match (world.day, world.seed) {
-                (Some(day), Some(seed)) => {
-                    text(
-                        &trf("worlds.day_seed", &[("day", &day), ("seed", &seed)]),
-                        FONT_S,
-                        MUTED,
-                        font,
-                    )
-                }
+                (Some(day), Some(seed)) => text(
+                    &trf("worlds.day_seed", &[("day", &day), ("seed", &seed)]),
+                    FONT_S,
+                    MUTED,
+                    font,
+                ),
                 _ => text(tr("worlds.unreadable"), FONT_S, DANGER, font),
             };
             let played = text(

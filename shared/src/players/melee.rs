@@ -78,7 +78,7 @@ impl WeaponClass {
     pub fn pace(self) -> Pace {
         match self.recharge_ms() {
             ..=500 => Pace::Quick,
-            ..=750 => Pace::Steady,
+            501..=750 => Pace::Steady,
             _ => Pace::Slow,
         }
     }

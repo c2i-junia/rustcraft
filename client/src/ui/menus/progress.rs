@@ -179,7 +179,10 @@ fn spawn_progress(commands: &mut Commands, assets: &AssetServer, opener: Entity)
             ChildOf(root),
         ))
         .id();
-    commands.spawn((text(crate::i18n::tr(PROGRESS_TITLE), FONT_XL, TEXT, &font), ChildOf(panel)));
+    commands.spawn((
+        text(crate::i18n::tr(PROGRESS_TITLE), FONT_XL, TEXT, &font),
+        ChildOf(panel),
+    ));
     let labels = ProgressTab::ALL.map(ProgressTab::label);
     let tabs = Tabs {
         label: crate::i18n::tr(PROGRESS_TITLE),
@@ -307,7 +310,10 @@ fn spawn_achievements(
 ) {
     let has = |achievement| progress.0.as_ref().is_some_and(|p| p.has(achievement));
     let earned = Achievement::ALL.into_iter().filter(|&a| has(a)).count();
-    let count = trf("progress.count", &[("earned", &earned), ("total", &Achievement::ALL.len())]);
+    let count = trf(
+        "progress.count",
+        &[("earned", &earned), ("total", &Achievement::ALL.len())],
+    );
     commands.spawn((text(count, FONT_S, MUTED, font), ChildOf(panel)));
     let parts = spawn_scroll_list(commands, WheelStep::Item);
     commands.entity(parts.frame).insert(ChildOf(panel));
@@ -317,13 +323,19 @@ fn spawn_achievements(
     ));
     for achievement in Achievement::ALL {
         let has = has(achievement);
-        let (title, goal) = (crate::i18n::achievement_title(achievement), crate::i18n::achievement_goal(achievement));
+        let (title, goal) = (
+            crate::i18n::achievement_title(achievement),
+            crate::i18n::achievement_goal(achievement),
+        );
         let (state, title_color) = if has {
             (tr("progress.earned"), TEXT)
         } else {
             (tr("progress.not_yet"), MUTED)
         };
-        let label = trf("progress.card", &[("title", &title), ("state", &state), ("goal", &goal)]);
+        let label = trf(
+            "progress.card",
+            &[("title", &title), ("state", &state), ("goal", &goal)],
+        );
         let card = spawn_list_card(commands, parts.list, &label);
         let icon = commands
             .spawn((
@@ -400,7 +412,12 @@ fn spawn_statistics(
             sunken_bevel(),
             ChildOf(panel),
             children![
-                text(crate::i18n::tr_as("stat", Stats::LABELS[i]), FONT_M, MUTED, font),
+                text(
+                    crate::i18n::tr_as("stat", Stats::LABELS[i]),
+                    FONT_M,
+                    MUTED,
+                    font
+                ),
                 (StatValue(i), text(value, FONT_M, TEXT, font))
             ],
         ));

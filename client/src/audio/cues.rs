@@ -10,8 +10,8 @@ use bevy::prelude::*;
 use bevy::ui::InteractionDisabled;
 use shared::messages::PlayerId;
 use shared::players::armour::WornArmour;
-use shared::players::Player;
 use shared::players::bow::CROSSBOW_LOAD_MS;
+use shared::players::Player;
 use shared::world::{BlockId, ItemId, MobId, MobKind};
 
 use super::creatures::HEARING_DISTANCE;

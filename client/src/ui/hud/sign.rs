@@ -108,14 +108,7 @@ fn open_sign_editor(
         ],
         focused: 0,
     };
-    let parts = spawn_form_dialog(
-        &mut commands,
-        &dialog,
-        &labelled,
-        &SIGN_HINTS,
-        font,
-        &focus,
-    );
+    let parts = spawn_form_dialog(&mut commands, &dialog, &labelled, &SIGN_HINTS, font, &focus);
     commands
         .entity(parts.root)
         .insert((

@@ -402,8 +402,7 @@ pub fn simulate_inventory_actions(
         let applied = match action {
             InventoryAction::OpenPack(id) => {
                 // A client opens it at once, the server once it lent it
-                if matches!(caller_type, CallerType::Client) || world_map.packs.contains_key(&id)
-                {
+                if matches!(caller_type, CallerType::Client) || world_map.packs.contains_key(&id) {
                     player.inventory.close_blocks();
                     player.inventory.open_pack = Some(id);
                     Ok(None)
@@ -499,7 +498,14 @@ pub fn apply_inventory_action(
     creative: bool,
 ) -> Result<Option<ItemStack>, InventoryRefusal> {
     let mut dropped = Vec::new();
-    apply_inventory_action_dropping(inventory, action, in_reach, contents, creative, &mut dropped)
+    apply_inventory_action_dropping(
+        inventory,
+        action,
+        in_reach,
+        contents,
+        creative,
+        &mut dropped,
+    )
 }
 
 /// `apply_inventory_action`, which puts into `dropped` what a close put back into the inventory
@@ -785,7 +791,8 @@ fn plan_drag(
     let filled: Vec<(u32, Option<ItemStack>)> = (0..u128::BITS)
         .filter(|slot| slots & 1 << slot != 0)
         .filter(|&slot| {
-            check_slot(inventory, slot, size, floating, lent).is_ok() && takes(inventory, slot, held.item_id)
+            check_slot(inventory, slot, size, floating, lent).is_ok()
+                && takes(inventory, slot, held.item_id)
         })
         .filter_map(|slot| match inventory.inner.get(&slot) {
             None => Some((slot, None)),
@@ -1396,9 +1403,8 @@ fn check_slot(
     floating: Option<ItemStack>,
     lent: Lent,
 ) -> Result<(), InventoryRefusal> {
-    let may_be_left = is_beyond_the_grid(slot, size)
-        || slot == ENGRAVING_SLOT
-        || anvil_slots().contains(&slot);
+    let may_be_left =
+        is_beyond_the_grid(slot, size) || slot == ENGRAVING_SLOT || anvil_slots().contains(&slot);
     let takes_a_leftover = may_be_left && floating.is_none() && inventory.inner.contains_key(&slot);
     if slot < MAX_INVENTORY_SLOTS
         || armour_slots().contains(&slot)
@@ -1772,8 +1778,15 @@ mod tests {
 
         let mut dropped = Vec::new();
         let close = InventoryAction::Close;
-        apply_inventory_action_dropping(&mut inventory, close, |_, _| false, None, false, &mut dropped)
-            .unwrap();
+        apply_inventory_action_dropping(
+            &mut inventory,
+            close,
+            |_, _| false,
+            None,
+            false,
+            &mut dropped,
+        )
+        .unwrap();
 
         assert_eq!(inventory.floating, None);
         assert_eq!(dropped, [stack(ItemId::Sand, 5)]);
@@ -1899,12 +1912,21 @@ mod tests {
                 .insert(slot, stack(ItemId::Dirt, max_dirt()));
         }
         inventory.inner.insert(grid_slot(0, 0), planks(3));
-        inventory.inner.insert(grid_slot(2, 2), stack(ItemId::Dirt, 1));
+        inventory
+            .inner
+            .insert(grid_slot(2, 2), stack(ItemId::Dirt, 1));
 
         let mut dropped = Vec::new();
         let close = InventoryAction::Close;
-        apply_inventory_action_dropping(&mut inventory, close, |_, _| false, None, false, &mut dropped)
-            .unwrap();
+        apply_inventory_action_dropping(
+            &mut inventory,
+            close,
+            |_, _| false,
+            None,
+            false,
+            &mut dropped,
+        )
+        .unwrap();
 
         assert!(!inventory.inner.contains_key(&grid_slot(0, 0)));
         assert!(!inventory.inner.contains_key(&grid_slot(2, 2)));

@@ -141,14 +141,8 @@ pub fn open_player_name_dialog(
             .and_modify(move |mut text| set_text(&mut text, &current));
     }
     let (title, body) = match current {
-        None => (
-            crate::i18n::tr(CHOOSE_NAME_TITLE),
-            tr("player_name.note1"),
-        ),
-        Some(_) => (
-            crate::i18n::tr(PLAYER_NAME_TITLE),
-            tr("player_name.note2"),
-        ),
+        None => (crate::i18n::tr(CHOOSE_NAME_TITLE), tr("player_name.note1")),
+        Some(_) => (crate::i18n::tr(PLAYER_NAME_TITLE), tr("player_name.note2")),
     };
     let dialog = Dialog {
         title,

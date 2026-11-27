@@ -577,10 +577,7 @@ pub fn move_the_hand(
         );
         let draw = draw_stage_of(player, motion.shown);
         let offset = match draw {
-            Some(_) => offset.then(draw_bow(
-                power(player, motion.shown),
-                time.elapsed_secs(),
-            )),
+            Some(_) => offset.then(draw_bow(power(player, motion.shown), time.elapsed_secs())),
             None => offset,
         };
         let draw = match motion.shown {

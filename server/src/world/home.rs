@@ -5,9 +5,7 @@ use bevy::prelude::*;
 use bevy_renet::RenetServer;
 use serde::{Deserialize, Serialize};
 use shared::{
-    messages::{
-        FullChatMessage, PlayerId, ServerToClientMessage, SIGN_LINES, SIGN_LINE_LENGTH,
-    },
+    messages::{FullChatMessage, PlayerId, ServerToClientMessage, SIGN_LINES, SIGN_LINE_LENGTH},
     players::{blocks::aim, Player},
     world::BlockId,
     DAY_DURATION_IN_TICKS,
@@ -304,7 +302,9 @@ mod tests {
         let wrapped = sign_lines(long);
         assert_eq!(wrapped[0], "The way to the mine goes down");
         assert_eq!(wrapped[1], "past the old well and the lake");
-        assert!(wrapped.iter().all(|line| line.chars().count() <= SIGN_LINE_LENGTH));
+        assert!(wrapped
+            .iter()
+            .all(|line| line.chars().count() <= SIGN_LINE_LENGTH));
     }
     use crate::init::LobbyPlayer;
     use bevy::ecs::system::RunSystemOnce;

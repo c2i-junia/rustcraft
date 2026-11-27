@@ -52,10 +52,7 @@ fn parts(step: FirstStep) -> &'static [Part] {
             ]),
             Text("hint.first.walk"),
         ],
-        FirstStep::Wood => &[
-            Cap("hint.first.left_click"),
-            Text("hint.first.wood"),
-        ],
+        FirstStep::Wood => &[Cap("hint.first.left_click"), Text("hint.first.wood")],
         FirstStep::Inventory => &[
             Keys(&[GameAction::ToggleInventory]),
             Text("hint.first.inventory"),
@@ -64,14 +61,8 @@ fn parts(step: FirstStep) -> &'static [Part] {
             Keys(&[GameAction::ToggleInventory]),
             Text("hint.first.planks"),
         ],
-        FirstStep::Torch => &[
-            Cap("hint.first.right_click"),
-            Text("hint.first.torches"),
-        ],
-        FirstStep::Achievements => &[
-            Keys(&[GameAction::Escape]),
-            Text("hint.first.progress"),
-        ],
+        FirstStep::Torch => &[Cap("hint.first.right_click"), Text("hint.first.torches")],
+        FirstStep::Achievements => &[Keys(&[GameAction::Escape]), Text("hint.first.progress")],
     }
 }
 

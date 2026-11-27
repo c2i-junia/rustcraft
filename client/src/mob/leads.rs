@@ -27,7 +27,11 @@ pub fn lead_end(leash: &Leash, players: &Query<&Player>) -> Option<Vec3> {
 /// Draws the lead of each leashed mob.
 pub fn draw_leads(mut gizmos: Gizmos, mobs: Query<(&Mob, &Transform)>, players: Query<&Player>) {
     for (mob, transform) in &mobs {
-        let Some(end) = mob.leash.as_ref().and_then(|leash| lead_end(leash, &players)) else {
+        let Some(end) = mob
+            .leash
+            .as_ref()
+            .and_then(|leash| lead_end(leash, &players))
+        else {
             continue;
         };
         // The neck: high on the box, toward its front

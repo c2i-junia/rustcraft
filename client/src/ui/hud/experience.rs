@@ -34,7 +34,10 @@ pub struct LevelText;
 /// The bar as the accessibility tree and the tests read it.
 pub fn experience_label(experience: &Experience) -> String {
     let percent = (experience.progress() * 100.0) as u32;
-    trf("hud.experience.label", &[("level", &experience.level), ("percent", &percent)])
+    trf(
+        "hud.experience.label",
+        &[("level", &experience.level), ("percent", &percent)],
+    )
 }
 
 /// Spawns the bar over the hotbar, hidden until the local player is known to be in survival.

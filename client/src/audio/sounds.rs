@@ -219,8 +219,10 @@ impl CreatureCall {
     /// attacks too, and a projectile, never struck, only flies, and a
     /// villager speaks and is hurt as an animal is.
     pub fn of(kind: MobKind) -> &'static [CreatureCall] {
-        if matches!(kind, MobKind::Arrow | MobKind::Bobber | MobKind::ThrownPotion)
-            || kind.is_vehicle()
+        if matches!(
+            kind,
+            MobKind::Arrow | MobKind::Bobber | MobKind::ThrownPotion
+        ) || kind.is_vehicle()
         {
             // `creatures::creature_calls` gives the arrow other sounds, `mob::sync` the float
             // its own; a boat has no voice
@@ -793,7 +795,10 @@ mod tests {
             let calls = CreatureCall::of(kind);
             assert!(
                 calls.contains(&CreatureCall::Cry)
-                    || matches!(kind, MobKind::Arrow | MobKind::Bobber | MobKind::ThrownPotion)
+                    || matches!(
+                        kind,
+                        MobKind::Arrow | MobKind::Bobber | MobKind::ThrownPotion
+                    )
                     || kind.is_vehicle(),
                 "{kind:?}"
             );

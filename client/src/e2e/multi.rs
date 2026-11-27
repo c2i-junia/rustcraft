@@ -1088,7 +1088,11 @@ fn edit_changes_the_server_in_place_and_pings_a_new_address() {
     let mut h = status_list();
     let edit_dialog = |name: &str| L::role(Role::Dialog, &format!("Edit \"{name}\""));
     let save = || L::role(Role::Button, "Save").within(edit_dialog("Friends"));
-    let messages = [crate::i18n::tr(SERVER_NAME_EXISTS), crate::i18n::tr(SERVER_EXISTS), crate::i18n::tr(EMPTY_SERVER_NAME)];
+    let messages = [
+        crate::i18n::tr(SERVER_NAME_EXISTS),
+        crate::i18n::tr(SERVER_EXISTS),
+        crate::i18n::tr(EMPTY_SERVER_NAME),
+    ];
     h.click(&card("Friends"));
     h.click(&L::role(Role::Button, "Edit"));
     h.wait_for(&edit_dialog("Friends"), SCREEN);

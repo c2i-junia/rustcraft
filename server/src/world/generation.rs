@@ -1431,8 +1431,14 @@ impl WorldGenerator {
         ores::place_ores(seed, chunk_pos, &mut chunk, self.underground);
         // as `underground_chunk`, for a chunk of the deep caves made from its columns
         let mask = caves.unwrap_or_else(|| self.caves.carve(chunk_origin));
-        self.caverns
-            .decorate(seed, &self.caves, self.underground, chunk_pos, mask, &mut chunk);
+        self.caverns.decorate(
+            seed,
+            &self.caves,
+            self.underground,
+            chunk_pos,
+            mask,
+            &mut chunk,
+        );
         for plan in self
             .dungeons_in(&DungeonKind::UNDERGROUND, chunk_pos)
             .chain(columns.ruin.clone())
@@ -2426,7 +2432,8 @@ mod tests {
                                             | BlockId::Chest
                                     )
                                 )
-                            }) || actual == Some(BlockId::Water) && column.height < SEA_LEVEL;
+                            }) || actual == Some(BlockId::Water)
+                                && column.height < SEA_LEVEL;
                             let of_the_caves = generator.caverns.biome_at(pos).is_some();
                             if !over_a_cave && !of_the_seas && !of_the_caves {
                                 assert_eq!(

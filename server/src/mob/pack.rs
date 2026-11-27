@@ -35,10 +35,14 @@ pub fn lend(
     mobs: &HashMap<MobId, ServerMob>,
     chunks: &mut ChunkMap,
 ) -> Option<MobId> {
-    let opened = input.inventory_actions.iter().rev().find_map(|action| match action {
-        InventoryAction::OpenPack(id) => Some(*id),
-        _ => None,
-    });
+    let opened = input
+        .inventory_actions
+        .iter()
+        .rev()
+        .find_map(|action| match action {
+            InventoryAction::OpenPack(id) => Some(*id),
+            _ => None,
+        });
     let id = opened.or(player.inventory.open_pack)?;
     let mob = mobs.get(&id).filter(|mob| may_open(player, mob))?;
     chunks.packs.insert(id, (**mob.pack.as_ref()?).clone());
@@ -85,8 +89,10 @@ mod tests {
 
     #[test]
     fn a_pack_is_lent_to_its_owner_near_it_and_taken_back_with_what_it_put_in() {
-        let mut ann = Player::default();
-        ann.name = "Ann".into();
+        let mut ann = Player {
+            name: "Ann".into(),
+            ..Default::default()
+        };
         let mut donkey = ServerMob::new(MobKind::Donkey, Vec3::X * 2.0);
         donkey.owner = Some("Ann".into());
         donkey.pack = Some(Box::default());

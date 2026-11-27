@@ -421,7 +421,9 @@ pub fn shows_part(mob: &Mob, name: &str) -> bool {
         "saddle" => mob.saddled,
         "chest" => mob.chested,
         _ => match name.strip_prefix("armour_") {
-            Some(material) => mob.horse_armour.is_some_and(|armour| armour_part(armour) == material),
+            Some(material) => mob
+                .horse_armour
+                .is_some_and(|armour| armour_part(armour) == material),
             None => true,
         },
     }

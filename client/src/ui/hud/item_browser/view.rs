@@ -18,9 +18,9 @@ use super::bookmarks::{bookmark_message, write_bookmarks, Bookmarks};
 use super::catalog::category_detail;
 use super::layout::BrowserLayout;
 use super::recipes::{
-    back_label, bookmarked_detail, burns_for, card_label, cards_of, empty_view_message,
-    fill_button, fuel_note, ingredient_label, item_keys_hint, recipe_problem, smelting_note, distilling_note,
-    station_label, tab_label, view_title, BrowserCard,
+    back_label, bookmarked_detail, burns_for, card_label, cards_of, distilling_note,
+    empty_view_message, fill_button, fuel_note, ingredient_label, item_keys_hint, recipe_problem,
+    smelting_note, station_label, tab_label, view_title, BrowserCard,
 };
 use super::{
     BackButton, BookmarkBar, BrowserRequests, BrowserTitle, CatalogPart, CatalogSlot, CraftableNow,
@@ -149,7 +149,11 @@ pub fn spawn_recipe_panel(
         },
         ChildOf(view),
         children![
-            (BackButton, RecipeStop, small_button(tr("browser.back_to_items"), TEXT, font)),
+            (
+                BackButton,
+                RecipeStop,
+                small_button(tr("browser.back_to_items"), TEXT, font)
+            ),
             key_cap("Esc", font.clone(), glyph_font.clone()),
         ],
     ));

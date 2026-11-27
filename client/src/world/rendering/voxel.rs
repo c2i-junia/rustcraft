@@ -5,7 +5,9 @@ use shared::world::blocks::{
     BEDROLL, CAMPFIRE, DOOR, HANGING_LANTERN, LANTERN, OPEN_DOOR, SIGN, SLAB, STAIR_BACK, TRAPDOOR,
 };
 use shared::world::decor::{CARPET, FLOWER_POT, ITEM_FRAME, PAINTING};
-use shared::world::{BlockData, BlockDirection, BlockId, Decor, DecorKind, Form, Palette, VINE_GAP};
+use shared::world::{
+    BlockData, BlockDirection, BlockId, Decor, DecorKind, Form, Palette, VINE_GAP,
+};
 
 /// Specifies which position in the voxel this face occupies
 ///
@@ -424,10 +426,16 @@ impl VoxelShape {
             Form::Pane => {
                 // its glass: the pane of plain glass shows the glass, a stained one its own
                 let glass = name.strip_suffix("Pane").unwrap_or(&name);
-                let glass = if id == BlockId::GlassPane { "Glass" } else { glass };
+                let glass = if id == BlockId::GlassPane {
+                    "Glass"
+                } else {
+                    glass
+                };
                 Self::arms(glass, 7., 9., &[(7., 9., 0., 16.)])
             }
-            Form::Cube => Self::full_cube(&BlockData::new(id, shared::world::BlockDirection::Front)),
+            Form::Cube => {
+                Self::full_cube(&BlockData::new(id, shared::world::BlockDirection::Front))
+            }
         }
     }
 
@@ -1061,7 +1069,11 @@ mod tests {
         }
         // a chair's back is on the back of its cell, away from where its sitter looks
         let chair = shape_of(BlockId::OakChair);
-        let back = chair.faces.iter().flat_map(|f| f.vertices.iter()).filter(|v| v[1] > 0.6);
+        let back = chair
+            .faces
+            .iter()
+            .flat_map(|f| f.vertices.iter())
+            .filter(|v| v[1] > 0.6);
         assert!(back.clone().count() > 0 && back.clone().all(|v| v[2] >= 0.74));
     }
 

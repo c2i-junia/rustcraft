@@ -105,7 +105,8 @@ fn snap(
 ) -> Vec<Vec3> {
     let mut snapped = Vec::new();
     for (id, mob) in mobs.iter_mut() {
-        if mob.leash.is_none() || !shared::players::movement::is_terrain_loaded(mob.position, chunks)
+        if mob.leash.is_none()
+            || !shared::players::movement::is_terrain_loaded(mob.position, chunks)
         {
             continue;
         }
@@ -166,9 +167,11 @@ mod tests {
     use shared::world::{BlockData, BlockDirection, MobKind};
 
     fn ann() -> HashMap<PlayerId, Player> {
-        let mut ann = Player::default();
-        ann.id = 1;
-        ann.name = "Ann".into();
+        let ann = Player {
+            id: 1,
+            name: "Ann".into(),
+            ..Default::default()
+        };
         HashMap::from([(1, ann)])
     }
 
@@ -186,7 +189,10 @@ mod tests {
         far.leash = Some(Leash::Player("Bob".into()));
         assert!(!holds(&far, &players, &chunks), "its player left");
         mobs.insert(1, near);
-        assert_eq!(holder(mobs[&1].leash.as_ref().unwrap(), &players), Some(Vec3::ZERO));
+        assert_eq!(
+            holder(mobs[&1].leash.as_ref().unwrap(), &players),
+            Some(Vec3::ZERO)
+        );
     }
 
     #[test]

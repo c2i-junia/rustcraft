@@ -37,7 +37,13 @@ pub struct Shield {
 
 /// The shields as the accessibility tree and the tests read them.
 pub fn armour_label(points: u32) -> String {
-    trf("hud.armour.label", &[("points", &points), ("MAX_ARMOUR_POINTS", &MAX_ARMOUR_POINTS)])
+    trf(
+        "hud.armour.label",
+        &[
+            ("points", &points),
+            ("MAX_ARMOUR_POINTS", &MAX_ARMOUR_POINTS),
+        ],
+    )
 }
 
 /// Spawns the shields over the hearts, hidden until the local player wears armour.

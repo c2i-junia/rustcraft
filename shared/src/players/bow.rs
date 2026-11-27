@@ -331,7 +331,10 @@ mod tests {
             },
         );
         let axe = shoot(&mut player, 800).unwrap();
-        assert_eq!((axe.ammo, axe.pierce, axe.power), (ItemId::ThrowingAxe, 0, 1.0));
+        assert_eq!(
+            (axe.ammo, axe.pierce, axe.power),
+            (ItemId::ThrowingAxe, 0, 1.0)
+        );
         assert_eq!(player.inventory.inner[&0].nb, 1);
     }
 

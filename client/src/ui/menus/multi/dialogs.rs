@@ -180,7 +180,12 @@ fn open_server_dialog(
         None => {
             let names: Vec<String> = others.iter().map(|other| other.name.clone()).collect();
             let free = (free_server_name(&names), String::new());
-            (tr(ADD_SERVER_TITLE).to_string(), tr("servers.add_button"), &ADD_SERVER_HINTS, free)
+            (
+                tr(ADD_SERVER_TITLE).to_string(),
+                tr("servers.add_button"),
+                &ADD_SERVER_HINTS,
+                free,
+            )
         }
         Some(server) => {
             let title = trf("servers.edit_title", &[("name", &server.name)]);
@@ -211,7 +216,10 @@ fn open_server_dialog(
     let parts = spawn_form_dialog(
         commands,
         &dialog,
-        &[(tr("servers.field.name"), name), (tr("servers.field.address"), address)],
+        &[
+            (tr("servers.field.name"), name),
+            (tr("servers.field.address"), address),
+        ],
         hints,
         font,
         focus,

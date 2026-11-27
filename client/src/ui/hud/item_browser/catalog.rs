@@ -52,11 +52,16 @@ pub const NO_CRAFTABLE_HINT: &str = "browser.no_craftable_hint";
 /// What the catalog says when nothing answers `query` in `category`, among the items craftable
 /// now when `craftable`.
 pub fn no_match_message(query: &str, category: Option<ItemCategory>, craftable: bool) -> String {
-    let within = category.map_or(String::new(), |category| trf("browser.within", &[("category", &category_name(category))]));
+    let within = category.map_or(String::new(), |category| {
+        trf("browser.within", &[("category", &category_name(category))])
+    });
     if craftable && query.trim().is_empty() {
         trf("browser.no_craftable", &[("within", &within)])
     } else {
-        trf("browser.no_match", &[("query", &query), ("within", &within)])
+        trf(
+            "browser.no_match",
+            &[("query", &query), ("within", &within)],
+        )
     }
 }
 

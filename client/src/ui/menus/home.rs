@@ -181,10 +181,22 @@ pub fn home_setup(
             ))
             .id()
     };
-    let singleplayer = wide(&mut commands, tr("home.singleplayer"), MainMenuButton::Singleplayer);
+    let singleplayer = wide(
+        &mut commands,
+        tr("home.singleplayer"),
+        MainMenuButton::Singleplayer,
+    );
     commands.entity(singleplayer).insert(AutoFocus);
-    wide(&mut commands, tr("home.multiplayer"), MainMenuButton::Multiplayer);
-    wide(&mut commands, crate::i18n::tr(CREDITS_LABEL), MainMenuButton::Credits);
+    wide(
+        &mut commands,
+        tr("home.multiplayer"),
+        MainMenuButton::Multiplayer,
+    );
+    wide(
+        &mut commands,
+        crate::i18n::tr(CREDITS_LABEL),
+        MainMenuButton::Credits,
+    );
     // Settings and Quit, half as wide each, a little apart from the rows above
     let pair = commands
         .spawn((

@@ -363,7 +363,10 @@ fn conflict_message(shared: &[(KeyCode, KeyUse)]) -> String {
 fn and_list(names: &[&str]) -> String {
     match names.split_last() {
         Some((last, [])) => last.to_string(),
-        Some((last, rest)) => trf("controls.and_list", &[("rest", &rest.join(", ")), ("last", last)]),
+        Some((last, rest)) => trf(
+            "controls.and_list",
+            &[("rest", &rest.join(", ")), ("last", last)],
+        ),
         None => String::new(),
     }
 }

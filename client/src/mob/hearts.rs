@@ -151,11 +151,14 @@ mod tests {
     use shared::world::{MobKind, ServerMob};
 
     fn cat(in_love: u32, owner: Option<&str>) -> Mob {
-        Mob::of(0, &ServerMob {
-            in_love,
-            owner: owner.map(str::to_string),
-            ..ServerMob::new(MobKind::Cat, Vec3::ZERO)
-        })
+        Mob::of(
+            0,
+            &ServerMob {
+                in_love,
+                owner: owner.map(str::to_string),
+                ..ServerMob::new(MobKind::Cat, Vec3::ZERO)
+            },
+        )
     }
 
     #[test]

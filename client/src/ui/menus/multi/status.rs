@@ -140,14 +140,26 @@ pub fn pane_status(status: &ServerStatus) -> (String, Color, String) {
             return (headline, OK, ms);
         }
         ServerStatus::Pinging => (tr("servers.status.pinging"), MUTED, ""),
-        ServerStatus::Offline => (tr("servers.status.offline"), MUTED, tr("servers.status.offline.note")),
+        ServerStatus::Offline => (
+            tr("servers.status.offline"),
+            MUTED,
+            tr("servers.status.offline.note"),
+        ),
         ServerStatus::Incompatible => (
             tr("servers.status.incompatible_version"),
             DANGER,
             tr("servers.status.incompatible.note"),
         ),
-        ServerStatus::UnknownHost => (tr("servers.status.unknown_host"), DANGER, tr("servers.status.unknown_host.note")),
-        ServerStatus::BadAddress => (tr("servers.status.bad_address"), DANGER, tr("servers.status.bad_address.note")),
+        ServerStatus::UnknownHost => (
+            tr("servers.status.unknown_host"),
+            DANGER,
+            tr("servers.status.unknown_host.note"),
+        ),
+        ServerStatus::BadAddress => (
+            tr("servers.status.bad_address"),
+            DANGER,
+            tr("servers.status.bad_address.note"),
+        ),
     };
     (headline.to_string(), color, line.to_string())
 }

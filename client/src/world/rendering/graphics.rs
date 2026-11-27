@@ -139,15 +139,12 @@ pub fn night_vision_system(
     let (Some(materials), Some(mut chunk_materials)) = (materials, chunk_materials) else {
         return;
     };
-    let effect = players
-        .single()
-        .ok()
-        .and_then(|player| {
-            player
-                .effects
-                .get(shared::players::effects::EffectKind::NightVision)
-                .copied()
-        });
+    let effect = players.single().ok().and_then(|player| {
+        player
+            .effects
+            .get(shared::players::effects::EffectKind::NightVision)
+            .copied()
+    });
     let wanted = match effect {
         None => 0.0,
         Some(effect) if effect.seconds_left() > NIGHT_VISION_FLICKER => 1.0,

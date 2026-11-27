@@ -159,7 +159,11 @@ fn spawn_death_screen(
         .id();
     let respawn = commands
         .spawn((
-            button(crate::i18n::tr(RESPAWN), ButtonVariant::Primary, font.clone()),
+            button(
+                crate::i18n::tr(RESPAWN),
+                ButtonVariant::Primary,
+                font.clone(),
+            ),
             RespawnButton,
             AutoFocus,
             observe(respawn_on_click),
