@@ -319,6 +319,7 @@ pub fn item_browser_plugin(app: &mut App) {
                 show_view.run_if(
                     resource_changed::<ItemBrowserState>
                         .or_else(resource_changed::<bookmarks::Bookmarks>)
+                        .or_else(resource_changed::<crate::world::content::ContentGeneration>)
                         .or_else(any_match_filter::<Added<RecipePanel>>),
                 ),
                 cycle_tag_cells,

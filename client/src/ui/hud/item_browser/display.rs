@@ -75,12 +75,15 @@ pub fn toggle_craftable(_: On<Activate>, mut state: ResMut<ItemBrowserState>) {
 pub fn update_craftable_now(
     inventory: Res<Inventory>,
     player: Query<&Player, With<CurrentPlayerMarker>>,
+    content: Option<Res<crate::world::content::ContentGeneration>>,
     mut now: ResMut<CraftableNow>,
 ) {
     let survival = player
         .single()
         .map_or(true, |player| player.game_mode == GameMode::Survival);
-    if !inventory.is_changed() && survival == now.survival {
+    // the recipes come with the content
+    let new_recipes = content.is_some_and(|content| content.is_changed());
+    if !inventory.is_changed() && !new_recipes && survival == now.survival {
         return;
     }
     let items = if survival {

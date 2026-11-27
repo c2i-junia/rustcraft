@@ -872,9 +872,13 @@ pub fn show_view(
 }
 
 /// The member of `tag` its cells show `elapsed` after the start: each in turn, a second each.
+/// The first item for a family the content no longer has, as a card shown before a reload.
 pub fn tag_member(tag: ItemTag, elapsed: std::time::Duration) -> ItemId {
     let members = tag.members();
-    members[(elapsed.as_secs() % members.len() as u64) as usize]
+    match members.len() {
+        0 => ItemId::default(),
+        len => members[(elapsed.as_secs() % len as u64) as usize],
+    }
 }
 
 /// Shows in each cell of a family the member of the second, `tag_member`, every cell in step: its
@@ -915,9 +919,12 @@ pub fn style_recipe_cards(
     let all: Vec<RecipeView> = recipes().collect();
     let grid_size = grid_in_use(&inventory);
     for (tint, mut node) in &mut tints {
-        let lacking = shared::world::missing(&inventory, &all[tint.recipe as usize])
-            .iter()
-            .any(|(ingredient, _)| *ingredient == tint.ingredient);
+        // a card shown before a reload may name a recipe the content no longer has
+        let lacking = all.get(tint.recipe as usize).is_some_and(|recipe| {
+            shared::world::missing(&inventory, recipe)
+                .iter()
+                .any(|(ingredient, _)| *ingredient == tint.ingredient)
+        });
         let display = if lacking {
             Display::Flex
         } else {
@@ -928,7 +935,9 @@ pub fn style_recipe_cards(
         }
     }
     for (note, mut text, mut color) in &mut notes {
-        let recipe = &all[note.0 as usize];
+        let Some(recipe) = all.get(note.0 as usize) else {
+            continue;
+        };
         let (content, tone) = match recipe_problem(&inventory, recipe, grid_size) {
             Some(problem) => (problem, theme::danger()),
             None => (station_label(recipe).to_string(), theme::muted()),
@@ -939,7 +948,9 @@ pub fn style_recipe_cards(
         color.set_if_neq(TextColor(tone));
     }
     for (button, fill, disabled) in &buttons {
-        let enabled = fill_button(&inventory, &all[fill.0 as usize], grid_size).is_some();
+        let enabled = all
+            .get(fill.0 as usize)
+            .is_some_and(|recipe| fill_button(&inventory, recipe, grid_size).is_some());
         if enabled && disabled {
             commands
                 .entity(button)
