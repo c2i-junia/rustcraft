@@ -107,6 +107,16 @@ pub fn write_job(world_dir: &std::path::Path, mut job: SaveJob) -> JobOutcome {
         }
     }
 
+    // A chunk may hold blocks numbered by this job: none is written without the list that
+    // names them. They stay dirty, for the next save
+    if !head.iter().any(|(owner, _)| *owner == Owner::Meta) {
+        return JobOutcome {
+            meta_written: commit_owned(world_dir, head).0,
+            chunks_dir_ok: true,
+            failed_chunks: job.chunks.into_iter().map(|(pos, ..)| pos).collect(),
+        };
+    }
+
     let chunks_dir = world_dir.join(CHUNKS_DIR);
     if let Err(err) = std::fs::create_dir_all(&chunks_dir) {
         error!("Failed to create {}: {err}", chunks_dir.display());
@@ -711,9 +721,12 @@ mod tests {
 
         assert_eq!(counter.get(), 0);
         assert_eq!(counter.failures(), 1);
-        // the chunks are written all the same, and none is reported
-        assert_eq!(read_chunks(&tmp.path().join(CHUNKS_DIR)).unwrap().len(), 1);
-        assert!(writer.take_failed_chunks().is_empty());
+        // no chunk is written without the list of the blocks it holds: each is reported, to be
+        // saved again
+        assert!(read_chunks(&tmp.path().join(CHUNKS_DIR))
+            .unwrap()
+            .is_empty());
+        assert_eq!(writer.take_failed_chunks(), vec![IVec3::X]);
     }
 
     #[test]
