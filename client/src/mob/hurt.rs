@@ -117,7 +117,7 @@ mod tests {
             .world_mut()
             .resource_mut::<Assets<StandardMaterial>>()
             .add(StandardMaterial::from_color(Color::WHITE));
-        let mut mob = Mob::of(&ServerMob::new(MobKind::Pig, Vec3::ZERO));
+        let mut mob = Mob::of(0, &ServerMob::new(MobKind::Pig, Vec3::ZERO));
         mob.hurt_seconds = Some(0.0);
         let mesh = app.world_mut().spawn(MeshMaterial3d(white.clone())).id();
         let scene = app.world_mut().spawn_empty().add_child(mesh).id();

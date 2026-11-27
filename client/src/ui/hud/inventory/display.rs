@@ -1,7 +1,7 @@
 use crate::i18n::{tr, trf};
 use super::gestures::{planned_drag, CellGestures};
 use super::{
-    ANVIL_TITLE, CHEST_TITLE, CRAFTING_TABLE_TITLE, ENGRAVING_TITLE, FURNACE_TITLE, INVENTORY_TITLE,
+    ANVIL_TITLE, CHEST_TITLE, PACK_TITLE, CRAFTING_TABLE_TITLE, ENGRAVING_TITLE, FURNACE_TITLE, INVENTORY_TITLE,
 };
 use crate::constants::MAX_HOTBAR_SLOTS;
 use crate::input::data::GameAction;
@@ -405,7 +405,7 @@ pub fn display_inventory_system(
             && stack.is_some_and(|stack| goes_to_anvil(&stack, &inventory))
         {
             crate::i18n::tr(HINT_TO_ANVIL)
-        } else if inventory.open_chest.is_some() && cell.id < MAX_INVENTORY_SLOTS {
+        } else if inventory.has_chest_open() && cell.id < MAX_INVENTORY_SLOTS {
             crate::i18n::tr(HINT_TO_CHEST)
         } else if inventory.open_furnace.is_some() && cell.id < MAX_INVENTORY_SLOTS {
             // A shift-click leaves what neither smelts nor burns
@@ -453,7 +453,10 @@ pub(crate) fn stack_in(
     world_map: &ClientWorldMap,
 ) -> Option<ItemStack> {
     if chest_slots().contains(&slot) {
-        let chest = world_map.blocks.container(inventory.open_chest?)?;
+        let chest = match inventory.open_pack {
+            Some(pack) => world_map.blocks.packs.get(&pack)?,
+            None => world_map.blocks.container(inventory.open_chest?)?,
+        };
         return chest.slots[(slot - CHEST_SLOT_START) as usize];
     }
     let furnace = || world_map.blocks.furnace(inventory.open_furnace?);
@@ -495,8 +498,8 @@ pub fn is_engraving_shown(inventory: &Inventory) -> bool {
 /// alone and beside a chest. The server checks that the table is still within reach; the panel
 /// follows its updates.
 pub fn grid_in_use(inventory: &Inventory) -> u32 {
-    match (inventory.open_chest, inventory.open_table) {
-        (None, Some(_)) => CRAFTING_GRID_SIZE,
+    match (inventory.has_chest_open(), inventory.open_table) {
+        (false, Some(_)) => CRAFTING_GRID_SIZE,
         _ => INVENTORY_GRID_SIZE,
     }
 }
@@ -574,6 +577,7 @@ pub fn display_crafting_system(
         inventory.open_furnace,
         inventory.open_table,
     ) {
+        _ if inventory.open_pack.is_some() => crate::i18n::tr(PACK_TITLE),
         (Some(_), _, _) => crate::i18n::tr(CHEST_TITLE),
         (None, Some(_), _) => crate::i18n::tr(FURNACE_TITLE),
         (None, None, Some(_)) => crate::i18n::tr(CRAFTING_TABLE_TITLE),
@@ -589,7 +593,7 @@ pub fn display_crafting_system(
             title.0 = name.to_string();
         }
     }
-    let chest_open = inventory.open_chest.is_some();
+    let chest_open = inventory.has_chest_open();
     let furnace_open = inventory.open_furnace.is_some();
     let anvil = is_anvil_shown(&inventory) && !chest_open && !furnace_open && !trade_open;
     let engraving =

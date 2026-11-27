@@ -117,7 +117,7 @@ pub fn recipe_problem(
         return Some(tr("browser.needs_table").to_string());
     }
     // The chest or the furnace takes the place of the crafting grid in the panel
-    if inventory.open_chest.is_some() {
+    if inventory.has_chest_open() {
         return Some(crate::i18n::tr(NOT_BESIDE_A_CHEST).to_string());
     }
     if inventory.open_engraver.is_some() {
@@ -152,7 +152,7 @@ pub fn fill_button(
     }
     let only_missing = !missing(inventory, recipe).is_empty()
         && recipe.fits(grid_size)
-        && inventory.open_chest.is_none()
+        && !inventory.has_chest_open()
         && inventory.open_furnace.is_none()
         && inventory.open_engraver.is_none()
         && inventory.open_anvil.is_none();

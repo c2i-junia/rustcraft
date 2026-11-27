@@ -12,10 +12,10 @@ use shared::{
 use crate::world::data::ServerWorldMap;
 
 /// The seat of `mob` a player named `name` may take, if any: a boat's first free one; the only
-/// one of a horse grown up, saddled and tamed by that player.
+/// one of a steed grown up, saddled and tamed by that player.
 pub fn free_seat(mob: &ServerMob, name: &str) -> Option<u8> {
     match mob.kind {
-        MobKind::Horse => (!mob.is_young()
+        kind if kind.is_steed() => (!mob.is_young()
             && mob.saddled
             && mob.owner.as_deref() == Some(name)
             && mob.riders[0].is_none())
@@ -45,9 +45,11 @@ pub fn mount(
     };
     let heading = heading_of(mob);
     let riding = match mob.kind {
-        MobKind::Horse => {
-            let traits = *mob.horse.get_or_insert_with(|| HorseTraits::roll(rng));
-            Riding::horse(id, &traits, heading)
+        kind if kind.is_steed() => {
+            let traits = *mob
+                .horse
+                .get_or_insert_with(|| HorseTraits::of_kind(kind, rng));
+            Riding::steed(id, kind, &traits, heading)
         }
         _ => Riding::boat(id, seat, heading),
     };
@@ -65,7 +67,7 @@ pub fn mount(
 /// What a ridden mob looks like it does, going at `speed` blocks/s: a horse walks, or runs when
 /// it gallops; a boat stays still.
 fn ridden_action(riding: &Riding, speed: f32) -> MobAction {
-    if riding.kind != MobKind::Horse || speed < 0.2 {
+    if !riding.kind.is_steed() || speed < 0.2 {
         MobAction::Idle
     } else if speed > riding.speed * 1.2 {
         MobAction::Flee

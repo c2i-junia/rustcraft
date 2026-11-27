@@ -41,6 +41,7 @@ pub fn inventory_sound(outcome: &InventoryActionOutcome) -> Option<Sound> {
         InventoryAction::Close
         | InventoryAction::OpenCraftingTable(_)
         | InventoryAction::OpenChest(_)
+        | InventoryAction::OpenPack(_)
         | InventoryAction::OpenFurnace(_)
         | InventoryAction::QuickMoveSlot(_)
         | InventoryAction::QuickMoveOne(_)

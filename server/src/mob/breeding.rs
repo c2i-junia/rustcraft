@@ -37,11 +37,34 @@ const GROW_RETRY_TICKS: u32 = 20;
 const GROW_REACH: f32 = 1.1;
 const GROW_STEPS: i32 = 6;
 
-/// The points of health a horse gets back by eating `item`.
-fn horse_heal(item: ItemId) -> u32 {
+/// The points of health a steed or a tamed wolf gets back by eating `item`: a roast more than
+/// raw meat, a carrot or an apple more than rye.
+fn heal(item: ItemId) -> u32 {
     match item {
-        ItemId::Carrot => 4,
+        ItemId::Carrot | ItemId::Apple => 4,
+        ItemId::RoastMutton
+        | ItemId::RoastPork
+        | ItemId::RoastBeef
+        | ItemId::RoastChicken
+        | ItemId::RoastRabbit => 6,
+        ItemId::RawMutton
+        | ItemId::RawPork
+        | ItemId::RawBeef
+        | ItemId::RawChicken
+        | ItemId::RawRabbit => 3,
         _ => 2,
+    }
+}
+
+/// The kind of the young of `a` and `b`, if they may have one: theirs, or a mule for a horse
+/// and a donkey. A mule has none.
+pub fn young_kind(a: MobKind, b: MobKind) -> Option<MobKind> {
+    match (a, b) {
+        (MobKind::Mule, _) | (_, MobKind::Mule) => None,
+        (MobKind::Horse, MobKind::Donkey) | (MobKind::Donkey, MobKind::Horse) => {
+            Some(MobKind::Mule)
+        }
+        (a, b) => (a == b).then_some(a),
     }
 }
 
@@ -66,9 +89,9 @@ pub fn feed(mob: &mut ServerMob, player: &str, item: ItemId, rng: &mut impl Rng)
         }
         return true;
     }
-    // A tamed horse that was hurt eats to heal
-    if mob.kind == MobKind::Horse && mob.damage > 0 {
-        mob.damage = mob.damage.saturating_sub(horse_heal(item));
+    // A tamed steed or wolf that was hurt eats to heal
+    if (mob.kind.is_steed() || mob.kind == MobKind::Wolf) && mob.damage > 0 {
+        mob.damage = mob.damage.saturating_sub(heal(item));
         return true;
     }
     if mob.is_young() {
@@ -76,7 +99,8 @@ pub fn feed(mob: &mut ServerMob, player: &str, item: ItemId, rng: &mut impl Rng)
         mob.growing = mob.growing.saturating_sub(spared).max(1);
         return true;
     }
-    if mob.in_love > 0 || mob.breed_wait > 0 {
+    // A mule never breeds
+    if mob.in_love > 0 || mob.breed_wait > 0 || mob.kind == MobKind::Mule {
         return false;
     }
     mob.in_love = LOVE_TICKS;
@@ -120,7 +144,7 @@ pub fn credit_births(births: Vec<Vec3>, players: &mut HashMap<PlayerId, Player>)
 /// Whether `a` and `b` may have a young one together: of the same kind, both adults wanting a
 /// mate, and of the same owner when tamed.
 fn are_mates(a: &ServerMob, b: &ServerMob) -> bool {
-    a.kind == b.kind
+    young_kind(a.kind, b.kind).is_some()
         && a.in_love > 0
         && b.in_love > 0
         && !a.is_young()
@@ -205,7 +229,8 @@ pub fn breed(
         paired.insert(mate);
         let (here, there) = (mobs[&id].position, mobs[&mate].position);
         if distance <= MATE_DISTANCE {
-            let mut young = ServerMob::young(mob.kind, (here + there) / 2.0);
+            let kind = young_kind(mob.kind, mobs[&mate].kind).unwrap_or(mob.kind);
+            let mut young = ServerMob::young(kind, (here + there) / 2.0);
             young.owner = mob.owner.clone();
             // A foal takes after its parents
             if let (Some(a), Some(b)) = (mob.horse, mobs[&mate].horse) {
@@ -258,6 +283,21 @@ pub fn owner_of<'a>(players: &'a HashMap<PlayerId, Player>, mob: &ServerMob) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_horse_and_a_donkey_have_a_mule_and_a_mule_has_none() {
+        assert_eq!(young_kind(MobKind::Horse, MobKind::Donkey), Some(MobKind::Mule));
+        assert_eq!(young_kind(MobKind::Donkey, MobKind::Horse), Some(MobKind::Mule));
+        assert_eq!(young_kind(MobKind::Donkey, MobKind::Donkey), Some(MobKind::Donkey));
+        assert_eq!(young_kind(MobKind::Mule, MobKind::Mule), None);
+        assert_eq!(young_kind(MobKind::Cow, MobKind::Horse), None);
+        let mut wolf = ServerMob::new(MobKind::Wolf, Vec3::ZERO);
+        wolf.owner = Some("Ann".into());
+        wolf.damage = 5;
+        let mut rng = rand::thread_rng();
+        assert!(feed(&mut wolf, "Ann", ItemId::RoastBeef, &mut rng));
+        assert_eq!(wolf.damage, 0);
+    }
     use rand::{rngs::StdRng, SeedableRng};
     use shared::world::{MobKind, YOUNG_SCALE};
 

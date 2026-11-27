@@ -5,6 +5,7 @@ use crate::state::GameState;
 mod fishing;
 mod hearts;
 mod hurt;
+mod leads;
 mod models;
 mod strikes;
 mod sync;
@@ -43,6 +44,7 @@ pub fn mob_plugin(app: &mut App) {
                 play_mob_clips,
                 fishing::show_bites,
                 fishing::draw_lines,
+                leads::draw_leads,
             )
                 .chain()
                 .run_if(in_state(GameState::Game)),

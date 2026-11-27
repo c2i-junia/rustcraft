@@ -263,7 +263,76 @@ def horse(coat="Bay"):
     a.mirror("saddle", (5, 6), (-1, 1), (12, 22), dark)
     a.box("saddle", (-5, 5), (-1, 1), (11, 12), dark)
     a.mirror("saddle", (5, 6), (-1, 1), (9, 11), iron)
+    # The horse armours, one part each, which the game shows on the horse that wears it: plates
+    # on its flanks before and behind the girth, on its chest and over its rump
+    for material, (plate, edge) in HORSE_ARMOURS.items():
+        name = f"armour_{material}"
+        shade = a.fur(plate, plate, edge)
+        a.part(name, (0, 0, 16))
+        a.mirror(name, (5, 6), (-10, -2), (13, 21), shade)
+        a.mirror(name, (5, 6), (2, 10), (13, 21), shade)
+        a.box(name, (-5, 5), (-11, -10), (12, 21), shade)
+        a.box(name, (-5, 5), (4, 10), (21, 22), shade)
+        a.box(name, (-1, 1), (-11, -10), (16, 18), edge)
     return a
+
+
+# The horse armours (`ItemId::horse_armour`): the plates, then their edges.
+HORSE_ARMOURS = {
+    "leather": ("#8b5a2b", "#6e4520"),
+    "iron": ("#c8ccd0", "#9ea3a8"),
+    "gold": ("#e8c547", "#c09a22"),
+    "diamond": ("#5fd3d0", "#3a9e9b"),
+}
+
+
+def long_eared(name, seed, half, length, top, legs, coat, mane, ears):
+    """A donkey or a mule: a horse shorter of leg and of neck, with long ears, its saddle and
+    the chest it carries on its flanks parts of their own, which the game shows on a saddled one
+    and on one that carries a chest."""
+    a = Animal(name, seed, drop=7)
+    body, belly = a.fur(*coat), "#d8d0c4"
+    hair, hoof, muzzle = a.fur(*mane), "#352b27", "#cfc6b8"
+    a.part("body", (0, 0, (top + legs) // 2 + 2))
+    a.box("body", (-half, half), (-length, length), (legs, top),
+          lambda i, j, k: belly if k == legs else body())
+    a.round_back(half, top)
+    neck = -length
+    a.part("head", (0, neck, top - 1))
+    a.box("head", (-2, 2), (neck - 3, neck + 2), (top - 1, top + 6), body)
+    a.box("head", (-1, 1), (neck + 2, neck + 3), (top, top + 6), hair)
+    a.box("head", (-3, 3), (neck - 8, neck - 3), (top + 2, top + 7), body)
+    a.box("head", (-2, 2), (neck - 10, neck - 8), (top + 2, top + 6), muzzle)
+    a.mirror("head", (1, 3), (neck - 4, neck - 3), (top + 7, top + 7 + ears), body)
+    a.mirror("head", (1, 2), (neck - 4, neck - 3), (top + 7, top + 6 + ears), hair)
+    a.eyes(2, neck - 7, top + 5)
+    a.legs(half, 3, -length + 1, length - 4, 3, legs,
+           lambda i, j, k: hoof if k < 2 else body())
+    a.part("tail", (0, length, top - 2))
+    a.box("tail", (-1, 1), (length, length + 2), (legs - 2, top - 1), hair)
+    leather, dark, iron = "#5b3a22", "#3f2716", "#9aa0a6"
+    a.part("saddle", (0, 0, top - 1))
+    a.box("saddle", (-half, half), (-4, 3), (top, top + 1), leather)
+    a.box("saddle", (-3, 3), (-5, -4), (top, top + 2), dark)
+    a.mirror("saddle", (half, half + 1), (-1, 1), (legs, top + 1), dark)
+    a.box("saddle", (-half, half), (-1, 1), (legs - 1, legs), dark)
+    # The chest, in two halves hung on its flanks behind the saddle, its lid and latch
+    wood, trim = a.fur("#8b6a3c", "#80613a", "#94723f"), "#4a3520"
+    a.part("chest", (0, 0, top - 1))
+    a.mirror("chest", (half, half + 3), (2, 8), (legs + 1, top - 1), wood)
+    a.mirror("chest", (half, half + 3), (2, 8), (top - 1, top), trim)
+    a.mirror("chest", (half + 3, half + 4), (4, 6), (top - 4, top - 2), iron)
+    return a
+
+
+def donkey():
+    return long_eared("Donkey", 11, 4, 8, 18, 9, ("#8a7d6e", "#7f7365", "#958878"),
+                      ("#4a4038", "#40372f"), 5)
+
+
+def mule():
+    return long_eared("Mule", 12, 5, 9, 20, 11, ("#6b4a32", "#634430", "#75513a"),
+                      ("#3a2a20", "#33241b"), 4)
 
 
 def goat():
@@ -307,7 +376,7 @@ def cat():
     return a
 
 
-ANIMALS = (fox, cow, pig, chicken, rabbit, wolf, horse, goat, cat)
+ANIMALS = (fox, cow, pig, chicken, rabbit, wolf, horse, goat, cat, donkey, mule)
 
 
 # ---------------------------------------------------------------------------- the clips

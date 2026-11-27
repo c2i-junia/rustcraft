@@ -485,11 +485,21 @@ pub enum ItemId {
     MossbackSpawnEgg,
     ShardlingSpawnEgg,
     SlagcrawlerSpawnEgg,
+    /// Put on a tamed horse, it spares it a part of the blows (`ItemId::horse_armour`) and
+    /// shows on it.
+    LeatherHorseArmour,
+    IronHorseArmour,
+    GoldHorseArmour,
+    DiamondHorseArmour,
+    /// Ties an animal to the hand, which it follows, or to a fence post (`ServerMob::leash`).
+    Lead,
+    DonkeySpawnEgg,
+    MuleSpawnEgg,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 418] = [
+    pub const ALL: [ItemId; 425] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -908,6 +918,13 @@ impl ItemId {
         Self::MossbackSpawnEgg,
         Self::ShardlingSpawnEgg,
         Self::SlagcrawlerSpawnEgg,
+        Self::LeatherHorseArmour,
+        Self::IronHorseArmour,
+        Self::GoldHorseArmour,
+        Self::DiamondHorseArmour,
+        Self::Lead,
+        Self::DonkeySpawnEgg,
+        Self::MuleSpawnEgg,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -947,6 +964,10 @@ impl ItemId {
             | Self::PortalGun
             | Self::Saddle
             | Self::Boat
+            | Self::LeatherHorseArmour
+            | Self::IronHorseArmour
+            | Self::GoldHorseArmour
+            | Self::DiamondHorseArmour
             | Self::MilkBucket
             // each map is its own, and a compass is one
             | Self::FilledMap
@@ -1066,6 +1087,17 @@ impl ItemId {
         }
     }
 
+    /// The points of protection of a horse armour (`mobs::armoured_damage`): Minecraft's.
+    pub fn horse_armour(&self) -> Option<u32> {
+        match *self {
+            Self::LeatherHorseArmour => Some(3),
+            Self::IronHorseArmour => Some(5),
+            Self::GoldHorseArmour => Some(7),
+            Self::DiamondHorseArmour => Some(11),
+            _ => None,
+        }
+    }
+
     /// The mob a spawn egg makes appear, used on a block.
     pub fn spawned_mob(&self) -> Option<MobKind> {
         match *self {
@@ -1077,6 +1109,8 @@ impl ItemId {
             Self::RabbitSpawnEgg => Some(MobKind::Rabbit),
             Self::WolfSpawnEgg => Some(MobKind::Wolf),
             Self::HorseSpawnEgg => Some(MobKind::Horse),
+            Self::DonkeySpawnEgg => Some(MobKind::Donkey),
+            Self::MuleSpawnEgg => Some(MobKind::Mule),
             Self::GoatSpawnEgg => Some(MobKind::Goat),
             Self::CatSpawnEgg => Some(MobKind::Cat),
             Self::GnawerSpawnEgg => Some(MobKind::Gnawer),
@@ -1390,6 +1424,11 @@ impl ItemId {
             | Self::Arrow
             | Self::DepthsCompass
             | Self::Saddle
+            | Self::LeatherHorseArmour
+            | Self::IronHorseArmour
+            | Self::GoldHorseArmour
+            | Self::DiamondHorseArmour
+            | Self::Lead
             | Self::Boat
             | Self::Shield
             | Self::Crossbow
@@ -1410,6 +1449,8 @@ impl ItemId {
             | Self::RabbitSpawnEgg
             | Self::WolfSpawnEgg
             | Self::HorseSpawnEgg
+            | Self::DonkeySpawnEgg
+            | Self::MuleSpawnEgg
             | Self::GoatSpawnEgg
             | Self::CatSpawnEgg
             | Self::GnawerSpawnEgg
@@ -1540,6 +1581,8 @@ impl ItemId {
             | Self::RabbitSpawnEgg
             | Self::WolfSpawnEgg
             | Self::HorseSpawnEgg
+            | Self::DonkeySpawnEgg
+            | Self::MuleSpawnEgg
             | Self::GoatSpawnEgg
             | Self::CatSpawnEgg
             | Self::GnawerSpawnEgg
@@ -1594,6 +1637,11 @@ impl ItemId {
             | Self::Feather
             | Self::BakedPotato
             | Self::Saddle
+            | Self::LeatherHorseArmour
+            | Self::IronHorseArmour
+            | Self::GoldHorseArmour
+            | Self::DiamondHorseArmour
+            | Self::Lead
             | Self::Boat
             | Self::Paper
             | Self::EmptyMap
@@ -2291,6 +2339,13 @@ mod tests {
             (ItemId::MossbackSpawnEgg, 415),
             (ItemId::ShardlingSpawnEgg, 416),
             (ItemId::SlagcrawlerSpawnEgg, 417),
+            (ItemId::LeatherHorseArmour, 418),
+            (ItemId::IronHorseArmour, 419),
+            (ItemId::GoldHorseArmour, 420),
+            (ItemId::DiamondHorseArmour, 421),
+            (ItemId::Lead, 422),
+            (ItemId::DonkeySpawnEgg, 423),
+            (ItemId::MuleSpawnEgg, 424),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -2336,6 +2391,8 @@ mod tests {
                 | ItemId::RabbitSpawnEgg
                 | ItemId::WolfSpawnEgg
                 | ItemId::HorseSpawnEgg
+                | ItemId::DonkeySpawnEgg
+                | ItemId::MuleSpawnEgg
                 | ItemId::GoatSpawnEgg
                 | ItemId::CatSpawnEgg
                 | ItemId::GnawerSpawnEgg
@@ -2493,6 +2550,11 @@ mod tests {
                 | ItemId::CobbledGloomrock
                 | ItemId::Anvil
                 | ItemId::Saddle
+                | ItemId::LeatherHorseArmour
+                | ItemId::IronHorseArmour
+                | ItemId::GoldHorseArmour
+                | ItemId::DiamondHorseArmour
+                | ItemId::Lead
                 | ItemId::Boat
                 | crate::new_palette_block_items!()
                 | crate::dye_items!()
@@ -2775,6 +2837,10 @@ mod tests {
             ItemId::FlintAndSteel,
             ItemId::Bow,
             ItemId::Saddle,
+            ItemId::LeatherHorseArmour,
+            ItemId::IronHorseArmour,
+            ItemId::GoldHorseArmour,
+            ItemId::DiamondHorseArmour,
             ItemId::Boat,
             ItemId::Shield,
             ItemId::Crossbow,
@@ -2968,6 +3034,11 @@ mod tests {
                     | ItemId::Arrow
                     | ItemId::DepthsCompass
                     | ItemId::Saddle
+                    | ItemId::LeatherHorseArmour
+                    | ItemId::IronHorseArmour
+                    | ItemId::GoldHorseArmour
+                    | ItemId::DiamondHorseArmour
+                    | ItemId::Lead
                     | ItemId::Boat
                     | ItemId::Shield
                     | ItemId::Crossbow

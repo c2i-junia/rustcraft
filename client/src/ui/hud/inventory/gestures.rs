@@ -193,10 +193,13 @@ pub(crate) fn planned_drag(
     slots: u128,
     one_each: bool,
 ) -> Option<DragPlan> {
-    let mut chest = inventory
-        .open_chest
-        .and_then(|pos| world_map.blocks.container(pos))
-        .cloned();
+    let mut chest = match inventory.open_pack {
+        Some(pack) => world_map.blocks.packs.get(&pack).cloned(),
+        None => inventory
+            .open_chest
+            .and_then(|pos| world_map.blocks.container(pos))
+            .cloned(),
+    };
     let mut furnace = inventory
         .open_furnace
         .and_then(|pos| world_map.blocks.furnace(pos))

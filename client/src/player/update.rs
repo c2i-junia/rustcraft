@@ -217,6 +217,11 @@ pub fn update_players_system(
                 .blocks
                 .insert_container(chest, (**contents).clone());
         }
+        // The chest on the back of a donkey comes the same way
+        if let (Some(pack), Some(contents)) = (server_inventory.open_pack, &event.open_chest) {
+            world_map.blocks.packs.clear();
+            world_map.blocks.packs.insert(pack, (**contents).clone());
+        }
         if let (Some(pos), Some(furnace)) = (server_inventory.open_furnace, &event.open_furnace) {
             world_map.blocks.insert_furnace(pos, furnace.clone());
         }

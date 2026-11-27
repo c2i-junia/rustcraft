@@ -152,10 +152,10 @@ Not run again to compare their output.
   items/Bow_Draw3
 - `scripts/generate_combat_gear.py` (4, after the audit): items/Bolt, items/Mace, items/Shield,
   items/ThrowingAxe
-- `scripts/generate_spawn_eggs.py` (20): items/BrambleSpawnEgg, items/CartographerSpawnEgg,
+- `scripts/generate_spawn_eggs.py` (22): items/BrambleSpawnEgg, items/CartographerSpawnEgg,
   items/CatSpawnEgg, items/ChickenSpawnEgg, items/CinderlingSpawnEgg, items/CowSpawnEgg,
-  items/DrownerSpawnEgg, items/FarmerSpawnEgg, items/FoxSpawnEgg, items/GnawerSpawnEgg,
-  items/GoatSpawnEgg, items/GustOwlSpawnEgg, items/HorseSpawnEgg, items/PigSpawnEgg,
+  items/DonkeySpawnEgg, items/DrownerSpawnEgg, items/FarmerSpawnEgg, items/FoxSpawnEgg, items/GnawerSpawnEgg,
+  items/GoatSpawnEgg, items/GustOwlSpawnEgg, items/HorseSpawnEgg, items/MuleSpawnEgg, items/PigSpawnEgg,
   items/RabbitSpawnEgg, items/RollerSpawnEgg, items/SheepSpawnEgg, items/SmithSpawnEgg,
   items/StumplingSpawnEgg, items/WolfSpawnEgg
 - `scripts/generate_palette.py` (63): the willow door and trapdoor, recoloured from the oak ones
@@ -233,13 +233,14 @@ custom_textures/blocks/Left, custom_textures/blocks/Right, custom_textures/block
 
 ## Sounds, music and models
 
-- The 245 files of `data/sounds/` and the 8 of `data/music/`: synthesised by `scripts/generate_sounds.py`,
-  `scripts/generate_feature_sounds.py` (the 74 of the armour, the bow, the experience, the engraving
+- The 255 files of `data/sounds/` and the 8 of `data/music/`: synthesised by `scripts/generate_sounds.py`
+  (the voices of the donkey and the mule among them),
+  `scripts/generate_feature_sounds.py` (the 78 of the armour, the bow, the experience, the engraving
   table, the anvil, the trade, the villagers, the breeding, the progress, the melee, the mounts, the
-  shield, the crossbow and the fishing, and the voices of the fish and the creatures of the deep
+  shield, the crossbow, the fishing and the companions, and the voices of the fish and the creatures of the deep
   caves) and `scripts/generate_music.py`, as commits `86973646`, `52050487`, `2396d533`, `75bd05c9` and others
   and `docs/ressources.txt` say. Not run again to compare their output.
-- The 35 models of `data/models/animated/`: built by `scripts/generate_{animals,sheep,hostiles,villagers,boat,bobber,caverns}.py`.
+- The 37 models of `data/models/animated/`: built by `scripts/generate_{animals,sheep,hostiles,villagers,boat,bobber,caverns}.py`.
   Not run again either.
 
 ## Added after the audit, from Nova_Wostra's pack (10)
@@ -293,6 +294,13 @@ Drawn by `scripts/generate_caverns_textures.py` (MIT): blocks/CaveVine, blocks/C
 blocks/Geodestone, blocks/Glowcrystal, blocks/Moss, items/CrystalShard, items/TreasureMap; and by
 `scripts/generate_spawn_eggs.py` the eggs of the Glintfin, the Shoalback, the Mossback, the
 Shardling and the Slagcrawler.
+
+## Added after the audit, from Nova_Wostra's pack (5)
+
+Taken as they are from the `main` branch of the Chorus Edit, not compared with CE: as B until they
+are. items/LeatherHorseArmour (`item/leather_horse_armor`), items/IronHorseArmour
+(`iron_horse_armor`), items/GoldHorseArmour (`golden_horse_armor`), items/DiamondHorseArmour
+(`diamond_horse_armor`), items/Lead (`lead`).
 
 ## To do before the release
 

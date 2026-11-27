@@ -272,6 +272,11 @@ mod tests {
                 riders: [None; 2],
                 parries: 0,
                 guard_down: 0,
+                sitting: false,
+                horse_armour: None,
+                pack: None,
+                leash: None,
+                prey: None,
             },
         };
         let update = PlayerUpdateEvent {

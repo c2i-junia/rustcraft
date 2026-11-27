@@ -162,6 +162,10 @@ pub enum InventoryAction {
     /// Works the items of the anvil (`world::forge`), giving the first the name, empty for the
     /// name of its kind, for its cost in levels of experience. Only the server does it.
     Forge(ItemName),
+    /// Right click, sneaking, on a donkey or a mule of the player carrying a chest: its slots
+    /// can be used while it stays within reach, which the server tells by lending its contents
+    /// (`ChunkMap::packs`).
+    OpenPack(crate::world::MobId),
 }
 
 /// Why an inventory action changed nothing.
@@ -302,6 +306,12 @@ pub fn simulate_inventory_actions(
             inventory.open_table = None;
         }
     }
+    // The server lends the pack of a mob in reach, a client keeps it until told otherwise
+    if let Some(pack) = inventory.open_pack {
+        if matches!(caller_type, CallerType::Server) && !world_map.packs.contains_key(&pack) {
+            inventory.open_pack = None;
+        }
+    }
     if let Some(chest) = inventory.open_chest {
         if !container_in_reach(
             |pos, id| block_in_reach(world_map, position, pos, id),
@@ -352,6 +362,9 @@ pub fn simulate_inventory_actions(
         let mut chest = inventory
             .open_chest
             .and_then(|pos| Some((pos, world_map.container(pos)?.clone())));
+        let mut pack = inventory
+            .open_pack
+            .and_then(|id| Some((id, world_map.packs.get(&id)?.clone())));
         let mut furnace = inventory
             .open_furnace
             .and_then(|pos| Some((pos, world_map.furnace(pos)?.clone())));
@@ -359,14 +372,26 @@ pub fn simulate_inventory_actions(
             furnace.as_ref().and_then(|(_, furnace)| furnace.output)
         };
         let output_before = output(&furnace);
-        let contents = match (&mut chest, &mut furnace) {
-            (Some((_, contents)), _) => Some(OpenContents::Chest(contents)),
-            (None, Some((_, furnace))) => Some(OpenContents::Furnace(furnace)),
-            (None, None) => None,
+        let contents = match (&mut chest, &mut furnace, &mut pack) {
+            (Some((_, contents)), _, _) => Some(OpenContents::Chest(contents)),
+            (None, Some((_, furnace)), _) => Some(OpenContents::Furnace(furnace)),
+            (None, None, Some((_, contents))) => Some(OpenContents::Chest(contents)),
+            (None, None, None) => None,
         };
         let in_reach = |pos, id| block_in_reach(world_map, position, pos, id);
         let mut dropped = Vec::new();
         let applied = match action {
+            InventoryAction::OpenPack(id) => {
+                // A client opens it at once, the server once it lent it
+                if matches!(caller_type, CallerType::Client) || world_map.packs.contains_key(&id)
+                {
+                    player.inventory.close_blocks();
+                    player.inventory.open_pack = Some(id);
+                    Ok(None)
+                } else {
+                    Err(InventoryRefusal::NoChest(IVec3::ZERO))
+                }
+            }
             InventoryAction::Forge(name) => {
                 let anvil = player.inventory.open_anvil;
                 if !anvil.is_some_and(|pos| in_reach(pos, BlockId::Anvil)) {
@@ -409,6 +434,9 @@ pub fn simulate_inventory_actions(
                     *stored = contents;
                 }
             }
+        }
+        if let Some((id, contents)) = pack {
+            world_map.packs.insert(id, contents);
         }
         if let Some((pos, furnace)) = furnace {
             if world_map.furnace(pos) != Some(&furnace) {
@@ -513,7 +541,7 @@ fn with_lent<T>(
     apply: impl FnOnce(&mut Inventory, Lent) -> T,
 ) -> T {
     match contents {
-        Some(OpenContents::Chest(chest)) if inventory.open_chest.is_some() => {
+        Some(OpenContents::Chest(chest)) if inventory.has_chest_open() => {
             let stacks: Vec<_> = chest.slots.iter_mut().collect();
             lend(inventory, stacks, chest_slots(), |inventory| {
                 apply(inventory, Lent::Chest)
@@ -645,6 +673,8 @@ fn apply_action(
             }
         }
         InventoryAction::Forge(_) => Err(InventoryRefusal::NoAnvil),
+        // `simulate_inventory_actions` applies it: it needs the packs lent to the map
+        InventoryAction::OpenPack(_) => Err(InventoryRefusal::NoChest(IVec3::ZERO)),
         InventoryAction::TakeFromCatalog {
             item,
             count,

@@ -4,10 +4,13 @@ pub mod boss;
 pub mod breeding;
 pub mod cinder;
 pub mod combat;
+pub mod companions;
 pub mod fishing;
 mod float;
 pub mod guards;
 pub mod hostile;
+pub mod leash;
+pub mod pack;
 pub mod path;
 pub mod riding;
 pub mod spawning;
@@ -31,9 +34,12 @@ pub(crate) fn add_mob(
     changed_mobs: &mut HashSet<MobId>,
     mut mob: ServerMob,
 ) -> MobId {
-    // Each horse is born with its coat and its gifts
-    if mob.kind == shared::world::MobKind::Horse && mob.horse.is_none() {
-        mob.horse = Some(shared::world::HorseTraits::roll(&mut rand::thread_rng()));
+    // Each steed is born with its coat and its gifts
+    if mob.kind.is_steed() && mob.horse.is_none() {
+        mob.horse = Some(shared::world::HorseTraits::of_kind(
+            mob.kind,
+            &mut rand::thread_rng(),
+        ));
     }
     let id = create_new_mob_id();
     mobs.insert(id, mob);

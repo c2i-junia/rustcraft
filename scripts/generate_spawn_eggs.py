@@ -36,6 +36,8 @@ EGGS = {
     "Mossback": ("#6b5a44", "#5d8a33"),
     "Shardling": ("#c9b6ef", "#7a54c8"),
     "Slagcrawler": ("#2e2a28", "#e8611c"),
+    "Donkey": ("#8a7d6e", "#4a4038"),
+    "Mule": ("#6b4a32", "#3a2a20"),
 }
 CENTRE_X, CENTRE_Y = 7.5, 8.5
 

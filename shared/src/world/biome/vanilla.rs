@@ -153,6 +153,7 @@ pub fn definitions() -> Vec<BiomeDef> {
                 chicken(0.04, 2, 4),
                 horse(0.025, 2, 4),
                 rabbit(0.02, 1, 3),
+                herd(MobKind::Donkey, 0.02, 1, 3),
             ],
             look: BiomeLook::new([0.8, 0.4], [140, 190, 90]),
             village: Some(VillageStyle::Plains),

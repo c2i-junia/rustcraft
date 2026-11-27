@@ -373,6 +373,14 @@ pub fn handle_player_inputs_system(
         };
         let rest = combat::interact(player, &ev.input, mob_world, &mut rng);
         let input = rest.as_ref().unwrap_or(&ev.input);
+        let tied = crate::mob::leash::tie_to_post(
+            player,
+            input,
+            &mut world_map.mobs,
+            &mut world_map.changed_mobs,
+            chunks,
+        );
+        let input = tied.as_ref().unwrap_or(input);
         crate::mob::fishing::use_rod(
             &mut world_map.fishing,
             player,
@@ -384,7 +392,10 @@ pub fn handle_player_inputs_system(
         );
         // The shots of the input are aimed before its move
         let eyes = player.position + Vec3::Y * EYE_HEIGHT;
+        // The chest on the back of a donkey the player uses is lent to the map meanwhile
+        let pack = crate::mob::pack::lend(player, input, &world_map.mobs, chunks);
         let outcome = simulate_player_actions(player, chunks, input, CallerType::Server);
+        crate::mob::pack::take_back(pack, &mut world_map.mobs, &mut world_map.changed_mobs, chunks);
         let home = &mut world_map.home;
         home.read
             .extend(outcome.signs.iter().map(|&pos| (ev.client_id, pos)));
@@ -574,7 +585,11 @@ pub fn broadcast_player_updates_system(
         let open_chest = player
             .inventory
             .open_chest
-            .and_then(|chest| world_map.chunks.container(chest).cloned().map(Box::new));
+            .and_then(|chest| world_map.chunks.container(chest).cloned().map(Box::new))
+            .or_else(|| {
+                let pack = player.inventory.open_pack?;
+                world_map.mobs.get(&pack)?.pack.clone()
+            });
         let open_furnace = player
             .inventory
             .open_furnace

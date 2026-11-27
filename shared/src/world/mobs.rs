@@ -62,10 +62,15 @@ pub enum MobKind {
     Shardling,
     /// A crawler of slag of the basalt galleries, whose bite sets the player burning.
     Slagcrawler,
+    /// A steed of the plains, slower than the horse and steady, which carries a chest
+    /// (`ServerMob::pack`).
+    Donkey,
+    /// Born of a horse and a donkey: it carries a chest too, and never breeds.
+    Mule,
 }
 
 impl MobKind {
-    pub const ALL: [MobKind; 30] = [
+    pub const ALL: [MobKind; 32] = [
         MobKind::Fox,
         MobKind::Sheep,
         MobKind::Cow,
@@ -96,6 +101,8 @@ impl MobKind {
         MobKind::Mossback,
         MobKind::Shardling,
         MobKind::Slagcrawler,
+        MobKind::Donkey,
+        MobKind::Mule,
     ];
 
     /// Whether mobs of this kind hunt the players (`crate::world::hostiles`), and appear in the
@@ -159,7 +166,30 @@ impl MobKind {
     /// Whether players ride mobs of this kind (`crate::players::riding`): the horse, saddled and
     /// tamed, and the boat.
     pub fn is_mount(self) -> bool {
-        matches!(self, MobKind::Horse | MobKind::Boat)
+        self.is_steed() || self == MobKind::Boat
+    }
+
+    /// Whether mobs of this kind are steeds, ridden saddled once tamed (`crate::players::riding`):
+    /// the horse, the donkey and the mule. They are born with their gifts (`HorseTraits`).
+    pub fn is_steed(self) -> bool {
+        matches!(self, MobKind::Horse | MobKind::Donkey | MobKind::Mule)
+    }
+
+    /// Whether a tamed mob of this kind carries a chest on its back (`ServerMob::pack`): the
+    /// donkey and the mule.
+    pub fn carries_chest(self) -> bool {
+        matches!(self, MobKind::Donkey | MobKind::Mule)
+    }
+
+    /// Whether a tamed mob of this kind sits and stands up when its owner tells it to with a
+    /// right click: the wolf and the cat.
+    pub fn sits(self) -> bool {
+        self.follows_owner()
+    }
+
+    /// Whether a lead ties mobs of this kind (`ServerMob::leash`): the animals but the fish.
+    pub fn is_leashable(self) -> bool {
+        self.is_animal() && !self.is_aquatic()
     }
 
     /// The points of health of a mob of this kind.
@@ -182,6 +212,8 @@ impl MobKind {
             MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => 20,
             MobKind::Cow => 12,
             MobKind::Wolf | MobKind::Horse => 16,
+            MobKind::Donkey => 15,
+            MobKind::Mule => 18,
             MobKind::Chicken | MobKind::Rabbit => 4,
             MobKind::Sheep => 8,
             MobKind::Glintfin | MobKind::Shoalback => 3,
@@ -220,7 +252,7 @@ impl MobKind {
     /// Whether a player tames mobs of this kind by feeding them (`MobKind::eats`): the wolf,
     /// the cat and the horse. Only tamed ones breed, and a tamed horse takes a saddle.
     pub fn is_tameable(self) -> bool {
-        matches!(self, MobKind::Wolf | MobKind::Cat | MobKind::Horse)
+        matches!(self, MobKind::Wolf | MobKind::Cat) || self.is_steed()
     }
 
     /// Whether a tamed mob of this kind follows its owner: the wolf and the cat, not the horse,
@@ -236,7 +268,9 @@ impl MobKind {
         use ItemId as I;
         match self {
             MobKind::Cow | MobKind::Sheep | MobKind::Goat | MobKind::Chicken => item == I::Rye,
-            MobKind::Horse => matches!(item, I::Carrot | I::Rye),
+            MobKind::Horse | MobKind::Donkey | MobKind::Mule => {
+                matches!(item, I::Carrot | I::Rye | I::Apple)
+            }
             MobKind::Pig => matches!(item, I::Carrot | I::Potato),
             MobKind::Rabbit => item == I::Carrot,
             MobKind::Fox => item == I::Berries,
@@ -291,6 +325,8 @@ impl MobKind {
             MobKind::Mossback => "Mossback",
             MobKind::Shardling => "Shardling",
             MobKind::Slagcrawler => "Slagcrawler",
+            MobKind::Donkey => "Donkey",
+            MobKind::Mule => "Mule",
         }
     }
 
@@ -342,6 +378,9 @@ impl MobKind {
             MobKind::Mossback => Vec3::new(0.9, 0.7, 0.9),
             MobKind::Shardling => Vec3::new(0.8, 0.6, 0.8),
             MobKind::Slagcrawler => Vec3::new(0.9, 0.6, 0.9),
+            // `scripts/generate_animals.py`: a smaller horse, the mule between the two
+            MobKind::Donkey => Vec3::new(1.0, 1.4, 1.0),
+            MobKind::Mule => Vec3::new(1.1, 1.55, 1.1),
         }
     }
 }
@@ -431,6 +470,30 @@ impl HorseTraits {
         }
     }
 
+    /// A donkey born in the wild: slower than any horse and a poor jumper, but long of
+    /// breath. Its coat is not drawn.
+    pub fn donkey(rng: &mut impl rand::Rng) -> Self {
+        Self {
+            coat: Coat::Grey,
+            speed: clamp_to(rng.gen_range(6.0..=7.0), &HORSE_SPEED),
+            jump: clamp_to(rng.gen_range(1.3..=1.6), &HORSE_JUMP),
+            endurance: clamp_to(rng.gen_range(11.0..=15.0), &HORSE_ENDURANCE),
+        }
+    }
+
+    /// What a steed of `kind` is born with in the wild: a horse's gifts (`roll`), a donkey's,
+    /// or for a mule, found only when bred, the mean of the two.
+    pub fn of_kind(kind: MobKind, rng: &mut impl rand::Rng) -> Self {
+        match kind {
+            MobKind::Donkey => Self::donkey(rng),
+            MobKind::Mule => {
+                let (horse, donkey) = (Self::roll(rng), Self::donkey(rng));
+                Self::inherit(&horse, &donkey, rng)
+            }
+            _ => Self::roll(rng),
+        }
+    }
+
     /// A foal of `a` and `b`: the coat of one of them, but now and then one of its own, and
     /// each trait the mean of theirs, give or take a little.
     pub fn inherit(a: &Self, b: &Self, rng: &mut impl rand::Rng) -> Self {
@@ -465,6 +528,24 @@ pub const FED_YOUNG_SPEED_UP: f32 = 0.1;
 pub const TAME_CHANCE: f64 = 1.0 / 3.0;
 /// How big a young animal is, against an adult.
 pub const YOUNG_SCALE: f32 = 0.5;
+
+/// What the lead of a mob is tied to (`ServerMob::leash`): the hand of a player, by its name,
+/// or a fence post, by its cell. Append only: sent by index.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Leash {
+    Player(String),
+    Post(IVec3),
+}
+
+/// How much horse armour of `points` spares a steed of a blow of `damage`: 4 % a point, the
+/// rest rounded to the nearest point, never less than one for a blow that hurts.
+pub fn armoured_damage(damage: u32, points: u32) -> u32 {
+    if damage == 0 {
+        return 0;
+    }
+    let kept = 25u32.saturating_sub(points);
+    ((damage * kept + 12) / 25).max(1)
+}
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum MobTarget {
@@ -610,6 +691,24 @@ pub struct ServerMob {
     /// Ticks left before the guard an axe knocked down is up again. Neither saved nor sent.
     #[serde(skip)]
     pub guard_down: u32,
+    /// Whether a tamed wolf or cat sits where its owner told it to, rather than following.
+    #[serde(default)]
+    pub sitting: bool,
+    /// The horse armour a horse wears (`ItemId::horse_armour`), which the clients show and which
+    /// spares it a part of its blows.
+    #[serde(default)]
+    pub horse_armour: Option<ItemId>,
+    /// What the chest on the back of a donkey or a mule holds, once one was put on it. Saved,
+    /// and sent with the mob: the clients know it carries one.
+    #[serde(default)]
+    pub pack: Option<Box<crate::world::Container>>,
+    /// What the lead of the mob is tied to, if it wears one.
+    #[serde(default)]
+    pub leash: Option<Leash>,
+    /// The mob a tamed wolf hunts: what its owner struck, or what goes at its owner. Neither
+    /// saved nor sent.
+    #[serde(skip)]
+    pub prey: Option<MobId>,
 }
 
 impl ServerMob {
@@ -650,6 +749,11 @@ impl ServerMob {
             riders: [None; 2],
             parries: 0,
             guard_down: 0,
+            sitting: false,
+            horse_armour: None,
+            pack: None,
+            leash: None,
+            prey: None,
         }
     }
 

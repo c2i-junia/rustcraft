@@ -59,6 +59,10 @@ pub struct Inventory {
     /// The anvil the player is using, if any. Never at the same time as another block.
     #[serde(default)]
     pub open_anvil: Option<IVec3>,
+    /// The donkey or the mule whose chest the player has open, if any: its slots are those of
+    /// a chest. Never at the same time as a block.
+    #[serde(default)]
+    pub open_pack: Option<crate::world::MobId>,
 }
 
 impl Default for Inventory {
@@ -77,6 +81,7 @@ impl Inventory {
             open_furnace: None,
             open_engraver: None,
             open_anvil: None,
+            open_pack: None,
         }
     }
 
@@ -88,6 +93,13 @@ impl Inventory {
         self.open_chest = None;
         self.open_furnace = None;
         self.open_engraver = None;
+        self.open_pack = None;
+    }
+
+    /// Whether the player has the slots of a chest open: a chest, a barrel, or the chest on the
+    /// back of a donkey or a mule.
+    pub fn has_chest_open(&self) -> bool {
+        self.open_chest.is_some() || self.open_pack.is_some()
     }
 
     /// What a player holds in its hand with the hotbar slot `slot` selected: the item of that
@@ -357,6 +369,10 @@ pub struct Player {
     /// saved.
     #[serde(skip)]
     pub parries: u8,
+    /// The points of health the blows of hostiles struck at the player while it rode a steed
+    /// took from the steed instead, which the server takes from it (`companions`). Not saved.
+    #[serde(skip)]
+    pub mount_blows: u32,
 }
 
 /// What the movement simulation carries over from one input to the next. The server sends it
@@ -589,6 +605,7 @@ impl Player {
             shield_ms: 0,
             shield_disabled_ms: 0,
             parries: 0,
+            mount_blows: 0,
         }
     }
 }

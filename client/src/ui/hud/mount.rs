@@ -59,14 +59,14 @@ pub fn mount_text(riding: &Riding, mob: Option<&Mob>) -> String {
         }
         (kind, _) => parts.push(mob_name(kind).to_string()),
     }
-    if let Some(mob) = mob.filter(|_| riding.kind == MobKind::Horse) {
+    if let Some(mob) = mob.filter(|_| riding.kind.is_steed()) {
         let health = mob.max_health.saturating_sub(mob.damage());
         parts.push(trf(
             "hud.mount.health",
             &[("health", &health), ("max", &mob.max_health)],
         ));
     }
-    if riding.kind == MobKind::Horse {
+    if riding.kind.is_steed() {
         if riding.winded {
             parts.push(tr("hud.mount.winded").to_string());
         } else {

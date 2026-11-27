@@ -87,6 +87,8 @@ pub fn model(kind: MobKind) -> MobModel {
         MobKind::Mossback => ("models/animated/Mossback.glb", HOSTILE_CLIPS),
         MobKind::Shardling => ("models/animated/Shardling.glb", HOSTILE_CLIPS),
         MobKind::Slagcrawler => ("models/animated/Slagcrawler.glb", HOSTILE_CLIPS),
+        MobKind::Donkey => ("models/animated/Donkey.glb", GRAZER_CLIPS),
+        MobKind::Mule => ("models/animated/Mule.glb", GRAZER_CLIPS),
     };
     MobModel { path, clips }
 }
@@ -112,14 +114,15 @@ pub fn model_lift(kind: MobKind) -> f32 {
 }
 
 /// The clip a mob of `kind` doing `action` plays, among those its model has: one without a run
-/// walks, one that cannot eat or strike stands. A chase is a walk (the Roller's roll too).
+/// walks, one that cannot eat or strike stands. A chase is a run, a walk for those without one
+/// (the Roller's roll too): a wolf runs at its prey.
 pub fn clip_for(kind: MobKind, action: MobAction) -> MobClip {
     let wanted = match action {
         MobAction::Walk => MobClip::Walk,
         MobAction::Flee => MobClip::Run,
         MobAction::Idle => MobClip::Idle,
         MobAction::Graze => MobClip::Eat,
-        MobAction::Chase => MobClip::Walk,
+        MobAction::Chase => MobClip::Run,
         MobAction::Attack => MobClip::Attack,
         // It sinks standing, the ground hiding it
         MobAction::Burrow => MobClip::Idle,

@@ -106,6 +106,7 @@ pub fn act(
     delta: f32,
     rng: &mut impl Rng,
     pathing: &mut Pathing,
+    cats: &[Vec3],
 ) -> Option<ServerMob> {
     let (Some(hunt), Some(mut strike)) = (mob.kind.hunt(), mob.kind.strike()) else {
         return None;
@@ -113,6 +114,9 @@ pub fn act(
     strike.damage = difficulty.strike_damage(strengthened(strike.damage, mob.tier));
     if mob.action == MobAction::Burrow {
         burrow(mob);
+        return None;
+    }
+    if shun_cats(mob, chunks, cats, hunt.speed, delta) {
         return None;
     }
     let prey = prey(mob, chunks, players, &hunt);
@@ -139,6 +143,33 @@ pub fn act(
         ),
     }
     None
+}
+
+/// A hostile that fears the cats (`companions::fears_cats`) keeps away from a tamed one: the
+/// Gnawer runs from it on foot, the Gust Owl flies off from over it, and neither strikes
+/// meanwhile. Returns whether it shunned one, which is all it did this step.
+fn shun_cats(mob: &mut ServerMob, chunks: &ChunkMap, cats: &[Vec3], speed: f32, delta: f32) -> bool {
+    if !super::companions::fears_cats(mob.kind) {
+        return false;
+    }
+    let flies = mob.kind == MobKind::GustOwl;
+    let Some(cat) = super::companions::nearest_cat(cats, mob.position, flies) else {
+        if mob.action == MobAction::Flee {
+            (mob.action, mob.action_ticks) = (MobAction::Idle, 0);
+        }
+        return false;
+    };
+    mob.route = None;
+    mob.action = MobAction::Flee;
+    mob.action_ticks = 0;
+    if flies {
+        let away = (mob.position - cat).with_y(0.0).normalize_or(Vec3::X);
+        let to = mob.position + away * 6.0 + Vec3::Y * 2.0;
+        fly_to(mob, chunks, to, speed.max(2.0), delta);
+    } else {
+        flee(mob, chunks, cat, speed, delta);
+    }
+    true
 }
 
 /// The height of the top of the ground under `mob`: the first cell with a hitbox or a liquid
@@ -417,7 +448,16 @@ fn strike_player(mob: &ServerMob, player: &mut Player, strike: &Strike, away: Ve
         }
         return;
     }
-    let landed = player.hurt(strike.damage, DamageSource::Mob(mob.kind));
+    // A rider's steed takes half the blow, its armour sparing it a part (`companions`)
+    let damage = match player.riding.filter(|riding| riding.kind.is_steed()) {
+        Some(_) => {
+            let borne = strike.damage / 2 + strike.damage % 2;
+            player.mount_blows += borne;
+            strike.damage - borne
+        }
+        None => strike.damage,
+    };
+    let landed = damage > 0 && player.hurt(damage, DamageSource::Mob(mob.kind));
     if strike.knock_back > 0.0 {
         player.knock_back(away, strike.knock_back);
     }
@@ -547,7 +587,20 @@ fn chase(
     delta: f32,
     pathing: &mut Pathing,
 ) {
-    let goal = feet_cell(player.position, player.height);
+    chase_to(mob, chunks, (player.position, player.height), speed, delta, pathing);
+}
+
+/// `chase`, toward the box centred on `target.0`, `target.1` tall: a player, or the prey or
+/// the owner of a tamed animal (`companions`).
+pub(super) fn chase_to(
+    mob: &mut ServerMob,
+    chunks: &ChunkMap,
+    (target, height): (Vec3, f32),
+    speed: f32,
+    delta: f32,
+    pathing: &mut Pathing,
+) {
+    let goal = feet_cell(target, height);
     let start = feet_cell(mob.position, mob.height);
     let lost = mob.route.as_ref().is_some_and(|route| {
         route.cells.get(route.next).is_some_and(|cell| {
@@ -586,7 +639,7 @@ fn chase(
         }
     }
     let Some(cell) = waypoint else {
-        let towards = (player.position - mob.position)
+        let towards = (target - mob.position)
             .with_y(0.0)
             .normalize_or_zero();
         return walk(mob, chunks, towards, speed, delta);

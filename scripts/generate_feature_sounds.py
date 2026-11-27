@@ -6,7 +6,8 @@ reached, an achievement, a boss, the victory, the credits, a skin imported), and
 blows and the sweeps of the melee, and the mounts: a saddle put on, a boat's oars and a blow on its
 hull, and the shield's parry and the crossbow's loading and shot, and the fishing: a rod cast,
 a bite and the line drawn in; and the creatures of the seas and the deep caves: the fish, the
-Mossback, the Shardling and the Slagcrawler.
+Mossback, the Shardling and the Slagcrawler; and the companions: horse armour put on, a lead
+tied, a chest strapped on a donkey and a wolf's bite.
 
 Built with the primitives of `generate_sounds.py` (its seed, its loudness and its output), so
 that they sound of a piece with the others; every sound is synthesised here, entirely original
@@ -551,6 +552,48 @@ def build_boat_hit(rng):
     return finish(outdoors(rng, knock * 0.8 + hull * 0.5 + crack * 0.3), -19)
 
 
+def build_horse_armour(rng):
+    """Horse armour put on: its plates clanking together as they settle, and the straps
+    buckled."""
+    d = 0.7
+    plates = clinks(rng, d, [0.0, 0.07, 0.16], 900, 2600, 0.06)
+    settle = thump(rng, d, 170, 90, 0.05) * 0.5
+    straps = rustle(rng, d, [(0.3, 0.16)], 500, 3000)
+    buckle = clinks(rng, d, [0.52], 2400, 4200, 0.03)
+    return finish(outdoors(rng, plates * 0.6 + settle + straps * 0.5 + buckle * 0.3), -21)
+
+
+def build_lead(rng):
+    """A lead tied or untied: the rope pulled taut with a creak, and a knot drawn tight."""
+    d = 0.5
+    t = t_axis(d)
+    creak = band(colored(rng, d, 1), 400, 2200) * (0.6 + 0.4 * np.sign(np.sin(2 * np.pi * 45 * t)))
+    creak *= curve(d, (0, 0), (0.08, 1), (0.25, 0.3), (d, 0))
+    tug = thump(rng, d, 140, 80, 0.03) * 0.5
+    knot = rustle(rng, d, [(0.3, 0.12)], 700, 3500)
+    return finish(outdoors(rng, creak * 0.5 + tug + knot * 0.5), -24)
+
+
+def build_pack_chest(rng):
+    """A chest strapped onto a donkey: the box set down on its back with a hollow knock, and
+    its straps pulled tight."""
+    d = 0.7
+    knock = thump(rng, d, 200, 110, 0.05)
+    box = modes(rng, d, [(310, 0.08, 1.0), (480, 0.05, 0.5)], 0.02)
+    straps = rustle(rng, d, [(0.25, 0.14), (0.42, 0.14)], 500, 3200)
+    return finish(outdoors(rng, knock * 0.8 + box * 0.4 + straps * 0.6), -21)
+
+
+def build_wolf_bite(rng):
+    """A wolf's bite: a short growl, then the snap of its jaws."""
+    d = 0.45
+    f0 = curve(d, (0, 110), (0.2, 140), (d, 90)) * vibrato(d, 28, 0.1, rng)
+    growl = formants(glottal(rng, f0, 0.5, 0.08), VOWEL_U) * curve(d, (0, 0), (0.05, 1), (0.22, 0.6), (0.3, 0))
+    snap = band(white(rng, d), 1500, 7000) * env(d, 0.0003, 0.008)
+    teeth = clinks(rng, d, [0.26], 1800, 3000, 0.012)
+    return finish(outdoors(rng, growl * 0.6 + place_at(d, snap[: n_of(0.1)], 0.25) * 0.8 + teeth * 0.4), -18)
+
+
 # --- fishing ----------------------------------------------------------------
 
 
@@ -776,6 +819,10 @@ def main():
         write_ogg(f"mob/{creature}/approach", approach)
         write_ogg(f"mob/{creature}/attack", attack)
         write_ogg(f"mob/{creature}/hurt", hurt)
+    write_ogg("mob/horse_armour", build_horse_armour)
+    write_ogg("mob/lead", build_lead)
+    write_ogg("mob/pack_chest", build_pack_chest)
+    write_ogg("mob/wolf_bite", build_wolf_bite)
 
 
 if __name__ == "__main__":

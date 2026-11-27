@@ -248,6 +248,11 @@ pub struct MobCues {
     in_love: bool,
     tamed: bool,
     saddled: bool,
+    /// Its horse armour, whether it is led, whether it carries a chest, whether it bites.
+    armour: Option<shared::world::ItemId>,
+    leashed: bool,
+    chested: bool,
+    biting: bool,
     /// Where it was the frame before, and when a boat's oars were last heard.
     last_at: Vec3,
     paddled_at: f32,
@@ -301,6 +306,10 @@ pub fn mob_cues(
                 in_love: mob.in_love,
                 tamed: mob.tamed,
                 saddled: mob.saddled,
+                armour: mob.horse_armour,
+                leashed: mob.leash.is_some(),
+                chested: mob.chested,
+                biting: false,
                 last_at: at,
                 paddled_at: f32::MIN,
                 in_water,
@@ -321,6 +330,24 @@ pub fn mob_cues(
         if mob.saddled && !cues.saddled {
             sounds.write_batch(heard(ears, Sound::Saddle, at));
         }
+        if mob.horse_armour.is_some() && mob.horse_armour != cues.armour {
+            sounds.write_batch(heard(ears, Sound::HorseArmour, at));
+        }
+        if mob.leash.is_some() != cues.leashed {
+            sounds.write_batch(heard(ears, Sound::Lead, at));
+        }
+        if mob.chested && !cues.chested {
+            sounds.write_batch(heard(ears, Sound::PackChest, at));
+        }
+        // A wolf bites as its strike starts
+        let biting = mob.kind == MobKind::Wolf && mob.action == shared::world::MobAction::Attack;
+        if biting && !cues.biting {
+            sounds.write_batch(heard(ears, Sound::WolfBite, at));
+        }
+        cues.armour = mob.horse_armour;
+        cues.leashed = mob.leash.is_some();
+        cues.chested = mob.chested;
+        cues.biting = biting;
         // A boat going on the water is rowed
         let delta = time.delta_secs();
         let speed = (at - cues.last_at).with_y(0.0).length() / delta.max(1e-3);

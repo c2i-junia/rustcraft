@@ -14,7 +14,7 @@ use shared::{
         Player, ViewMode,
     },
     world::{
-        aabb_ray_hit, depths::DepthTier, DroppedItem, FaceDirectionExt, ItemId, ItemStack,
+        aabb_ray_hit, depths::DepthTier, DroppedItem, FaceDirectionExt, ItemId, ItemStack, Leash,
         MobAction, MobId, MobKind, MobTarget, ServerMob,
     },
 };
@@ -111,15 +111,47 @@ pub fn interact(
         && held == Some(ItemId::Bucket)
         && mob.kind == MobKind::Cow
         && !mob.is_young();
+    let mine = mob.owner.as_deref() == Some(player.name.as_str());
     let saddles = right
         && held == Some(ItemId::Saddle)
-        && mob.kind == MobKind::Horse
+        && mob.kind.is_steed()
         && !mob.saddled
         && !mob.is_young()
-        && mob.owner.as_deref() == Some(player.name.as_str());
+        && mine;
+    // A lead ties an animal to the hand, or takes it from its post
+    let led = Leash::Player(player.name.clone());
+    let leashes = right
+        && held == Some(ItemId::Lead)
+        && mob.kind.is_leashable()
+        && mob.leash.as_ref() != Some(&led);
+    let unleashes = right && !leashes && !feeds && mob.leash.as_ref() == Some(&led);
+    let armours = right
+        && held.is_some_and(|item| item.horse_armour().is_some())
+        && mob.kind == MobKind::Horse
+        && !mob.is_young()
+        && mine;
+    let chests = right
+        && held == Some(ItemId::Chest)
+        && mob.kind.carries_chest()
+        && mob.pack.is_none()
+        && !mob.is_young()
+        && mine;
+    let sits = right
+        && mob.kind.sits()
+        && mine
+        && !feeds
+        && !leashes
+        && !unleashes
+        && !player.is_sneaking
+        && player.bow_draw_ms == 0
+        && !held.is_some_and(|i| i.spawned_mob().is_some() || i == ItemId::FishingRod);
     let mounts = right
         && !feeds
         && !saddles
+        && !leashes
+        && !unleashes
+        && !armours
+        && !chests
         && !milks
         && !shears
         && player.bow_draw_ms == 0
@@ -127,7 +159,8 @@ pub fn interact(
         && !player.is_sneaking
         && !held.is_some_and(|i| i.spawned_mob().is_some())
         && super::riding::free_seat(mob, &player.name).is_some();
-    if !left && !shears && !feeds && !trades && !saddles && !mounts && !milks {
+    let tends = leashes || unleashes || armours || chests || sits;
+    if !left && !shears && !feeds && !trades && !saddles && !mounts && !milks && !tends {
         return None;
     }
     let target = aim(
@@ -185,6 +218,34 @@ pub fn interact(
             world.changed.insert(id);
         }
     }
+    if tends {
+        rest.inputs.remove(&NetworkAction::RightClick);
+        if pressed {
+            let slot = input.hotbar_slot;
+            if leashes {
+                // One from its post is taken back in hand, the lead it wears with it
+                if mob.leash.is_none() {
+                    player.inventory.remove_item_from_stack(slot, 1);
+                }
+                mob.leash = Some(led.clone());
+            } else if unleashes {
+                mob.leash = None;
+                give(player, ItemId::Lead, &mut drops);
+            } else if armours {
+                if let Some(worn) = mob.horse_armour.take() {
+                    give(player, worn, &mut drops);
+                }
+                mob.horse_armour = held;
+                player.inventory.remove_item_from_stack(slot, 1);
+            } else if chests {
+                mob.pack = Some(Box::default());
+                player.inventory.remove_item_from_stack(slot, 1);
+            } else if sits {
+                super::companions::toggle_sit(mob);
+            }
+            world.changed.insert(id);
+        }
+    }
     if milks {
         rest.inputs.remove(&NetworkAction::RightClick);
         if pressed {
@@ -200,6 +261,7 @@ pub fn interact(
     }
     let position = mob.position;
     let mut sweep = None;
+    let mut rallies = false;
     if left {
         rest.inputs.remove(&NetworkAction::LeftClick);
         // A blow on a mob still invulnerable swings for nothing
@@ -263,16 +325,34 @@ pub fn interact(
                 }
                 if dies {
                     defeat(player, id, &mut world, rng, &mut drops);
+                } else {
+                    rallies = true;
                 }
             }
         }
     }
     drop_loot(world.items, drops, position);
+    // The wolves of the player go at what it struck
+    if rallies {
+        super::companions::rally(world.mobs, &player.name, id);
+    }
     if let Some(damage) = sweep {
         let forward = input.camera.forward().as_vec3();
         sweep_around(player, id, position, forward, damage, &mut world, rng);
     }
     Some(rest)
+}
+
+/// Puts one `item` into the inventory of `player`, or into `drops` without room.
+fn give(player: &mut Player, item: ItemId, drops: &mut Vec<(ItemId, u32)>) {
+    let stack = ItemStack {
+        item_id: item,
+        item_type: item.get_default_type(),
+        nb: 1,
+    };
+    if player.inventory.add_item_to_inventory(stack) > 0 {
+        drops.push((item, 1));
+    }
 }
 
 /// Fills a bucket of the hotbar slot `slot` of `player` with milk: a single bucket becomes the
@@ -310,6 +390,7 @@ fn defeat(
     };
     player.beat(mob.kind);
     drops.extend(loot(&mob, rng));
+    super::pack::drop_pack(world.items, &mob);
     world.items.drop_orb(mob.experience(), mob.position, rng);
     // The clients are told by the next broadcast, which no longer finds it
     world.changed.remove(&id);
@@ -400,6 +481,16 @@ pub fn drop_loot(items: &mut DroppedItems, drops: Vec<(ItemId, u32)>, position: 
 /// sometimes a treasure.
 pub fn loot(mob: &ServerMob, rng: &mut impl Rng) -> Vec<(ItemId, u32)> {
     let mut drops = kind_loot(mob, rng);
+    // What it wore: its lead, its armour, its chest
+    if mob.leash.is_some() {
+        drops.push((ItemId::Lead, 1));
+    }
+    if let Some(armour) = mob.horse_armour {
+        drops.push((armour, 1));
+    }
+    if mob.pack.is_some() {
+        drops.push((ItemId::Chest, 1));
+    }
     let Some(tier) = mob.tier else {
         return drops;
     };
@@ -484,7 +575,7 @@ fn kind_loot(mob: &ServerMob, rng: &mut impl Rng) -> Vec<(ItemId, u32)> {
         ],
         // It breaks into the item it was put down from
         MobKind::Boat => vec![(ItemId::Boat, 1)],
-        MobKind::Horse => vec![
+        MobKind::Horse | MobKind::Donkey | MobKind::Mule => vec![
             (ItemId::Leather, rng.gen_range(0..=2)),
             (ItemId::Saddle, u32::from(mob.saddled)),
         ],

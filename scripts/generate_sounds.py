@@ -1029,6 +1029,30 @@ def goat_voice(rng, d=0.8, pitch=1.0):
     return x * env(d, 0.03, d * 0.5)
 
 
+def bray(rng, d, pitch, hee, haw):
+    """A bray: the breath drawn in on a high rasping 'hee', pushed out on a low 'haw', twice."""
+    out = np.zeros(n_of(d))
+    half = d / 4
+    for i in range(4):
+        high = i % 2 == 0
+        f = (hee if high else haw) * pitch
+        f0 = curve(half, (0, f * 0.9), (half * 0.4, f), (half, f * 0.85)) * vibrato(half, 9, 0.04, rng)
+        start, end = (VOWEL_I, VOWEL_E) if high else (VOWEL_A, VOWEL_O)
+        x = vowel(glottal(rng, f0, 0.35 if high else 0.2, 0.04), start, end, curve(half, (0, 0), (half, 1)))
+        out += place_at(d, x * env(half, 0.03, half * 0.6) * (0.8 if high else 1.0), i * half)
+    return out
+
+
+def donkey_voice(rng, d=1.4, pitch=1.0):
+    """Hee-haw: a donkey's bray, harsh and loud."""
+    return bray(rng, d, pitch, 900, 330)
+
+
+def mule_voice(rng, d=1.3, pitch=1.0):
+    """A mule's cry, between a whinny and a bray: higher than the donkey's, smoother."""
+    return bray(rng, d, pitch, 760, 420) * 0.9
+
+
 ANIMALS = {
     "sheep": (sheep_voice, -20),
     "cow": (cow_voice, -19),
@@ -1040,6 +1064,8 @@ ANIMALS = {
     "rabbit": (rabbit_voice, -24),
     "horse": (horse_voice, -19),
     "goat": (goat_voice, -20),
+    "donkey": (donkey_voice, -19),
+    "mule": (mule_voice, -19),
 }
 
 

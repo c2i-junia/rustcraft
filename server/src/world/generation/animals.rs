@@ -173,7 +173,12 @@ mod tests {
         // 49 x 49 columns of chunks: a few herds of each kind, but no crowd
         for kind in MobKind::ALL
             .into_iter()
-            .filter(|kind| kind.is_animal() && !kind.is_aquatic() && *kind != MobKind::Mossback)
+            // The mule is only bred, of a horse and a donkey
+            .filter(|kind| {
+                kind.is_animal()
+                    && !kind.is_aquatic()
+                    && !matches!(kind, MobKind::Mossback | MobKind::Mule)
+            })
         {
             let count = by_kind.get(&kind).copied().unwrap_or(0);
             assert!((3..1000).contains(&count), "{kind:?}: {count}");

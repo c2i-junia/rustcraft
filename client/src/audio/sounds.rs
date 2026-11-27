@@ -271,6 +271,8 @@ fn creature_folder(kind: MobKind) -> &'static str {
         MobKind::Mossback => "mossback",
         MobKind::Shardling => "shardling",
         MobKind::Slagcrawler => "slagcrawler",
+        MobKind::Donkey => "donkey",
+        MobKind::Mule => "mule",
     }
 }
 
@@ -395,6 +397,14 @@ pub enum Sound {
     FishingBite,
     /// The float drawn in: the reel winding and a drip of water.
     FishingReel,
+    /// Horse armour is put on a horse: its plates clank.
+    HorseArmour,
+    /// A lead is tied or untied: the rope creaks.
+    Lead,
+    /// A chest is strapped on a donkey or a mule.
+    PackChest,
+    /// A wolf bites: a growl and the snap of its jaws.
+    WolfBite,
 }
 
 impl Sound {
@@ -445,7 +455,7 @@ impl Sound {
 
     /// The sounds of the later features (`scripts/generate_feature_sounds.py`), but those of
     /// the armour put on and off and the voices of the villagers.
-    pub const FEATURES: [Sound; 38] = [
+    pub const FEATURES: [Sound; 42] = [
         Sound::BowLoose,
         Sound::ArmourBreak,
         Sound::BowDraw,
@@ -484,6 +494,10 @@ impl Sound {
         Sound::FishingCast,
         Sound::FishingBite,
         Sound::FishingReel,
+        Sound::HorseArmour,
+        Sound::Lead,
+        Sound::PackChest,
+        Sound::WolfBite,
     ];
 
     /// The sounds of the weather, played by `audio::weather`.
@@ -604,6 +618,10 @@ impl Sound {
             Sound::FishingCast => one("fishing/cast"),
             Sound::FishingBite => one("fishing/bite"),
             Sound::FishingReel => one("fishing/reel"),
+            Sound::HorseArmour => one("mob/horse_armour"),
+            Sound::Lead => one("mob/lead"),
+            Sound::PackChest => one("mob/pack_chest"),
+            Sound::WolfBite => one("mob/wolf_bite"),
             Sound::PortalPass => vec!["sounds/player/pickup.ogg".to_string()],
             Sound::Creature(kind, call) => {
                 let folder = creature_folder(kind);

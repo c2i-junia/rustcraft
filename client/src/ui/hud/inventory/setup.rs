@@ -31,6 +31,8 @@ use shared::MAX_INVENTORY_SLOTS;
 pub const INVENTORY_TITLE: &str = "inventory.title";
 pub const CRAFTING_TABLE_TITLE: &str = "inventory.crafting_table";
 pub const CHEST_TITLE: &str = "inventory.chest";
+/// The title of the dialog while the chest on the back of a donkey or a mule is open.
+pub const PACK_TITLE: &str = "inventory.pack";
 
 /// The height of the hotbar above the bottom of the window, in logical px.
 const HOTBAR_BOTTOM: f32 = SPACE_L;

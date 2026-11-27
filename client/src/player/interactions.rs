@@ -63,6 +63,32 @@ pub fn handle_block_interactions(
     };
     let world_map = world_map.into_inner();
 
+    // A right click, sneaking, on a donkey or a mule of the player opens the chest on its back
+    let sneaking = is_action_pressed(GameAction::FlyDown, &keyboard_input, &key_map);
+    if sneaking && mouse_input.just_pressed(MouseButton::Right) && !pressed_in_ui.contains(&MouseButton::Right) {
+        let eye = match *view_mode {
+            ViewMode::FirstPerson => camera_transform.translation,
+            ViewMode::ThirdPerson => player_transform.translation,
+        };
+        let ray = Ray3d::new(eye, camera_transform.forward());
+        let block = aim(
+            &world_map.blocks,
+            camera_transform,
+            &player_transform.translation,
+            *view_mode,
+            None,
+        )
+        .map(|target| target.bbox);
+        let pack = aimed_pack(ray, block, &player.name, mobs.iter());
+        if let Some(id) = pack {
+            frame_inputs.0.inventory_actions.push(InventoryAction::OpenPack(id));
+            if let Ok(mut visibility) = inventory_root.single_mut() {
+                *visibility = Visibility::Visible;
+            }
+            return;
+        }
+    }
+
     let Some(target) = aim(
         &world_map.blocks,
         camera_transform,
@@ -117,7 +143,6 @@ pub fn handle_block_interactions(
         frame_inputs.0.inputs.insert(NetworkAction::LeftClick);
     }
     // The simulation must see the sneak key, which decides between opening and placing
-    let sneaking = is_action_pressed(GameAction::FlyDown, &keyboard_input, &key_map);
     if sneaking {
         frame_inputs.0.inputs.insert(NetworkAction::SneakOrFlyDown);
     }
@@ -177,6 +202,34 @@ pub fn handle_block_interactions(
             });
         }
     }
+}
+
+/// How far from the eye of the player a chest on the back of a donkey is opened, in blocks.
+const PACK_REACH: f32 = 3.5;
+
+/// The donkey or mule of the player named `name` carrying a chest that `ray` meets first, within
+/// `PACK_REACH` and before `block`.
+fn aimed_pack<'a>(
+    ray: Ray3d,
+    block: Option<Aabb3d>,
+    name: &str,
+    mobs: impl Iterator<Item = (&'a Mob, &'a Transform)>,
+) -> Option<shared::world::MobId> {
+    let direction = ray.direction.as_vec3();
+    let distance = |hitbox: &Aabb3d| {
+        aabb_ray_hit(hitbox, &ray.origin, &direction, &direction.recip())
+            .map(|(hit, _)| hit.distance(ray.origin))
+    };
+    let block = block.as_ref().and_then(distance).unwrap_or(f32::INFINITY);
+    mobs.filter_map(|(mob, at)| {
+        let hit = distance(&Aabb3d::new(at.translation, mob.kind.size() * mob.scale / 2.0))?;
+        Some((mob, hit))
+    })
+    .filter(|&(_, hit)| hit <= PACK_REACH && hit < block)
+    .min_by(|a, b| a.1.total_cmp(&b.1))
+    .map(|(mob, _)| mob)
+    .filter(|mob| mob.chested && mob.owner.as_deref() == Some(name))
+    .map(|mob| mob.id)
 }
 
 /// Whether `ray` meets the box of `size` centred on `centre` before `block`.

@@ -29,6 +29,10 @@ pub struct ChunkMap {
     portals: Portals,
     /// How deep the world goes, which sets its depth tiers (`depths::DepthTier::of`).
     underground: Underground,
+    /// What the chests on the backs of donkeys and mules hold, by mob (`ServerMob::pack`),
+    /// while a player has one open: the server lends them here while it simulates the inputs
+    /// of their player, a client keeps that of the pack its player has open.
+    pub packs: HashMap<crate::world::MobId, Container>,
 }
 
 /// What blocks of one kind hold, by position, like the contents of the chests, and the

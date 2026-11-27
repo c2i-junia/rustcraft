@@ -83,6 +83,7 @@ pub(super) fn walk_speed(kind: MobKind) -> f32 {
         MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => 1.5,
         MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 1.6,
         MobKind::Horse => 1.5,
+        MobKind::Donkey | MobKind::Mule => 1.3,
         MobKind::Goat => 1.2,
         MobKind::Sheep | MobKind::Cow | MobKind::Pig | MobKind::Chicken => 1.0,
     }
@@ -108,6 +109,7 @@ fn flee_speed(kind: MobKind) -> f32 {
         // Never struck
         MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => 3.0,
         MobKind::Horse => 6.0,
+        MobKind::Donkey | MobKind::Mule => 5.0,
         MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 4.0,
         MobKind::Goat => 3.0,
         MobKind::Sheep | MobKind::Cow | MobKind::Pig | MobKind::Chicken => 2.0,
@@ -136,6 +138,8 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time
         ..
     } = world_map.as_mut();
     super::swim::school(mobs, &mut rand::thread_rng());
+    super::companions::guard(mobs, players);
+    let mut pack = super::companions::Pack::survey(mobs);
     let doors = step_mobs(
         mobs,
         chunks,
@@ -144,7 +148,11 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time
         *difficulty,
         delta,
         &mut rand::thread_rng(),
+        &mut pack,
     );
+    let rng = &mut rand::thread_rng();
+    super::companions::apply_bites(pack.bites, mobs, changed_mobs, players, dropped_items, rng);
+    super::companions::bear_mount_blows(players, mobs, changed_mobs, dropped_items, rng);
     super::path::open_doors(chunks, &doors);
     let births = super::breeding::breed(
         mobs,
@@ -183,6 +191,7 @@ fn step_mobs(
     difficulty: Difficulty,
     delta: f32,
     rng: &mut impl Rng,
+    pack: &mut super::companions::Pack,
 ) -> Vec<IVec3> {
     let mut thrown = Vec::new();
     let mut pathing = Pathing::default();
@@ -196,9 +205,9 @@ fn step_mobs(
         if super::riding::is_driven(mob) {
             continue;
         }
-        // A horse of a save from before the coats is given its own
-        if mob.kind == MobKind::Horse && mob.horse.is_none() {
-            mob.horse = Some(shared::world::HorseTraits::roll(rng));
+        // A steed of a save from before the coats is given its own
+        if mob.kind.is_steed() && mob.horse.is_none() {
+            mob.horse = Some(shared::world::HorseTraits::of_kind(mob.kind, rng));
             changed.insert(*id);
         }
         // A mob whose position is not a number cannot be simulated: it stays as it is
@@ -213,13 +222,13 @@ fn step_mobs(
         mob.attack_wait = mob.attack_wait.saturating_sub(1);
         let before = (mob.position, mob.rotation, mob.action);
         thrown.extend(step_mob(
-            mob,
+            (*id, mob),
             chunks,
             players,
             difficulty,
             delta,
             rng,
-            &mut pathing,
+            (&mut pathing, &mut *pack),
         ));
         if before != (mob.position, mob.rotation, mob.action) {
             changed.insert(*id);
@@ -236,13 +245,13 @@ fn step_mobs(
 /// it does. A mob flung (`is_flung`) flies instead of doing anything, until it lands, which
 /// stops it. Returns what it threw.
 fn step_mob(
-    mob: &mut ServerMob,
+    (id, mob): (MobId, &mut ServerMob),
     chunks: &ChunkMap,
     players: &mut HashMap<PlayerId, Player>,
     difficulty: Difficulty,
     delta: f32,
     rng: &mut impl Rng,
-    pathing: &mut Pathing,
+    (pathing, pack): (&mut Pathing, &mut super::companions::Pack),
 ) -> Option<ServerMob> {
     let start = mob.position;
     mob.portal_rest = chunks.portals().still_resting(mob.position, passer(mob));
@@ -267,7 +276,7 @@ fn step_mob(
             return None;
         }
     }
-    let thrown = act(mob, chunks, players, difficulty, delta, rng, pathing);
+    let thrown = act((id, mob), chunks, players, difficulty, delta, rng, (pathing, pack));
     pass_through_portal(mob, chunks, start);
     thrown
 }
@@ -364,16 +373,17 @@ fn pass_through_portal(mob: &mut ServerMob, chunks: &ChunkMap, from: Vec3) -> bo
 /// What the mob's action asks of it this step: a hostile hunts (`hostile::act`), and returns
 /// what it threw; a villager goes about its day (`villager::act`).
 fn act(
-    mob: &mut ServerMob,
+    (id, mob): (MobId, &mut ServerMob),
     chunks: &ChunkMap,
     players: &mut HashMap<PlayerId, Player>,
     difficulty: Difficulty,
     delta: f32,
     rng: &mut impl Rng,
-    pathing: &mut Pathing,
+    (pathing, pack): (&mut Pathing, &mut super::companions::Pack),
 ) -> Option<ServerMob> {
     if mob.kind.is_hostile() {
-        return super::hostile::act(mob, chunks, players, difficulty, delta, rng, pathing);
+        let cats = &pack.cats;
+        return super::hostile::act(mob, chunks, players, difficulty, delta, rng, pathing, cats);
     }
     if mob.kind.is_villager() {
         super::villager::act(mob, chunks, players, delta, rng);
@@ -387,19 +397,36 @@ fn act(
         super::swim::act(mob, chunks, players, delta, rng);
         return None;
     }
-    wander_or_flee(mob, chunks, players, delta, rng);
+    // A tamed wolf or cat told to sit stays where it is
+    if mob.sitting && mob.kind.sits() && mob.owner.is_some() {
+        (mob.action, mob.target) = (MobAction::Idle, MobTarget::None);
+        mob.velocity.x = 0.0;
+        mob.velocity.z = 0.0;
+        return None;
+    }
+    if super::leash::pull(mob, players, chunks, pathing, delta) {
+        return None;
+    }
+    if mob.kind == MobKind::Wolf {
+        let owner = super::breeding::owner_of(players, mob).map(|owner| owner.position);
+        if super::companions::hunt(mob, id, owner, pack, chunks, pathing, delta) {
+            return None;
+        }
+    }
+    wander_or_flee(mob, chunks, players, delta, rng, pathing);
     None
 }
 
-/// What an animal does: it wanders, or flees.
+/// What an animal does: it follows its owner, wanders, or flees.
 fn wander_or_flee(
     mob: &mut ServerMob,
     chunks: &ChunkMap,
     players: &HashMap<PlayerId, Player>,
     delta: f32,
     rng: &mut impl Rng,
+    pathing: &mut Pathing,
 ) {
-    if follow_owner(mob, chunks, players, delta, rng) {
+    if follow_owner(mob, chunks, players, delta, rng, pathing) {
         return;
     }
     if is_shy(mob.kind) && mob.action != MobAction::Flee {
@@ -437,18 +464,20 @@ fn wander_or_flee(
 }
 
 /// What a tamed animal does to keep up with its owner, when it is there: farther than
-/// `FOLLOW_START`, it runs to it until `FOLLOW_STOP` away; farther than `FOLLOW_TELEPORT`, from
-/// an owner standing on the ground, it is brought to its feet. One that flees or goes to a
-/// mate does not follow. Returns whether it followed, which is all it did this step.
+/// `FOLLOW_START`, it runs to it along the way it finds (`hostile::chase_to`) until
+/// `FOLLOW_STOP` away; farther than `FOLLOW_TELEPORT`, from an owner standing on the ground in
+/// loaded terrain, it is brought next to it (`beside`). One that flees, goes to a mate, sits or
+/// is led does not follow. Returns whether it followed, which is all it did this step.
 fn follow_owner(
     mob: &mut ServerMob,
     chunks: &ChunkMap,
     players: &HashMap<PlayerId, Player>,
     delta: f32,
     rng: &mut impl Rng,
+    pathing: &mut Pathing,
 ) -> bool {
     // A horse waits where it was left
-    if !mob.kind.follows_owner() {
+    if !mob.kind.follows_owner() || mob.sitting || mob.leash.is_some() {
         return false;
     }
     let Some(owner) = super::breeding::owner_of(players, mob) else {
@@ -458,9 +487,10 @@ fn follow_owner(
         return false;
     }
     let distance = mob.position.distance(owner.position);
-    if distance > FOLLOW_TELEPORT && owner.on_ground {
+    if distance > FOLLOW_TELEPORT && owner.on_ground && is_terrain_loaded(owner.position, chunks)
+    {
         let feet = owner.position - Vec3::Y * (owner.height / 2.0);
-        mob.position = feet + Vec3::Y * (mob.height / 2.0);
+        mob.position = beside(mob, chunks, feet).unwrap_or(feet + Vec3::Y * (mob.height / 2.0));
         mob.velocity = Vec3::ZERO;
         // The clients show it there at once, as through a portal
         mob.passes = mob.passes.wrapping_add(1);
@@ -473,14 +503,8 @@ fn follow_owner(
         mob.action = MobAction::Walk;
         mob.target = MobTarget::Player(owner.id);
         mob.action_ticks = WALK_TICKS;
-        let towards = (owner.position - mob.position).with_y(0.0);
-        walk(
-            mob,
-            chunks,
-            towards.normalize_or_zero(),
-            flee_speed(mob.kind),
-            delta,
-        );
+        let goal = (owner.position, owner.height);
+        super::hostile::chase_to(mob, chunks, goal, flee_speed(mob.kind), delta, pathing);
         return true;
     }
     if following {
@@ -488,6 +512,20 @@ fn follow_owner(
         return true;
     }
     false
+}
+
+/// Where `mob` stands next to an owner whose feet are at `feet`: the first of the cells around
+/// them with ground under it and room for the mob.
+fn beside(mob: &ServerMob, chunks: &ChunkMap, feet: Vec3) -> Option<Vec3> {
+    let cell = feet.floor().as_ivec3();
+    [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)]
+        .into_iter()
+        .filter_map(|(x, z)| {
+            let (x, z) = (cell.x + x, cell.z + z);
+            let ground = ground_under(chunks, x as f32 + 0.5, z as f32 + 0.5, cell.y)?;
+            Some(Vec3::new(x as f32 + 0.5, ground + mob.height / 2.0, z as f32 + 0.5))
+        })
+        .find(|&spot| !collides_at(mob, chunks, spot))
 }
 
 /// What a mob that rests or walks somewhere does: afloat, it swims ashore (`swim_ashore`); it rests until its time is up, walks to a
@@ -1122,6 +1160,11 @@ mod tests {
     fn a_tamed_wolf_left_far_behind_is_brought_to_its_owner_and_a_wild_one_is_not() {
         for (owner, expected) in [(Some("Ann"), true), (None, false)] {
             let mut map = ground_world(false);
+            // The owner stands in loaded terrain, which a wolf is brought to only
+            for y in [1, 2] {
+                map.chunks
+                    .insert_chunk(IVec3::new(0, y, 0), shared::world::Chunk::new());
+            }
             let feet = Vec3::new(0.5, 40.0, 0.5);
             map.players.insert(5, owner_at(feet));
             let wolf = ServerMob {
@@ -1239,6 +1282,7 @@ mod tests {
                 Difficulty::Normal,
                 delta,
                 &mut rng,
+                &mut Default::default(),
             );
         };
 
@@ -1286,6 +1330,7 @@ mod tests {
             Difficulty::Normal,
             delta,
             &mut rng,
+            &mut Default::default(),
         );
         assert!(changed.is_empty());
     }
@@ -1324,6 +1369,7 @@ mod tests {
                 Difficulty::Normal,
                 tick().as_secs_f32(),
                 &mut rng,
+                &mut Default::default(),
             );
         }
     }
@@ -1474,6 +1520,7 @@ mod tests {
                 Difficulty::Normal,
                 delta,
                 &mut rng,
+                &mut Default::default(),
             );
             if map.mobs[&0].passes != before.passes {
                 return before;
@@ -1533,6 +1580,7 @@ mod tests {
                 Difficulty::Normal,
                 tick().as_secs_f32(),
                 &mut StdRng::seed_from_u64(2),
+                &mut Default::default(),
             );
             if map.mobs[&0].action != MobAction::Walk {
                 break;

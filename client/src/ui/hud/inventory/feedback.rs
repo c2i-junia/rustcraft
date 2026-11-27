@@ -37,6 +37,7 @@ pub fn refused_targets(action: InventoryAction) -> Vec<RefusedTarget> {
         InventoryAction::Close
         | InventoryAction::OpenCraftingTable(_)
         | InventoryAction::OpenChest(_)
+        | InventoryAction::OpenPack(_)
         | InventoryAction::OpenFurnace(_)
         | InventoryAction::OpenEngravingTable(_)
         | InventoryAction::Enchant(_)

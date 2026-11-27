@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use bevy::prelude::*;
 use shared::constants::TICKS_PER_SECOND;
-use shared::world::{Coat, MobAction, MobId, MobKind, ServerMob, GROW_TICKS};
+use shared::world::{Coat, ItemId, Leash, MobAction, MobId, MobKind, ServerMob, GROW_TICKS};
 
 /// A young mob first seen this few ticks into its growth was just born, not come into sight.
 const BORN_TICKS: u32 = 2 * TICKS_PER_SECOND as u32;
@@ -88,6 +88,18 @@ pub struct Mob {
     parries: u8,
     /// The name of the player whose rod a float hangs from: its line is drawn to it.
     pub angler: Option<String>,
+    /// The id of the mob, which a chest on its back is opened by.
+    pub id: MobId,
+    /// The name of the player who tamed the animal.
+    pub owner: Option<String>,
+    /// Whether a tamed wolf or cat sits (`sitting_pose`).
+    pub sitting: bool,
+    /// The horse armour a horse wears (`show_gear`).
+    pub horse_armour: Option<ItemId>,
+    /// Whether a donkey or a mule carries a chest (`show_gear`).
+    pub chested: bool,
+    /// What the lead of the mob is tied to: it is drawn (`draw_leads`).
+    pub leash: Option<Leash>,
 }
 
 /// The model of a mob, a child of its entity, scaled with the mob.
@@ -104,15 +116,31 @@ fn scale_of(server: &ServerMob) -> f32 {
 }
 
 /// The transform of the model of a mob of `kind` drawn at `scale`: standing on the bottom of
-/// its hitbox.
-fn model_transform(kind: MobKind, scale: f32) -> Transform {
-    Transform::from_xyz(0.0, -(kind.size().y / 2.0 + model_lift(kind)) * scale, 0.0)
-        .with_scale(Vec3::splat(scale))
+/// its hitbox; one that sits leans back on its hind legs, its rump lowered.
+fn model_transform(kind: MobKind, scale: f32, sitting: bool) -> Transform {
+    let standing = Transform::from_xyz(0.0, -(kind.size().y / 2.0 + model_lift(kind)) * scale, 0.0)
+        .with_scale(Vec3::splat(scale));
+    if !sitting {
+        return standing;
+    }
+    // The model faces -Z: raising its front turns it about +X, pivoting on its hind feet
+    let size = kind.size() * scale;
+    let hind = Vec3::new(0.0, standing.translation.y, size.z * 0.35);
+    let tilt = Quat::from_rotation_x(SIT_TILT);
+    let lowered = Vec3::Y * (size.y * 0.18);
+    Transform {
+        translation: hind + tilt * (standing.translation - hind) - lowered,
+        rotation: tilt,
+        scale: standing.scale,
+    }
 }
+
+/// How far a sitting wolf or cat leans back, in radians.
+const SIT_TILT: f32 = 0.45;
 
 impl Mob {
     /// A mob first seen as `server` says it is, which is no hurt.
-    pub fn of(server: &ServerMob) -> Self {
+    pub fn of(id: MobId, server: &ServerMob) -> Self {
         Self {
             kind: server.kind,
             action: server.action,
@@ -133,6 +161,12 @@ impl Mob {
                 .owner
                 .clone()
                 .filter(|_| server.kind == MobKind::Bobber),
+            id,
+            owner: server.owner.clone(),
+            sitting: server.sitting,
+            horse_armour: server.horse_armour,
+            chested: server.pack.is_some(),
+            leash: server.leash.clone(),
         }
     }
 
@@ -204,7 +238,7 @@ pub fn apply_mob_updates(
         if server.kind == MobKind::Bobber {
             sounds.write(PlaySound::at(Sound::FishingCast, server.position));
         }
-        let entity = spawn_mob(&mut commands, &server, &asset_server);
+        let entity = spawn_mob(&mut commands, id, &server, &asset_server);
         entities.0.insert(id, entity);
     }
 }
@@ -225,6 +259,11 @@ fn take_update(mob: &mut Mob, transform: &mut Transform, server: &ServerMob) -> 
     mob.in_love = server.in_love > 0;
     mob.tamed = server.owner.is_some() && server.kind.is_animal();
     mob.saddled = server.saddled;
+    mob.owner.clone_from(&server.owner);
+    mob.sitting = server.sitting;
+    mob.horse_armour = server.horse_armour;
+    mob.chested = server.pack.is_some();
+    mob.leash.clone_from(&server.leash);
     mob.max_health = server.max_health();
     mob.position = server.position;
     mob.rotation = server.rotation;
@@ -238,20 +277,25 @@ fn take_update(mob: &mut Mob, transform: &mut Transform, server: &ServerMob) -> 
 
 /// The entity of a mob: its position is the middle of its hitbox, its model stands on the
 /// bottom of it.
-fn spawn_mob(commands: &mut Commands, server: &ServerMob, asset_server: &AssetServer) -> Entity {
+fn spawn_mob(
+    commands: &mut Commands,
+    id: MobId,
+    server: &ServerMob,
+    asset_server: &AssetServer,
+) -> Entity {
     let path = scene_path(server.kind, server.horse.map(|traits| traits.coat));
     let scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset(path));
     commands
         .spawn((
             MobRoot,
-            Mob::of(server),
+            Mob::of(id, server),
             Transform::from_translation(server.position).with_rotation(server.rotation),
             Visibility::default(),
             DespawnOnExit(GameState::Game),
             children![(
                 WorldAssetRoot(scene),
                 MobModel,
-                model_transform(server.kind, scale_of(server)),
+                model_transform(server.kind, scale_of(server), server.sitting),
             )],
         ))
         .id()
@@ -265,8 +309,9 @@ pub fn scale_mob_models(
     for (mob, children) in &mobs {
         for &child in children {
             if let Ok(mut transform) = models.get_mut(child) {
-                if transform.scale.x != mob.scale {
-                    *transform = model_transform(mob.kind, mob.scale);
+                let wanted = model_transform(mob.kind, mob.scale, mob.sitting);
+                if *transform != wanted {
+                    *transform = wanted;
                 }
             }
         }
@@ -356,27 +401,48 @@ pub fn play_mob_clips(
     }
 }
 
-/// Shows the saddle of each horse that wears one, and hides that of the others: a part of the
-/// model of every horse (`scripts/generate_animals.py`).
+/// Whether the part `name` of the model of `mob` shows: the saddle of a saddled steed, the
+/// horse armour a horse wears, the chest a donkey or a mule carries; every other part always.
+/// They are parts of the models of the steeds (`scripts/generate_animals.py`).
+pub fn shows_part(mob: &Mob, name: &str) -> bool {
+    match name {
+        "saddle" => mob.saddled,
+        "chest" => mob.chested,
+        _ => match name.strip_prefix("armour_") {
+            Some(material) => mob.horse_armour.is_some_and(|armour| armour_part(armour) == material),
+            None => true,
+        },
+    }
+}
+
+/// The name of the part of the horse's model that shows `armour`, after `armour_`.
+fn armour_part(armour: ItemId) -> &'static str {
+    match armour {
+        ItemId::LeatherHorseArmour => "leather",
+        ItemId::IronHorseArmour => "iron",
+        ItemId::GoldHorseArmour => "gold",
+        _ => "diamond",
+    }
+}
+
+/// Shows the gear of each steed (`shows_part`) and hides the rest.
 pub fn show_saddles(
     mobs: Query<(Entity, &Mob)>,
     children: Query<&Children>,
     mut parts: Query<(&Name, &mut Visibility), Without<Mob>>,
 ) {
     for (entity, mob) in &mobs {
-        if mob.kind != MobKind::Horse {
+        if !mob.kind.is_steed() {
             continue;
         }
-        let wanted = if mob.saddled {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        };
         for descendant in children.iter_descendants(entity) {
             if let Ok((name, mut visibility)) = parts.get_mut(descendant) {
-                if name.as_str() == "saddle" {
-                    visibility.set_if_neq(wanted);
-                }
+                let wanted = if shows_part(mob, name.as_str()) {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                };
+                visibility.set_if_neq(wanted);
             }
         }
     }
@@ -416,7 +482,7 @@ mod tests {
     #[test]
     fn an_update_that_raises_the_damage_of_a_mob_is_a_hurt() {
         let mut server = ServerMob::new(MobKind::Pig, Vec3::ZERO);
-        let mut mob = Mob::of(&server);
+        let mut mob = Mob::of(0, &server);
         let mut transform = Transform::default();
         assert!(!take_update(&mut mob, &mut transform, &server));
         server.damage = 3;
@@ -424,7 +490,7 @@ mod tests {
         // The same damage told again, as a moving mob is, is no new hurt
         assert!(!take_update(&mut mob, &mut transform, &server));
         // A mob first seen hurt is not flashing
-        assert_eq!(Mob::of(&server).hurt_seconds, None);
+        assert_eq!(Mob::of(0, &server).hurt_seconds, None);
     }
 
     #[test]
@@ -447,6 +513,12 @@ mod tests {
             max_health: 8,
             parries: 0,
             angler: None,
+            id: 0,
+            owner: None,
+            sitting: false,
+            horse_armour: None,
+            chested: false,
+            leash: None,
         };
         let mut transform = Transform::from_translation(shown).with_rotation(mob.rotation);
         let mut server = ServerMob {

@@ -913,6 +913,42 @@ when the horse is saddled (`ServerMob::saddled`, which a saddle item sets). The 
 `MobKind::Boat` (`is_vehicle`: no behaviour, no voice, it floats), put down from `ItemId::Boat` as a
 spawn egg aimed like a bucket, on the water, and dropping its item when broken.
 
+### Companions and steeds
+
+`server/src/mob/companions.rs` keeps the tamed animals beside their owners. A right click of its
+owner sits a wolf or a cat, or stands it up (`toggle_sit`, `ServerMob::sitting`, saved and sent: the
+client tilts the model back, `model_transform`). A follower runs to its owner along the way the
+hostiles' path finder gives (`hostile::chase_to`, the budget of the tick shared), and is brought next
+to it (`behavior::beside`) beyond `FOLLOW_TELEPORT` when the owner stands in loaded terrain. A wolf
+hunts (`ServerMob::prey`, neither saved nor sent) what its owner struck (`rally`, from
+`combat::interact`) and the hostiles that go at its owner (`guard`), never a player nor a tamed
+animal (`may_hunt`); `mob_behavior_system` surveys the mobs first (`Pack`: the tamed cats, the box
+of each mob), the wolves run at their prey (`hunt`) and bite in reach, and the bites land once every
+mob moved (`apply_bites`): `WOLF_BITE` points, an animal flees, a hostile that strikes in reach
+strikes back. A tamed wolf heals by eating meat (`breeding::feed`). The Gnawer and the Gust Owl
+(`fears_cats`) keep `CAT_FEAR_DISTANCE` from a tamed cat (`hostile::shun_cats`). The steeds
+(`MobKind::is_steed`: the horse, the donkey and the mule) are ridden alike (`Riding::steed`); the
+blows of the hostiles at a rider fall half on its steed (`Player::mount_blows`,
+`bear_mount_blows`), lessened by its horse armour (`ItemId::horse_armour`, `armoured_damage`: 4 % a
+point), as are the blows of the players and the wolves (`take_blow`). The models of the steeds have
+`saddle`, `armour_<material>` and `chest` parts, shown from the mob (`shows_part`).
+
+A horse and a donkey have a mule (`breeding::young_kind`), which does not breed. A chest put on a
+tamed donkey or mule (`ServerMob::pack`, a `Container`, saved and sent) is opened sneaking with a
+right click (`InventoryAction::OpenPack`, `Inventory::open_pack`): `server/src/mob/pack.rs` lends it
+to `ChunkMap::packs` while the server simulates the inputs of its owner within `PACK_REACH`, which
+the inventory uses as an open chest, and takes it back after; the update of the player carries it
+in `open_chest`, and the client keeps it in its own `ChunkMap::packs`. What it holds drops where the
+mob dies.
+
+`server/src/mob/leash.rs` handles the leads (`ServerMob::leash`, `Leash::Player` by name or
+`Leash::Post` by cell, saved and sent). `combat::interact` ties an animal to the hand with a lead
+and takes the lead back; `tie_to_post`, after it, ties the animals a player leads to the fence post
+it right-clicks. An animal farther than `LEASH_SLACK` from what holds its lead walks back to it
+(`pull`, before anything else it does), and `leash_system` drops the lead of one pulled beyond
+`LEASH_BREAK`, of a player gone, or whose post was broken. The client draws the leads
+(`mob/leads.rs`).
+
 ### Fishing, cooking and the farm
 
 `world/fishing.rs` (shared) holds the rules of fishing: the waits, the bite, the line, and what a

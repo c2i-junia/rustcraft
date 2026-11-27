@@ -213,6 +213,7 @@ pub fn register_systems(app: &mut App) {
             (
                 crate::mob::villager::villager_day_system,
                 mob_behavior_system,
+                crate::mob::leash::leash_system,
                 crate::mob::cinder::cinder_system,
                 crate::mob::arrow::arrow_system,
                 crate::mob::fishing::fishing_system,

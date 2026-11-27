@@ -79,10 +79,16 @@ pub struct Riding {
 impl Riding {
     /// The ride of the horse `mob`, born with `traits`, facing `heading`.
     pub fn horse(mob: MobId, traits: &HorseTraits, heading: f32) -> Self {
+        Self::steed(mob, MobKind::Horse, traits, heading)
+    }
+
+    /// The ride of the steed `mob` of `kind` (a horse, a donkey or a mule), born with
+    /// `traits`, facing `heading`.
+    pub fn steed(mob: MobId, kind: MobKind, traits: &HorseTraits, heading: f32) -> Self {
         let endurance_ms = (traits.endurance * 1000.0) as u32;
         Self {
             mob,
-            kind: MobKind::Horse,
+            kind,
             seat: 0,
             heading,
             speed: traits.speed,
@@ -141,6 +147,8 @@ pub fn forward(heading: f32) -> Vec3 {
 pub fn seat_offset(kind: MobKind, seat: u8, heading: f32) -> Vec3 {
     let hips = match kind {
         MobKind::Horse => 1.31,
+        MobKind::Donkey => 1.06,
+        MobKind::Mule => 1.19,
         MobKind::Boat => 0.25,
         _ => kind.size().y,
     };
@@ -223,7 +231,7 @@ pub fn simulate_riding(
     let half = riding.kind.size() / 2.0;
     let mut centre = player.position - riding.seat_offset();
     let mut velocity = player.velocity;
-    let horse = riding.kind == MobKind::Horse;
+    let horse = riding.kind.is_steed();
 
     // Where the rider looks steers the mount
     let horizontal = |v: Vec3| v.with_y(0.0).normalize_or_zero();

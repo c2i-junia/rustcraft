@@ -19,7 +19,7 @@ use crate::ui::widgets::slot::ActionRefused;
 /// once the grid is back in the inventory, as `FillCraftingGrid` plans it (`plan_grid_fill`),
 /// and no other block takes the place of the grid in the panel.
 pub fn fills_now(inventory: &Inventory, recipe: &RecipeView, grid_size: u32) -> bool {
-    inventory.open_chest.is_none()
+    !inventory.has_chest_open()
         && inventory.open_furnace.is_none()
         && inventory.open_engraver.is_none()
         && inventory.open_anvil.is_none()
