@@ -71,4 +71,12 @@
 	td {
 		padding-block: 4px;
 	}
+	.who :global(.slot) {
+		width: 60px;
+		height: 60px;
+	}
+	.who :global(.icon) {
+		width: 52px;
+		height: 52px;
+	}
 </style>

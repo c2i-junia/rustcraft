@@ -62,7 +62,7 @@ export function load({ params }) {
 		distillSeconds: game.distillSeconds,
 		breakSeconds: block?.breakTime != null ? block.breakTime * 0.05 : null,
 		bestTools: block ? bestTools(block.fasterWith, block.requiredTool) : []
-	});
+	}, ['Furnace', 'Alembic', 'Anvil', 'EngravingTable', 'FishingRod']);
 }
 
 /// The tools of each tier that break the block faster, and how long each takes.

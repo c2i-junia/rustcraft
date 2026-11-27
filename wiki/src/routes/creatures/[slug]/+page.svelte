@@ -10,6 +10,15 @@
 	let mob = $derived(data.mob);
 	let facts = $derived(data.facts);
 	let name = $derived(mob.name.en ?? mob.id);
+	// The coats of `shared/src/world/mobs.rs` (`Coat::base`) and the model of each
+	const COATS = [
+		{ name: 'Bay', model: 'Horse', speed: 8.5, endurance: 8 },
+		{ name: 'Chestnut', model: 'HorseChestnut', speed: 9.5, endurance: 6.5 },
+		{ name: 'Black', model: 'HorseBlack', speed: 10, endurance: 5 },
+		{ name: 'Grey', model: 'HorseGrey', speed: 8, endurance: 11 },
+		{ name: 'White', model: 'HorseWhite', speed: 9, endurance: 8.5 },
+		{ name: 'Dun', model: 'HorseDun', speed: 7.5, endurance: 13 }
+	];
 	let kind = $derived(
 		mob.boss ? 'Boss' : mob.hostile ? 'Hostile' : mob.villager ? 'Villager' : mob.aquatic ? 'Fish' : 'Animal'
 	);
@@ -23,7 +32,7 @@
 	{#snippet icon()}<Slot id="mob:{mob.id}" big link={false} />{/snippet}
 
 	<Infobox title={name}>
-		{#snippet picture()}<Slot id="mob:{mob.id}" big link={false} size={48} />{/snippet}
+		{#snippet picture()}<img class="portrait" src="/creatures/{mob.id}.png" alt="A {name.toLowerCase()}, as the game draws it" width="220" height="220" />{/snippet}
 		<dt>Kind</dt>
 		<dd>{kind}</dd>
 		<dt>Health</dt>
@@ -67,6 +76,24 @@
 		<p>{@html facts.behaviour}</p>
 	{/if}
 
+	{#if mob.id === 'Horse'}
+		<h2>Coats</h2>
+		<p>
+			Each coat has its own average speed and endurance at a gallop; a wild horse is born within 1 block a
+			second and 2 seconds of them. Its jump is drawn apart, from 1.3 to 3.2 blocks. See
+			<a href="/guides/animals">riding</a>.
+		</p>
+		<ul class="coats">
+			{#each COATS as c (c.name)}
+				<li>
+					<img src="/creatures/{c.model}.png" alt="A {c.name.toLowerCase()} horse" width="128" height="128" />
+					<strong>{c.name}</strong>
+					<span>{c.speed} blocks/s, {c.endurance} s</span>
+				</li>
+			{/each}
+		</ul>
+	{/if}
+
 	{#if mob.eats.length}
 		<h2>Food</h2>
 		<p>
@@ -87,7 +114,7 @@
 					<tr>
 						<td><ItemLink id={l.item} /></td>
 						<td class="n">{range(l.min, l.max)}</td>
-						<td class="n">{l.chance ? percent(l.chance) : (l.note ?? '100 %')}</td>
+						<td class="n">{l.chance ? percent(l.chance) : (l.note ?? (l.min === 0 ? 'Not always' : 'Always'))}</td>
 					</tr>
 				{/each}
 			</tbody>
@@ -124,3 +151,31 @@
 		<p>The stock comes back each sunrise. See <a href="/guides/trading">villagers and trade</a>.</p>
 	{/if}
 </Page>
+
+<style>
+	.portrait {
+		width: 220px;
+		height: 220px;
+		background: radial-gradient(circle at 50% 60%, rgb(255 240 220 / 0.08), transparent 65%);
+	}
+	.coats {
+		list-style: none;
+		padding: 0;
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+		gap: 10px;
+	}
+	.coats li {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		text-align: center;
+		padding: 8px;
+		background: var(--panel);
+		border: 2px solid var(--line);
+	}
+	.coats span {
+		font-size: 0.9rem;
+		color: var(--muted);
+	}
+</style>

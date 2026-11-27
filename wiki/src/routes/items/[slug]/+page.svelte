@@ -206,7 +206,7 @@
 					<tr>
 						<td><ItemLink id={s.mob} /></td>
 						<td class="n">{range(s.min, s.max)}</td>
-						<td class="n">{s.chance ? percent(s.chance) : (s.note ?? '100 %')}</td>
+						<td class="n">{s.chance ? percent(s.chance) : (s.note ?? (s.min === 0 ? 'Not always' : 'Always'))}</td>
 					</tr>
 				{/each}
 			</tbody>

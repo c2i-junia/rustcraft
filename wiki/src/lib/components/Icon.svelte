@@ -20,7 +20,7 @@
 {#if r?.picture}
 	<span class="icon picture" style:--s="{size}px" style:background-image="url({r.picture})" aria-hidden="true"></span>
 {:else if !r || !side}
-	<span class="icon missing" style:--s="{size}px" aria-hidden="true">?</span>
+	<span class="icon missing" style:--s="{size}px" aria-hidden="true" data-missing-ref="">?</span>
 {:else if r.cube}
 	<span class="icon cube" style:--s="{size}px" aria-hidden="true">
 		<span class="body">
