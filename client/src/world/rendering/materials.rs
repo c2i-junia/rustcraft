@@ -359,6 +359,10 @@ pub fn load_new_textures_system(
     mut blocks: ResMut<AtlasHandles<BlockId>>,
     mut items: ResMut<AtlasHandles<ItemId>>,
 ) {
+    if blocks.handles.is_empty() {
+        // Out of a game: `setup_materials` loads them all when one starts
+        return;
+    }
     let textures_path = textures_folder(&paths, &texture_path);
     let folder = textures_path.join("blocks/");
     let named = |handles: &[(Handle<Image>, String)], name: &str| {
@@ -1181,9 +1185,24 @@ mod tests {
             };
             (names(blocks), names(items))
         };
+        // out of a game, nothing is loaded
         world.run_system_once(load_new_textures_system).unwrap();
-        assert_eq!(names(world), (vec!["Stone".into()], vec!["Stone".into()]));
-        world.remove_resource::<TexturesToRebuild>().unwrap();
+        assert_eq!(names(world), (vec![], vec![]));
+        assert!(!world.contains_resource::<TexturesToRebuild>());
+        // as a game starts
+        let stone = world.resource::<AssetServer>().load(
+            pack.path()
+                .join("textures/blocks/Stone.png")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        let named = (stone, "Stone".to_string());
+        let mut blocks = world.resource_mut::<AtlasHandles<BlockId>>();
+        blocks.handles.push(named.clone());
+        world
+            .resource_mut::<AtlasHandles<ItemId>>()
+            .handles
+            .push(named);
 
         // nothing new: nothing to build
         world.run_system_once(load_new_textures_system).unwrap();
