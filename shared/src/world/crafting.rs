@@ -252,6 +252,8 @@ pub fn recipes() -> impl Iterator<Item = RecipeView> {
         .recipes
         .iter()
         .enumerate()
+        // a recipe a server sent with no width, or cells that do not fill rows, is not listed
+        .filter(|(_, recipe)| recipe.width > 0 && recipe.cells.len() % recipe.width == 0)
         .map(|(index, recipe)| RecipeView {
             index: index as u16,
             width: recipe.width,
