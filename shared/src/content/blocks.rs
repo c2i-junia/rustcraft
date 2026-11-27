@@ -43,10 +43,33 @@ pub struct BlockProps {
     pub look: Look,
 }
 
+impl BlockProps {
+    /// What a block is that a world holds but the content no longer defines, made from the
+    /// properties of `BlockId::Debug`, `debug`: it looks like it, breaks as it does, and drops
+    /// nothing. Its name is kept, so that the world saves it back as it was.
+    pub fn placeholder(debug: &BlockProps) -> Self {
+        Self {
+            drops: Vec::new(),
+            ..debug.clone()
+        }
+    }
+}
+
 impl BlockId {
     /// Every block of the content of the process, by number: those of the engine first.
     pub fn all() -> impl Iterator<Item = BlockId> {
         (0..content().blocks.len()).map(|index| BlockId::from_index(index as u16))
+    }
+
+    /// The block named `name` in the content of the process, as the files name it: `oak_log`.
+    pub fn from_name(name: &str) -> Option<BlockId> {
+        content().block_named(name)
+    }
+
+    /// The name of the block in the content of the process, as the files name it: `oak_log`.
+    /// `None` for a number the content does not define.
+    pub fn name(self) -> Option<&'static str> {
+        content().block_names.get(self.index()).map(String::as_str)
     }
 
     /// The properties of the block in the content of the process.

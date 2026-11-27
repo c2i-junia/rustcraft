@@ -33,6 +33,12 @@ pub struct Content {
     /// Which install of the process this is: 0 for the content the process starts with, one
     /// more at each `install`. What the caches built from the content watch.
     pub generation: u32,
+    /// The name of each block, by `BlockId::index`, as the files and the commands name it:
+    /// `oak_log`. What a world saves its blocks as (`docs/design/content-registry.md`, 3).
+    pub block_names: Vec<String>,
+    /// The Rust name of each block, by `BlockId::index`, which names its textures and which RON
+    /// writes it as: `OakLog`.
+    pub block_idents: Vec<String>,
     /// By `BlockId::index`: the blocks of `BlockId::ENGINE` first, in their order.
     pub blocks: Vec<BlockProps>,
     /// By `ItemId`, in the order of `ItemId::ALL`.
@@ -47,6 +53,14 @@ impl Content {
         self.blocks
             .get(id.index())
             .unwrap_or(&self.blocks[BlockId::Debug.index()])
+    }
+
+    /// The block named `name`, as the files name it.
+    pub fn block_named(&self, name: &str) -> Option<BlockId> {
+        self.block_names
+            .iter()
+            .position(|known| known == name)
+            .map(|index| BlockId::from_index(index as u16))
     }
 
     /// The properties of the item `id`.
@@ -129,17 +143,19 @@ pub fn files_folder(folder: &Path) -> Option<PathBuf> {
 
 /// Starts the process on the content files of `files_folder(folder)`, what a game does before
 /// anything reads its content, and returns that folder. If the process already has content,
-/// the content of the files is installed over it, unless it is the same.
+/// the content of the files is installed over it, numbered as it, unless it is the same.
 pub fn start(folder: &Path) -> Result<PathBuf, ContentError> {
     let folder = files_folder(folder).ok_or_else(|| ContentError {
         file: folder.to_path_buf(),
         reason: "no such folder of content files".to_string(),
     })?;
-    let loaded = Content::load(&folder)?;
     if CONTENT.load(Ordering::Acquire).is_null() {
-        start_with(loaded);
-    } else if !loaded.same_properties(content()) {
-        install(loaded);
+        start_with(Content::load(&folder)?);
+    } else {
+        let loaded = Content::reload(&folder, content())?;
+        if !loaded.same_properties(content()) {
+            install(loaded);
+        }
     }
     Ok(folder)
 }

@@ -33,6 +33,21 @@ pub fn snake_case(pascal: &str) -> String {
     name
 }
 
+/// The PascalCase of a snake case name, the inverse of `snake_case`: `oak_log` is `OakLog`.
+pub fn pascal_case(snake: &str) -> String {
+    snake
+        .split('_')
+        .flat_map(|word| {
+            let mut chars = word.chars();
+            chars
+                .next()
+                .map(|first| first.to_ascii_uppercase())
+                .into_iter()
+                .chain(chars)
+        })
+        .collect()
+}
+
 /// Milliseconds since the Unix epoch, 0 if the system clock is set before it.
 pub fn unix_time_ms() -> u64 {
     SystemTime::now()

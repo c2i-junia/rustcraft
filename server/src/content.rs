@@ -59,7 +59,7 @@ impl ContentFiles {
             );
             return None;
         };
-        match Content::load(&folder) {
+        match Content::reload(&folder, content()) {
             Ok(new) => {
                 if install_if_new(new) {
                     info!("Content files of {} installed", folder.display());
@@ -174,7 +174,7 @@ pub fn reload_content_system(
     if !files.take_due(Instant::now()) {
         return;
     }
-    let answer = match Content::load(&files.folder) {
+    let answer = match Content::reload(&files.folder, content()) {
         Ok(new) => {
             if install_if_new(new) {
                 info!("Content files reloaded");

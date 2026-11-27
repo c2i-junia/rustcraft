@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 use super::{palette::Form, GameElementId, ItemId, Tool, ToolKind};
-use crate::content::{Behaviour, BlockFlags};
+use crate::content::{content, Behaviour, BlockFlags};
 use bevy::math::{bounding::Aabb3d, IVec3, Vec3A};
 use rand::Rng;
 use serde::de::{self, EnumAccess, VariantAccess, Visitor};
@@ -512,23 +512,34 @@ impl BlockId {
         Self(index)
     }
 
-    /// The Rust name of the block, as the constant of an engine block spells it, `None` for a
-    /// number the engine does not name.
+    /// The Rust name of the block, as the constant of an engine block spells it: `OakLog`.
+    /// `None` for a number the content of the process does not define.
     fn ident(self) -> Option<&'static str> {
-        Self::ENGINE_IDENTS.get(self.index()).copied()
+        Self::ENGINE_IDENTS
+            .get(self.index())
+            .copied()
+            .or_else(|| content().block_idents.get(self.index()).map(String::as_str))
     }
 
-    /// The block of the Rust name `ident`.
+    /// The block of the Rust name `ident`, in the content of the process.
     fn of_ident(ident: &str) -> Option<Self> {
+        let place = |index: usize| Self(index as u16);
         Self::ENGINE_IDENTS
             .iter()
             .position(|known| *known == ident)
-            .map(|index| Self(index as u16))
+            .map(place)
             .or_else(|| {
                 FORMER_IDENTS
                     .iter()
                     .find(|(former, _)| *former == ident)
                     .map(|(_, id)| *id)
+            })
+            .or_else(|| {
+                content()
+                    .block_idents
+                    .iter()
+                    .position(|known| known == ident)
+                    .map(place)
             })
     }
 }

@@ -36,7 +36,7 @@ use super::{
     tool_bit, Behaviour, BlockFlags, BlockProps, Content, ItemProps, Look, Shape, Sway, Tint,
 };
 use crate::players::effects::EffectKind;
-use crate::utils::snake_case;
+use crate::utils::{pascal_case, snake_case};
 use crate::world::{
     BlockHitbox, BlockId, BlockTransparency, Form, ItemCategory, ItemId, ItemType, MobKind,
     Palette, RequiredTool, Tool, ToolKind,
@@ -67,41 +67,88 @@ impl fmt::Display for ContentError {
 impl std::error::Error for ContentError {}
 
 impl Content {
-    /// The content the files of `folder` define, read in the order of their names. Every block
-    /// and every item must be defined. Nothing is installed: the caller decides.
+    /// The content the files of `folder` define, read in the order of their names, the blocks
+    /// numbered as at the start of a process: those of the engine first (`BlockId::ENGINE`),
+    /// then the others in the order of their names. Every block of the engine and every item
+    /// must be defined. Nothing is installed: the caller decides.
     pub fn load(folder: &Path) -> Result<Content, ContentError> {
+        Self::load_numbered(folder, None)
+    }
+
+    /// The content the files of `folder` define, as `load` reads it, but numbered as `previous`
+    /// is, the content it is to replace in a process: a block keeps its number, a new block
+    /// takes the next one, and a block `previous` has that the files no longer define keeps
+    /// its number as a placeholder (`BlockProps::placeholder`).
+    pub fn reload(folder: &Path, previous: &Content) -> Result<Content, ContentError> {
+        Self::load_numbered(folder, Some(previous))
+    }
+
+    fn load_numbered(folder: &Path, previous: Option<&Content>) -> Result<Content, ContentError> {
         let in_folder = |reason: String| ContentError {
             file: folder.to_path_buf(),
             reason,
         };
-        let mut files = std::fs::read_dir(folder)
+        let mut paths = std::fs::read_dir(folder)
             .map_err(|err| in_folder(err.to_string()))?
             .filter_map(|entry| Some(entry.ok()?.path()))
             .filter(|path| path.extension().is_some_and(|ext| ext == "ron"))
             .collect::<Vec<_>>();
-        files.sort();
+        paths.sort();
+        let mut files = Vec::with_capacity(paths.len());
+        for path in paths {
+            let fail = |reason: String| ContentError {
+                file: path.clone(),
+                reason,
+            };
+            let text = std::fs::read_to_string(&path).map_err(|err| fail(err.to_string()))?;
+            let defs: ContentFile =
+                ron::de::from_str(&text).map_err(|err| fail(err.to_string()))?;
+            files.push((path, defs));
+        }
 
-        let names = Names::new();
-        let mut blocks: HashMap<BlockId, (BlockProps, &Path)> = HashMap::new();
+        // the numbers of the blocks, before any definition refers to one
+        let mut block_names: Vec<String> = match previous {
+            Some(previous) => previous.block_names.clone(),
+            None => BlockId::ENGINE.into_iter().map(engine_name).collect(),
+        };
+        let mut new_names = Vec::new();
+        for (path, defs) in &files {
+            for (name, _) in &defs.blocks.0 {
+                if block_names.contains(name) {
+                    continue;
+                }
+                if !is_block_name(name) {
+                    return Err(ContentError {
+                        file: path.clone(),
+                        reason: format!(
+                            "block \"{name}\": a name is words in lowercase joined by _, \
+                             as oak_log"
+                        ),
+                    });
+                }
+                new_names.push(name.clone());
+            }
+        }
+        new_names.sort();
+        new_names.dedup();
+        block_names.extend(new_names);
+        let names = Names::new(&block_names);
+
+        let (paths, files): (Vec<PathBuf>, Vec<ContentFile>) = files.into_iter().unzip();
+        let mut blocks: Vec<Option<(BlockProps, &Path)>> = vec![None; block_names.len()];
         let mut items: HashMap<ItemId, (ItemProps, &Path)> = HashMap::new();
-        for file in &files {
+        for (file, defs) in paths.iter().zip(files) {
             let fail = |reason: String| ContentError {
                 file: file.clone(),
                 reason,
             };
-            let text = std::fs::read_to_string(file).map_err(|err| fail(err.to_string()))?;
-            let defs: ContentFile =
-                ron::de::from_str(&text).map_err(|err| fail(err.to_string()))?;
             for (name, def) in defs.blocks.0 {
-                let id = *names
-                    .blocks
-                    .get(&name)
-                    .ok_or_else(|| fail(format!("no block is named \"{name}\"")))?;
+                let id = names.block("name", &name).map_err(&fail)?;
                 let props = def
                     .build(&name, &names)
                     .and_then(|props| check_block(&props).map(|()| props))
                     .map_err(|reason| fail(format!("block \"{name}\": {reason}")))?;
-                if let Some((_, other)) = blocks.insert(id, (props, file)) {
+                if let Some((_, other)) = blocks[id.index()].replace((props, file.as_path())) {
                     return Err(fail(format!(
                         "block \"{name}\" is also defined in {}",
                         other.display()
@@ -117,7 +164,7 @@ impl Content {
                     .build(&name, &names)
                     .and_then(|props| check_item(&props).map(|()| props))
                     .map_err(|reason| fail(format!("item \"{name}\": {reason}")))?;
-                if let Some((_, other)) = items.insert(id, (props, file)) {
+                if let Some((_, other)) = items.insert(id, (props, file.as_path())) {
                     return Err(fail(format!(
                         "item \"{name}\" is also defined in {}",
                         other.display()
@@ -126,20 +173,25 @@ impl Content {
             }
         }
 
+        for (name, block) in block_names.iter().zip(&blocks).take(BlockId::ENGINE.len()) {
+            if block.is_none() {
+                return Err(in_folder(format!("block \"{name}\" is defined in no file")));
+            }
+        }
+        let debug = blocks[BlockId::Debug.index()]
+            .as_ref()
+            .map(|(props, _)| BlockProps::placeholder(props))
+            .expect("an engine block");
         let mut content = Content {
             generation: 0,
-            blocks: Vec::with_capacity(BlockId::ENGINE.len()),
+            block_idents: block_names.iter().map(|name| pascal_case(name)).collect(),
+            block_names,
+            blocks: blocks
+                .into_iter()
+                .map(|block| block.map_or_else(|| debug.clone(), |(props, _)| props))
+                .collect(),
             items: Vec::with_capacity(ItemId::ALL.len()),
         };
-        for id in BlockId::ENGINE {
-            let (props, _) = blocks.remove(&id).ok_or_else(|| {
-                in_folder(format!(
-                    "block \"{}\" is defined in no file",
-                    block_name(id)
-                ))
-            })?;
-            content.blocks.push(props);
-        }
         for id in ItemId::ALL {
             let name = id.name();
             let props = match items.remove(&id) {
@@ -157,13 +209,18 @@ impl Content {
 
     /// Whether `other` holds the same properties, whatever their generations.
     pub fn same_properties(&self, other: &Content) -> bool {
-        self.blocks == other.blocks && self.items == other.items
+        self.block_names == other.block_names
+            && self.blocks == other.blocks
+            && self.items == other.items
     }
 
     /// Whether the chunks are drawn alike with `other`: no block changes the properties the
     /// meshes are made from (`palette`, `visibility`, `light_opacity`, `light_emission`,
     /// `flags`, `look`, and `hitbox`, which a `Shape::Box` is drawn from).
     pub fn draws_like(&self, other: &Content) -> bool {
+        if self.block_names != other.block_names {
+            return false;
+        }
         self.blocks.iter().zip(&other.blocks).all(|(a, b)| {
             a.palette == b.palette
                 && a.visibility == b.visibility
@@ -176,9 +233,19 @@ impl Content {
     }
 }
 
-/// The name of a block in the files: `oak_log` for `BlockId::OakLog`.
-fn block_name(id: BlockId) -> String {
+/// The name of a block of the engine in the files: `oak_log` for `BlockId::OakLog`.
+fn engine_name(id: BlockId) -> String {
     snake_case(&format!("{id:?}"))
+}
+
+/// Whether `name` may name a block: words in lowercase and digits joined by `_`, which reads
+/// back from its Rust name (`pascal_case`), as `oak_log` from `OakLog`.
+fn is_block_name(name: &str) -> bool {
+    name.starts_with(|c: char| c.is_ascii_lowercase())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        && snake_case(&pascal_case(name)) == name
 }
 
 /// The blocks and items by their names in the files.
@@ -188,11 +255,13 @@ struct Names {
 }
 
 impl Names {
-    pub fn new() -> Self {
+    /// The blocks of `block_names`, numbered by their places, and every item.
+    pub fn new(block_names: &[String]) -> Self {
         Self {
-            blocks: BlockId::ENGINE
-                .into_iter()
-                .map(|id| (block_name(id), id))
+            blocks: block_names
+                .iter()
+                .enumerate()
+                .map(|(index, name)| (name.clone(), BlockId::from_index(index as u16)))
                 .collect(),
             items: ItemId::ALL.into_iter().map(|id| (id.name(), id)).collect(),
         }
@@ -451,7 +520,8 @@ impl BlockDef {
             tint,
             sway,
         } = self;
-        let own = format!("{:?}", names.block("name", name)?);
+        names.block("name", name)?;
+        let own = pascal_case(name);
         let palette = palette
             .map(|PaletteDef { form, base, item }| {
                 Ok::<_, String>(Palette {
@@ -829,7 +899,7 @@ mod tests {
 
     #[test]
     fn the_defaults_of_a_definition() {
-        let names = Names::new();
+        let names = Names::new(&Content::load(&game_folder()).unwrap().block_names);
         let dirt = BlockDef::default().build("dirt", &names).unwrap();
         assert_eq!(dirt.visibility, BlockTransparency::Solid);
         assert_eq!(dirt.light_opacity, None);
@@ -860,7 +930,7 @@ mod tests {
 
     #[test]
     fn the_look_of_a_block_reads_its_faces_from_the_widest_to_the_narrowest() {
-        let names = Names::new();
+        let names = Names::new(&Content::load(&game_folder()).unwrap().block_names);
         let def: BlockDef = ron::de::from_str(
             r#"(faces: (all: "A", sides: "S", front: "F", top: "T"), shape: Flora,
                 tint: Foliage, sway: Top, overlay: "O")"#,
@@ -940,7 +1010,14 @@ mod tests {
                 r#"(blocks: {"torch": (light_emission: 9)})"#,
                 "block \"torch\"",
             ),
-            (r#"(blocks: {"tourch": (light: 9)})"#, "\"tourch\""),
+            (
+                r#"(blocks: {"Tourch": (light: 9)})"#,
+                "block \"Tourch\": a name is",
+            ),
+            (
+                r#"(blocks: {"tourch_2": (light: 9)})"#,
+                "block \"tourch_2\"",
+            ),
             (r#"(blocks: {"stone": (break: 0)})"#, "block \"stone\""),
             (
                 r#"(blocks: {"stone": (drops: [(1, "gravell", 1)])})"#,
@@ -974,6 +1051,81 @@ mod tests {
             assert_eq!(error.file.file_name().unwrap(), "bad.ron", "{text}");
             assert!(error.to_string().contains(key), "{text}: {error}");
         }
+    }
+
+    /// A copy of the content files of the game, with the file `extra.ron` of `text`.
+    fn game_folder_with(text: &str) -> tempfile::TempDir {
+        let folder = edited_game_folder(&[]);
+        std::fs::write(folder.path().join("extra.ron"), text).unwrap();
+        folder
+    }
+
+    #[test]
+    fn a_block_only_the_files_define_is_numbered_after_the_engine_by_name() {
+        let folder =
+            game_folder_with(r#"(blocks: {"glow_moss": (light: 7, break: 3), "amber": ()})"#);
+        let content = Content::load(folder.path()).unwrap();
+        let engine = BlockId::ENGINE.len();
+        let [amber, moss] = [engine, engine + 1].map(|index| BlockId::from_index(index as u16));
+        assert_eq!(content.blocks.len(), engine + 2);
+        assert_eq!(content.block_named("amber"), Some(amber));
+        assert_eq!(content.block_named("glow_moss"), Some(moss));
+        assert_eq!(content.block_named("stone"), Some(BlockId::Stone));
+        assert_eq!(content.block_idents[moss.index()], "GlowMoss");
+        let moss = content.block(moss);
+        assert_eq!((moss.light_emission, moss.break_time), (7, Some(3)));
+        assert_eq!(moss.look.faces, ["GlowMoss"; 6].map(String::from));
+        assert_eq!(moss.drops, vec![], "no item is named glow_moss");
+        assert!(!content.same_properties(&Content::load(&game_folder()).unwrap()));
+        assert!(!content.draws_like(&Content::load(&game_folder()).unwrap()));
+    }
+
+    #[test]
+    fn a_reload_keeps_the_numbers_and_holds_the_place_of_a_removed_block() {
+        let before = Content::load(
+            game_folder_with(r#"(blocks: {"glow_moss": (light: 7), "amber": ()})"#).path(),
+        )
+        .unwrap();
+        let after = Content::reload(
+            game_folder_with(r#"(blocks: {"zinc": (break: 5), "glow_moss": (light: 3)})"#).path(),
+            &before,
+        )
+        .unwrap();
+        let engine = BlockId::ENGINE.len();
+        assert_eq!(after.block_names[engine..], ["amber", "glow_moss", "zinc"]);
+        assert_eq!(after.blocks[engine + 1].light_emission, 3);
+        assert_eq!(after.blocks[engine + 2].break_time, Some(5));
+        let debug = after.block(BlockId::Debug);
+        assert_eq!(after.blocks[engine], BlockProps::placeholder(debug));
+        assert_eq!(after.blocks[engine].look, debug.look);
+        assert_eq!(after.blocks[engine].drops, vec![]);
+        // the same files numbered afresh
+        let fresh = Content::load(
+            game_folder_with(r#"(blocks: {"zinc": (break: 5), "glow_moss": (light: 3)})"#).path(),
+        )
+        .unwrap();
+        assert_eq!(fresh.block_names[engine..], ["glow_moss", "zinc"]);
+    }
+
+    #[test]
+    fn the_engine_blocks_cannot_leave_the_files() {
+        let folder = edited_game_folder(&[]);
+        let blocks = folder.path().join("blocks.ron");
+        let text = std::fs::read_to_string(&blocks).unwrap();
+        let without_debug: String = text
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("\"debug\":"))
+            .map(|line| format!("{line}\n"))
+            .collect();
+        std::fs::write(&blocks, without_debug).unwrap();
+        let game = Content::load(&game_folder()).unwrap();
+        let error = Content::reload(folder.path(), &game).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("block \"debug\" is defined in no file"),
+            "{error}"
+        );
     }
 
     #[test]
