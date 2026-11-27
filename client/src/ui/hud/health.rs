@@ -127,7 +127,7 @@ pub fn update_health_bar(
     inventory: Query<&Visibility, (With<InventoryRoot>, Without<HealthBar>, Without<HeartFill>)>,
     assets: Res<AssetServer>,
     feedback: Option<Res<HurtFeedback>>,
-    mut shown: Local<Option<(u32, GameMode, bool, bool)>>,
+    mut shown: Local<Option<(Entity, u32, GameMode, bool, bool)>>,
     mut commands: Commands,
 ) {
     let (Ok(player), Ok((bar, mut visibility))) = (player.single(), bar.single_mut()) else {
@@ -137,7 +137,14 @@ pub fn update_health_bar(
         .single()
         .is_ok_and(|inventory| *inventory == Visibility::Visible);
     let blinked = feedback.is_some_and(|feedback| feedback.hearts_hidden());
-    let state = (player.health, player.game_mode, inventory_open, blinked);
+    // The bar of another session, or of a HUD spawned again, starts afresh
+    let state = (
+        bar,
+        player.health,
+        player.game_mode,
+        inventory_open,
+        blinked,
+    );
     if *shown == Some(state) {
         return;
     }

@@ -94,7 +94,7 @@ pub fn update_recharge_gauge(
     reticle: Query<&Visibility, (With<Reticle>, Without<RechargeGauge>)>,
     mut gauge: Query<(Entity, &mut Visibility), With<RechargeGauge>>,
     mut fill: Query<&mut Node, With<RechargeFill>>,
-    mut shown: Local<Option<u32>>,
+    mut shown: Local<Option<(Entity, u32)>>,
     mut commands: Commands,
 ) {
     let (Ok(player), Ok((entity, mut visibility))) = (player.single(), gauge.single_mut()) else {
@@ -109,10 +109,11 @@ pub fn update_recharge_gauge(
     };
     visibility.set_if_neq(wanted);
     let percent_full = (charge * 100.0).round() as u32;
-    if *shown == Some(percent_full) {
+    // The gauge of another session, or of a HUD spawned again, starts afresh
+    if *shown == Some((entity, percent_full)) {
         return;
     }
-    *shown = Some(percent_full);
+    *shown = Some((entity, percent_full));
     if let Ok(mut node) = fill.single_mut() {
         node.width = percent(percent_full as f32);
     }

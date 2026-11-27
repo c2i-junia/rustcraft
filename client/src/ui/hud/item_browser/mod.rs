@@ -281,12 +281,12 @@ pub fn item_browser_plugin(app: &mut App) {
         .init_resource::<bookmarks::Bookmarks>()
         .init_resource::<recent::RecentCrafts>()
         .add_systems(
+            crate::ui::hud::SpawnHud,
+            setup_item_browser.after(crate::ui::hud::setup_inventory),
+        )
+        .add_systems(
             OnEnter(GameState::Game),
-            (
-                setup_item_browser.after(crate::ui::hud::setup_inventory),
-                bookmarks::load_bookmarks,
-                recent::forget_recent_crafts,
-            ),
+            (bookmarks::load_bookmarks, recent::forget_recent_crafts),
         )
         .add_systems(
             Update,

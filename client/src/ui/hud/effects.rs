@@ -20,9 +20,10 @@ const ICON_SIZE: f32 = 36.0;
 #[derive(Component)]
 pub struct EffectsColumn;
 
-/// What the column shows, to rebuild it only when it changes: each effect, and its seconds left.
+/// What the column shows, to rebuild it only when it changes: each effect, and its seconds left,
+/// in which column (that of another session, or of a HUD spawned again, starts afresh).
 #[derive(Default)]
-pub struct Shown(Vec<(EffectKind, u8, u32)>);
+pub struct Shown(Option<Entity>, Vec<(EffectKind, u8, u32)>);
 
 /// The texture of the icon of `kind`.
 pub fn icon_path(kind: EffectKind) -> String {
@@ -88,10 +89,10 @@ pub fn update_effects_column(
         .iter()
         .map(|effect| (effect.kind, effect.level, effect.seconds_left()))
         .collect();
-    if shown.0 == wanted {
+    if shown.0 == Some(column) && shown.1 == wanted {
         return;
     }
-    shown.0 = wanted;
+    *shown = Shown(Some(column), wanted);
     commands.entity(column).despawn_related::<Children>();
     let font = TextFont {
         font: assets.load(FONT_PATH).into(),

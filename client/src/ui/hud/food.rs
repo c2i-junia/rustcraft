@@ -114,7 +114,7 @@ pub fn update_food_bar(
         ),
     >,
     assets: Res<AssetServer>,
-    mut shown: Local<Option<(u8, bool)>>,
+    mut shown: Local<Option<(Entity, u8, bool)>>,
     mut commands: Commands,
 ) {
     let (Ok(player), Ok((bar, mut visibility))) = (player.single(), bar.single_mut()) else {
@@ -124,7 +124,8 @@ pub fn update_food_bar(
         .single()
         .is_ok_and(|inventory| *inventory == Visibility::Visible);
     let visible = player.game_mode.takes_damage() && !inventory_open;
-    let state = (player.food, visible);
+    // The bar of another session, or of a HUD spawned again, starts afresh
+    let state = (bar, player.food, visible);
     if *shown == Some(state) {
         return;
     }

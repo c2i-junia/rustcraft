@@ -287,7 +287,11 @@ pub(crate) fn toggle_pause_menu(
 }
 
 /// Spawns the pause menu of the session started from `origin`, the focus on Back to game.
-fn spawn_pause_menu(commands: &mut Commands, assets: &AssetServer, origin: Option<&SessionOrigin>) {
+pub(crate) fn spawn_pause_menu(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    origin: Option<&SessionOrigin>,
+) {
     let font: Handle<Font> = assets.load(FONT_PATH);
     let root = commands
         .spawn((

@@ -1,7 +1,7 @@
 //! Dev-only support of hot patching, compiled with the `hot` feature (`just hot`, see
 //! docs/HOT_RELOAD.md):
-//! - a patch re-enters the menu screen shown, so that a change to its setup function is seen
-//!   without leaving it;
+//! - a patch re-enters the screen shown, so that a change to its setup function is seen without
+//!   leaving it: the menu screen, or in game the HUD and the pause menu;
 //! - a system a patch could not reach is named in a warning: its code stays the one the game
 //!   was started with, which is what a change to its parameters does.
 
@@ -18,7 +18,18 @@ use bevy::log::tracing_subscriber::{layer::Context, Layer};
 use bevy::log::BoxedLayer;
 use bevy::prelude::*;
 
+use crate::network::leave::leaving;
+use crate::network::session::SessionOrigin;
+use crate::state::GameState;
+use crate::ui::hud::minimap::world_map::WorldMapRoot;
+use crate::ui::hud::{respawn_hud, UiDialog};
+use crate::ui::menus::death::DeathScreen;
+use crate::ui::menus::pause::{spawn_pause_menu, PauseMenu};
+use crate::ui::menus::progress::ProgressRoot;
+use crate::ui::menus::settings::SettingsRoot;
 use crate::ui::menus::{modal_open, MenuState};
+use crate::ui::quit::QuittingCard;
+use crate::ui::widgets::text_field::text_field_focused;
 
 pub fn hot_plugin(app: &mut App) {
     app.add_systems(
@@ -27,14 +38,22 @@ pub fn hot_plugin(app: &mut App) {
             note_patch,
             reenter_menu
                 .run_if(resource_exists::<PatchPending>)
+                .run_if(not(in_state(GameState::Game)))
                 .run_if(not(modal_open)),
+            rebuild_in_game_screens
+                .run_if(resource_exists::<PatchPending>)
+                .run_if(in_state(GameState::Game))
+                .run_if(in_game_screens_at_rest)
+                .run_if(not(modal_open))
+                .run_if(not(text_field_focused))
+                .run_if(not(leaving)),
         )
             .chain(),
     )
     .add_systems(First, warn_of_stale_systems);
 }
 
-/// A patch arrived whose menu screen has not been re-entered yet.
+/// A patch arrived whose screen has not been re-entered yet.
 #[derive(Resource)]
 struct PatchPending;
 
@@ -56,8 +75,8 @@ fn note_patch(mut patches: MessageReader<HotPatched>, mut commands: Commands) {
 /// Re-enters the menu screen shown: its `OnExit` despawns it (`DespawnOnExit`) and its `OnEnter`
 /// spawns it again, with the patched code. `NextState::set` runs both even for the same state.
 /// A screen under a dialog waits for the dialog to close (`modal_open`): the dialog is not part
-/// of the screen and would be left over the new one. In game (`MenuState::Disabled`) nothing is
-/// re-entered: the HUD is spawned on entering `GameState::Game`.
+/// of the screen and would be left over the new one. While a world loads (`MenuState::Disabled`)
+/// there is no screen to re-enter; in game, `rebuild_in_game_screens` rebuilds the HUD instead.
 fn reenter_menu(
     menu: Res<State<MenuState>>,
     mut next_menu: ResMut<NextState<MenuState>>,
@@ -65,11 +84,55 @@ fn reenter_menu(
 ) {
     commands.remove_resource::<PatchPending>();
     match menu.get() {
-        MenuState::Disabled => info!("hot patch: in game, re-open a screen to see its changes"),
+        MenuState::Disabled => info!("hot patch: no menu screen to re-enter"),
         &screen => {
             info!("hot patch: re-entering {screen:?}");
             next_menu.set(screen);
         }
+    }
+}
+
+/// Whether nothing is open over the game but the pause menu: no inventory, chest or other
+/// panel, no settings, progress, world map, death screen or quitting card. These are not rebuilt,
+/// and what they show lives in the HUD (the inventory) or would be left over the new HUD.
+fn in_game_screens_at_rest(
+    dialogs: Query<&Visibility, (With<UiDialog>, Without<PauseMenu>)>,
+    overlays: Query<
+        (),
+        Or<(
+            With<SettingsRoot>,
+            With<ProgressRoot>,
+            With<WorldMapRoot>,
+            With<DeathScreen>,
+            With<QuittingCard>,
+        )>,
+    >,
+) -> bool {
+    overlays.is_empty() && dialogs.iter().all(|v| *v != Visibility::Visible)
+}
+
+/// Rebuilds the in-game screens with the patched code, without leaving the world: the HUD
+/// (`respawn_hud`), then the pause menu if it is open. The chat is left as it is, with its lines.
+/// The rebuild waits for the screens over the game to close (`in_game_screens_at_rest`) and for the
+/// player to stop typing.
+fn rebuild_in_game_screens(world: &mut World) {
+    world.remove_resource::<PatchPending>();
+    info!("hot patch: rebuilding the HUD");
+    respawn_hud(world);
+    world.run_system_cached(respawn_pause_menu).ok();
+}
+
+/// Spawns the pause menu again if it is open.
+fn respawn_pause_menu(
+    menus: Query<Entity, With<PauseMenu>>,
+    origin: Option<Res<SessionOrigin>>,
+    assets: Res<AssetServer>,
+    mut commands: Commands,
+) {
+    for menu in &menus {
+        info!("hot patch: rebuilding the pause menu");
+        commands.entity(menu).despawn();
+        spawn_pause_menu(&mut commands, &assets, origin.as_deref());
     }
 }
 

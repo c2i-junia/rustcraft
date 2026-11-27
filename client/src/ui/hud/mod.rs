@@ -1,5 +1,7 @@
 use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
+use bevy::ecs::schedule::ScheduleLabel;
 use bevy::pbr::wireframe::{WireframeConfig, WireframePlugin};
+use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
 
 use crate::state::{GameSet, GameState};
@@ -76,8 +78,10 @@ pub fn hud_plugin(app: &mut App) {
         .init_resource::<OpenTrade>()
         .add_message::<TradeUpdated>()
         .add_systems(OnEnter(GameState::Game), reset_trade)
+        // The chat keeps its lines when the HUD is spawned again: it stays out of `SpawnHud`
+        .add_systems(OnEnter(GameState::Game), (spawn_hud, setup_chat).chain())
         .add_systems(
-            OnEnter(GameState::Game),
+            SpawnHud,
             (
                 spawn_reticle,
                 recharge::spawn_recharge_gauge,
@@ -85,7 +89,6 @@ pub fn hud_plugin(app: &mut App) {
                 spawn_top_left_column,
                 setup_hud,
                 effects::spawn_effects_column,
-                setup_chat,
             )
                 .chain(),
         )
@@ -109,7 +112,7 @@ pub fn hud_plugin(app: &mut App) {
                 .run_if(in_state(GameState::Game)),
         )
         .add_systems(
-            OnEnter(GameState::Game),
+            SpawnHud,
             (
                 setup_inventory,
                 experience::spawn_experience_bar,
@@ -120,9 +123,9 @@ pub fn hud_plugin(app: &mut App) {
             )
                 .chain(),
         )
-        .add_systems(OnEnter(GameState::Game), setup_chunk_ghost)
-        .add_systems(OnEnter(GameState::Game), burning::spawn_burning_flames)
-        .add_systems(OnEnter(GameState::Game), mount::spawn_mount_line)
+        .add_systems(SpawnHud, setup_chunk_ghost)
+        .add_systems(SpawnHud, burning::spawn_burning_flames)
+        .add_systems(SpawnHud, mount::spawn_mount_line)
         .add_systems(
             Update,
             effects::update_effects_column
@@ -135,12 +138,10 @@ pub fn hud_plugin(app: &mut App) {
                 .after(GameSet::Reconciliation)
                 .run_if(in_state(GameState::Game)),
         )
+        .add_systems(OnEnter(GameState::Game), reset_frame_times)
         .add_systems(
-            OnEnter(GameState::Game),
-            (
-                reset_frame_times,
-                (spawn_top_right_column, spawn_minimap, spawn_fps_counter).chain(),
-            ),
+            SpawnHud,
+            (spawn_top_right_column, spawn_minimap, spawn_fps_counter).chain(),
         )
         .add_systems(
             Update,
@@ -314,4 +315,46 @@ pub fn hud_plugin(app: &mut App) {
     item_browser::item_browser_plugin(app);
     codex::codex_plugin(app);
     sign::sign_plugin(app);
+}
+
+/// The schedule that spawns the HUD: the reticle, the panel at the bottom with the hotbar and the
+/// inventory, the bars over it, the item browser, the top right column with the minimap and the
+/// FPS counter, and the debug overlays. Run on entering a world by `spawn_hud`; the hot patching
+/// runs it again to rebuild the HUD with the patched code (`client/src/hot.rs`). Its systems only
+/// spawn: what must be reset for a new world is reset in `OnEnter(GameState::Game)`.
+#[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SpawnHud;
+
+/// The roots `SpawnHud` spawned last: the entities without a parent that leave with the world
+/// (`DespawnOnExit(GameState::Game)`). Despawning them takes the whole HUD away (`respawn_hud`);
+/// the resources its systems insert, which are entities too, are not among them.
+#[derive(Resource, Default)]
+pub struct SpawnedHud(pub Vec<Entity>);
+
+/// Spawns the HUD (`SpawnHud`) and notes the roots it spawned in `SpawnedHud`.
+pub fn spawn_hud(world: &mut World) {
+    let mut roots =
+        world.query_filtered::<Entity, (Without<ChildOf>, With<DespawnOnExit<GameState>>)>();
+    let before: HashSet<Entity> = roots.iter(world).collect();
+    world.run_schedule(SpawnHud);
+    let spawned = roots
+        .iter(world)
+        .filter(|root| !before.contains(root))
+        .collect();
+    world.insert_resource(SpawnedHud(spawned));
+}
+
+/// Spawns the HUD again, without leaving the world: despawns the roots it was spawned with and
+/// runs `SpawnHud` again, so that the code of its setup systems runs anew. What lives only in its
+/// entities goes back to how it starts: the inventory closed, the zoom of the minimap. The chat,
+/// which is not part of it, keeps its lines. Used by the hot patching (`client/src/hot.rs`).
+#[cfg_attr(not(feature = "hot"), allow(dead_code))]
+pub fn respawn_hud(world: &mut World) {
+    let roots = std::mem::take(&mut world.resource_mut::<SpawnedHud>().0);
+    for root in roots {
+        if let Ok(root) = world.get_entity_mut(root) {
+            root.despawn();
+        }
+    }
+    spawn_hud(world);
 }
