@@ -51,11 +51,10 @@ pack (XSSheep's, kept up by Nova_Wostra): https://github.com/NovaWostra/Pixel-Pe
 
 ## Running the game
 
-Agents run the game headless only, never on the desktop, under gamescope:
-
-```
-gamescope --backend headless -W 1280 -H 720 -- env -u WAYLAND_DISPLAY <command>
-```
+Agents run the game headless only, never on the desktop, through `scripts/headless.sh SECONDS
+<command>`: it runs the command under headless gamescope and kills it with everything it started
+once SECONDS have passed (exit 124). Never use a bare `timeout` around gamescope: it kills
+gamescope and leaves the game running, and the run never ends.
 
 To play at release speed with fast rebuilds, use `just play [client args]` (the `play` profile).
-Agents wrap it in gamescope like any other command; the owner runs it directly.
+Agents run it through `scripts/headless.sh` like any other command; the owner runs it directly.
