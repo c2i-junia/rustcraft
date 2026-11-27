@@ -46,21 +46,30 @@ blender -b -P wiki/scripts/render_creatures.py -- data/models/animated wiki/stat
 
 ## Publishing
 
-The build is a folder of static files. On the VPS, beside the website: a DNS record
-`wiki.rustcraft.dev` (A and AAAA, like `hub`), the folder copied to `/srv/rustcraft-wiki`, and a
-block in `/etc/caddy/Caddyfile`:
+`https://wiki.rustcraft.dev` is served by Caddy on the VPS (see `hub/README.md`) from
+`/srv/rustcraft-wiki`, behind Cloudflare. To publish, build here and copy the folder:
+
+```sh
+bun run build
+rsync -az --delete build/ root@<vps>:/srv/rustcraft-wiki/
+```
+
+The block of `/etc/caddy/Caddyfile` (Caddy 2.6):
 
 ```caddy
 wiki.rustcraft.dev {
-    header Strict-Transport-Security "max-age=31536000"
-    root * /srv/rustcraft-wiki
-    try_files {path} {path}.html {path}/index.html
-    file_server
-    encode zstd gzip
-    handle_errors 404 {
-        rewrite * /404.html
-        file_server
-    }
+	header Strict-Transport-Security "max-age=31536000"
+	root * /srv/rustcraft-wiki
+	encode zstd gzip
+	@immutable path /_app/immutable/*
+	header @immutable Cache-Control "public, max-age=31536000, immutable"
+	try_files {path} {path}.html {path}/index.html
+	file_server
+	handle_errors {
+		@missing expression {err.status_code} == 404
+		rewrite @missing /404.html
+		file_server
+	}
 }
 ```
 
