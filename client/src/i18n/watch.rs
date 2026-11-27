@@ -67,6 +67,7 @@ fn reload_languages(mut files: ResMut<LanguageFiles>, mut rebuild: MessageWriter
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::schedule::SingleThreadedExecutor;
     use std::path::Path;
     use std::sync::mpsc;
 
@@ -92,7 +93,9 @@ mod tests {
         std::fs::write(path, source).unwrap();
     }
 
-    /// An app that reloads the files of `dir` on what `sender` sends, without a watcher.
+    /// An app that reloads the files of `dir` on what `sender` sends, without a watcher. Its
+    /// systems run on the thread of the test, which alone sees the tables they install
+    /// (`INSTALLED_IN_TEST`).
     fn app(dir: &Path) -> (App, mpsc::Sender<()>) {
         let (sender, changes) = mpsc::channel();
         let mut app = App::new();
@@ -101,7 +104,10 @@ mod tests {
                 folder: dir.to_path_buf(),
                 changes: Changes::new(changes),
             })
-            .add_systems(Update, reload_languages);
+            .add_systems(Update, reload_languages)
+            .edit_schedule(Update, |schedule| {
+                schedule.set_executor(SingleThreadedExecutor::new());
+            });
         (app, sender)
     }
 
@@ -129,7 +135,6 @@ mod tests {
         let (mut app, sender) = app(dir.path());
         app.update();
         assert_eq!(rebuilds(&app), 0, "nothing changed yet");
-        // every other text stays the same: the tests beside this one read the tables too
         add_text(dir.path(), Language::English, "test.reloaded", "Reloaded");
         add_text(dir.path(), Language::French, "test.reloaded", "Relu");
         assert_eq!(tr("test.reloaded"), "test.reloaded");

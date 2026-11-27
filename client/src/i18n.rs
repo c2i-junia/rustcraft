@@ -118,17 +118,28 @@ fn read(folder: &Path) -> Result<Tables, String> {
     })
 }
 
+#[cfg(test)]
+thread_local! {
+    /// The tables a test installed, seen by its own thread only: the tests beside it keep
+    /// those of the source tree.
+    static INSTALLED_IN_TEST: std::cell::Cell<Option<Tables>> = const { std::cell::Cell::new(None) };
+}
+
 /// Puts `tables` in use: the UI spawned from now on shows their texts.
 fn install(tables: Tables) {
-    *TABLES.write().unwrap_or_else(|poison| poison.into_inner()) = Some(tables);
+    #[cfg(test)]
+    INSTALLED_IN_TEST.set(Some(tables));
+    #[cfg(not(test))]
+    {
+        *TABLES.write().unwrap_or_else(|poison| poison.into_inner()) = Some(tables);
+    }
 }
 
 /// Reads the language files of the assets folder and puts them in use. The game cannot show a
 /// word without them: a file missing or wrong stops it, naming the file.
 ///
 /// The clients of the tests, whose assets folder is the source tree, leave the tables to
-/// `tables`, read once for the whole process: reading them again for each would undo, under
-/// the tests running beside it, the table a test of the reload installs.
+/// `tables`, read once for the whole process.
 pub fn load(assets_folder: &Path) {
     if cfg!(test) {
         return;
@@ -139,6 +150,10 @@ pub fn load(assets_folder: &Path) {
 
 /// The tables in use. The tests, for which `load` reads nothing, read those of the source tree.
 fn tables() -> Tables {
+    #[cfg(test)]
+    if let Some(tables) = INSTALLED_IN_TEST.get() {
+        return tables;
+    }
     if let Some(tables) = *TABLES.read().unwrap_or_else(|poison| poison.into_inner()) {
         return tables;
     }
