@@ -7,7 +7,10 @@ use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
 };
 
-use crate::{world::BlockData, CHUNK_SIZE};
+use crate::{
+    world::{BlockData, BlockId},
+    CHUNK_SIZE,
+};
 
 /// Number of cells of a chunk.
 const CHUNK_VOLUME: usize = (CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE) as usize;
@@ -242,6 +245,26 @@ impl Chunk {
             Cells::Paletted(paletted) => paletted.palette.iter().any(|cell| f(cell.as_ref())),
             Cells::Varied(cells) => cells.iter().any(|cell| f(cell.as_ref())),
         }
+    }
+
+    /// The chunk with the id of each block turned into `to(id)`, its direction and its state
+    /// kept: `to` is called once for each kind of cell a palette holds, not for each position.
+    pub fn map_blocks(&self, mut to: impl FnMut(BlockId) -> BlockId) -> Chunk {
+        let mut map = |cell: &Option<BlockData>| {
+            cell.map(|block| BlockData {
+                id: to(block.id),
+                ..block
+            })
+        };
+        let cells = match &self.cells {
+            Cells::Uniform(cell) => Cells::Uniform(map(cell)),
+            Cells::Paletted(paletted) => Cells::Paletted(Arc::new(Paletted {
+                palette: paletted.palette.iter().map(map).collect(),
+                indices: paletted.indices,
+            })),
+            Cells::Varied(cells) => Cells::Varied(cells.iter().map(map).collect()),
+        };
+        Chunk { cells }
     }
 
     /// Whether the chunk is made of air only.

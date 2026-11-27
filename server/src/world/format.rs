@@ -29,8 +29,11 @@ pub const WORLD_FILE: &str = "world.ron";
 ///
 /// Bump it when the files written to a world's folder change in a way an older reader would
 /// misread (the layout, `WorldMeta`, the chunk encoding), and add a conversion from the
-/// previous version on load. Adding a `BlockId` at the end of its enum needs no bump.
-pub const FORMAT_VERSION: u32 = 5;
+/// previous version on load. Version 6 lists the names of the blocks of the world in
+/// `world.ron` (`WorldMeta::block_names`), by the numbers its chunk files hold them as: an older
+/// game would misread a world holding blocks only the content files define. A world without
+/// the list reads as one of `LEGACY_BLOCK_NAMES`. Adding a block needs no bump.
+pub const FORMAT_VERSION: u32 = 6;
 
 /// The weather of a world as `world.ron` holds it: its kind and the ticks it has left.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -68,6 +71,11 @@ pub struct WorldMeta {
     /// Whether the Ember Mother was beaten: she never comes back (`mob::boss`).
     #[serde(default)]
     pub boss_defeated: bool,
+    /// The name of each block of the world, by the number its chunk files hold it as
+    /// (`block_numbers`). Missing from the worlds saved before version 6, and from those
+    /// converted from an older format, which read as `LEGACY_BLOCK_NAMES`.
+    #[serde(default)]
+    pub block_names: Option<Vec<String>>,
 }
 
 impl WorldMeta {
@@ -84,6 +92,7 @@ impl WorldMeta {
             difficulty: Difficulty::default(),
             game_mode: GameMode::default(),
             boss_defeated: false,
+            block_names: None,
         }
     }
 }
@@ -118,6 +127,9 @@ pub struct WorldData {
     /// Whether the Ember Mother was beaten: she never comes back (`mob::boss`).
     #[serde(default)]
     pub boss_defeated: bool,
+    /// The single-file formats had none: their blocks are those of `LEGACY_BLOCK_NAMES`.
+    #[serde(default)]
+    pub block_names: Option<Vec<String>>,
 }
 
 impl From<&WorldData> for WorldMeta {
@@ -129,6 +141,7 @@ impl From<&WorldData> for WorldMeta {
             difficulty: world.difficulty,
             game_mode: world.game_mode,
             boss_defeated: world.boss_defeated,
+            block_names: world.block_names.clone(),
             ..Self::new(
                 world.name.clone(),
                 world.seed,
@@ -153,6 +166,7 @@ impl From<WorldMeta> for WorldData {
             difficulty: meta.difficulty,
             game_mode: meta.game_mode,
             boss_defeated: meta.boss_defeated,
+            block_names: meta.block_names,
             ..Self::default()
         }
     }

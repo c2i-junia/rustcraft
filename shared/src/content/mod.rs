@@ -63,6 +63,20 @@ impl Content {
             .map(|index| BlockId::from_index(index as u16))
     }
 
+    /// Gives each of `names` the content does not define a block of its own, after the others:
+    /// a placeholder (`BlockProps::placeholder`), as for a block a world holds that the
+    /// content no longer has.
+    pub fn hold_places(&mut self, names: impl IntoIterator<Item = String>) {
+        let placeholder = BlockProps::placeholder(self.block(BlockId::Debug));
+        for name in names {
+            if self.block_named(&name).is_none() {
+                self.block_idents.push(crate::utils::pascal_case(&name));
+                self.block_names.push(name);
+                self.blocks.push(placeholder.clone());
+            }
+        }
+    }
+
     /// The properties of the item `id`.
     #[inline]
     pub fn item(&self, id: ItemId) -> &ItemProps {

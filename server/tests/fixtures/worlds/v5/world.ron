@@ -1,0 +1,32 @@
+(
+    format_version: 5,
+    name: "v5",
+    seed: (12345),
+    time: 1000,
+    mobs: {},
+    dropped_items: [
+        (
+            stack: (
+                item_id: Torch,
+                item_type: Block(Torch),
+                nb: 3,
+            ),
+            position: (0.5, 70, 0.5),
+            velocity: (0, 0, 0),
+            on_ground: false,
+            age_ticks: 0,
+            passes: 0,
+            experience: 0,
+        ),
+    ],
+    weather: None,
+    generation: (
+        preset: Default,
+        villages: true,
+        dungeons: true,
+        deep: true,
+    ),
+    difficulty: Normal,
+    game_mode: Survival,
+    boss_defeated: false,
+)

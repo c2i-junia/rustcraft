@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod bench;
+pub mod block_numbers;
 pub mod broadcast_world;
 pub mod cartography;
 mod caves;

@@ -13,6 +13,7 @@ use shared::TICKS_PER_SECOND;
 use std::collections::HashMap;
 #[cfg(test)]
 use std::path::Path;
+use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Message)]
@@ -145,6 +146,7 @@ fn queue_save(
         },
         players: std::mem::take(&mut world_map.players_to_save),
         chunks,
+        blocks: Arc::clone(&world_map.blocks),
     };
 
     if let Err(job) = writer.submit(job) {

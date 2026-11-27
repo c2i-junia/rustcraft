@@ -32,6 +32,7 @@ use crate::{
     },
     network::extensions::SendGameMessageExtension,
     world::{
+        block_numbers::SavedBlocks,
         chunk_files::{read_chunk, CHUNKS_DIR},
         container_files::{insert_with_contents, read_chunk_contents, ChunkContents},
         data::ServerWorldMap,
@@ -65,11 +66,15 @@ enum Made {
     Generated(Chunk, Vec<ServerMob>, ChunkContents),
 }
 
+/// The folder of a saved world, and the numbers its blocks are saved as; `None` generates every
+/// chunk.
+pub(super) type Saved<'a> = Option<(&'a Path, &'a Arc<SavedBlocks>)>;
+
 /// The chunk at `chunk_pos`: from its file in the folder of the world `saved`, else generated.
-fn make_chunk(chunk_pos: IVec3, saved: Option<&Path>, generator: &WorldGenerator) -> Made {
-    if let Some(dir) = saved {
+fn make_chunk(chunk_pos: IVec3, saved: Saved<'_>, generator: &WorldGenerator) -> Made {
+    if let Some((dir, blocks)) = saved {
         if let Some(chunk) = read_chunk(&dir.join(CHUNKS_DIR), chunk_pos) {
-            return Made::Read(chunk, read_chunk_contents(dir, chunk_pos));
+            return Made::Read(blocks.read(chunk), read_chunk_contents(dir, chunk_pos));
         }
     }
     Made::Generated(
@@ -123,7 +128,7 @@ pub(super) fn generate_missing_chunks<'a>(
     chunks: &mut ChunkMap,
     dirty_chunks: &mut HashSet<IVec3>,
     born: &mut Vec<ServerMob>,
-    saved: Option<&Path>,
+    saved: Saved<'_>,
     generator: &WorldGenerator,
 ) {
     let missing: Vec<IVec3> = active_chunks(players, radius, &Default::default())
@@ -201,7 +206,7 @@ impl ChunkLoader {
         players: impl IntoIterator<Item = (&'a PlayerId, &'a Player)>,
         radius: impl Fn(PlayerId) -> i32,
         chunks: &ChunkMap,
-        saved: Option<&Path>,
+        saved: Saved<'_>,
         asked: &mut usize,
     ) -> bool {
         let reaches: Vec<ChunkReach> = players
@@ -221,7 +226,7 @@ impl ChunkLoader {
         &mut self,
         reaches: &[ChunkReach],
         behind_portals: Arc<[IVec3]>,
-        saved: Option<&Path>,
+        saved: Saved<'_>,
         chunks: &ChunkMap,
         asked: &mut usize,
     ) -> bool {
@@ -243,12 +248,15 @@ impl ChunkLoader {
             let batch = batch.to_vec();
             let generator = self.generator.clone();
             let sender = self.sender.clone();
-            let saved = saved.map(Path::to_path_buf);
+            let saved = saved.map(|(dir, blocks)| (dir.to_path_buf(), Arc::clone(blocks)));
             generation_pool()
                 .spawn(async move {
                     let made = batch
                         .into_iter()
-                        .map(|c| (c, make_chunk(c, saved.as_deref(), &generator)))
+                        .map(|c| {
+                            let saved = saved.as_ref().map(|(dir, blocks)| (dir.as_path(), blocks));
+                            (c, make_chunk(c, saved, &generator))
+                        })
                         .collect();
                     // the loader is gone with its world: nobody waits for these
                     let _ = sender.send(made);
@@ -306,7 +314,10 @@ pub fn handle_player_inputs_system(
     let dropped_items = &mut world_map.dropped_items;
     let dirty_chunks = &mut world_map.dirty_chunks;
     let render_distances = &world_map.render_distances;
-    let saved = world_map.saved.as_deref();
+    let saved = world_map
+        .saved
+        .as_deref()
+        .map(|dir| (dir, &world_map.blocks));
     let spawn = world_map.spawn;
     let portal_shots = &mut world_map.portal_shots;
     // The animals born with the chunks generated, and those hatched from spawn eggs
@@ -1126,7 +1137,7 @@ mod tests {
             &mut chunks,
             &mut dirty,
             &mut Vec::new(),
-            Some(dir.path()),
+            Some((dir.path(), &Arc::new(SavedBlocks::default()))),
             &WorldGenerator::new(1),
         );
 
