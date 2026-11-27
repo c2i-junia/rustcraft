@@ -19,8 +19,10 @@
 //! matches the grid makes its output.
 
 use std::collections::{BTreeMap, HashMap};
+use std::fmt;
 use std::path::Path;
 
+use serde::de::{Deserializer, MapAccess, Visitor};
 use serde::{Deserialize, Serialize};
 
 use super::files::{present, Kind, Named, Names};
@@ -106,10 +108,36 @@ pub(super) struct RecipeDef {
     pub count: Option<u32>,
     #[serde(default, deserialize_with = "present")]
     pub pattern: Option<Vec<String>>,
-    #[serde(default, deserialize_with = "present")]
-    pub key: Option<BTreeMap<char, String>>,
+    #[serde(default, deserialize_with = "key_entries")]
+    pub key: Option<Vec<(char, String)>>,
     #[serde(default, deserialize_with = "present")]
     pub shapeless: Option<Vec<String>>,
+}
+
+/// The `key` of a recipe in the order of the file, a letter written twice included, which
+/// `pattern_cells` refuses with the recipe it is in.
+fn key_entries<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Vec<(char, String)>>, D::Error> {
+    struct KeyVisitor;
+
+    impl<'de> Visitor<'de> for KeyVisitor {
+        type Value = Vec<(char, String)>;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "a map of letters to the items they stand for")
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+            let mut entries = Vec::new();
+            while let Some(entry) = map.next_entry()? {
+                entries.push(entry);
+            }
+            Ok(entries)
+        }
+    }
+
+    deserializer.deserialize_map(KeyVisitor).map(Some)
 }
 
 /// What a file holds of the crafting, `Crafting` by name.
@@ -226,6 +254,9 @@ impl Crafting {
                 let in_tag = |reason: String| fail(file, format!("tag \"{name}\": {reason}"));
                 if members.is_empty() {
                     return Err(in_tag("a tag holds at least one item".to_string()));
+                }
+                if let Some(i) = (1..members.len()).find(|&i| members[..i].contains(&members[i])) {
+                    return Err(in_tag(format!("\"{}\" is listed twice", members[i])));
                 }
                 let members = members
                     .iter()
@@ -360,10 +391,14 @@ fn build_recipe(def: &RecipeDef, resolver: &Resolver) -> Result<Recipe, String> 
 /// The width and the cells of the `pattern` of a shaped recipe, its characters read by `key`.
 fn pattern_cells(
     pattern: &[String],
-    key: &BTreeMap<char, String>,
+    key: &[(char, String)],
     resolver: &Resolver,
 ) -> Result<(usize, Vec<Option<Ingredient>>), String> {
     let size = CRAFTING_GRID_SIZE as usize;
+    if let Some(i) = (1..key.len()).find(|&i| key[..i].iter().any(|(c, _)| *c == key[i].0)) {
+        return Err(format!("key: '{}' is written twice", key[i].0));
+    }
+    let key: BTreeMap<char, &String> = key.iter().map(|(c, name)| (*c, name)).collect();
     let rows: Vec<Vec<char>> = pattern.iter().map(|row| row.chars().collect()).collect();
     let width = rows.first().map_or(0, Vec::len);
     if rows.is_empty() || rows.len() > size || width == 0 || width > size {
@@ -546,6 +581,14 @@ mod tests {
             (
                 r#"(tags: {"logs": ["oak_log", "oak_lgo"]})"#,
                 "tag \"logs\": members: no item",
+            ),
+            (
+                r#"(tags: {"logs": ["oak_log", "oak_log"]})"#,
+                "tag \"logs\": \"oak_log\" is listed twice",
+            ),
+            (
+                r#"(recipes: [(out: "torch", pattern: ["C"], key: {'C': "coal", 'C': "stick"})])"#,
+                "recipe 1 (out: \"torch\"): key: 'C' is written twice",
             ),
             (
                 r#"(tags: {"logs": []})"#,
