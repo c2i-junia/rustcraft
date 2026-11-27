@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use bevy::prelude::*;
 use bevy_renet::RenetServer;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use shared::content::{content, install, tell_new_blocks, Content};
+use shared::content::{content, install, tell_new_names, Content};
 use shared::messages::{FullChatMessage, ServerToClientMessage};
 use shared::utils::unix_time_ms;
 use shared::{ContentSource, GameFolderPaths};
@@ -60,8 +60,8 @@ impl ContentFiles {
             return None;
         };
         match Content::load_telling(&folder, Some(content())) {
-            Ok((new, new_blocks)) => {
-                tell_new_blocks(&new_blocks);
+            Ok((new, new_names)) => {
+                tell_new_names(&new_names);
                 if install_if_new(new) {
                     info!("Content files of {} installed", folder.display());
                 }
@@ -177,9 +177,9 @@ pub fn reload_content_system(
     }
     let mut told = Vec::new();
     let answer = match Content::load_telling(&files.folder, Some(content())) {
-        Ok((new, new_blocks)) => {
-            tell_new_blocks(&new_blocks);
-            told = new_blocks.iter().map(ToString::to_string).collect();
+        Ok((new, new_names)) => {
+            tell_new_names(&new_names);
+            told = new_names.iter().map(ToString::to_string).collect();
             if install_if_new(new) {
                 info!("Content files reloaded");
                 send_to_players(
@@ -197,7 +197,7 @@ pub fn reload_content_system(
             format!("Content files not reloaded: {err}")
         }
     };
-    // then the blocks it numbered anew, of which a name may be mistyped
+    // then the blocks and the items it numbered anew, of which a name may be mistyped
     for content in std::iter::once(answer).chain(told) {
         send_to_players(
             &mut server,

@@ -273,8 +273,10 @@ pub fn fill(template: &str, args: &[(&str, &dyn Display)]) -> String {
 pub fn item_name(item: ItemId) -> &'static str {
     match tables().item_names[language().index()].get(item.index()) {
         Some(name) => name,
-        // an item only the content files define
-        None => lookup(language(), &format!("item.{item:?}")).unwrap_or("?"),
+        // an item only the content files define: its name in the files, without a text
+        None => lookup(language(), &format!("item.{item:?}"))
+            .or_else(|| item.content_name())
+            .unwrap_or("?"),
     }
 }
 

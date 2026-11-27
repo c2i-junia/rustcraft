@@ -4,6 +4,7 @@ use serde::de::{self, EnumAccess, VariantAccess, Visitor};
 use serde::{ser, Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{BlockId, Enchantments, GameElementId, ItemName, MobKind};
+use crate::content::content;
 use bevy::math::IVec3;
 
 /// A kind of item: its number in the content of the process (`crate::content::Content`), which
@@ -644,40 +645,58 @@ impl ItemId {
     /// The Rust name of the item, as the constant of an engine item spells it: `OakLog`.
     /// `None` for a number the content of the process does not define.
     fn ident(self) -> Option<&'static str> {
-        Self::ENGINE_IDENTS.get(self.index()).copied()
+        Self::ENGINE_IDENTS
+            .get(self.index())
+            .copied()
+            .or_else(|| content().item_idents.get(self.index()).map(String::as_str))
     }
 
     /// The item of the Rust name `ident`, in the content of the process.
     fn of_ident(ident: &str) -> Option<Self> {
+        let place = |index: usize| Self(index as u16);
         Self::ENGINE_IDENTS
             .iter()
             .position(|known| *known == ident)
-            .map(|index| Self(index as u16))
+            .map(place)
             .or_else(|| {
                 FORMER_IDENTS
                     .iter()
                     .find(|(former, _)| *former == ident)
                     .map(|(_, id)| *id)
             })
+            .or_else(|| {
+                content()
+                    .item_idents
+                    .iter()
+                    .position(|known| known == ident)
+                    .map(place)
+            })
     }
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
     pub fn name(&self) -> String {
-        crate::utils::snake_case(&format!("{self:?}"))
+        match self.content_name() {
+            Some(name) => name.to_string(),
+            None => crate::utils::snake_case(&format!("{self:?}")),
+        }
     }
 
     /// The item called `name`: `oak_log` like in Minecraft, in any case, or `OakLog` like the
     /// variant.
     pub fn from_name(name: &str) -> Option<ItemId> {
-        Self::of_ident(name).or_else(|| {
-            let mut pascal = String::new();
-            for word in name.split('_') {
-                let mut chars = word.chars();
-                pascal.extend(chars.next()?.to_uppercase());
-                pascal.push_str(&chars.as_str().to_lowercase());
-            }
-            Self::of_ident(&pascal)
-        })
+        content()
+            .item_named(&name.to_lowercase())
+            .or_else(|| Self::of_ident(name))
+            .or_else(|| {
+                // a former name: `wooden_slab`
+                let mut pascal = String::new();
+                for word in name.split('_') {
+                    let mut chars = word.chars();
+                    pascal.extend(chars.next()?.to_uppercase());
+                    pascal.push_str(&chars.as_str().to_lowercase());
+                }
+                Self::of_ident(&pascal)
+            })
     }
 
     #[inline]

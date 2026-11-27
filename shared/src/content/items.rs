@@ -35,10 +35,35 @@ pub struct ItemProps {
     pub default_type: ItemType,
 }
 
+impl ItemProps {
+    /// What an item is that a world holds but the content no longer defines: it places
+    /// nothing and does nothing. Its name is kept, so that the world saves it back as it was.
+    pub const PLACEHOLDER: ItemProps = ItemProps {
+        max_stack: 64,
+        attack_damage: 1,
+        food_value: None,
+        food_effect: None,
+        eaten_remains: None,
+        crafting_remains: None,
+        horse_armour: None,
+        spawned_mob: None,
+        tool: None,
+        durability: None,
+        category: ItemCategory::Blocks,
+        default_type: ItemType::Generic,
+    };
+}
+
 impl ItemId {
     /// Every item of the content of the process, by number: those of the engine first.
     pub fn all() -> impl Iterator<Item = ItemId> {
         (0..content().items.len()).map(|index| ItemId::from_index(index as u16))
+    }
+
+    /// The name of the item in the content of the process, as the files and the commands name
+    /// it: `oak_log`. `None` for a number the content does not define.
+    pub fn content_name(self) -> Option<&'static str> {
+        content().item_names.get(self.index()).map(String::as_str)
     }
 
     /// The properties of the item in the content of the process.

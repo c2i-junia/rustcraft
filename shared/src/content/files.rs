@@ -66,27 +66,31 @@ impl fmt::Display for ContentError {
 
 impl std::error::Error for ContentError {}
 
-/// A block that only the files define and that a load numbered anew: what to tell whoever
-/// edits them, as a name mistyped defines a new block instead of changing the one it meant.
+/// A block or an item that only the files define and that a load numbered anew: what to tell
+/// whoever edits them, as a name mistyped defines a new block or item instead of changing the
+/// one it meant. The item of a new block is not told apart from it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NewBlock {
+pub struct NewName {
+    /// "block" or "item".
+    pub kind: &'static str,
     pub name: String,
     /// The file that defines it.
     pub file: PathBuf,
-    /// The name of another block it is close to (`MAX_TYPO` edits or fewer), the one meant
-    /// if it was mistyped.
+    /// The name of another of its kind it is close to (`MAX_TYPO` edits or fewer), the one
+    /// meant if it was mistyped.
     pub near: Option<String>,
 }
 
-/// Most edits that turn a new name into an existing one for `NewBlock::near`.
+/// Most edits that turn a new name into an existing one for `NewName::near`.
 const MAX_TYPO: usize = 2;
 
-impl fmt::Display for NewBlock {
+impl fmt::Display for NewName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let file = self.file.file_name().unwrap_or(self.file.as_os_str());
         write!(
             f,
-            "block \"{}\" in {} is new",
+            "{} \"{}\" in {} is new",
+            self.kind,
             self.name,
             file.to_string_lossy()
         )?;
@@ -115,27 +119,29 @@ fn edit_distance(a: &str, b: &str) -> usize {
 
 impl Content {
     /// The content the files of `folder` define, read in the order of their names, the blocks
-    /// numbered as at the start of a process: those of the engine first (`BlockId::ENGINE`),
-    /// then the others in the order of their names. Every block of the engine and every item
-    /// must be defined. Nothing is installed: the caller decides.
+    /// and the items numbered as at the start of a process: those of the engine first
+    /// (`BlockId::ENGINE`, `ItemId::ENGINE`), then the others in the order of their names, the
+    /// item of each block only the files define among them. Every block of the engine must be
+    /// defined, and every item of the engine that is not the item of a block. Nothing is
+    /// installed: the caller decides.
     pub fn load(folder: &Path) -> Result<Content, ContentError> {
         Self::load_telling(folder, None).map(|(content, _)| content)
     }
 
     /// The content the files of `folder` define, as `load` reads it, but numbered as `previous`
-    /// is, the content it is to replace in a process: a block keeps its number, a new block
-    /// takes the next one, and a block `previous` has that the files no longer define keeps
-    /// its number as a placeholder (`BlockProps::placeholder`).
+    /// is, the content it is to replace in a process: a block or an item keeps its number, a new
+    /// one takes the next, and one `previous` has that the files no longer define keeps its
+    /// number as a placeholder (`BlockProps::placeholder`, `ItemProps::PLACEHOLDER`).
     pub fn reload(folder: &Path, previous: &Content) -> Result<Content, ContentError> {
         Self::load_telling(folder, Some(previous)).map(|(content, _)| content)
     }
 
-    /// `reload` over `previous`, or `load` without, with the blocks only the files define that
-    /// it numbered anew, to be told to whoever edits the files.
+    /// `reload` over `previous`, or `load` without, with the blocks and the items only the files
+    /// define that it numbered anew, to be told to whoever edits the files.
     pub fn load_telling(
         folder: &Path,
         previous: Option<&Content>,
-    ) -> Result<(Content, Vec<NewBlock>), ContentError> {
+    ) -> Result<(Content, Vec<NewName>), ContentError> {
         let in_folder = |reason: String| ContentError {
             file: folder.to_path_buf(),
             reason,
@@ -158,51 +164,43 @@ impl Content {
             files.push((path, defs));
         }
 
-        // the numbers of the blocks, before any definition refers to one
+        // the numbers of the blocks and the items, before any definition refers to one
+        let block_defs = || {
+            files
+                .iter()
+                .flat_map(|(path, defs)| defs.blocks.0.iter().map(move |(name, _)| (name, path)))
+        };
         let mut block_names: Vec<String> = match previous {
             Some(previous) => previous.block_names.clone(),
             None => BlockId::ENGINE.into_iter().map(engine_name).collect(),
         };
-        let mut new_names = Vec::new();
-        for (path, defs) in &files {
-            for (name, _) in &defs.blocks.0 {
-                if block_names.contains(name) {
-                    continue;
-                }
-                if !is_block_name(name) {
-                    return Err(ContentError {
-                        file: path.clone(),
-                        reason: format!(
-                            "block \"{name}\": a name is words in lowercase joined by _, \
-                             as oak_log"
-                        ),
-                    });
-                }
-                if !new_names.iter().any(|(new, _)| new == name) {
-                    new_names.push((name.clone(), path.clone()));
-                }
-            }
-        }
-        new_names.sort();
-        block_names.extend(new_names.iter().map(|(name, _)| name.clone()));
-        let new_blocks: Vec<NewBlock> = new_names
+        let new_blocks = number_new("block", &mut block_names, block_defs())?;
+        // the item of each block only the files define, then the items only they define
+        let mut item_names: Vec<String> = match previous {
+            Some(previous) => previous.item_names.clone(),
+            None => ItemId::ENGINE.into_iter().map(engine_item_name).collect(),
+        };
+        let engine_blocks = &block_names[..BlockId::ENGINE.len()];
+        let block_items = block_defs().filter(|(name, _)| !engine_blocks.contains(name));
+        let item_defs = files
+            .iter()
+            .flat_map(|(path, defs)| defs.items.0.iter().map(move |(name, _)| (name, path)));
+        let new_items = number_new("item", &mut item_names, block_items.chain(item_defs))?;
+        let new_names: Vec<NewName> = new_blocks
             .into_iter()
-            .map(|(name, file)| {
-                let near = block_names
-                    .iter()
-                    .filter(|other| **other != name)
-                    .map(|other| (edit_distance(&name, other), other))
-                    .filter(|(distance, _)| *distance <= MAX_TYPO)
-                    .min_by_key(|(distance, _)| *distance)
-                    .map(|(_, other)| other.clone());
-                NewBlock { name, file, near }
-            })
+            .map(|(name, file)| NewName::near("block", name, file, &block_names))
+            .chain(
+                new_items
+                    .into_iter()
+                    .filter(|(name, _)| !block_names.contains(name))
+                    .map(|(name, file)| NewName::near("item", name, file, &item_names)),
+            )
             .collect();
-        let names = Names::new(&block_names);
+        let names = Names::new(&block_names, &item_names);
 
         let (paths, files): (Vec<PathBuf>, Vec<ContentFile>) = files.into_iter().unzip();
         let mut blocks: Vec<Option<(BlockProps, &Path)>> = vec![None; block_names.len()];
-        let mut items: HashMap<ItemId, (ItemProps, &Path)> = HashMap::new();
+        let mut items: Vec<Option<(ItemProps, &Path)>> = vec![None; item_names.len()];
         for (file, defs) in paths.iter().zip(files) {
             let fail = |reason: String| ContentError {
                 file: file.clone(),
@@ -222,15 +220,12 @@ impl Content {
                 }
             }
             for (name, def) in defs.items.0 {
-                let id = *names
-                    .items
-                    .get(&name)
-                    .ok_or_else(|| fail(format!("no item is named \"{name}\"")))?;
+                let id = names.item("name", &name).map_err(&fail)?;
                 let props = def
                     .build(&name, &names)
                     .and_then(|props| check_item(&props).map(|()| props))
                     .map_err(|reason| fail(format!("item \"{name}\": {reason}")))?;
-                if let Some((_, other)) = items.insert(id, (props, file.as_path())) {
+                if let Some((_, other)) = items[id.index()].replace((props, file.as_path())) {
                     return Err(fail(format!(
                         "item \"{name}\" is also defined in {}",
                         other.display()
@@ -244,11 +239,29 @@ impl Content {
                 return Err(in_folder(format!("block \"{name}\" is defined in no file")));
             }
         }
+        let mut item_props = Vec::with_capacity(item_names.len());
+        for (index, (name, item)) in item_names.iter().zip(items).enumerate() {
+            let defined_block = names
+                .blocks
+                .get(name)
+                .is_some_and(|block| blocks[block.index()].is_some());
+            let props = match item {
+                Some((props, _)) => props,
+                // the item of a block needs no entry
+                None if defined_block => ItemDef::default()
+                    .build(name, &names)
+                    .map_err(|reason| in_folder(format!("item \"{name}\": {reason}")))?,
+                // one the files defined before, kept in its place
+                None if index >= ItemId::ENGINE.len() => ItemProps::PLACEHOLDER,
+                None => return Err(in_folder(format!("item \"{name}\" is defined in no file"))),
+            };
+            item_props.push(props);
+        }
         let debug = blocks[BlockId::Debug.index()]
             .as_ref()
             .map(|(props, _)| BlockProps::placeholder(props))
             .expect("an engine block");
-        let mut content = Content {
+        let content = Content {
             generation: 0,
             block_idents: block_names.iter().map(|name| pascal_case(name)).collect(),
             block_names,
@@ -256,27 +269,18 @@ impl Content {
                 .into_iter()
                 .map(|block| block.map_or_else(|| debug.clone(), |(props, _)| props))
                 .collect(),
-            items: Vec::with_capacity(ItemId::ENGINE.len()),
+            item_idents: item_names.iter().map(|name| pascal_case(name)).collect(),
+            item_names,
+            items: item_props,
         };
-        for id in ItemId::ENGINE {
-            let name = id.name();
-            let props = match items.remove(&id) {
-                Some((props, _)) => props,
-                // the item of a block needs no entry
-                None if names.blocks.contains_key(&name) => ItemDef::default()
-                    .build(&name, &names)
-                    .map_err(|reason| in_folder(format!("item \"{name}\": {reason}")))?,
-                None => return Err(in_folder(format!("item \"{name}\" is defined in no file"))),
-            };
-            content.items.push(props);
-        }
-        Ok((content, new_blocks))
+        Ok((content, new_names))
     }
 
     /// Whether `other` holds the same properties, whatever their generations.
     pub fn same_properties(&self, other: &Content) -> bool {
         self.block_names == other.block_names
             && self.blocks == other.blocks
+            && self.item_names == other.item_names
             && self.items == other.items
     }
 
@@ -304,9 +308,62 @@ pub(super) fn engine_name(id: BlockId) -> String {
     snake_case(&format!("{id:?}"))
 }
 
-/// Whether `name` may name a block: words in lowercase and digits joined by `_`, which reads
-/// back from its Rust name (`pascal_case`), as `oak_log` from `OakLog`.
-fn is_block_name(name: &str) -> bool {
+/// The name of an item of the engine in the files: `oak_log` for `ItemId::OakLog`.
+pub(super) fn engine_item_name(id: ItemId) -> String {
+    snake_case(&format!("{id:?}"))
+}
+
+/// Numbers after `known` each name of `defined`, with the file that defines it, that `known`
+/// lacks, in the order of the names. Returns those, which must be names a block or an item may
+/// have (`is_content_name`).
+fn number_new<'a>(
+    kind: &str,
+    known: &mut Vec<String>,
+    defined: impl Iterator<Item = (&'a String, &'a PathBuf)>,
+) -> Result<Vec<(String, PathBuf)>, ContentError> {
+    let mut new: Vec<(String, PathBuf)> = Vec::new();
+    for (name, path) in defined {
+        if known.contains(name) || new.iter().any(|(other, _)| other == name) {
+            continue;
+        }
+        if !is_content_name(name) {
+            return Err(ContentError {
+                file: path.clone(),
+                reason: format!(
+                    "{kind} \"{name}\": a name is words in lowercase joined by _, as oak_log"
+                ),
+            });
+        }
+        new.push((name.clone(), path.clone()));
+    }
+    new.sort();
+    known.extend(new.iter().map(|(name, _)| name.clone()));
+    Ok(new)
+}
+
+impl NewName {
+    /// The new `kind` named `name` in `file`, and the name of `known` it is nearest to, if any
+    /// is `MAX_TYPO` edits or fewer away.
+    fn near(kind: &'static str, name: String, file: PathBuf, known: &[String]) -> Self {
+        let near = known
+            .iter()
+            .filter(|other| **other != name)
+            .map(|other| (edit_distance(&name, other), other))
+            .filter(|(distance, _)| *distance <= MAX_TYPO)
+            .min_by_key(|(distance, _)| *distance)
+            .map(|(_, other)| other.clone());
+        Self {
+            kind,
+            name,
+            file,
+            near,
+        }
+    }
+}
+
+/// Whether `name` may name a block or an item: words in lowercase and digits joined by `_`,
+/// which reads back from its Rust name (`pascal_case`), as `oak_log` from `OakLog`.
+fn is_content_name(name: &str) -> bool {
     name.starts_with(|c: char| c.is_ascii_lowercase())
         && name
             .chars()
@@ -321,17 +378,18 @@ struct Names {
 }
 
 impl Names {
-    /// The blocks of `block_names`, numbered by their places, and every item.
-    pub fn new(block_names: &[String]) -> Self {
+    /// The blocks of `block_names` and the items of `item_names`, numbered by their places.
+    pub fn new(block_names: &[String], item_names: &[String]) -> Self {
         Self {
             blocks: block_names
                 .iter()
                 .enumerate()
                 .map(|(index, name)| (name.clone(), BlockId::from_index(index as u16)))
                 .collect(),
-            items: ItemId::ENGINE
-                .into_iter()
-                .map(|id| (id.name(), id))
+            items: item_names
+                .iter()
+                .enumerate()
+                .map(|(index, name)| (name.clone(), ItemId::from_index(index as u16)))
                 .collect(),
         }
     }
@@ -968,7 +1026,8 @@ mod tests {
 
     #[test]
     fn the_defaults_of_a_definition() {
-        let names = Names::new(&Content::load(&game_folder()).unwrap().block_names);
+        let game = Content::load(&game_folder()).unwrap();
+        let names = Names::new(&game.block_names, &game.item_names);
         let dirt = BlockDef::default().build("dirt", &names).unwrap();
         assert_eq!(dirt.visibility, BlockTransparency::Solid);
         assert_eq!(dirt.light_opacity, None);
@@ -999,7 +1058,8 @@ mod tests {
 
     #[test]
     fn the_look_of_a_block_reads_its_faces_from_the_widest_to_the_narrowest() {
-        let names = Names::new(&Content::load(&game_folder()).unwrap().block_names);
+        let game = Content::load(&game_folder()).unwrap();
+        let names = Names::new(&game.block_names, &game.item_names);
         let def: BlockDef = ron::de::from_str(
             r#"(faces: (all: "A", sides: "S", front: "F", top: "T"), shape: Flora,
                 tint: Foliage, sway: Top, overlay: "O")"#,
@@ -1144,9 +1204,84 @@ mod tests {
         let moss = content.block(moss);
         assert_eq!((moss.light_emission, moss.break_time), (7, Some(3)));
         assert_eq!(moss.look.faces, ["GlowMoss"; 6].map(String::from));
-        assert_eq!(moss.drops, vec![], "no item is named glow_moss");
+        // each has its item, numbered after those of the engine, which places it
+        let items = ItemId::ENGINE.len();
+        let moss_item = ItemId::from_index(items as u16 + 1);
+        assert_eq!(content.items.len(), items + 2);
+        assert_eq!(content.item_names[items..], ["amber", "glow_moss"]);
+        assert_eq!(content.item_idents[items + 1], "GlowMoss");
+        assert_eq!(content.item_named("glow_moss"), Some(moss_item));
+        assert_eq!(moss.drops, vec![(1, moss_item, 1)], "it drops its item");
+        let item = content.item(moss_item);
+        assert_eq!(
+            item.default_type,
+            ItemType::Block(BlockId::from_index(engine as u16 + 1))
+        );
+        assert_eq!((item.max_stack, item.category), (64, ItemCategory::Blocks));
         assert!(!content.same_properties(&Content::load(&game_folder()).unwrap()));
         assert!(!content.draws_like(&Content::load(&game_folder()).unwrap()));
+    }
+
+    #[test]
+    fn an_item_only_the_files_define_is_numbered_after_the_items_of_the_blocks_by_name() {
+        let folder = game_folder_with(
+            r#"(
+                blocks: {"glow_moss": (light: 7, drops: [(1, "moss_spore", 2)])},
+                items: {
+                    "moss_spore": (stack: 16, category: Nature, places: "glow_moss"),
+                    "glow_moss": (category: Nature),
+                },
+            )"#,
+        );
+        let content = Content::load(folder.path()).unwrap();
+        let items = ItemId::ENGINE.len();
+        let [moss, spore] = [items, items + 1].map(|index| ItemId::from_index(index as u16));
+        assert_eq!(content.item_names[items..], ["glow_moss", "moss_spore"]);
+        // the entry of the item of a block changes it
+        assert_eq!(content.item(moss).category, ItemCategory::Nature);
+        let spore = content.item(spore);
+        assert_eq!(
+            (spore.max_stack, spore.category),
+            (16, ItemCategory::Nature)
+        );
+        let block = content.block_named("glow_moss").unwrap();
+        assert_eq!(spore.default_type, ItemType::Block(block));
+        assert_eq!(
+            content.block(block).drops,
+            vec![(1, ItemId::from_index(items as u16 + 1), 2)]
+        );
+        // an engine block has no item but the engine's
+        assert_eq!(content.item_named("water"), None);
+        let error = load(&[("bad.ron", r#"(items: {"Spore": ()})"#)]).unwrap_err();
+        assert!(
+            error
+                .reason
+                .contains("item \"Spore\": a name is words in lowercase"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_reload_keeps_the_numbers_of_the_items_and_holds_the_place_of_a_removed_one() {
+        let before = Content::load(
+            game_folder_with(r#"(blocks: {"amber": ()}, items: {"ruby": (stack: 8)})"#).path(),
+        )
+        .unwrap();
+        let after = Content::reload(
+            game_folder_with(r#"(items: {"opal": (), "ruby": (stack: 4)})"#).path(),
+            &before,
+        )
+        .unwrap();
+        let items = ItemId::ENGINE.len();
+        assert_eq!(after.item_names[items..], ["amber", "ruby", "opal"]);
+        assert_eq!(
+            after.items[items],
+            ItemProps::PLACEHOLDER,
+            "the block is gone"
+        );
+        assert_eq!(after.items[items + 1].max_stack, 4);
+        assert_eq!(after.items[items + 2].default_type, ItemType::Generic);
+        assert_eq!(after.flaw(), None);
     }
 
     #[test]
@@ -1199,7 +1334,9 @@ mod tests {
 
     #[test]
     fn a_new_block_is_told_and_one_named_close_to_another_may_be_a_typo() {
-        let folder = game_folder_with(r#"(blocks: {"tourch": (light: 9), "glow_moss": ()})"#);
+        let folder = game_folder_with(
+            r#"(blocks: {"tourch": (light: 9), "glow_moss": ()}, items: {"stik": (stack: 2)})"#,
+        );
         let (content, new) = Content::load_telling(folder.path(), None).unwrap();
         let told: Vec<String> = new.iter().map(ToString::to_string).collect();
         assert_eq!(
@@ -1207,7 +1344,14 @@ mod tests {
             [
                 "block \"glow_moss\" in extra.ron is new",
                 "block \"tourch\" in extra.ron is new; did you mean \"torch\"?",
-            ]
+                "item \"stik\" in extra.ron is new; did you mean \"stick\"?",
+            ],
+            "the items of the new blocks are not told apart"
+        );
+        assert_eq!(
+            content.item(ItemId::Stick).max_stack,
+            64,
+            "the stick is untouched"
         );
         assert_eq!(
             content.block(BlockId::Torch).light_emission,

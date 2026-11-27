@@ -14,7 +14,7 @@ mod look;
 
 pub(crate) use blocks::tool_bit;
 pub use blocks::BlockProps;
-pub use files::{ContentError, NewBlock};
+pub use files::{ContentError, NewName};
 pub use items::ItemProps;
 pub use look::{Behaviour, BlockFlags, Look, Shape, Sway, Tint};
 
@@ -41,6 +41,12 @@ pub struct Content {
     pub block_idents: Vec<String>,
     /// By `BlockId::index`: the blocks of `BlockId::ENGINE` first, in their order.
     pub blocks: Vec<BlockProps>,
+    /// The name of each item, by `ItemId::index`, as the files and the commands name it:
+    /// `oak_log`. What a world saves its items as.
+    pub item_names: Vec<String>,
+    /// The Rust name of each item, by `ItemId::index`, which names its texture, its key in the
+    /// language files and which RON writes it as: `OakLog`.
+    pub item_idents: Vec<String>,
     /// By `ItemId::index`: the items of `ItemId::ENGINE` first, in their order.
     pub items: Vec<ItemProps>,
 }
@@ -63,8 +69,8 @@ impl Content {
             .map(|index| BlockId::from_index(index as u16))
     }
 
-    /// What makes this content unfit to install, `None` when it is whole: a block of the
-    /// engine it lacks, a block without its name or Rust name, an item missing or too many.
+    /// What makes this content unfit to install, `None` when it is whole: a block or an item of
+    /// the engine it lacks, a block or an item without its name or Rust name.
     /// What a client checks of the content a server sends (`engine_mismatch`).
     pub fn flaw(&self) -> Option<String> {
         if self.blocks.len() < BlockId::ENGINE.len() {
@@ -80,27 +86,50 @@ impl Content {
                 self.block_idents.len()
             ));
         }
-        (self.items.len() != ItemId::ENGINE.len()).then(|| "not one entry per item".to_string())
+        if self.items.len() < ItemId::ENGINE.len() {
+            return Some("not one entry per item of the engine".to_string());
+        }
+        (self.item_names.len() != self.items.len() || self.item_idents.len() != self.items.len())
+            .then(|| {
+                format!(
+                    "not one name per item: {} items, {} names, {} Rust names",
+                    self.items.len(),
+                    self.item_names.len(),
+                    self.item_idents.len()
+                )
+            })
     }
 
     /// Why a game cannot play with this content, a server's: it is not whole (`flaw`), or the
-    /// blocks its engine names (`BlockId::ENGINE`) are not the first of the content, by the
-    /// same names. `None` when it can, whatever the content holds after them.
+    /// blocks and the items its engine names (`BlockId::ENGINE`, `ItemId::ENGINE`) are not the
+    /// first of the content, by the same names. `None` when it can, whatever the content holds
+    /// after them.
     pub fn engine_mismatch(&self) -> Option<String> {
         if let Some(flaw) = self.flaw() {
             return Some(format!("The content of the server is broken: {flaw}"));
         }
-        // whole: it names every block of the engine
-        let ours = BlockId::ENGINE.into_iter().map(files::engine_name);
-        let (number, theirs, ours) = ours
-            .zip(&self.block_names)
-            .enumerate()
-            .find(|(_, (ours, theirs))| ours != *theirs)
-            .map(|(number, (ours, theirs))| (number, theirs, ours))?;
-        Some(format!(
-            "The server and this game do not have the same blocks: block {number} is \
-             \"{theirs}\" on the server and \"{ours}\" in this game"
-        ))
+        // whole: it names every block and every item of the engine
+        let first_other = |kind: &str, ours: Vec<String>, theirs: &[String]| {
+            let (number, (ours, theirs)) = ours
+                .iter()
+                .zip(theirs)
+                .enumerate()
+                .find(|(_, (ours, theirs))| ours != theirs)?;
+            Some(format!(
+                "The server and this game do not have the same {kind}s: {kind} {number} is \
+                 \"{theirs}\" on the server and \"{ours}\" in this game"
+            ))
+        };
+        let blocks = BlockId::ENGINE
+            .into_iter()
+            .map(files::engine_name)
+            .collect();
+        let items = ItemId::ENGINE
+            .into_iter()
+            .map(files::engine_item_name)
+            .collect();
+        first_other("block", blocks, &self.block_names)
+            .or_else(|| first_other("item", items, &self.item_names))
     }
 
     /// Gives each of `names` the content does not define a block of its own, after the others:
@@ -117,10 +146,34 @@ impl Content {
         }
     }
 
-    /// The properties of the item `id`.
+    /// Gives each of `names` the content does not define an item of its own, after the others:
+    /// a placeholder (`ItemProps::PLACEHOLDER`), as for an item a world holds that the content
+    /// no longer has.
+    pub fn hold_item_places(&mut self, names: impl IntoIterator<Item = String>) {
+        for name in names {
+            if self.item_named(&name).is_none() {
+                self.item_idents.push(crate::utils::pascal_case(&name));
+                self.item_names.push(name);
+                self.items.push(ItemProps::PLACEHOLDER);
+            }
+        }
+    }
+
+    /// The properties of the item `id`, those of a placeholder for a number the content does
+    /// not define, as one a server of other content may send.
     #[inline]
     pub fn item(&self, id: ItemId) -> &ItemProps {
-        &self.items[id.index()]
+        self.items
+            .get(id.index())
+            .unwrap_or(&ItemProps::PLACEHOLDER)
+    }
+
+    /// The item named `name`, as the files name it.
+    pub fn item_named(&self, name: &str) -> Option<ItemId> {
+        self.item_names
+            .iter()
+            .position(|known| known == name)
+            .map(|index| ItemId::from_index(index as u16))
     }
 }
 
@@ -205,7 +258,7 @@ pub fn start(folder: &Path) -> Result<PathBuf, ContentError> {
     })?;
     let started = !CONTENT.load(Ordering::Acquire).is_null();
     let (loaded, new) = Content::load_telling(&folder, started.then(content))?;
-    tell_new_blocks(&new);
+    tell_new_names(&new);
     if !started {
         start_with(loaded);
     } else if !loaded.same_properties(content()) {
@@ -215,7 +268,7 @@ pub fn start(folder: &Path) -> Result<PathBuf, ContentError> {
 }
 
 /// Logs each of `new`: a warning for one that may be a typo.
-pub fn tell_new_blocks(new: &[NewBlock]) {
+pub fn tell_new_names(new: &[NewName]) {
     for block in new {
         if block.near.is_some() {
             bevy_log::warn!("{block}");
@@ -252,6 +305,7 @@ mod tests {
         assert_eq!(loaded.generation, 0);
         assert_eq!(loaded.blocks.len(), BlockId::ENGINE.len());
         assert_eq!(loaded.items.len(), ItemId::ENGINE.len());
+        assert_eq!(loaded.item_names.len(), ItemId::ENGINE.len());
     }
 
     #[test]
@@ -318,6 +372,39 @@ mod tests {
         broken.block_names.push("extra".to_string());
         let reason = broken.engine_mismatch().unwrap();
         assert!(reason.contains("not one name per block"), "{reason}");
+
+        let mut renamed = content().clone();
+        renamed.item_names[18] = "twig".to_string();
+        let reason = renamed.engine_mismatch().unwrap();
+        assert!(
+            reason.contains("item 18 is \"twig\" on the server and \"stick\" in this game"),
+            "{reason}"
+        );
+        let mut broken = content().clone();
+        broken.item_idents.pop();
+        let reason = broken.engine_mismatch().unwrap();
+        assert!(reason.contains("not one name per item"), "{reason}");
+    }
+
+    #[test]
+    fn an_item_a_world_holds_that_the_content_lacks_holds_its_place() {
+        let mut held = content().clone();
+        held.hold_item_places(["ruby".to_string(), "stick".to_string()]);
+        let ruby = ItemId::from_index(content().items.len() as u16);
+        assert_eq!(
+            held.items.len(),
+            content().items.len() + 1,
+            "the stick is known"
+        );
+        assert_eq!(held.item_named("ruby"), Some(ruby));
+        assert_eq!(held.item_idents[ruby.index()], "Ruby");
+        assert_eq!(*held.item(ruby), ItemProps::PLACEHOLDER);
+        assert_eq!(held.flaw(), None);
+        // a number no content defines reads as a placeholder
+        assert_eq!(
+            *content().item(ItemId::from_index(u16::MAX)),
+            ItemProps::PLACEHOLDER
+        );
     }
 
     #[test]
