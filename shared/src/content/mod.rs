@@ -63,30 +63,44 @@ impl Content {
             .map(|index| BlockId::from_index(index as u16))
     }
 
-    /// Why a game cannot play with this content, a server's: the blocks its engine names
-    /// (`BlockId::ENGINE`) are not the first of the content, by the same names. `None` when it
-    /// can, whatever the content holds after them.
-    pub fn engine_mismatch(&self) -> Option<String> {
-        let ours = BlockId::ENGINE.into_iter().map(files::engine_name);
-        for (number, ours) in ours.enumerate() {
-            match self.block_names.get(number) {
-                Some(theirs) if *theirs == ours => {}
-                Some(theirs) => {
-                    return Some(format!(
-                        "The server and this game do not have the same blocks: block {number} \
-                         is \"{theirs}\" on the server and \"{ours}\" in this game"
-                    ))
-                }
-                None => {
-                    return Some(format!(
-                        "The server and this game do not have the same blocks: the server has \
-                         {number}, this game names {}",
-                        BlockId::ENGINE.len()
-                    ))
-                }
-            }
+    /// What makes this content unfit to install, `None` when it is whole: a block of the
+    /// engine it lacks, a block without its name or Rust name, an item missing or too many.
+    /// What a client checks of the content a server sends (`engine_mismatch`).
+    pub fn flaw(&self) -> Option<String> {
+        if self.blocks.len() < BlockId::ENGINE.len() {
+            return Some("not one entry per block of the engine".to_string());
         }
-        None
+        if self.block_names.len() != self.blocks.len()
+            || self.block_idents.len() != self.blocks.len()
+        {
+            return Some(format!(
+                "not one name per block: {} blocks, {} names, {} Rust names",
+                self.blocks.len(),
+                self.block_names.len(),
+                self.block_idents.len()
+            ));
+        }
+        (self.items.len() != ItemId::ALL.len()).then(|| "not one entry per item".to_string())
+    }
+
+    /// Why a game cannot play with this content, a server's: it is not whole (`flaw`), or the
+    /// blocks its engine names (`BlockId::ENGINE`) are not the first of the content, by the
+    /// same names. `None` when it can, whatever the content holds after them.
+    pub fn engine_mismatch(&self) -> Option<String> {
+        if let Some(flaw) = self.flaw() {
+            return Some(format!("The content of the server is broken: {flaw}"));
+        }
+        // whole: it names every block of the engine
+        let ours = BlockId::ENGINE.into_iter().map(files::engine_name);
+        let (number, theirs, ours) = ours
+            .zip(&self.block_names)
+            .enumerate()
+            .find(|(_, (ours, theirs))| ours != *theirs)
+            .map(|(number, (ours, theirs))| (number, theirs, ours))?;
+        Some(format!(
+            "The server and this game do not have the same blocks: block {number} is \
+             \"{theirs}\" on the server and \"{ours}\" in this game"
+        ))
     }
 
     /// Gives each of `names` the content does not define a block of its own, after the others:
@@ -216,14 +230,11 @@ pub fn tell_new_blocks(new: &[NewBlock]) {
 ///
 /// # Panics
 ///
-/// If `new` does not define every block of the engine, or not one entry per item, which every
-/// read would trip on.
+/// If `new` is not whole (`Content::flaw`), which every read would trip on.
 pub fn install(mut new: Content) -> &'static Content {
-    assert!(
-        new.blocks.len() >= BlockId::ENGINE.len(),
-        "one entry per block of the engine"
-    );
-    assert_eq!(new.items.len(), ItemId::ALL.len(), "one entry per item");
+    if let Some(flaw) = new.flaw() {
+        panic!("{flaw}");
+    }
     let _installing = INSTALLING.lock().unwrap_or_else(PoisonError::into_inner);
     new.generation = content().generation + 1;
     let new = Box::leak(Box::new(new));
@@ -272,6 +283,14 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "not one name per block")]
+    fn an_install_of_a_table_without_a_name_per_block_fails() {
+        let mut nameless = content().clone();
+        nameless.block_idents.pop();
+        install(nameless);
+    }
+
+    #[test]
     fn a_game_plays_with_content_whose_engine_blocks_are_its_own() {
         let mut server = content().clone();
         server.hold_places(["glow_moss".to_string()]);
@@ -287,12 +306,22 @@ mod tests {
 
         let mut older = content().clone();
         older.block_names.truncate(10);
+        older.block_idents.truncate(10);
+        older.blocks.truncate(10);
         let reason = older.engine_mismatch().unwrap();
-        assert!(reason.contains("the server has 10"), "{reason}");
+        assert!(
+            reason.contains("not one entry per block of the engine"),
+            "{reason}"
+        );
+
+        let mut broken = content().clone();
+        broken.block_names.push("extra".to_string());
+        let reason = broken.engine_mismatch().unwrap();
+        assert!(reason.contains("not one name per block"), "{reason}");
     }
 
     #[test]
-    #[should_panic(expected = "one entry per block of the engine")]
+    #[should_panic(expected = "not one entry per block of the engine")]
     fn an_install_of_a_table_of_the_wrong_size_fails() {
         let mut short = content().clone();
         short.blocks.truncate(BlockId::ENGINE.len() - 1);
