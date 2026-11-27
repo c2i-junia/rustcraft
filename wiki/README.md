@@ -34,3 +34,35 @@ bun run data       # reads the game's tables again into src/lib/data/game.json (
 - Numbers are numbers of the game: read them from the code, give them in seconds and blocks, and
   write for a player, not a programmer. Facts the code does not settle are left out.
 - Content is in English, in sentence case.
+
+## Creature portraits
+
+`static/creatures/*.png` are rendered from the game's models by Blender, as found in the wild
+(without saddle, armour or chest). Render them again when a model changes:
+
+```sh
+blender -b -P wiki/scripts/render_creatures.py -- data/models/animated wiki/static/creatures [Kind…]
+```
+
+## Publishing
+
+The build is a folder of static files. On the VPS, beside the website: a DNS record
+`wiki.rustcraft.dev` (A and AAAA, like `hub`), the folder copied to `/srv/rustcraft-wiki`, and a
+block in `/etc/caddy/Caddyfile`:
+
+```caddy
+wiki.rustcraft.dev {
+    header Strict-Transport-Security "max-age=31536000"
+    root * /srv/rustcraft-wiki
+    try_files {path} {path}.html {path}/index.html
+    file_server
+    encode zstd gzip
+    handle_errors 404 {
+        rewrite * /404.html
+        file_server
+    }
+}
+```
+
+`try_files` serves `/items/iron-ingot` from `items/iron-ingot.html`; a page that does not exist
+gets `404.html`, which shows the wiki's own "No page here".
