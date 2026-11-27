@@ -23,9 +23,10 @@ use crate::world::weather::send_to_players;
 /// several steps, and a save may touch several files.
 const SETTLE: Duration = Duration::from_millis(200);
 
-/// The folder of the content files of the base game, in the assets.
-pub fn content_folder(paths: &GameFolderPaths) -> PathBuf {
-    shared::content::folder(&paths.assets_folder_path)
+/// The folder of the content files of the base game, in the assets: the one the game started
+/// on (`shared::content::start`), the source tree's when the assets have none.
+pub fn content_folder(paths: &GameFolderPaths) -> Option<PathBuf> {
+    shared::content::files_folder(&shared::content::folder(&paths.assets_folder_path))
 }
 
 /// The content files of a server that reads them (`ContentSource::Files`, `WatchedFiles`).
@@ -51,21 +52,20 @@ impl ContentFiles {
         if source == ContentSource::Initial {
             return None;
         }
-        let folder = content_folder(paths);
-        if !folder.is_dir() {
+        let Some(folder) = content_folder(paths) else {
             info!(
-                "No content files at {}: the content of the process is kept",
-                folder.display()
+                "No content files in {}: the content of the process is kept",
+                paths.assets_folder_path.display()
             );
-        } else {
-            match Content::load(&folder) {
-                Ok(new) => {
-                    if install_if_new(new) {
-                        info!("Content files of {} installed", folder.display());
-                    }
+            return None;
+        };
+        match Content::load(&folder) {
+            Ok(new) => {
+                if install_if_new(new) {
+                    info!("Content files of {} installed", folder.display());
                 }
-                Err(err) => error!("The content files are not used: {err}"),
             }
+            Err(err) => error!("The content files are not used: {err}"),
         }
         let mut files = Self::new(folder);
         if source == ContentSource::WatchedFiles {
@@ -243,5 +243,20 @@ mod tests {
             assets_folder_path: PathBuf::from("/nowhere"),
         };
         assert!(ContentFiles::start(&paths, ContentSource::Initial).is_none());
+    }
+
+    /// The files a game started on when its assets have none, the source tree's, are those the
+    /// server reads again on `/reload`.
+    #[test]
+    fn a_server_whose_assets_have_no_content_files_reads_those_the_game_started_on() {
+        let paths = GameFolderPaths {
+            game_folder_path: PathBuf::from("/nowhere"),
+            assets_folder_path: PathBuf::from("/nowhere"),
+        };
+        let files = ContentFiles::start(&paths, ContentSource::Files).unwrap();
+        let started =
+            shared::content::start(&shared::content::folder(&paths.assets_folder_path)).unwrap();
+        assert_eq!(files.folder, started);
+        assert!(files.folder.ends_with("data/content/rustcraft"));
     }
 }

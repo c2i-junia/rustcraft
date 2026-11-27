@@ -115,31 +115,30 @@ fn start_with(start: Content) -> &'static Content {
     }
 }
 
-/// Starts the process on the content files of `folder`, what a game does before anything reads
-/// its content: those of the source tree if `folder` does not exist, as under `cargo run`
-/// without the assets of a release. If the process already has content, the content of the
-/// files is installed over it, unless it is the same.
-pub fn start(folder: &Path) -> Result<&'static Content, ContentError> {
-    let source = source_folder();
-    let folder = if folder.is_dir() {
-        folder
-    } else if source.is_dir() {
-        &source
-    } else {
-        return Err(ContentError {
-            file: folder.to_path_buf(),
-            reason: "no such folder of content files".to_string(),
-        });
-    };
-    let loaded = Content::load(folder)?;
+/// The folder of content files a game whose assets hold `folder` reads: `folder`, or the
+/// source tree's if it does not exist, as under `cargo run` without the assets of a release.
+/// `None` if neither exists.
+pub fn files_folder(folder: &Path) -> Option<PathBuf> {
+    [folder.to_path_buf(), source_folder()]
+        .into_iter()
+        .find(|folder| folder.is_dir())
+}
+
+/// Starts the process on the content files of `files_folder(folder)`, what a game does before
+/// anything reads its content, and returns that folder. If the process already has content,
+/// the content of the files is installed over it, unless it is the same.
+pub fn start(folder: &Path) -> Result<PathBuf, ContentError> {
+    let folder = files_folder(folder).ok_or_else(|| ContentError {
+        file: folder.to_path_buf(),
+        reason: "no such folder of content files".to_string(),
+    })?;
+    let loaded = Content::load(&folder)?;
     if CONTENT.load(Ordering::Acquire).is_null() {
-        return Ok(start_with(loaded));
+        start_with(loaded);
+    } else if !loaded.same_properties(content()) {
+        install(loaded);
     }
-    if loaded.same_properties(content()) {
-        Ok(content())
-    } else {
-        Ok(install(loaded))
-    }
+    Ok(folder)
 }
 
 /// Makes `new` the content of the process, as the generation after the current one, and
@@ -177,9 +176,11 @@ mod tests {
         assert!(content().same_properties(&Content::load(&source_folder()).unwrap()));
         // started already: the same files change nothing
         let started = content();
-        assert!(start(&source_folder()).unwrap().same_properties(started));
-        assert!(
-            start(Path::new("/no/such/folder")).is_ok(),
+        assert_eq!(start(&source_folder()), Ok(source_folder()));
+        assert!(content().same_properties(started));
+        assert_eq!(
+            start(Path::new("/no/such/folder")),
+            Ok(source_folder()),
             "the source tree's instead"
         );
     }

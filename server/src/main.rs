@@ -1,7 +1,7 @@
 use std::net::{IpAddr, Ipv4Addr};
 use std::process::ExitCode;
 
-use bevy::log::{error, tracing_subscriber::EnvFilter, warn};
+use bevy::log::{error, info, tracing_subscriber::EnvFilter, warn};
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::Parser;
 use rustcraft_protocol::{check_hub_url, normalize_address, DEFAULT_HUB};
@@ -242,9 +242,12 @@ fn main() -> ExitCode {
 
     let game_folder_paths = get_game_folder_paths(args.game_folder_path, args.assets_folder_path);
     let content_folder = shared::content::folder(&game_folder_paths.assets_folder_path);
-    if let Err(err) = shared::content::start(&content_folder) {
-        error!("The content files cannot be read: {err}");
-        return ExitCode::FAILURE;
+    match shared::content::start(&content_folder) {
+        Ok(folder) => info!("Reading the content files of {}", folder.display()),
+        Err(err) => {
+            error!("The content files cannot be read: {err}");
+            return ExitCode::FAILURE;
+        }
     }
     let auth = match args.auth {
         AuthFlag::Offline => ServerAuth::Offline,
