@@ -3,7 +3,7 @@
 `just hot` runs the client under the Dioxus CLI (`dx serve --hot-patch`) with Bevy's
 `hotpatching` feature. Each time a `.rs` file of the workspace is saved, dx rebuilds the client
 and patches the new code into the running game: no restart, the world and the menus stay where
-they were.
+they were, and the screen shown is rebuilt with the new code.
 
 ## Setup
 
@@ -29,9 +29,28 @@ for fat link").
 
 Extra arguments go to dx: `just hot --interactive=false` prints a plain log instead of the TUI.
 
-Agents, or anyone not wanting a window on their desktop, can run the game in a headless
-compositor: `gamescope --backend headless -W 1280 -H 720 -- env -u WAYLAND_DISPLAY just hot
---interactive=false`.
+`just hot` is a tool for a human at the desktop. Agents never run dx on the desktop: they run it
+headless, for a bounded time, through `scripts/headless.sh`, which kills dx, cargo and the game
+together once the time has passed (a bare `timeout` around gamescope would leave the game
+running):
+
+```
+scripts/headless.sh 240 just hot --interactive=false
+```
+
+The first build under dx (its `desktop-dev` profile, Bevy built again) takes longer than a
+headless run: build it first, without running the game, then run `just hot`, which builds only
+the client again (about 20 s):
+
+```
+BEVY_ASSET_ROOT=$PWD/client timeout -k 10 1500 dx build --fat-binary \
+    -p client --bin client --no-default-features --features hot
+```
+
+To patch a running headless game, save a change to a `.rs` file while it runs: dx sees it as it
+would on the desktop. Run 2026-11-27 (load 50-70): the fat build took 312 s, `just hot` started
+the game 17 s after it was run, and a line added to `home_setup` was patched in 37 s, the main
+menu re-entered with it.
 
 ## What a patch reaches
 
@@ -44,7 +63,8 @@ which the client embeds, extracting assets, linking).
 | Body of a system of the client (`Update`, `FixedUpdate`, observers...) | yes, from its next run |
 | Body of a function of `shared` (or `server`) the client calls, even a small one | yes |
 | Setup function of a menu screen (`OnEnter(MenuState::X)`) | yes: the screen is rebuilt, see below |
-| Setup function of the HUD or of another `OnEnter(GameState::Game)` system | no: it ran already; leave the world and join it again |
+| Setup function of the HUD (`SpawnHud`) or of the pause menu | yes: they are rebuilt in game, see below |
+| Another `OnEnter(GameState::Game)` system (the chat, the clouds, the resets of a new world) | no: it ran already; leave the world and join it again |
 | `Startup` systems, plugins (`app.add_systems`, new systems, new resources) | no: restart |
 | Parameters of a system (a new `Res`, `Query`...) | no: the system keeps its OLD code, see below |
 | Type layouts (fields of a component, a resource, an enum) | no: restart (may crash) |
@@ -57,7 +77,32 @@ state runs `OnExit` (which despawns the screen, `DespawnOnExit`) and `OnEnter` (
 it with the patched code). What lived only in the screen's entities is lost: the focus goes
 back to the screen's `AutoFocus`, text typed in its fields and scroll positions are gone; what
 lives in resources stays. While a dialog is open, the screen waits for it to close: the dialog
-is not part of the screen and would be left over the new one. In game, nothing is re-entered.
+is not part of the screen and would be left over the new one.
+
+### In game
+
+In game, a patch rebuilds the HUD and the pause menu without leaving the world
+(`rebuild_in_game_screens` in `client/src/hot.rs`). The HUD's setup systems are in a schedule of
+their own, `SpawnHud` (`client/src/ui/hud/mod.rs`), which entering a world runs: the reticle, the
+panel at the bottom with the hotbar, the inventory and the bars over it, the item browser, the top
+right column with the minimap and the FPS counter, and the debug overlays. `respawn_hud`
+despawns the roots it spawned last and runs it again; the pause menu, if open, is despawned and
+spawned again by `spawn_pause_menu`. What lived only in their entities goes back to how it
+starts: the zoom of the minimap, the focus in the pause menu. Their systems that draw only what
+changed (the hearts, the drumsticks, the bubbles, the recharge gauge, the effects) remember the
+entity they drew in, so that a new HUD is drawn at once.
+
+The rebuild waits until nothing but the pause menu is open over the game: no inventory, chest
+or other panel, no settings or progress over the pause menu, no world map, death screen or
+dialog, and no text being typed. The inventory and the panels are part of the HUD, and what they
+hold (the stack held by the cursor, a search typed) would be lost; the settings and the other
+screens are not rebuilt and would be left over the new HUD. Close them and the HUD is rebuilt in
+the next frame.
+
+Not rebuilt: the chat, which keeps the lines received (spawned from messages read once, they
+could not be shown again), and the other systems of `OnEnter(GameState::Game)`, which also reset
+the state of a new world (the trade shown, the recharge, the frame times); leave the world and
+join it again for them.
 
 ### Changed parameters
 

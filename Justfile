@@ -86,9 +86,11 @@ test-fast:
     scripts/check.sh test-fast
 
 # Runs the client under the Dioxus CLI with hot patching: a saved change to a system's body is
-# patched into the running game, and the menu screen shown is rebuilt. Needs dioxus-cli 0.7.10
-# (`cargo install dioxus-cli --version 0.7.10 --locked`). Extra arguments go to dx, e.g.
-# `just hot --interactive=false` for a plain log (agents). See docs/HOT_RELOAD.md.
+# patched into the running game, and the screen shown is rebuilt (the menu screen, or the HUD and
+# the pause menu). Needs dioxus-cli 0.7.10 (`cargo install dioxus-cli --version 0.7.10 --locked`).
+# Extra arguments go to dx: `--interactive=false` prints a plain log. A tool for the owner, who
+# runs it on the desktop; agents run it headless only, as
+# `scripts/headless.sh 240 just hot --interactive=false`. See docs/HOT_RELOAD.md.
 hot *dx_args: create-game-folders
     # dx needs the linker arguments of a fresh build of the client: without this, a client left
     # unchanged since the last `just hot` fails to start ("Missing linker args for fat link")

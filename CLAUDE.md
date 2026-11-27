@@ -58,3 +58,6 @@ gamescope and leaves the game running, and the run never ends.
 
 To play at release speed with fast rebuilds, use `just play [client args]` (the `play` profile).
 Agents run it through `scripts/headless.sh` like any other command; the owner runs it directly.
+
+`just hot` (hot patching under dx, `docs/HOT_RELOAD.md`) is the owner's tool; agents run it only
+headless, as `scripts/headless.sh 240 just hot --interactive=false`.
