@@ -22,6 +22,7 @@ pub mod progress;
 pub mod save;
 pub mod simulation;
 pub mod ticks;
+pub mod treasure;
 pub mod unload;
 pub mod weather;
 pub mod writer;

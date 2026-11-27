@@ -369,6 +369,10 @@ pub(super) fn chat_message(
                         locator.start_dungeon(client_id, (seed.0, generation), kind, from)
                     }
                     Place::Village => locator.start_village(client_id, (seed.0, generation), from),
+                    Place::Wreck => locator.start_wreck(client_id, (seed.0, generation), from),
+                    Place::Cave(biome) => {
+                        locator.start_cave(client_id, (seed.0, generation), biome, from)
+                    }
                 },
                 &mut overflow,
             ),

@@ -1,0 +1,2 @@
+// As kelp_plant.png.mcmeta of Pixel Perfection CE: a frame every 3 ticks, without fading
+(frame_time: 3, interpolate: false)

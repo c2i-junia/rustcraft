@@ -66,8 +66,11 @@ const PUSH_CELL: f32 = 2.0;
 /// stays where it is.
 pub(super) fn walk_speed(kind: MobKind) -> f32 {
     match kind {
-        MobKind::Gnawer => 1.4,
+        MobKind::Gnawer | MobKind::Shardling | MobKind::Slagcrawler => 1.4,
         MobKind::Stumpling | MobKind::Drowner => 0.8,
+        MobKind::Mossback => 0.7,
+        // They swim (`swim::act`)
+        MobKind::Glintfin | MobKind::Shoalback => 0.0,
         MobKind::Bramble
         | MobKind::Roller
         | MobKind::Cinderling
@@ -96,7 +99,11 @@ fn flee_speed(kind: MobKind) -> f32 {
         | MobKind::Drowner
         | MobKind::Cinderling
         | MobKind::GustOwl
-        | MobKind::EmberMother => super::hostile::own_speed(kind),
+        | MobKind::EmberMother
+        | MobKind::Shardling
+        | MobKind::Slagcrawler => super::hostile::own_speed(kind),
+        MobKind::Glintfin | MobKind::Shoalback => super::swim::DART_SPEED,
+        MobKind::Mossback => 1.2,
         MobKind::Ember | MobKind::Arrow | MobKind::Boat | MobKind::Bobber => 0.0,
         // Never struck
         MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => 3.0,
@@ -128,6 +135,7 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time
         dropped_items,
         ..
     } = world_map.as_mut();
+    super::swim::school(mobs, &mut rand::thread_rng());
     let doors = step_mobs(
         mobs,
         chunks,
@@ -269,14 +277,15 @@ fn step_mob(
 fn floats(mob: &ServerMob, chunks: &ChunkMap) -> bool {
     mob.action == MobAction::Burrow
         || matches!(mob.kind, MobKind::Cinderling | MobKind::GustOwl)
-        || mob.kind == MobKind::Drowner && is_in_water(chunks, mob.position)
+        || (mob.kind == MobKind::Drowner || mob.kind.is_aquatic())
+            && is_in_water(chunks, mob.position)
 }
 
-/// Whether the cell of `position` holds water.
+/// Whether the cell of `position` holds water, a plant of the sea's included.
 pub(super) fn is_in_water(chunks: &ChunkMap, position: Vec3) -> bool {
     chunks
         .get_block(position.floor().as_ivec3())
-        .is_some_and(|block| block.id == BlockId::Water)
+        .is_some_and(|block| block.id.is_watery())
 }
 
 /// Whether `mob` goes faster than it ever goes by itself (`flee_speed`): only a portal flings
@@ -372,6 +381,10 @@ fn act(
     }
     // A boat only floats
     if mob.kind.is_vehicle() {
+        return None;
+    }
+    if mob.kind.is_aquatic() {
+        super::swim::act(mob, chunks, players, delta, rng);
         return None;
     }
     wander_or_flee(mob, chunks, players, delta, rng);

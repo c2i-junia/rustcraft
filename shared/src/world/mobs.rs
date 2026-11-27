@@ -52,10 +52,20 @@ pub enum MobKind {
     /// The float of a fishing rod (`crate::world::fishing`): a projectile, which plunges
     /// (`MobAction::Attack`) when a fish bites.
     Bobber,
+    /// Small bright fish of the reefs, in shoals (`is_aquatic`).
+    Glintfin,
+    /// Silver fish of the open sea, in shoals (`is_aquatic`).
+    Shoalback,
+    /// A slow shelled grazer of the damp caves, its back grown with moss.
+    Mossback,
+    /// A crab of crystal that guards the crystal caverns.
+    Shardling,
+    /// A crawler of slag of the basalt galleries, whose bite sets the player burning.
+    Slagcrawler,
 }
 
 impl MobKind {
-    pub const ALL: [MobKind; 25] = [
+    pub const ALL: [MobKind; 30] = [
         MobKind::Fox,
         MobKind::Sheep,
         MobKind::Cow,
@@ -81,6 +91,11 @@ impl MobKind {
         MobKind::EmberMother,
         MobKind::Boat,
         MobKind::Bobber,
+        MobKind::Glintfin,
+        MobKind::Shoalback,
+        MobKind::Mossback,
+        MobKind::Shardling,
+        MobKind::Slagcrawler,
     ];
 
     /// Whether mobs of this kind hunt the players (`crate::world::hostiles`), and appear in the
@@ -96,7 +111,15 @@ impl MobKind {
                 | MobKind::Cinderling
                 | MobKind::GustOwl
                 | MobKind::EmberMother
+                | MobKind::Shardling
+                | MobKind::Slagcrawler
         )
+    }
+
+    /// Whether mobs of this kind live in the water, which they swim in and do not leave: the
+    /// fish (`server::mob::swim`).
+    pub fn is_aquatic(self) -> bool {
+        matches!(self, MobKind::Glintfin | MobKind::Shoalback)
     }
 
     /// Whether this kind is a boss: hostile, but neither born, pushed, removed nor saved with the
@@ -161,6 +184,10 @@ impl MobKind {
             MobKind::Wolf | MobKind::Horse => 16,
             MobKind::Chicken | MobKind::Rabbit => 4,
             MobKind::Sheep => 8,
+            MobKind::Glintfin | MobKind::Shoalback => 3,
+            MobKind::Mossback => 14,
+            MobKind::Shardling => 12,
+            MobKind::Slagcrawler => 14,
         }
     }
 
@@ -259,6 +286,11 @@ impl MobKind {
             MobKind::EmberMother => "Ember Mother",
             MobKind::Boat => "Boat",
             MobKind::Bobber => "Bobber",
+            MobKind::Glintfin => "Glintfin",
+            MobKind::Shoalback => "Shoalback",
+            MobKind::Mossback => "Mossback",
+            MobKind::Shardling => "Shardling",
+            MobKind::Slagcrawler => "Slagcrawler",
         }
     }
 
@@ -304,6 +336,12 @@ impl MobKind {
             MobKind::Boat => Vec3::new(1.4, 0.6, 1.4),
             // `scripts/generate_bobber.py`: 4 voxels wide, 6 tall
             MobKind::Bobber => Vec3::new(0.25, 0.375, 0.25),
+            // The models of `scripts/generate_caverns.py`
+            MobKind::Glintfin => Vec3::new(0.4, 0.35, 0.4),
+            MobKind::Shoalback => Vec3::new(0.5, 0.35, 0.5),
+            MobKind::Mossback => Vec3::new(0.9, 0.7, 0.9),
+            MobKind::Shardling => Vec3::new(0.8, 0.6, 0.8),
+            MobKind::Slagcrawler => Vec3::new(0.9, 0.6, 0.9),
         }
     }
 }

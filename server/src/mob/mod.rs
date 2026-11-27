@@ -11,6 +11,7 @@ pub mod hostile;
 pub mod path;
 pub mod riding;
 pub mod spawning;
+mod swim;
 pub mod villager;
 pub mod wildlife;
 

@@ -1,0 +1,2 @@
+// As magma.png.mcmeta of Pixel Perfection CE: a frame every second, each fading into the next
+(frame_time: 20, interpolate: true)

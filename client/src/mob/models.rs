@@ -81,6 +81,12 @@ pub fn model(kind: MobKind) -> MobModel {
         MobKind::Boat => ("models/animated/Boat.glb", HOSTILE_CLIPS),
         // `scripts/generate_bobber.py`: it bobs, and plunges at a bite
         MobKind::Bobber => ("models/animated/Bobber.glb", HOSTILE_CLIPS),
+        // `scripts/generate_caverns.py`
+        MobKind::Glintfin => ("models/animated/Glintfin.glb", HOSTILE_CLIPS),
+        MobKind::Shoalback => ("models/animated/Shoalback.glb", HOSTILE_CLIPS),
+        MobKind::Mossback => ("models/animated/Mossback.glb", HOSTILE_CLIPS),
+        MobKind::Shardling => ("models/animated/Shardling.glb", HOSTILE_CLIPS),
+        MobKind::Slagcrawler => ("models/animated/Slagcrawler.glb", HOSTILE_CLIPS),
     };
     MobModel { path, clips }
 }

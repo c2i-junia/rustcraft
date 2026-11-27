@@ -9,8 +9,10 @@ use jungle::{GIANT_MARGIN, GIANT_SINK, GIANT_STEP};
 use shared::world::depths::{Underground, ROUGH_BEDROCK};
 
 mod animals;
+pub mod caverns;
 pub mod dungeon;
 mod jungle;
+pub mod ocean;
 mod ores;
 mod structure;
 pub mod village;
@@ -882,6 +884,10 @@ pub struct WorldGenerator {
     lair: Option<Lair>,
     /// How deep the world goes (`WorldGenSettings::deep`).
     underground: Underground,
+    /// The biomes of the deep caves.
+    caverns: caverns::Caverns,
+    /// The plants, the reefs, the fish and the wrecks of the seas.
+    seas: ocean::Seas,
 }
 
 impl WorldGenerator {
@@ -908,7 +914,19 @@ impl WorldGenerator {
             plans: Mutex::default(),
             dungeons: settings.dungeons,
             dungeon_plans: Mutex::default(),
+            caverns: caverns::Caverns::new(seed),
+            seas: ocean::Seas::new(seed),
         }
+    }
+
+    /// The biomes of the deep caves of the world.
+    pub fn caverns(&self) -> &caverns::Caverns {
+        &self.caverns
+    }
+
+    /// The wreck of `region`, if it holds one (`ocean::WRECK_REGION`).
+    pub fn wreck(&self, region: IVec2) -> Option<Arc<ocean::Wreck>> {
+        self.seas.wreck(&self.terrain, region)
     }
 
     /// How deep the world goes.
@@ -1031,6 +1049,12 @@ impl WorldGenerator {
                 self.dungeons_in(&DungeonKind::ALL, chunk_pos)
                     .flat_map(|plan| plan.chunk_containers(chunk_pos).collect::<Vec<_>>()),
             )
+            .chain(
+                self.seas
+                    .wrecks_near(&self.terrain, chunk_pos.xz())
+                    .iter()
+                    .flat_map(|wreck| wreck.chunk_containers(chunk_pos).collect::<Vec<_>>()),
+            )
             .collect()
     }
 
@@ -1074,12 +1098,22 @@ impl WorldGenerator {
     /// The animals born with the chunk at `chunk_pos` when it is generated (`animals`).
     pub fn chunk_animals(&self, chunk_pos: IVec3) -> Vec<ServerMob> {
         let chunk_origin = chunk_pos * CHUNK_SIZE;
+        // The creatures of the deep caves
+        if chunk_origin.y + CHUNK_SIZE - 1 < LOWEST_SURFACE - CAVE_ROOF.max(4) {
+            return self.caverns.chunk_creatures(
+                self.seed,
+                &self.caves,
+                self.underground,
+                chunk_pos,
+            );
+        }
         // Animals stand on the surface, which these chunks cannot hold
         if chunk_origin.y > HIGHEST_SURFACE || chunk_origin.y + CHUNK_SIZE - 1 < LOWEST_SURFACE {
             return Vec::new();
         }
         let columns = self.chunk_columns(chunk_pos.xz());
         let mut animals = animals::chunk_animals(self.seed, chunk_pos, &columns);
+        animals.extend(self.seas.chunk_fish(chunk_pos, &columns));
         for plan in &columns.villages {
             animals.extend(plan.chunk_animals(chunk_pos));
         }
@@ -1284,6 +1318,14 @@ impl WorldGenerator {
             }
         }
         ores::place_ores(self.seed, chunk_pos, &mut chunk, self.underground);
+        self.caverns.decorate(
+            self.seed,
+            &self.caves,
+            self.underground,
+            chunk_pos,
+            caves,
+            &mut chunk,
+        );
         for plan in self.dungeons_in(&DungeonKind::UNDERGROUND, chunk_pos) {
             plan.place_blocks(&mut chunk, chunk_pos);
         }
@@ -1363,6 +1405,7 @@ impl WorldGenerator {
                             );
                         }
                     }
+                    self.seas.decorate(&mut chunk, chunk_origin, column);
                 }
 
                 // decorations only grow upwards from the surface, but a giant's sunk trunk
@@ -1382,7 +1425,14 @@ impl WorldGenerator {
         for plan in &columns.villages {
             plan.place_blocks(&mut chunk, chunk_pos);
         }
+        for wreck in self.seas.wrecks_near(&self.terrain, chunk_pos.xz()) {
+            wreck.place_blocks(&mut chunk, chunk_pos);
+        }
         ores::place_ores(seed, chunk_pos, &mut chunk, self.underground);
+        // as `underground_chunk`, for a chunk of the deep caves made from its columns
+        let mask = caves.unwrap_or_else(|| self.caves.carve(chunk_origin));
+        self.caverns
+            .decorate(seed, &self.caves, self.underground, chunk_pos, mask, &mut chunk);
         for plan in self
             .dungeons_in(&DungeonKind::UNDERGROUND, chunk_pos)
             .chain(columns.ruin.clone())
@@ -2084,7 +2134,13 @@ mod tests {
                             assert_eq!(block.unwrap().level, 0, "a source");
                             lava += 1;
                         } else {
-                            assert_eq!(block, None, "({x}, {y}, {z})");
+                            // the biomes of the deep caves hang vines and grow crystals there
+                            let grown = block.is_some_and(|b| {
+                                matches!(b.id, BlockId::CaveVine | BlockId::CrystalCluster)
+                            });
+                            if !grown {
+                                assert_eq!(block, None, "({x}, {y}, {z})");
+                            }
                             air += 1;
                         }
                     }
@@ -2353,7 +2409,26 @@ mod tests {
                             });
                             // the leaves of a bush may hang over the mouth of a cave beside it
                             let over_a_cave = carved && actual == Some(BlockId::JungleLeaves);
-                            if !over_a_cave {
+                            // the seas and the deep caves change their own cells
+                            let pos = chunk_pos * CHUNK_SIZE + local;
+                            let of_the_seas = [actual, expected].iter().any(|block| {
+                                matches!(
+                                    block,
+                                    Some(
+                                        BlockId::Kelp
+                                            | BlockId::Seagrass
+                                            | BlockId::AzureReef
+                                            | BlockId::RoseReef
+                                            | BlockId::AmberReef
+                                            | BlockId::OakPlanks
+                                            | BlockId::SprucePlanks
+                                            | BlockId::SpruceLog
+                                            | BlockId::Chest
+                                    )
+                                )
+                            }) || actual == Some(BlockId::Water) && column.height < SEA_LEVEL;
+                            let of_the_caves = generator.caverns.biome_at(pos).is_some();
+                            if !over_a_cave && !of_the_seas && !of_the_caves {
                                 assert_eq!(
                                     actual, expected,
                                     "chunk {chunk_pos} local ({dx}, {dy}, {dz})"

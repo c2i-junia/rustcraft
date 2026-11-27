@@ -70,7 +70,8 @@ fn sunk(mob: &ServerMob, chunks: &ChunkMap) -> Option<f32> {
     if matches!(
         mob.kind,
         MobKind::Drowner | MobKind::Cinderling | MobKind::GustOwl
-    ) {
+    ) || mob.kind.is_aquatic()
+    {
         return None;
     }
     Some(water_surface(mob, chunks)? - WATERLINE * mob.height - feet(mob))

@@ -326,6 +326,31 @@ pub enum BlockId {
     /// The leaves of an apple tree, which drop apples now and then (`server::world::ticks`).
     AppleLeaves,
     AppleSapling,
+    // The oceans and the deep caves (`is_submerged`: the plants that grow under water)
+    /// A long weed of the sea floor, grown in columns, which sways under the water.
+    Kelp,
+    /// A tuft of grass of the sea floor.
+    Seagrass,
+    /// The blocks of the reefs, of three colours.
+    AzureReef,
+    RoseReef,
+    AmberReef,
+    /// The soft green floor of the damp caves.
+    Moss,
+    /// A vine that hangs from the roof of the damp caves.
+    CaveVine,
+    /// A block of crystal that glows, from the crystal caverns: it breaks into shards.
+    Glowcrystal,
+    /// A cluster of crystal points that grows on a floor or a roof of the crystal caverns, and
+    /// glows a little.
+    CrystalCluster,
+    /// The pale stone shell around the crystal caverns.
+    Geodestone,
+    /// The dark rock of the galleries near the lava.
+    Basalt,
+    PolishedBasalt,
+    /// A crust of cooling lava: it glows, and burns who stands on it without sneaking.
+    Magma,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -549,7 +574,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 283] = [
+    pub const ALL: [BlockId; 296] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -833,6 +858,19 @@ impl BlockId {
         BlockId::MapFrame,
         BlockId::AppleLeaves,
         BlockId::AppleSapling,
+        BlockId::Kelp,
+        BlockId::Seagrass,
+        BlockId::AzureReef,
+        BlockId::RoseReef,
+        BlockId::AmberReef,
+        BlockId::Moss,
+        BlockId::CaveVine,
+        BlockId::Glowcrystal,
+        BlockId::CrystalCluster,
+        BlockId::Geodestone,
+        BlockId::Basalt,
+        BlockId::PolishedBasalt,
+        BlockId::Magma,
     ];
 
     pub fn is_stairs(&self) -> bool {
@@ -891,6 +929,15 @@ impl BlockId {
             | Self::AcaciaSapling
             | Self::AppleSapling
             | Self::BerryBush => Some(&[Self::Dirt, Self::Grass, Self::TilledSoil]),
+            Self::Kelp => Some(&[
+                Self::Sand,
+                Self::Gravel,
+                Self::Clay,
+                Self::Dirt,
+                Self::Stone,
+                Self::Kelp,
+            ]),
+            Self::Seagrass => Some(&[Self::Sand, Self::Gravel, Self::Clay, Self::Dirt]),
             _ => None,
         }
     }
@@ -965,7 +1012,11 @@ impl BlockId {
             | Self::RipePotatoes
             | Self::Ladder
             | Self::Sign
-            | Self::Fire => BlockHitbox::None,
+            | Self::Fire
+            | Self::Kelp
+            | Self::Seagrass
+            | Self::CaveVine
+            | Self::CrystalCluster => BlockHitbox::None,
             Self::OakSlab | Self::HewnStoneSlab | Self::BrickSlab => BlockHitbox::Aabb(SLAB),
             Self::Lantern => BlockHitbox::Aabb(LANTERN),
             Self::Cocoa => BlockHitbox::Aabb(COCOA_POD),
@@ -1024,10 +1075,16 @@ impl BlockId {
             | Self::PotatoSprout
             | Self::YoungPotatoes
             | Self::TallPotatoes
-            | Self::RipePotatoes => BlockHitbox::Aabb(Aabb3d::new(
+            | Self::RipePotatoes
+            | Self::Seagrass
+            | Self::CrystalCluster => BlockHitbox::Aabb(Aabb3d::new(
                 Vec3A::splat(0.5).with_y(0.3),
                 Vec3A::splat(0.3),
             )),
+            // A stalk the height of its cell, as a column of kelp or a hanging vine is
+            Self::Kelp | Self::CaveVine => {
+                BlockHitbox::Aabb(Aabb3d::new(Vec3A::splat(0.5), Vec3A::new(0.3, 0.5, 0.3)))
+            }
             // The stick, a little wider to be easier to aim at
             Self::Torch => BlockHitbox::Aabb(Aabb3d::new(
                 Vec3A::new(0.5, 0.3, 0.5),
@@ -1166,6 +1223,14 @@ impl BlockId {
             Self::Campfire => 8,
             Self::UnlitCampfire => 8,
             Self::Sign => 6,
+            Self::Kelp | Self::Seagrass | Self::CaveVine => 1,
+            Self::AzureReef | Self::RoseReef | Self::AmberReef => 8,
+            Self::Moss => 4,
+            Self::Glowcrystal => 6,
+            Self::CrystalCluster => 3,
+            Self::Geodestone => 12,
+            Self::Basalt | Self::PolishedBasalt => 12,
+            Self::Magma => 8,
             // put out by the first hit: a break time of 0 would have no breaking stages
             Self::Fire => return Some(1),
             // Minecraft's hardness of 50 would be 500 hits, more than a `breaking_progress`
@@ -1225,6 +1290,15 @@ impl BlockId {
                     | Self::FullRainCistern
                     | Self::EngravingTable
                     | Self::Anvil
+                    | Self::AzureReef
+                    | Self::RoseReef
+                    | Self::AmberReef
+                    | Self::Glowcrystal
+                    | Self::CrystalCluster
+                    | Self::Geodestone
+                    | Self::Basalt
+                    | Self::PolishedBasalt
+                    | Self::Magma
             ),
             ToolKind::Axe => matches!(
                 *self,
@@ -1265,6 +1339,7 @@ impl BlockId {
                     | Self::Clay
                     | Self::RammedEarth
                     | Self::TilledSoil
+                    | Self::Moss
             ),
             ToolKind::Hoe | ToolKind::Sword => {
                 matches!(
@@ -1276,6 +1351,9 @@ impl BlockId {
                         | Self::WillowLeaves
                         | Self::AcaciaLeaves
                         | Self::AppleLeaves
+                        | Self::Moss
+                        | Self::Kelp
+                        | Self::CaveVine
                 )
             }
         }
@@ -1305,7 +1383,11 @@ impl BlockId {
             | Self::HewnStoneStairs
             | Self::BrickStairs
             | Self::EngravingTable
-            | Self::Anvil => 0,
+            | Self::Anvil
+            | Self::Geodestone
+            | Self::Basalt
+            | Self::PolishedBasalt
+            | Self::Magma => 0,
             Self::IronOre | Self::IronBlock | Self::TinOre | Self::TinBlock | Self::BronzeBlock => {
                 1
             }
@@ -1460,6 +1542,22 @@ impl BlockId {
             BlockId::EmberHeart => vec![(1, ItemId::EmberHeart, 1)],
             BlockId::EngravingTable => vec![(1, ItemId::EngravingTable, 1)],
             BlockId::Anvil => vec![(1, ItemId::Anvil, 1)],
+            BlockId::Kelp => vec![(1, ItemId::Kelp, 1)],
+            BlockId::Seagrass => vec![(1, ItemId::Seagrass, 1)],
+            BlockId::AzureReef => vec![(1, ItemId::AzureReef, 1)],
+            BlockId::RoseReef => vec![(1, ItemId::RoseReef, 1)],
+            BlockId::AmberReef => vec![(1, ItemId::AmberReef, 1)],
+            BlockId::Moss => vec![(1, ItemId::Moss, 1)],
+            BlockId::CaveVine => vec![(1, ItemId::CaveVine, 1)],
+            // 2 to 4 shards
+            BlockId::Glowcrystal => (2..=4).map(|nb| (1, ItemId::CrystalShard, nb)).collect(),
+            BlockId::CrystalCluster => {
+                vec![(2, ItemId::CrystalShard, 1), (1, ItemId::CrystalShard, 2)]
+            }
+            BlockId::Geodestone => vec![(1, ItemId::Geodestone, 1)],
+            BlockId::Basalt => vec![(1, ItemId::Basalt, 1)],
+            BlockId::PolishedBasalt => vec![(1, ItemId::PolishedBasalt, 1)],
+            BlockId::Magma => vec![(1, ItemId::Magma, 1)],
             // The other blocks of the palette drop their item, but glass, which breaks
             _ => match self.palette() {
                 Some(palette) if palette.base != BlockId::Glass => vec![(1, palette.item, 1)],
@@ -1494,6 +1592,22 @@ impl BlockId {
     /// Whether a block placed in the cell of this one takes its place.
     pub fn is_replaceable(&self) -> bool {
         matches!(*self, Self::Water | Self::Lava | Self::Fire)
+    }
+
+    /// Whether this block grows under water, which fills the rest of its cell: it is seen,
+    /// swum in and breathed in as water, only grows in water, and leaves water when broken.
+    pub fn is_submerged(&self) -> bool {
+        matches!(*self, Self::Kelp | Self::Seagrass)
+    }
+
+    /// Whether the cell of this block holds water: water, or a plant that grows in it.
+    pub fn is_watery(&self) -> bool {
+        *self == Self::Water || self.is_submerged()
+    }
+
+    /// Whether this block hangs from the block above it, rather than standing on the one below.
+    pub fn hangs(&self) -> bool {
+        *self == Self::CaveVine
     }
 
     pub fn get_visibility(&self) -> BlockTransparency {
@@ -1552,7 +1666,9 @@ impl BlockId {
             | Self::Campfire
             | Self::UnlitCampfire
             | Self::Sign
-            | Self::Fire => BlockTransparency::Decoration,
+            | Self::Fire
+            | Self::CaveVine
+            | Self::CrystalCluster => BlockTransparency::Decoration,
             Self::Glass
             | Self::OakLeaves
             | Self::SpruceLeaves
@@ -1560,7 +1676,8 @@ impl BlockId {
             | Self::WillowLeaves
             | Self::AcaciaLeaves
             | Self::AppleLeaves => BlockTransparency::Transparent,
-            Self::Water | Self::Lava => BlockTransparency::Liquid,
+            // Water fills the rest of their cell
+            Self::Water | Self::Lava | Self::Kelp | Self::Seagrass => BlockTransparency::Liquid,
             _ => BlockTransparency::Solid,
         }
     }
@@ -1586,6 +1703,9 @@ impl BlockId {
             Self::Lantern | Self::HangingLantern => 15,
             Self::Campfire => 13,
             Self::LitFurnace => 13,
+            Self::Glowcrystal => 12,
+            Self::CrystalCluster => 7,
+            Self::Magma => 3,
             _ => 0,
         }
     }
@@ -1610,7 +1730,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 283] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 296] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 3] = [BlockId::Bedrock, BlockId::Water, BlockId::Lava];
@@ -1733,6 +1853,19 @@ mod tests {
             | BlockId::MapFrame
             | BlockId::AppleLeaves
             | BlockId::AppleSapling
+            | BlockId::Kelp
+            | BlockId::Seagrass
+            | BlockId::AzureReef
+            | BlockId::RoseReef
+            | BlockId::AmberReef
+            | BlockId::Moss
+            | BlockId::CaveVine
+            | BlockId::Glowcrystal
+            | BlockId::CrystalCluster
+            | BlockId::Geodestone
+            | BlockId::Basalt
+            | BlockId::PolishedBasalt
+            | BlockId::Magma
             | crate::new_palette_blocks!() => {}
         }
     }
@@ -2073,6 +2206,19 @@ mod tests {
                 BlockId::MapFrame => 280,
                 BlockId::AppleLeaves => 281,
                 BlockId::AppleSapling => 282,
+                BlockId::Kelp => 283,
+                BlockId::Seagrass => 284,
+                BlockId::AzureReef => 285,
+                BlockId::RoseReef => 286,
+                BlockId::AmberReef => 287,
+                BlockId::Moss => 288,
+                BlockId::CaveVine => 289,
+                BlockId::Glowcrystal => 290,
+                BlockId::CrystalCluster => 291,
+                BlockId::Geodestone => 292,
+                BlockId::Basalt => 293,
+                BlockId::PolishedBasalt => 294,
+                BlockId::Magma => 295,
             };
             assert_eq!(encoded(&id), varint(expected), "{id:?}: {ENCODING_WARNING}");
         }
@@ -2582,7 +2728,11 @@ mod tests {
                 | BlockId::HewnStoneStairs
                 | BlockId::BrickStairs
                 | BlockId::EngravingTable
-                | BlockId::Anvil => Some(0),
+                | BlockId::Anvil
+                | BlockId::Geodestone
+                | BlockId::Basalt
+                | BlockId::PolishedBasalt
+                | BlockId::Magma => Some(0),
                 BlockId::IronOre
                 | BlockId::IronBlock
                 | BlockId::TinOre

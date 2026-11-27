@@ -134,6 +134,16 @@ impl MobKind {
                 forget: 24.0,
                 speed: 3.0,
             }),
+            MobKind::Shardling => Some(Hunt {
+                sight: 12.0,
+                forget: 20.0,
+                speed: 2.2,
+            }),
+            MobKind::Slagcrawler => Some(Hunt {
+                sight: 14.0,
+                forget: 22.0,
+                speed: 2.4,
+            }),
             // In her lair only: `mob::boss` finds her prey
             MobKind::EmberMother => Some(Hunt {
                 sight: 36.0,
@@ -190,6 +200,20 @@ impl MobKind {
             MobKind::Drowner => Some(Strike {
                 damage: 2,
                 reach: 1.5,
+                cooldown: 20,
+                knock_back: 0.0,
+            }),
+            // Its claws of crystal
+            MobKind::Shardling => Some(Strike {
+                damage: 3,
+                reach: 1.1,
+                cooldown: 20,
+                knock_back: 4.0,
+            }),
+            // Its bite also sets the player burning (`hostile::inflicted_effect`)
+            MobKind::Slagcrawler => Some(Strike {
+                damage: 2,
+                reach: 1.2,
                 cooldown: 20,
                 knock_back: 0.0,
             }),
@@ -311,7 +335,8 @@ pub const MOUNTAIN_HEIGHT: i32 = 100;
 /// Owls (1 in 2); on grass at night Stumplings, or in the
 /// woods Brambles and Stumplings half each; Rollers in the mountains, Gnawers (3 in 4) or
 /// Rollers in the caves, and in the deep caves Cinderlings (1 in 3); Drowners in water `DROWNER_DEPTH` deep, at `DROWNER_ODDS` by day and
-/// twice that at night. Each later kind adds its place here.
+/// twice that at night. Under a roof, on the basalt of the galleries Slagcrawlers (2 in 3), on
+/// the stone of the crystal caverns Shardlings (2 in 3). Each later kind adds its place here.
 pub fn spawn_kind(place: &SpawnPlace, rng: &mut impl Rng) -> Option<MobKind> {
     if place.water_depth > 0 {
         let (chances, draws) = DROWNER_ODDS;
@@ -326,6 +351,13 @@ pub fn spawn_kind(place: &SpawnPlace, rng: &mut impl Rng) -> Option<MobKind> {
         } else {
             MobKind::Stumpling
         })
+    } else if place.covered
+        && matches!(place.floor, BlockId::Basalt | BlockId::Magma)
+        && rng.gen_ratio(2, 3)
+    {
+        Some(MobKind::Slagcrawler)
+    } else if place.covered && place.floor == BlockId::Geodestone && rng.gen_ratio(2, 3) {
+        Some(MobKind::Shardling)
     } else if place.y > MOUNTAIN_HEIGHT {
         Some(MobKind::Roller)
     } else if place.covered

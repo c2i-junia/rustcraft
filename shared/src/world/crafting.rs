@@ -363,7 +363,15 @@ const RECIPES: &[Recipe] = &[
     Recipe { width: 3, cells: &[item(ItemId::MilkBucket), item(ItemId::Egg), item(ItemId::CocoaBeans), item(ItemId::Rye), item(ItemId::Rye), None], output: ItemId::CakeBatter, nb: 1, shapeless: true },
     Recipe { width: 2, cells: &[item(ItemId::Apple), item(ItemId::Apple), item(ItemId::Egg), item(ItemId::Rye)], output: ItemId::RawPie, nb: 1, shapeless: true },
     Recipe { width: 2, cells: &[item(ItemId::Fiber), item(ItemId::Fiber), item(ItemId::Dirt), None], output: ItemId::Compost, nb: 2, shapeless: true },
+    // The oceans and the deep caves
+    Recipe { width: 2, cells: &[SHARD, SHARD, SHARD, SHARD], output: ItemId::Glowcrystal, nb: 1, shapeless: false },
+    Recipe { width: 2, cells: &[BASALT, BASALT, BASALT, BASALT], output: ItemId::PolishedBasalt, nb: 4, shapeless: false },
+    Recipe { width: 3, cells: &[KELP, KELP, KELP], output: ItemId::Paper, nb: 2, shapeless: false },
 ];
+
+const SHARD: Option<Ingredient> = item(ItemId::CrystalShard);
+const BASALT: Option<Ingredient> = item(ItemId::Basalt);
+const KELP: Option<Ingredient> = item(ItemId::Kelp);
 
 /// The dyes a plant, a fuel or an ore gives, and how many: the green one is smelted from a
 /// cactus (`furnace::smelting_result`).
@@ -1181,7 +1189,8 @@ mod tests {
     #[test]
     fn every_recipe_is_listed_with_its_index_and_size() {
         let all: Vec<RecipeView> = recipes().collect();
-        assert_eq!(all.len(), 109 - 3 + 152 + 5 + 9 + 6);
+        // + 3: the glowing crystal, the polished basalt and the paper of kelp
+        assert_eq!(all.len(), 109 - 3 + 152 + 5 + 9 + 6 + 3);
         for (position, recipe) in all.iter().enumerate() {
             assert_eq!(recipe.index as usize, position);
             assert_eq!(recipe.cells.len(), recipe.width * recipe.height);

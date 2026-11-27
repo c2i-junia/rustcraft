@@ -154,6 +154,11 @@ mod tests {
         // the land west of the origin
         let animals = animals_around(seed, IVec2::new(-16, 40), 24);
         let mut by_kind: HashMap<MobKind, usize> = HashMap::new();
+        // the fish of the seas swim, and the Mossbacks live in the deep caves
+        let animals: Vec<_> = animals
+            .into_iter()
+            .filter(|animal| !animal.kind.is_aquatic())
+            .collect();
         for animal in &animals {
             *by_kind.entry(animal.kind).or_default() += 1;
             let feet = animal.position.y - animal.height / 2.0;
@@ -166,7 +171,10 @@ mod tests {
             assert!(column.height > SEA_LEVEL, "{animal:?}");
         }
         // 49 x 49 columns of chunks: a few herds of each kind, but no crowd
-        for kind in MobKind::ALL.into_iter().filter(|kind| kind.is_animal()) {
+        for kind in MobKind::ALL
+            .into_iter()
+            .filter(|kind| kind.is_animal() && !kind.is_aquatic() && *kind != MobKind::Mossback)
+        {
             let count = by_kind.get(&kind).copied().unwrap_or(0);
             assert!((3..1000).contains(&count), "{kind:?}: {count}");
         }

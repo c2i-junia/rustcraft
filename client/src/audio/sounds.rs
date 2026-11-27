@@ -68,7 +68,11 @@ impl SoundMaterial {
             | BlockId::YoungPotatoes
             | BlockId::TallPotatoes
             | BlockId::RipePotatoes
-            | BlockId::Bedroll => Self::Grass,
+            | BlockId::Bedroll
+            | BlockId::Kelp
+            | BlockId::Seagrass
+            | BlockId::Moss
+            | BlockId::CaveVine => Self::Grass,
             BlockId::Dirt | BlockId::Clay | BlockId::RammedEarth | BlockId::TilledSoil => {
                 Self::Dirt
             }
@@ -108,7 +112,14 @@ impl SoundMaterial {
             | BlockId::Obsidian
             | BlockId::EmberHeart
             | BlockId::EngravingTable
-            | BlockId::Anvil => Self::Stone,
+            | BlockId::Anvil
+            | BlockId::AzureReef
+            | BlockId::RoseReef
+            | BlockId::AmberReef
+            | BlockId::Geodestone
+            | BlockId::Basalt
+            | BlockId::PolishedBasalt
+            | BlockId::Magma => Self::Stone,
             BlockId::OakLog
             | BlockId::OakPlanks
             | BlockId::SpruceLog
@@ -144,7 +155,11 @@ impl SoundMaterial {
             | BlockId::AppleLeaves => Self::Leaves,
             BlockId::Sand | BlockId::Gravel => Self::Sand,
             BlockId::Snow => Self::Snow,
-            BlockId::Glass | BlockId::Ice | BlockId::GlassPane => Self::Glass,
+            BlockId::Glass
+            | BlockId::Ice
+            | BlockId::GlassPane
+            | BlockId::Glowcrystal
+            | BlockId::CrystalCluster => Self::Glass,
             BlockId::Water | BlockId::Lava | BlockId::Fire => return None,
             // as the block they are made of
             shared::new_palette_blocks!() => return Self::of(block.palette()?.base),
@@ -251,6 +266,11 @@ fn creature_folder(kind: MobKind) -> &'static str {
         MobKind::Cartographer => "cartographer",
         MobKind::Boat => "boat",
         MobKind::Bobber => "bobber",
+        MobKind::Glintfin => "glintfin",
+        MobKind::Shoalback => "shoalback",
+        MobKind::Mossback => "mossback",
+        MobKind::Shardling => "shardling",
+        MobKind::Slagcrawler => "slagcrawler",
     }
 }
 

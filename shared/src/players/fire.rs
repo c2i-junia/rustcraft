@@ -90,6 +90,16 @@ pub fn body_in_fire(world: &ChunkMap, player: &Player) -> bool {
     world.touches_block(&player.body(), BlockId::Fire)
 }
 
+/// Whether `player` stands on magma without sneaking, which burns it as a fire does.
+pub fn stands_on_magma(world: &ChunkMap, player: &Player) -> bool {
+    let feet = player.position - Vec3::Y * (player.height / 2.0 + 0.05);
+    player.on_ground
+        && !player.is_sneaking
+        && world
+            .get_block(feet.floor().as_ivec3())
+            .is_some_and(|block| block.id == BlockId::Magma)
+}
+
 /// Whether what burns on `player` is put out: its body touches water, or it rains (`raining`)
 /// on its head under the open sky.
 pub fn is_doused(world: &ChunkMap, player: &Player, raining: bool) -> bool {

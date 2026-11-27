@@ -1010,6 +1010,43 @@ regions of the players are looked at (`LoadedGenerator`), and those near enough 
 (`FramedMaps`). The maps are kept in `maps/<id>.map` of the world (bincode and lz4), written with
 the world; the frames in `places.ron` with the signs.
 
+### The seas and the deep caves
+
+`server/src/world/generation/ocean.rs` (`Seas`) adds the life of the seas to the generation, as
+a pure function of the seed and the place. Each column of an ocean biome decides its plants and
+its reef (`Seas::decorate`, after the terrain of the column): seagrass, a column of kelp whose top
+stays under the surface, or, where a slow noise peaks, a reef of the three colours. A column of
+chunks may hold a shoal of Glintfins (reefs, shallows) or Shoalbacks (`chunk_fish`, with the
+animals). A region of 320 blocks may hold a wreck (`site`, `layout`): a hull of planks 11 long
+on a sea floor 9 to 40 deep, turned, rotted, with a broken mast and a chest in its stern whose
+loot holds a `TreasureMap` of `ItemType::Treasure { at }`, the chest buried under two blocks of a
+column 24 to 72 blocks away, on a shore if one of a few tried is. The wrecks are cached by region
+and placed, with their containers, like a structure (`StructureBlocks`), from the regions around
+a chunk, since the treasure may lie in the next one. `world/treasure.rs` marks every 20 ticks the
+treasure of each treasure map a player holds as a marker named "X" of its waypoints.
+
+Kelp and seagrass grow in water (`BlockId::is_submerged`): their visibility is `Liquid`, so that
+they are swum in, breathed in and lit as water, and `is_watery` stands for water in the checks of
+the mobs. Placed only into water, broken they leave a water source. The client draws them as their
+plant among the blocks and the faces of a cell of water among the liquids (`VoxelShape::in_water`,
+`is_water_face`); a column of kelp sways as a whole.
+
+`generation/caverns.rs` (`Caverns`) gives the deep caves of a deep world, from height -1 down to
+-56, three biomes by two slow 3D noises (`biome_at`): damp caves (moss on the floors and the
+roofs, clay and moss on the walls, pools in the pits, cave vines hanging from the roofs), crystal
+caverns (a shell of geodestone with glowing crystal in it, clusters on the floors) and, below -18,
+galleries of basalt (magma on the floors, lava in the pits). `decorate` changes the rock next to
+the air of the caves (`Caves::carve`, the masks of the chunks around asked as needed) and the air
+itself after the ores, so that a cell is the same whichever chunk is generated first. The
+creatures: the Mossback, an animal, and the Shardling, a hostile, are born with their chunk
+(`chunk_creatures`); the Slagcrawler appears in the dark on basalt and magma (`spawn_kind`), as
+the Shardling on geodestone; its bite burns (`inflicted_effect`), as magma does who stands on it
+without sneaking (`fire::stands_on_magma`). The fish (`MobKind::is_aquatic`) live in
+`server/src/mob/swim.rs`: no gravity in water, still a while, then a swim to a spot nearby or back
+to the middle of their kind within 10 blocks (`school`), a dart away from a player within 4
+blocks; out of the water they flop toward it. `/locate` finds the nearest wreck by region and the
+nearest cell of a cave biome on a grid of 16 blocks at three heights.
+
 ### The progress of a player
 
 `players/progress.rs` (shared) is what a player achieved in a world, `Player::progress`, kept in its

@@ -152,6 +152,7 @@ pub fn register_systems(app: &mut App) {
             world::progress::progress_system,
             (
                 world::home::home_system,
+                world::treasure::treasure_maps_system,
                 world::cartography::cartography_system,
             )
                 .chain(),

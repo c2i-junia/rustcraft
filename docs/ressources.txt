@@ -79,6 +79,15 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
    sapling of the apple tree (blocks/AppleLeaves.png, blocks/AppleSapling.png), apples drawn on
    them. The fried egg is our own, drawn by the same script; the float of the rod
    (models/animated/Bobber.glb) is built by scripts/generate_bobber.py.
+-> The seas and the deep caves, from Pixel Perfection CE (https://github.com/Athemis/PixelPerfectionCE,
+   CC BY-SA 4.0): the kelp (blocks/Kelp.png from kelp_plant, items/Kelp.png), the seagrass
+   (blocks/Seagrass.png, items/Seagrass.png), the reefs (blocks/AzureReef.png, RoseReef.png and
+   AmberReef.png from tube_, brain_ and horn_coral_block), the basalt and the polished basalt
+   (blocks/Basalt.png, BasaltTop.png, PolishedBasalt.png, PolishedBasaltTop.png) and the magma
+   (blocks/Magma.png). The moss, the cave vine, the glowing crystal and its cluster, the stone of
+   the geodes, the crystal shard and the treasure map are our own, drawn by
+   scripts/generate_caverns_textures.py; the fish, the Mossback, the Shardling and the Slagcrawler
+   are built by scripts/generate_caverns.py, and their voices by scripts/generate_feature_sounds.py.
 -> The spawn eggs (items/*SpawnEgg.png) are our own,
    drawn by scripts/generate_spawn_eggs.py.
 -> The coin (items/Coin.png) and the directions (hud/directions.png) are our own,

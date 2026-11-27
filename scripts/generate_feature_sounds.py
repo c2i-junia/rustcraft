@@ -5,7 +5,8 @@ the breeding and the taming, a mob falling into water, and the stings of the pro
 reached, an achievement, a boss, the victory, the credits, a skin imported), and the critical
 blows and the sweeps of the melee, and the mounts: a saddle put on, a boat's oars and a blow on its
 hull, and the shield's parry and the crossbow's loading and shot, and the fishing: a rod cast,
-a bite and the line drawn in.
+a bite and the line drawn in; and the creatures of the seas and the deep caves: the fish, the
+Mossback, the Shardling and the Slagcrawler.
 
 Built with the primitives of `generate_sounds.py` (its seed, its loudness and its output), so
 that they sound of a piece with the others; every sound is synthesised here, entirely original
@@ -48,6 +49,7 @@ from generate_sounds import (
     outdoors,
     place_at,
     rubble,
+    sweep,
     t_axis,
     thump,
     vibrato,
@@ -592,6 +594,126 @@ def build_fishing_reel(rng):
     return finish(outdoors(rng, ratchet * 0.6 + water), -22)
 
 
+# --- the seas and the deep caves ---------------------------------------------
+
+def bubbles(rng, d, count, low, high):
+    """Small bubbles rising: short sine blips gliding up."""
+    out = np.zeros(n_of(d))
+    for offset in np.sort(rng.uniform(0.0, d - 0.06, count)):
+        f0 = rng.uniform(low, high)
+        length = rng.uniform(0.02, 0.05)
+        blip = sweep(length, f0, f0 * 1.8, 0.02) * env(length, 0.002, length / 3)
+        out += place_at(d, blip * rng.uniform(0.4, 1.0), offset)
+    return out
+
+
+def build_fish_cry(rng, low, high):
+    """A fish: a few bubbles, and the flick of its tail."""
+    d = 0.5
+    flick = band(colored(rng, d, 1), 400, 2500) * env(d, 0.004, 0.03)
+    return finish(bubbles(rng, d, 5, low, high) + place_at(d, flick * 0.3, rng.uniform(0.0, 0.2)), -24)
+
+
+def build_fish_hurt(rng, low, high):
+    """A fish struck: a wet slap and a burst of bubbles."""
+    d = 0.4
+    slap = band(white(rng, d), 600, 5000) * env(d, 0.0005, 0.02)
+    return finish(slap * 0.6 + bubbles(rng, d, 9, low * 1.2, high * 1.2), -19)
+
+
+def build_mossback_cry(rng):
+    """A slow grazer of the caves: a low, hollow hum from under its shell, and a damp crunch."""
+    d = 0.9
+    f0 = rng.uniform(70, 85) * curve(d, (0, 1.0), (0.5, 1.12), (d, 0.95))
+    hum = formants(glottal(rng, f0, 0.2), [(300, 1.0), (620, 0.5), (1100, 0.2)]) * env(d, 0.12, 0.35)
+    crunch = grains(rng, d, np.full(n_of(d), 40), 800, 4000, (0.0005, 0.002), 0.6, bands=3) * curve(d, (0, 0), (0.5, 0.2), (d, 0))
+    return finish(outdoors(rng, hum + crunch), -24)
+
+
+def build_mossback_hurt(rng):
+    d = 0.4
+    knock = thump(rng, d, 160, 70, 0.06) + modes(rng, d, [(410, 0.05, 1.0), (690, 0.03, 0.5)], 0.02) * 0.4
+    groan = formants(glottal(rng, np.full(n_of(d), 95.0), 0.25), [(350, 1.0), (700, 0.4)]) * env(d, 0.02, 0.12)
+    return finish(knock * 0.7 + groan * 0.6, -18)
+
+
+def crystal_chime(rng, d, f0, tau=0.25):
+    """A shard of crystal ringing: bright, glassy, slightly out of tune with itself."""
+    return modes(rng, d, [(f0, tau, 1.0), (f0 * 2.76, tau * 0.6, 0.5), (f0 * 5.4, tau * 0.3, 0.25)], 0.01)
+
+
+def build_shardling_cry(rng):
+    """Its legs of crystal tinkling as it shifts."""
+    d = 0.8
+    x = mix(np.zeros(n_of(d)), *(place_at(d, crystal_chime(rng, 0.4, rng.uniform(1800, 3200), 0.12) * rng.uniform(0.3, 0.8), t) for t in np.sort(rng.uniform(0, 0.5, 5))))
+    return finish(outdoors(rng, x), -25)
+
+
+def build_shardling_approach(rng):
+    """It skitters, its claws clicking on the stone, chiming."""
+    d = 1.2
+    clicks = grains(rng, d, np.full(n_of(d), 30), 2500, 9000, (0.0002, 0.0007), 0.5, bands=3)
+    chimes = mix(np.zeros(n_of(d)), *(place_at(d, crystal_chime(rng, 0.3, rng.uniform(2200, 3600), 0.08) * 0.4, t) for t in np.sort(rng.uniform(0, 1.0, 8))))
+    return finish(outdoors(rng, clicks * 0.5 + chimes), -21)
+
+
+def build_shardling_attack(rng):
+    """Its claw snapping shut: a hard click and a sharp ring."""
+    d = 0.4
+    snap = band(white(rng, d), 2500, 11000) * env(d, 0.0002, 0.003)
+    return finish(snap * 0.8 + crystal_chime(rng, d, 2600, 0.1) * 0.6, -16)
+
+
+def build_shardling_hurt(rng):
+    """A crack through its shell, and the ring of the split crystal."""
+    d = 0.45
+    crack = band(white(rng, d), 1500, 9000) * env(d, 0.0003, 0.01)
+    ring = crystal_chime(rng, d, 1900, 0.18) + crystal_chime(rng, d, 1900 * 1.06, 0.15)
+    return finish(crack * 0.7 + ring * 0.5, -17)
+
+
+def slag_hiss(rng, d, rate):
+    """Hot slag: a hiss over a crackle."""
+    hiss = band(white(rng, d), 2500, 8000) * 0.15
+    pops = grains(rng, d, np.full(n_of(d), rate), 900, 6000, (0.0005, 0.003), 0.9, bands=4)
+    return hiss + pops * 0.5
+
+
+def build_slagcrawler_cry(rng):
+    """It breathes out a hot hiss, its slag crackling."""
+    d = 0.9
+    breath = band(colored(rng, d, 1), 200, 1500) * env(d, 0.15, 0.3)
+    return finish(outdoors(rng, slag_hiss(rng, d, 30) * env(d, 0.05, 0.4) + breath * 0.5), -24)
+
+
+def build_slagcrawler_approach(rng):
+    """It crawls fast, grinding on the rock, hissing."""
+    d = 1.3
+    grind = grains(rng, d, np.full(n_of(d), 45), 150, 1500, (0.002, 0.006), 0.6, bands=3)
+    return finish(outdoors(rng, (slag_hiss(rng, d, 50) + grind * 0.6) * curve(d, (0, 0.3), (0.3, 1), (d, 1))), -21)
+
+
+def build_slagcrawler_attack(rng):
+    """A searing bite: a flare of hiss and a dull crunch."""
+    d = 0.45
+    flare = band(white(rng, d), 1500, 9000) * env(d, 0.01, 0.08)
+    crunch = thump(rng, d, 200, 80, 0.04) + band(white(rng, d), 600, 3000) * env(d, 0.0005, 0.01)
+    return finish(flare * 0.5 + place_at(d, crunch * 0.8, 0.05), -16)
+
+
+def build_slagcrawler_hurt(rng):
+    d = 0.4
+    crack = band(white(rng, d), 800, 6000) * env(d, 0.0005, 0.015)
+    return finish(crack * 0.6 + slag_hiss(rng, d, 80) * env(d, 0.002, 0.1) + thump(rng, d, 150, 60, 0.05) * 0.6, -17)
+
+
+FISH = {"glintfin": (1500, 2600), "shoalback": (700, 1300)}
+CAVE_CREATURES = {
+    "shardling": (build_shardling_cry, build_shardling_approach, build_shardling_attack, build_shardling_hurt),
+    "slagcrawler": (build_slagcrawler_cry, build_slagcrawler_approach, build_slagcrawler_attack, build_slagcrawler_hurt),
+}
+
+
 def main():
     write_ogg("armour/leather_on", build_leather_on)
     write_ogg("armour/leather_off", build_leather_off)
@@ -641,6 +763,19 @@ def main():
     write_ogg("fishing/cast", build_fishing_cast)
     write_ogg("fishing/bite", build_fishing_bite)
     write_ogg("fishing/reel", build_fishing_reel)
+    for fish, (low, high) in FISH.items():
+        for i in (1, 2):
+            write_ogg(f"mob/{fish}/cry{i}", build_fish_cry, low, high)
+        write_ogg(f"mob/{fish}/hurt", build_fish_hurt, low, high)
+    for i in (1, 2):
+        write_ogg(f"mob/mossback/cry{i}", build_mossback_cry)
+    write_ogg("mob/mossback/hurt", build_mossback_hurt)
+    for creature, (cry, approach, attack, hurt) in CAVE_CREATURES.items():
+        for i in (1, 2):
+            write_ogg(f"mob/{creature}/cry{i}", cry)
+        write_ogg(f"mob/{creature}/approach", approach)
+        write_ogg(f"mob/{creature}/attack", attack)
+        write_ogg(f"mob/{creature}/hurt", hurt)
 
 
 if __name__ == "__main__":

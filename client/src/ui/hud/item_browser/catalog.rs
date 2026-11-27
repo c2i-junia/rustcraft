@@ -107,7 +107,7 @@ mod tests {
         };
         assert!(items.is_sorted_by_key(rank));
         assert_eq!(items.first(), Some(&ItemId::Dirt));
-        assert_eq!(items.last(), Some(&ItemId::CartographerSpawnEgg));
+        assert_eq!(items.last(), Some(&ItemId::SlagcrawlerSpawnEgg));
         assert_eq!(
             found("", Some(Wood)),
             [
@@ -177,7 +177,7 @@ mod tests {
 
     #[test]
     fn a_hash_word_matches_the_category() {
-        assert_eq!(found("#tools", None).len(), 67);
+        assert_eq!(found("#tools", None).len(), 68);
         assert!(found("#tools", None)
             .iter()
             .all(|item| item.category() == Tools));

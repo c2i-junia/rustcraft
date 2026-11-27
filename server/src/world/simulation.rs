@@ -7,7 +7,7 @@ use shared::{
         blocks::CallerType,
         constants::EYE_HEIGHT,
         experience::smelting_experience,
-        fire::{body_in_fire, body_in_lava, is_doused},
+        fire::{body_in_fire, body_in_lava, is_doused, stands_on_magma},
         game_mode::{fall_damage, DamageSource, REGENERATION_TICKS},
         movement::FALL_LIMIT,
         progress::Achievement,
@@ -514,7 +514,7 @@ pub fn burn_system(mut world_map: ResMut<ServerWorldMap>, weather: Res<ServerWea
     for player in players.values_mut() {
         let in_lava = body_in_lava(chunks, player);
         player.bathe_in_lava(in_lava);
-        let in_fire = body_in_fire(chunks, player);
+        let in_fire = body_in_fire(chunks, player) || stands_on_magma(chunks, player);
         let doused = !in_lava && is_doused(chunks, player, raining);
         player.burn(in_fire, doused);
     }

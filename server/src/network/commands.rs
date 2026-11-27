@@ -10,6 +10,7 @@ use shared::{DAY_DURATION_IN_TICKS, MAX_INVENTORY_SLOTS, MIDNIGHT_IN_DAY, NOON_I
 
 use crate::init::ServerTime;
 use crate::network::permissions::{Admin, WhitelistAction};
+use crate::world::generation::caverns::CaveBiome;
 use crate::world::generation::dungeon::DungeonKind;
 use crate::world::weather::ServerWeather;
 
@@ -20,7 +21,7 @@ const TIME_USAGE: &str = "Usage: /time set <day|night>";
 const GIVE_USAGE: &str = "Usage: /give <item> <count>";
 const GAMEMODE_USAGE: &str = "Usage: /gamemode <creative|survival>";
 const WEATHER_USAGE: &str = "Usage: /weather <clear|rain|thunder>";
-const LOCATE_USAGE: &str = "Usage: /locate <biome|village|ruin|crypt|sanctuary> <biome>";
+const LOCATE_USAGE: &str = "Usage: /locate <biome|village|ruin|crypt|sanctuary|shipwreck|lush_caves|crystal_caves|basalt_galleries> <biome>";
 const DIFFICULTY_USAGE: &str = "Usage: /difficulty <peaceful|easy|normal|hard>";
 const OP_USAGE: &str = "Usage: /op <player>";
 const DEOP_USAGE: &str = "Usage: /deop <player>";
@@ -140,6 +141,10 @@ pub enum Place {
     Biome(String),
     Village,
     Dungeon(DungeonKind),
+    /// The wreck of a ship on the sea floor.
+    Wreck,
+    /// A biome of the deep caves.
+    Cave(CaveBiome),
 }
 
 /// The command in `message`, without its `/`, or `None` when it is an ordinary message.
@@ -176,6 +181,10 @@ pub fn parse_command(line: &str) -> Result<Command, String> {
         ["weather", ..] => Err(WEATHER_USAGE.to_string()),
         ["locate", "biome", biome] => Ok(Command::Locate(Place::Biome(biome.to_string()))),
         ["locate", "village"] => Ok(Command::Locate(Place::Village)),
+        ["locate", "shipwreck"] => Ok(Command::Locate(Place::Wreck)),
+        ["locate", place] if CaveBiome::from_name(place).is_some() => Ok(Command::Locate(
+            Place::Cave(CaveBiome::from_name(place).unwrap()),
+        )),
         ["locate", place] => DungeonKind::from_name(place)
             .map(|kind| Command::Locate(Place::Dungeon(kind)))
             .ok_or_else(|| LOCATE_USAGE.to_string()),

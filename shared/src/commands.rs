@@ -140,7 +140,17 @@ pub const COMMANDS: &[CommandSyntax] = &[
         name: "locate",
         // but for a biome, it stops after its first word
         args: &[
-            Arg::Word(&["biome", "village", "ruin", "crypt", "sanctuary"]),
+            Arg::Word(&[
+                "biome",
+                "village",
+                "ruin",
+                "crypt",
+                "sanctuary",
+                "shipwreck",
+                "lush_caves",
+                "crystal_caves",
+                "basalt_galleries",
+            ]),
             Arg::Biome,
         ],
     },
@@ -365,7 +375,7 @@ mod tests {
         assert_eq!(detail("list"), "");
         assert_eq!(
             detail("locate"),
-            "<biome|village|ruin|crypt|sanctuary> <biome>"
+            "<biome|village|ruin|crypt|sanctuary|shipwreck|lush_caves|crystal_caves|basalt_galleries> <biome>"
         );
         assert_eq!(detail("time"), "set <day|night>");
         assert_eq!(detail("weather"), "<clear|rain|thunder>");
@@ -388,7 +398,7 @@ mod tests {
         assert_eq!(texts(&completion), ["jungle", "jungle_edge"]);
         assert_eq!(
             completion.usage,
-            ["/locate", "<biome|village|ruin|crypt|sanctuary>", "<biome>"]
+            ["/locate", "<biome|village|ruin|crypt|sanctuary|shipwreck|lush_caves|crystal_caves|basalt_galleries>", "<biome>"]
         );
         assert_eq!(completion.current, Some(2));
         // the biome of a mod of the server, which only the server knows
@@ -397,7 +407,7 @@ mod tests {
         let completion = complete("/locate jungle", &[]).unwrap();
         assert_eq!(
             completion.error.as_deref(),
-            Some("Usage: /locate <biome|village|ruin|crypt|sanctuary> <biome>")
+            Some("Usage: /locate <biome|village|ruin|crypt|sanctuary|shipwreck|lush_caves|crystal_caves|basalt_galleries> <biome>")
         );
     }
 
@@ -471,10 +481,10 @@ mod tests {
             [
                 "saddle",
                 "sand",
+                "seagrass",
+                "shardling_spawn_egg",
                 "sheep_spawn_egg",
-                "shield",
-                "sign",
-                "slate"
+                "shield"
             ]
         );
         // `stone` is a value, the stone tools start with it, and `cobblestone` contains it
@@ -496,6 +506,7 @@ mod tests {
                 "cobblestone_low_wall",
                 "cobblestone_slab",
                 "cobblestone_stairs",
+                "geodestone",
                 "hewn_stone",
                 "hewn_stone_low_wall",
                 "hewn_stone_slab",

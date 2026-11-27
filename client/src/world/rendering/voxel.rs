@@ -4,7 +4,7 @@ use bevy::math::{IVec3, Vec3};
 use shared::world::blocks::{
     BEDROLL, CAMPFIRE, DOOR, HANGING_LANTERN, LANTERN, OPEN_DOOR, SIGN, SLAB, STAIR_BACK, TRAPDOOR,
 };
-use shared::world::{BlockData, BlockId, Form, Palette, VINE_GAP};
+use shared::world::{BlockData, BlockDirection, BlockId, Form, Palette, VINE_GAP};
 
 /// Specifies which position in the voxel this face occupies
 ///
@@ -229,6 +229,8 @@ impl VoxelShape {
             | BlockId::AcaciaLog
             | BlockId::Cactus
             | BlockId::Barrel
+            | BlockId::Basalt
+            | BlockId::PolishedBasalt
             | BlockId::Chest => {
                 let mut shape = Self::full_cube(block);
                 shape.faces[TOP].texture += "Top";
@@ -363,6 +365,12 @@ impl VoxelShape {
             BlockId::Cocoa => Self::pod(block),
             // Its texture is grey too. Lava's is orange: it stays a plain cube
             BlockId::Water => Self::full_cube(block).tinted(FaceColor::Water),
+            // A plant of the sea, then the water around it (`VoxelShape::is_water_face`): a
+            // column of kelp sways as a whole, so that its cells never part
+            BlockId::Kelp => Self::flora(block).swaying(Sway::Whole).in_water(),
+            BlockId::Seagrass => Self::flora(block).swaying(Sway::Top).in_water(),
+            BlockId::CaveVine => Self::flora(block).swaying(Sway::Whole),
+            BlockId::CrystalCluster => Self::flora(block),
             _ => Self::full_cube(block),
         }
     }
@@ -432,6 +440,20 @@ impl VoxelShape {
             }
         }
         self
+    }
+
+    /// The shape, and the faces of a cell of water around it, which come after its own.
+    fn in_water(mut self) -> Self {
+        let water = BlockData::new(BlockId::Water, BlockDirection::Front);
+        self.faces
+            .extend(Self::full_cube(&water).tinted(FaceColor::Water).faces);
+        self
+    }
+
+    /// Whether `face` of the shape of a block of `id` is of the water around
+    /// a plant of the sea: drawn with the liquids, while the plant is drawn with the blocks.
+    pub fn is_water_face(id: BlockId, face: &Face) -> bool {
+        id.is_submerged() && !matches!(face.direction, FaceDirection::Inset)
     }
 
     fn tinted(mut self, color: FaceColor) -> Self {

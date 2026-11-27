@@ -95,7 +95,10 @@ impl MobKind {
         match self {
             MobKind::Gnawer => 3,
             MobKind::Bramble => 4,
-            MobKind::Roller | MobKind::Stumpling => 5,
+            MobKind::Roller | MobKind::Stumpling | MobKind::Shardling => 5,
+            MobKind::Slagcrawler => 6,
+            MobKind::Mossback => 2,
+            MobKind::Glintfin | MobKind::Shoalback => 1,
             MobKind::Drowner | MobKind::Cinderling | MobKind::GustOwl => 6,
             MobKind::EmberMother => 500,
             _ => 0,

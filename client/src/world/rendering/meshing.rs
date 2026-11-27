@@ -695,7 +695,8 @@ fn chunk_faces(
         let Some(kind) = blocks.cells[index] else {
             continue;
         };
-        if is_block_surrounded(&blocks, index, kind) {
+        // A plant of the sea is seen through the water around it
+        if !kind.0.is_submerged() && is_block_surrounded(&blocks, index, kind) {
             continue;
         }
         let Some(block) = chunk.get(local_block_pos) else {
@@ -708,7 +709,6 @@ fn chunk_faces(
         // through, and the material of the liquids draws the waves and the mirror of water:
         // it goes with the solid faces, sloping as water
         let blended = visibility == BlockTransparency::Liquid && block.id != BlockId::Lava;
-        let mesh_creator = if blended { &mut liquid } else { &mut solid };
         // The cracks of a block being broken (stages 0 to 9) are drawn over each of its
         // faces. A custom texture folder may lack the texture: no cracks then.
         let cracks = (block.breaking_progress > 0)
@@ -716,7 +716,8 @@ fn chunk_faces(
             .flatten();
 
         let look = looks.get(block.id);
-        let corners = (visibility == BlockTransparency::Liquid)
+        // The water around a plant of the sea is under more water: whole
+        let corners = (visibility == BlockTransparency::Liquid && !block.id.is_submerged())
             .then(|| corner_heights(world_map, to_global_pos(chunk_pos, &local_block_pos)))
             .flatten();
         // Most of the surface of a liquid is level: its blocks share a few shapes
@@ -744,6 +745,10 @@ fn chunk_faces(
             let Some(tile) = *tile else {
                 continue;
             };
+            // The plant of a cell of water is drawn with the blocks, its water with the liquids
+            let blended =
+                blended && (!block.id.is_submerged() || VoxelShape::is_water_face(block.id, face));
+            let mesh_creator = if blended { &mut liquid } else { &mut solid };
             // An arm of a fence only reaches to what it connects to
             if let Some(step) = VoxelShape::arm_side(block.id, face_index) {
                 let next = world_map.get_block(block_pos + step);

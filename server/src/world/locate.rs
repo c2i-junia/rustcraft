@@ -12,7 +12,9 @@ use shared::messages::{FullChatMessage, ServerToClientMessage};
 use shared::utils::unix_time_ms;
 use shared::world::{BiomeId, TerrainNoises};
 
+use super::generation::caverns::{CaveBiome, Caverns};
 use super::generation::dungeon::{self, DungeonKind};
+use super::generation::ocean;
 use super::generation::{village, WorldGeneration, WorldGenerator};
 use super::pool::generation_pool;
 use crate::init::ServerLobby;
@@ -113,6 +115,74 @@ impl Locator {
                         )
                     }
                     None => format!("No village within {LOCATE_RADIUS} blocks"),
+                };
+                let _ = sender.send((client, answer));
+            })
+            .detach();
+        String::new()
+    }
+
+    /// Searches the nearest wreck to `from`, as [`Locator::start_village`] does: its chest.
+    pub fn start_wreck(
+        &self,
+        client: ClientId,
+        (seed, generation): (u32, &WorldGeneration),
+        from: Vec3,
+    ) -> String {
+        let sender = self.sender.clone();
+        let generation = generation.clone();
+        let from = from.floor().as_ivec3().xz();
+        generation_pool()
+            .spawn(async move {
+                let generator = generation.generator(seed);
+                let chest_of = |region| generator.wreck(region).map(|wreck| wreck.chest);
+                let region = ocean::region_of(from);
+                let nearest =
+                    nearest_of(region, ocean::WRECK_REGION, from, DUNGEON_RADIUS, chest_of);
+                let name = "shipwreck";
+                let answer = match nearest {
+                    Some(at) => {
+                        let distance = (at.xz() - from).as_vec2().length().round();
+                        format!(
+                            "The nearest {name} is at {} {} {}, {distance} blocks away",
+                            at.x, at.y, at.z
+                        )
+                    }
+                    None => format!("No {name} within {DUNGEON_RADIUS} blocks"),
+                };
+                let _ = sender.send((client, answer));
+            })
+            .detach();
+        String::new()
+    }
+
+    /// Searches the nearest place of the biome of the deep caves `biome` to `from`, as
+    /// [`Locator::start_village`] does.
+    pub fn start_cave(
+        &self,
+        client: ClientId,
+        (seed, generation): (u32, &WorldGeneration),
+        biome: CaveBiome,
+        from: Vec3,
+    ) -> String {
+        let name = biome.name();
+        if !generation.settings.deep {
+            return format!("No {name} within {DUNGEON_RADIUS} blocks");
+        }
+        let sender = self.sender.clone();
+        let from = from.floor().as_ivec3().xz();
+        generation_pool()
+            .spawn(async move {
+                let caverns = Caverns::new(seed);
+                let answer = match caverns.nearest(biome, from, DUNGEON_RADIUS) {
+                    Some(at) => {
+                        let distance = (at.xz() - from).as_vec2().length().round();
+                        format!(
+                            "The nearest {name} is at {} {} {}, {distance} blocks away",
+                            at.x, at.y, at.z
+                        )
+                    }
+                    None => format!("No {name} within {DUNGEON_RADIUS} blocks"),
                 };
                 let _ = sender.send((client, answer));
             })

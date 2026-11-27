@@ -4,6 +4,7 @@ use serde::de::value::{Error as ValueError, StrDeserializer};
 use serde::{Deserialize, Serialize};
 
 use super::{BlockId, Enchantments, GameElementId, ItemName, MobKind};
+use bevy::math::IVec3;
 
 /// Append only: never reorder or remove a variant. Player files store items by name (RON), but
 /// network messages carry the position of the variant (bincode), so another order breaks the
@@ -460,11 +461,35 @@ pub enum ItemId {
     ApplePie,
     /// Grows a crop by a stage, ripens a bush, and may grow a sapling at once.
     Compost,
+    // The oceans and the deep caves
+    Kelp,
+    Seagrass,
+    AzureReef,
+    RoseReef,
+    AmberReef,
+    Moss,
+    CaveVine,
+    Glowcrystal,
+    CrystalCluster,
+    Geodestone,
+    Basalt,
+    PolishedBasalt,
+    Magma,
+    /// What a glowing crystal breaks into.
+    CrystalShard,
+    /// Found in a wreck, of `ItemType::Treasure`: held, it marks where its chest is buried on
+    /// the maps of its holder.
+    TreasureMap,
+    GlintfinSpawnEgg,
+    ShoalbackSpawnEgg,
+    MossbackSpawnEgg,
+    ShardlingSpawnEgg,
+    SlagcrawlerSpawnEgg,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 398] = [
+    pub const ALL: [ItemId; 418] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -863,6 +888,26 @@ impl ItemId {
         Self::RawPie,
         Self::ApplePie,
         Self::Compost,
+        Self::Kelp,
+        Self::Seagrass,
+        Self::AzureReef,
+        Self::RoseReef,
+        Self::AmberReef,
+        Self::Moss,
+        Self::CaveVine,
+        Self::Glowcrystal,
+        Self::CrystalCluster,
+        Self::Geodestone,
+        Self::Basalt,
+        Self::PolishedBasalt,
+        Self::Magma,
+        Self::CrystalShard,
+        Self::TreasureMap,
+        Self::GlintfinSpawnEgg,
+        Self::ShoalbackSpawnEgg,
+        Self::MossbackSpawnEgg,
+        Self::ShardlingSpawnEgg,
+        Self::SlagcrawlerSpawnEgg,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -906,6 +951,7 @@ impl ItemId {
             // each map is its own, and a compass is one
             | Self::FilledMap
             | Self::Compass
+            | Self::TreasureMap
             | Self::MushroomSoup
             | Self::Stew
             | Self::BerrySalad
@@ -1043,6 +1089,11 @@ impl ItemId {
             Self::FarmerSpawnEgg => Some(MobKind::Farmer),
             Self::SmithSpawnEgg => Some(MobKind::Smith),
             Self::CartographerSpawnEgg => Some(MobKind::Cartographer),
+            Self::GlintfinSpawnEgg => Some(MobKind::Glintfin),
+            Self::ShoalbackSpawnEgg => Some(MobKind::Shoalback),
+            Self::MossbackSpawnEgg => Some(MobKind::Mossback),
+            Self::ShardlingSpawnEgg => Some(MobKind::Shardling),
+            Self::SlagcrawlerSpawnEgg => Some(MobKind::Slagcrawler),
             // Put down as a spawn egg, on the water it aims at
             Self::Boat => Some(MobKind::Boat),
             _ => None,
@@ -1160,6 +1211,14 @@ impl ItemId {
             | Self::Sign
             | Self::Obsidian
             | Self::EmberHeart
+            | Self::AzureReef
+            | Self::RoseReef
+            | Self::AmberReef
+            | Self::Glowcrystal
+            | Self::Geodestone
+            | Self::Basalt
+            | Self::PolishedBasalt
+            | Self::Magma
             | crate::new_palette_block_items!() => ItemCategory::Blocks,
             Self::OakLog
             | Self::SpruceLog
@@ -1192,7 +1251,12 @@ impl ItemId {
             | Self::AcaciaSapling
             | Self::BerryBush
             | Self::AppleSapling
-            | Self::AppleLeaves => ItemCategory::Nature,
+            | Self::AppleLeaves
+            | Self::Kelp
+            | Self::Seagrass
+            | Self::Moss
+            | Self::CaveVine
+            | Self::CrystalCluster => ItemCategory::Nature,
             Self::CoalOre
             | Self::IronOre
             | Self::GoldOre
@@ -1258,6 +1322,7 @@ impl ItemId {
             | Self::RawPie
             | Self::ApplePie
             | Self::Compost
+            | Self::CrystalShard
             | crate::dye_items!() => ItemCategory::Materials,
             Self::CraftingTable
             | Self::EngravingTable
@@ -1334,6 +1399,7 @@ impl ItemId {
             | Self::MilkBucket
             | Self::EmptyMap
             | Self::FilledMap
+            | Self::TreasureMap
             | Self::Compass => ItemCategory::Tools,
             | Self::FishingRod => ItemCategory::Tools,
             Self::FoxSpawnEgg
@@ -1355,7 +1421,12 @@ impl ItemId {
             | Self::GustOwlSpawnEgg
             | Self::FarmerSpawnEgg
             | Self::SmithSpawnEgg
-            | Self::CartographerSpawnEgg => ItemCategory::Mobs,
+            | Self::CartographerSpawnEgg
+            | Self::GlintfinSpawnEgg
+            | Self::ShoalbackSpawnEgg
+            | Self::MossbackSpawnEgg
+            | Self::ShardlingSpawnEgg
+            | Self::SlagcrawlerSpawnEgg => ItemCategory::Mobs,
         }
     }
 
@@ -1482,6 +1553,11 @@ impl ItemId {
             | Self::FarmerSpawnEgg
             | Self::SmithSpawnEgg
             | Self::CartographerSpawnEgg
+            | Self::GlintfinSpawnEgg
+            | Self::ShoalbackSpawnEgg
+            | Self::MossbackSpawnEgg
+            | Self::ShardlingSpawnEgg
+            | Self::SlagcrawlerSpawnEgg
             | Self::CocoaBeans
             | Self::IronIngot
             | Self::GoldIngot
@@ -1555,6 +1631,22 @@ impl ItemId {
             // the server gives each its id as it is drawn (`cartography`)
             Self::FilledMap => ItemType::Map { id: 0 },
             Self::MapFrame => ItemType::Block(BlockId::MapFrame),
+            Self::Kelp => ItemType::Block(BlockId::Kelp),
+            Self::Seagrass => ItemType::Block(BlockId::Seagrass),
+            Self::AzureReef => ItemType::Block(BlockId::AzureReef),
+            Self::RoseReef => ItemType::Block(BlockId::RoseReef),
+            Self::AmberReef => ItemType::Block(BlockId::AmberReef),
+            Self::Moss => ItemType::Block(BlockId::Moss),
+            Self::CaveVine => ItemType::Block(BlockId::CaveVine),
+            Self::Glowcrystal => ItemType::Block(BlockId::Glowcrystal),
+            Self::CrystalCluster => ItemType::Block(BlockId::CrystalCluster),
+            Self::Geodestone => ItemType::Block(BlockId::Geodestone),
+            Self::Basalt => ItemType::Block(BlockId::Basalt),
+            Self::PolishedBasalt => ItemType::Block(BlockId::PolishedBasalt),
+            Self::Magma => ItemType::Block(BlockId::Magma),
+            Self::CrystalShard => ItemType::Generic,
+            // the wreck that holds it gives it the place of its chest
+            Self::TreasureMap => ItemType::Treasure { at: IVec3::ZERO },
 
             Self::WoodenPickaxe
             | Self::WoodenAxe
@@ -1751,6 +1843,10 @@ pub enum ItemType {
     /// A paper map, and the id the server keeps its cells by (`cartography`).
     Map {
         id: super::cartography::MapId,
+    },
+    /// A treasure map, and where its chest is buried.
+    Treasure {
+        at: IVec3,
     },
 }
 
@@ -2175,6 +2271,26 @@ mod tests {
             (ItemId::RawPie, 395),
             (ItemId::ApplePie, 396),
             (ItemId::Compost, 397),
+            (ItemId::Kelp, 398),
+            (ItemId::Seagrass, 399),
+            (ItemId::AzureReef, 400),
+            (ItemId::RoseReef, 401),
+            (ItemId::AmberReef, 402),
+            (ItemId::Moss, 403),
+            (ItemId::CaveVine, 404),
+            (ItemId::Glowcrystal, 405),
+            (ItemId::CrystalCluster, 406),
+            (ItemId::Geodestone, 407),
+            (ItemId::Basalt, 408),
+            (ItemId::PolishedBasalt, 409),
+            (ItemId::Magma, 410),
+            (ItemId::CrystalShard, 411),
+            (ItemId::TreasureMap, 412),
+            (ItemId::GlintfinSpawnEgg, 413),
+            (ItemId::ShoalbackSpawnEgg, 414),
+            (ItemId::MossbackSpawnEgg, 415),
+            (ItemId::ShardlingSpawnEgg, 416),
+            (ItemId::SlagcrawlerSpawnEgg, 417),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -2416,7 +2532,27 @@ mod tests {
                 | ItemId::CocoaCake
                 | ItemId::RawPie
                 | ItemId::ApplePie
-                | ItemId::Compost => {}
+                | ItemId::Compost
+                | ItemId::Kelp
+                | ItemId::Seagrass
+                | ItemId::AzureReef
+                | ItemId::RoseReef
+                | ItemId::AmberReef
+                | ItemId::Moss
+                | ItemId::CaveVine
+                | ItemId::Glowcrystal
+                | ItemId::CrystalCluster
+                | ItemId::Geodestone
+                | ItemId::Basalt
+                | ItemId::PolishedBasalt
+                | ItemId::Magma
+                | ItemId::CrystalShard
+                | ItemId::TreasureMap
+                | ItemId::GlintfinSpawnEgg
+                | ItemId::ShoalbackSpawnEgg
+                | ItemId::MossbackSpawnEgg
+                | ItemId::ShardlingSpawnEgg
+                | ItemId::SlagcrawlerSpawnEgg => {}
             }
         }
         for (id, expected) in table {
@@ -2647,6 +2783,7 @@ mod tests {
             ItemId::Mace,
             ItemId::MilkBucket,
             ItemId::FilledMap,
+            ItemId::TreasureMap,
             ItemId::Compass,
             ItemId::FishingRod,
             ItemId::MushroomSoup,
@@ -2840,6 +2977,7 @@ mod tests {
                     | ItemId::MilkBucket
                     | ItemId::EmptyMap
                     | ItemId::FilledMap
+                    | ItemId::TreasureMap
                     | ItemId::Compass
                     | ItemId::FishingRod
             );

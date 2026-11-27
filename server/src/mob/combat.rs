@@ -469,6 +469,19 @@ fn kind_loot(mob: &ServerMob, rng: &mut impl Rng) -> Vec<(ItemId, u32)> {
             (ItemId::Flint, u32::from(rng.gen_ratio(1, 10))),
         ],
         MobKind::EmberMother => vec![(ItemId::EmberHeart, 1)],
+        // The fish of the seas give those of the rods (`world::fishing`)
+        MobKind::Glintfin if rng.gen_ratio(1, 4) => vec![(ItemId::RawGlowfin, 1)],
+        MobKind::Glintfin => vec![(ItemId::RawRoach, 1)],
+        MobKind::Shoalback => vec![(ItemId::RawPerch, 1)],
+        MobKind::Mossback => vec![
+            (ItemId::Moss, rng.gen_range(1..=2)),
+            (ItemId::Leather, u32::from(rng.gen_ratio(1, 3))),
+        ],
+        MobKind::Shardling => vec![(ItemId::CrystalShard, rng.gen_range(1..=3))],
+        MobKind::Slagcrawler => vec![
+            (ItemId::Coal, rng.gen_range(0..=2)),
+            (ItemId::Magma, u32::from(rng.gen_ratio(1, 4))),
+        ],
         // It breaks into the item it was put down from
         MobKind::Boat => vec![(ItemId::Boat, 1)],
         MobKind::Horse => vec![

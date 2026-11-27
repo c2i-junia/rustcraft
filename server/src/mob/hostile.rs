@@ -430,12 +430,14 @@ fn strike_player(mob: &ServerMob, player: &mut Player, strike: &Strike, away: Ve
 }
 
 /// The status effect the blow of a hostile of `kind` leaves, its level and its seconds: the
-/// Drowner's cold grip slows, the Bramble's thorns poison, the Gnawer's bite weakens.
+/// Drowner's cold grip slows, the Bramble's thorns poison, the Gnawer's bite weakens, the
+/// Slagcrawler's sets burning.
 pub fn inflicted_effect(kind: MobKind) -> Option<(EffectKind, u8, u32)> {
     match kind {
         MobKind::Drowner => Some((EffectKind::Slowness, 2, 6)),
         MobKind::Bramble => Some((EffectKind::Poison, 1, 6)),
         MobKind::Gnawer => Some((EffectKind::Weakness, 1, 10)),
+        MobKind::Slagcrawler => Some((EffectKind::Burn, 1, 4)),
         _ => None,
     }
 }

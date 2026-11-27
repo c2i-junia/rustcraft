@@ -31,6 +31,11 @@ EGGS = {
     "Farmer": ("#d9b65a", "#4f7a3a"),
     "Smith": ("#5a3a28", "#c8542a"),
     "Cartographer": ("#2f4f86", "#e8d9ae"),
+    "Glintfin": ("#f08a24", "#3fb6e0"),
+    "Shoalback": ("#9fb0bd", "#4d6a85"),
+    "Mossback": ("#6b5a44", "#5d8a33"),
+    "Shardling": ("#c9b6ef", "#7a54c8"),
+    "Slagcrawler": ("#2e2a28", "#e8611c"),
 }
 CENTRE_X, CENTRE_Y = 7.5, 8.5
 

@@ -221,7 +221,8 @@ custom_textures/blocks/Left, custom_textures/blocks/Right, custom_textures/block
   it used, and whether the lettering is too near Minecraft's logo, is unknown.
 - `background`: commit `04038a7e`, no source; not compared (160x96).
 - `blocks/SprucePlanks`, `items/Stick`: commit `40efc081`, no source; unlike any texture compared.
-- `blocks/Moss`: commit `4f123aa8`, no source; unlike any texture compared.
+- `blocks/Moss`: commit `4f123aa8`, no source; unlike any texture compared. Since replaced by one drawn by
+  `scripts/generate_caverns_textures.py`, for the moss of the damp caves.
 
 ## Fonts
 
@@ -232,12 +233,13 @@ custom_textures/blocks/Left, custom_textures/blocks/Right, custom_textures/block
 
 ## Sounds, music and models
 
-- The 226 files of `data/sounds/` and the 8 of `data/music/`: synthesised by `scripts/generate_sounds.py`,
-  `scripts/generate_feature_sounds.py` (the 55 of the armour, the bow, the experience, the engraving
+- The 245 files of `data/sounds/` and the 8 of `data/music/`: synthesised by `scripts/generate_sounds.py`,
+  `scripts/generate_feature_sounds.py` (the 74 of the armour, the bow, the experience, the engraving
   table, the anvil, the trade, the villagers, the breeding, the progress, the melee, the mounts, the
-  shield, the crossbow and the fishing) and `scripts/generate_music.py`, as commits `86973646`, `52050487`, `2396d533`, `75bd05c9` and others
+  shield, the crossbow and the fishing, and the voices of the fish and the creatures of the deep
+  caves) and `scripts/generate_music.py`, as commits `86973646`, `52050487`, `2396d533`, `75bd05c9` and others
   and `docs/ressources.txt` say. Not run again to compare their output.
-- The 30 models of `data/models/animated/`: built by `scripts/generate_{animals,sheep,hostiles,villagers,boat,bobber}.py`.
+- The 35 models of `data/models/animated/`: built by `scripts/generate_{animals,sheep,hostiles,villagers,boat,bobber,caverns}.py`.
   Not run again either.
 
 ## Added after the audit, from Nova_Wostra's pack (10)
@@ -274,6 +276,23 @@ items/GrilledEel (`cooked_salmon`), items/CakeBatter (`mushroom_stew`), items/Co
 items/RawPie, items/ApplePie (`pumpkin_pie`), items/Compost (`bone_meal`), blocks/AppleLeaves
 (`block/oak_leaves`, coloured green, apples drawn on it), blocks/AppleSapling (`block/oak_sapling`,
 apples drawn on it). Drawn by the script, MIT (1): items/FriedEgg.
+
+## Added after the audit, from Pixel Perfection CE (12)
+
+The seas and the deep caves, from the `master` branch of Pixel Perfection CE (CC BY-SA 4.0): the
+kelp (`kelp_plant`, animated, and the item `kelp`), the seagrass (`seagrass`, animated, and its
+item), the three reefs (`tube_coral_block`, `brain_coral_block`, `horn_coral_block`), the basalt
+and the polished basalt (`basalt_side`, `basalt_top`, `polished_basalt_side`, `polished_basalt_top`)
+and the magma (`magma`, animated).
+
+blocks/AmberReef, blocks/AzureReef, blocks/Basalt, blocks/BasaltTop, blocks/Kelp, blocks/Magma,
+blocks/PolishedBasalt, blocks/PolishedBasaltTop, blocks/RoseReef, blocks/Seagrass, items/Kelp,
+items/Seagrass
+
+Drawn by `scripts/generate_caverns_textures.py` (MIT): blocks/CaveVine, blocks/CrystalCluster,
+blocks/Geodestone, blocks/Glowcrystal, blocks/Moss, items/CrystalShard, items/TreasureMap; and by
+`scripts/generate_spawn_eggs.py` the eggs of the Glintfin, the Shoalback, the Mossback, the
+Shardling and the Slagcrawler.
 
 ## To do before the release
 

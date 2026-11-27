@@ -10,9 +10,9 @@ use crate::{
         furnace::smelting_result,
         global_block_to_chunk_pos,
         liquid::{is_source, Liquid, LAVA, WATER},
-        raycast, BlockData, BlockDirection, BlockId, BlockTransparency, ChunkMap, Container,
-        FaceDirectionExt, Form, Furnace, ItemId, ItemStack, ItemType, MobKind, PortalColor,
-        RaycastResponse, ServerMob, Tool, ToolKind,
+        raycast, BlockData, BlockDirection, BlockHitbox, BlockId, BlockTransparency, ChunkMap,
+        Container, FaceDirectionExt, Form, Furnace, ItemId, ItemStack, ItemType, MobKind,
+        PortalColor, RaycastResponse, ServerMob, Tool, ToolKind,
     },
     HALF_BLOCK, MAX_INVENTORY_SLOTS,
 };
@@ -529,6 +529,13 @@ fn break_block(
     let contents = world_map.take_container(position);
     let furnace = world_map.take_furnace(position);
     world_map.remove_block(position);
+    // A plant of the sea leaves the water it grew in
+    if block.id.is_submerged() {
+        world_map.set_block(
+            position,
+            BlockData::new(BlockId::Water, BlockDirection::Front),
+        );
+    }
     // The other half of a door goes with it
     if let Some((_, step)) = block.id.door() {
         let other = position + step;
@@ -763,6 +770,22 @@ fn place_block(
         if !below.is_some_and(|below| soils.contains(&below.id)) {
             return refused(Refusal::NoSoil(block_id));
         }
+    }
+    // A plant of the sea grows only in the water, a hanging vine only under a block
+    let in_water = world_map
+        .get_block(position)
+        .is_some_and(|block| block.id == BlockId::Water);
+    if block_id.is_submerged() && !in_water {
+        return refused(Refusal::NoSoil(block_id));
+    }
+    if block_id.hangs()
+        && !world_map
+            .get_block(position + IVec3::Y)
+            .is_some_and(|above| {
+                above.id == block_id || matches!(above.get_hitbox(), BlockHitbox::FullBlock)
+            })
+    {
+        return refused(Refusal::NoSoil(block_id));
     }
     if let Some(top) = block_id.door_top() {
         let above = position + IVec3::Y;
