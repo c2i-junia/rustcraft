@@ -474,10 +474,14 @@ fn a_broken_block_drops_an_item_that_the_player_picks_up() {
         .write_message(WindowEvent::MouseButtonInput(released));
     assert_eq!(slot(h.world(), 0), None);
 
-    // Its item appears where the block was, then the player walks to it and picks it up
+    // Its item appears where the block was, then the player walks to it and picks it up. One
+    // that fell within reach may be picked up in the frame it is shown: a client under load
+    // draws few frames, and the pick-up waits only half a second.
     h.wait_until("the dropped item", SERVER, |w| {
-        w.try_query::<&DroppedItemRoot>()
-            .is_some_and(|mut items| items.iter(w).count() == 1)
+        let shown = w
+            .try_query::<&DroppedItemRoot>()
+            .is_some_and(|mut items| items.iter(w).count() == 1);
+        shown || slot(w, 0) == Some((ItemId::Dirt, 1))
     });
     // It pops out in a random direction: the player turns toward it on every frame
     h.key_down(KeyCode::KeyW);

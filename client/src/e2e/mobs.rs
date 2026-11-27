@@ -179,8 +179,10 @@ fn a_gnawer_hatched_next_to_a_survival_player_bites_it() {
             .any(|&(kind, at)| kind == MobKind::Gnawer && at.distance(player) < 5.0)
     });
     h.wait_until("a bite", SERVER, |w| local_player(w).health < MAX_HEALTH);
+    // Not the 2 points of a bite to the point: a client under load may see the health after
+    // a bite and a point regained
     let health = local_player(h.world()).health;
-    assert!(health > 0 && health.is_multiple_of(2), "health {health}");
+    assert!(health > 0, "health {health}");
     h.snapshot("bitten");
 
     // It bites on to the death, 2 points every 15 ticks
