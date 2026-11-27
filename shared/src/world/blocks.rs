@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::{decor::DecorKind, palette::Form, GameElementId, ItemId, Tool, ToolKind};
+use super::{palette::Form, GameElementId, ItemId, Tool, ToolKind};
 use bevy::math::{bounding::Aabb3d, IVec3, Vec3A};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -519,13 +519,6 @@ impl BlockDirection {
 
 /// How far a vine's plate lies from the face of the block that holds it, inside its own cell.
 pub const VINE_GAP: f32 = 1.0 / 16.0;
-
-/// The box of a cocoa pod held on its front, in its cell: 8 sixteenths wide, 9 high and 8
-/// deep, 1/16 off the block that holds it, as Minecraft's `cocoa_stage2` model draws it.
-const COCOA_POD: Aabb3d = Aabb3d {
-    min: Vec3A::new(4.0 / 16.0, 3.0 / 16.0, 1.0 / 16.0),
-    max: Vec3A::new(12.0 / 16.0, 12.0 / 16.0, 9.0 / 16.0),
-};
 
 /// The lower half of its cell.
 pub const SLAB: Aabb3d = Aabb3d {
@@ -1122,27 +1115,10 @@ impl BlockId {
         self.props().tall
     }
 
-    /// `is_tall` as the code writes it, which `Content::builtin` fills the table with.
-    pub(crate) fn builtin_is_tall(&self) -> bool {
-        *self == Self::Fence
-            || matches!(
-                self.builtin_palette().map(|palette| palette.form),
-                Some(Form::LowWall | Form::FenceGate { open: false })
-            )
-    }
-
     /// Whether this is a glass, plain or stained, which a pane reaches out to.
     #[inline]
     pub fn is_glass(&self) -> bool {
         self.props().glass
-    }
-
-    /// `is_glass` as the code writes it, which `Content::builtin` fills the table with.
-    pub(crate) fn builtin_is_glass(&self) -> bool {
-        *self == Self::Glass
-            || self
-                .builtin_palette()
-                .is_some_and(|palette| palette.form == Form::Cube && palette.base == Self::Glass)
     }
 
     /// Whether this block holds a `Container`.
@@ -1151,58 +1127,16 @@ impl BlockId {
         self.props().container
     }
 
-    /// `is_container` as the code writes it, which `Content::builtin` fills the table with.
-    pub(crate) fn builtin_is_container(&self) -> bool {
-        matches!(*self, Self::Chest | Self::Barrel)
-    }
-
     /// The sapling the leaves sometimes drop.
     #[inline]
     pub fn sapling(&self) -> Option<ItemId> {
         self.props().sapling
     }
 
-    /// `sapling` as the code writes it, which `Content::builtin` fills the table with.
-    pub(crate) fn builtin_sapling(&self) -> Option<ItemId> {
-        match *self {
-            Self::OakLeaves => Some(ItemId::OakSapling),
-            Self::SpruceLeaves => Some(ItemId::SpruceSapling),
-            Self::JungleLeaves => Some(ItemId::JungleSapling),
-            Self::WillowLeaves => Some(ItemId::WillowSapling),
-            Self::AcaciaLeaves => Some(ItemId::AcaciaSapling),
-            Self::AppleLeaves => Some(ItemId::AppleSapling),
-            _ => None,
-        }
-    }
-
     /// The blocks this one may be planted on, if it only stands on some.
     #[inline]
     pub fn soil(&self) -> Option<&'static [BlockId]> {
         self.props().soil.as_deref()
-    }
-
-    /// `soil` as the code writes it, which `Content::builtin` fills the table with.
-    pub(crate) fn builtin_soil(&self) -> Option<&'static [BlockId]> {
-        match *self {
-            Self::RyeSprout | Self::CarrotSprout | Self::PotatoSprout => Some(&[Self::TilledSoil]),
-            Self::OakSapling
-            | Self::SpruceSapling
-            | Self::JungleSapling
-            | Self::WillowSapling
-            | Self::AcaciaSapling
-            | Self::AppleSapling
-            | Self::BerryBush => Some(&[Self::Dirt, Self::Grass, Self::TilledSoil]),
-            Self::Kelp => Some(&[
-                Self::Sand,
-                Self::Gravel,
-                Self::Clay,
-                Self::Dirt,
-                Self::Stone,
-                Self::Kelp,
-            ]),
-            Self::Seagrass => Some(&[Self::Sand, Self::Gravel, Self::Clay, Self::Dirt]),
-            _ => None,
-        }
     }
 
     /// The other blocks a fence, a low wall or a pane reaches out to: the whole blocks, and
@@ -1219,192 +1153,14 @@ impl BlockId {
         }
     }
 
-    fn low_box(&self) -> Aabb3d {
-        match *self {
-            Self::Bedroll => BEDROLL,
-            Self::Campfire | Self::UnlitCampfire => CAMPFIRE,
-            _ => SLAB,
-        }
-    }
-
     #[inline]
     pub fn get_hitbox(&self) -> BlockHitbox {
         self.props().hitbox
     }
 
-    /// `get_hitbox` as the code writes it, which `Content::builtin` fills the table with.
-    pub(crate) fn builtin_hitbox(&self) -> BlockHitbox {
-        if let Some(decor) = self.decor() {
-            return decor.kind.hitbox();
-        }
-        if let Some(palette) = self.builtin_palette() {
-            return match palette.form {
-                Form::Slab | Form::Stairs => BlockHitbox::Aabb(SLAB),
-                Form::LowWall => BlockHitbox::Aabb(FENCE),
-                Form::Door { open: false, .. } | Form::Trapdoor { open: true } => {
-                    BlockHitbox::Aabb(DOOR)
-                }
-                // Folded against the side of the doorway, it would leave the player barely
-                // wider room than its body: it is walked through, as an open gate is
-                Form::Door { open: true, .. } => BlockHitbox::None,
-                Form::Trapdoor { open: false } => BlockHitbox::Aabb(TRAPDOOR),
-                Form::FenceGate { open: false } => BlockHitbox::Aabb(FENCE_GATE),
-                Form::FenceGate { open: true } => BlockHitbox::None,
-                Form::Pane | Form::Cube => palette.base.builtin_hitbox(),
-            };
-        }
-        match *self {
-            Self::Water
-            | Self::Lava
-            | Self::TallGrass
-            | Self::Fern
-            | Self::Poppy
-            | Self::Dandelion
-            | Self::Torch
-            | Self::WallTorch
-            | Self::Vine
-            | Self::Reed
-            | Self::Heather
-            | Self::Mushroom
-            | Self::OakSapling
-            | Self::SpruceSapling
-            | Self::JungleSapling
-            | Self::WillowSapling
-            | Self::AcaciaSapling
-            | Self::AppleSapling
-            | Self::BerryBush
-            | Self::RipeBerryBush
-            | Self::RyeSprout
-            | Self::YoungRye
-            | Self::RipeRye
-            | Self::CarrotSprout
-            | Self::YoungCarrots
-            | Self::TallCarrots
-            | Self::RipeCarrots
-            | Self::PotatoSprout
-            | Self::YoungPotatoes
-            | Self::TallPotatoes
-            | Self::RipePotatoes
-            | Self::Ladder
-            | Self::Sign
-            | Self::Fire
-            | Self::Kelp
-            | Self::Seagrass
-            | Self::CaveVine
-            | Self::CrystalCluster => BlockHitbox::None,
-            Self::OakSlab | Self::HewnStoneSlab | Self::BrickSlab => BlockHitbox::Aabb(SLAB),
-            Self::Lantern => BlockHitbox::Aabb(LANTERN),
-            Self::Cocoa => BlockHitbox::Aabb(COCOA_POD),
-            Self::OakStairs
-            | Self::HewnStoneStairs
-            | Self::BrickStairs
-            | Self::Bedroll
-            | Self::Campfire
-            | Self::UnlitCampfire => BlockHitbox::Aabb(self.low_box()),
-            Self::Door | Self::DoorTop => BlockHitbox::Aabb(DOOR),
-            // see `Form::Door` above
-            Self::OpenDoor | Self::OpenDoorTop => BlockHitbox::None,
-            Self::HangingLantern => BlockHitbox::Aabb(HANGING_LANTERN),
-            // Its arms are too high to be jumped over
-            Self::Fence => BlockHitbox::Aabb(FENCE),
-            _ => BlockHitbox::FullBlock,
-        }
-    }
-
     #[inline]
     pub fn get_ray_hitbox(&self) -> BlockHitbox {
         self.props().ray_hitbox
-    }
-
-    /// `get_ray_hitbox` as the code writes it, which `Content::builtin` fills the table with.
-    pub(crate) fn builtin_ray_hitbox(&self) -> BlockHitbox {
-        if let Some(decor) = self.decor() {
-            return decor.kind.ray_hitbox();
-        }
-        if let Some(palette) = self.builtin_palette() {
-            return match palette.form {
-                // a gate is aimed at open or shut, below the height it blocks
-                Form::FenceGate { .. } => BlockHitbox::Aabb(Aabb3d {
-                    max: FENCE_GATE.max.with_y(1.0),
-                    ..FENCE_GATE
-                }),
-                Form::Stairs | Form::LowWall | Form::Pane => BlockHitbox::FullBlock,
-                // walked through, but still aimed at to be shut
-                Form::Door { open: true, .. } => BlockHitbox::Aabb(OPEN_DOOR),
-                Form::Cube => palette.base.builtin_ray_hitbox(),
-                _ => self.builtin_hitbox(),
-            };
-        }
-        match *self {
-            Self::Water | Self::Lava => BlockHitbox::None,
-            Self::TallGrass
-            | Self::Fern
-            | Self::Poppy
-            | Self::Dandelion
-            | Self::Reed
-            | Self::Heather
-            | Self::Mushroom
-            | Self::OakSapling
-            | Self::SpruceSapling
-            | Self::JungleSapling
-            | Self::WillowSapling
-            | Self::AcaciaSapling
-            | Self::AppleSapling
-            | Self::BerryBush
-            | Self::RipeBerryBush
-            | Self::RyeSprout
-            | Self::YoungRye
-            | Self::RipeRye
-            | Self::CarrotSprout
-            | Self::YoungCarrots
-            | Self::TallCarrots
-            | Self::RipeCarrots
-            | Self::PotatoSprout
-            | Self::YoungPotatoes
-            | Self::TallPotatoes
-            | Self::RipePotatoes
-            | Self::Seagrass
-            | Self::CrystalCluster => BlockHitbox::Aabb(Aabb3d::new(
-                Vec3A::splat(0.5).with_y(0.3),
-                Vec3A::splat(0.3),
-            )),
-            // A stalk the height of its cell, as a column of kelp or a hanging vine is
-            Self::Kelp | Self::CaveVine => {
-                BlockHitbox::Aabb(Aabb3d::new(Vec3A::splat(0.5), Vec3A::new(0.3, 0.5, 0.3)))
-            }
-            // The stick, a little wider to be easier to aim at
-            Self::Torch => BlockHitbox::Aabb(Aabb3d::new(
-                Vec3A::new(0.5, 0.3, 0.5),
-                Vec3A::new(0.15, 0.3, 0.15),
-            )),
-            // The stick leaning out of the block that holds it on its front
-            Self::WallTorch => BlockHitbox::Aabb(Aabb3d::new(
-                Vec3A::new(0.5, 0.525, 0.2),
-                Vec3A::new(0.15, 0.325, 0.2),
-            )),
-            // a slab around the plate of a vine held on its front
-            Self::Vine => BlockHitbox::Aabb(Aabb3d::new(
-                Vec3A::new(0.5, 0.5, VINE_GAP),
-                Vec3A::new(0.5, 0.5, VINE_GAP / 2.0),
-            )),
-            Self::Cocoa => BlockHitbox::Aabb(COCOA_POD),
-            Self::OakSlab | Self::HewnStoneSlab | Self::BrickSlab => BlockHitbox::Aabb(SLAB),
-            Self::Lantern => BlockHitbox::Aabb(LANTERN),
-            Self::Bedroll | Self::Campfire | Self::UnlitCampfire => {
-                BlockHitbox::Aabb(self.low_box())
-            }
-            Self::Door | Self::DoorTop => BlockHitbox::Aabb(DOOR),
-            Self::OpenDoor | Self::OpenDoorTop => BlockHitbox::Aabb(OPEN_DOOR),
-            Self::HangingLantern => BlockHitbox::Aabb(HANGING_LANTERN),
-            Self::Ladder => BlockHitbox::Aabb(LADDER),
-            Self::Sign => BlockHitbox::Aabb(SIGN),
-            // the bottom of the flames, where the ground under them would be clicked
-            Self::Fire => BlockHitbox::Aabb(Aabb3d::new(
-                Vec3A::new(0.5, 0.2, 0.5),
-                Vec3A::new(0.5, 0.2, 0.5),
-            )),
-            _ => BlockHitbox::FullBlock,
-        }
     }
 
     /// Number of mining hits needed to break the block by hand, one every `HIT_MS` the button
@@ -1414,264 +1170,10 @@ impl BlockId {
         self.props().break_time
     }
 
-    /// `get_break_time` as the code writes it, which `Content::builtin` fills the table with.
-    pub(crate) fn builtin_break_time(&self) -> Option<u8> {
-        let steps: u8 = match *self {
-            Self::Dirt => 5,
-            Self::Debug => 7,
-            Self::Grass => 6,
-            Self::Stone => 10,
-            Self::Gloomrock => 15,
-            Self::CobbledGloomrock => 3,
-            Self::OakLog => 10,
-            Self::OakPlanks => 10,
-            Self::OakLeaves => 2,
-            Self::Sand => 5,
-            Self::Cactus => 4,
-            Self::Ice => 5,
-            Self::Glass => 3,
-            Self::Dandelion => 1,
-            Self::Poppy => 1,
-            Self::TallGrass => 1,
-            Self::Cobblestone => 2,
-            Self::Snow => 9,
-            Self::SpruceLeaves => 2,
-            Self::SpruceLog => 10,
-            Self::CraftingTable => 10,
-            Self::SprucePlanks => 10,
-            Self::Furnace | Self::LitFurnace | Self::EngravingTable | Self::Alembic => 15,
-            Self::Chest => 10,
-            Self::CoalOre => 12,
-            Self::IronOre => 15,
-            Self::GoldOre | Self::DiamondOre => 15,
-            Self::Gravel => 6,
-            Self::Torch | Self::WallTorch => 1,
-            Self::JungleLog => 10,
-            Self::JunglePlanks => 10,
-            Self::JungleLeaves => 2,
-            Self::Fern => 1,
-            Self::Vine => 1,
-            Self::Cocoa => 2,
-            Self::GoldBlock => 15,
-            Self::IronBlock | Self::DiamondBlock | Self::Anvil => 25,
-            Self::HewnStone => 12,
-            Self::Limestone => 8,
-            Self::Slate => 12,
-            Self::Clay => 6,
-            Self::BrickWall => 12,
-            Self::RammedEarth => 8,
-            Self::Thatch => 3,
-            Self::CoalBlock => 15,
-            Self::CopperOre => 13,
-            Self::TinOre => 14,
-            Self::CopperBlock => 18,
-            Self::TinBlock => 18,
-            Self::BronzeBlock => 20,
-            Self::WillowLog => 10,
-            Self::WillowPlanks => 10,
-            Self::WillowLeaves => 2,
-            Self::AcaciaLog => 10,
-            Self::AcaciaPlanks => 10,
-            Self::AcaciaLeaves => 2,
-            Self::Reed => 1,
-            Self::Heather => 1,
-            Self::Mushroom => 1,
-            Self::OakSlab => 8,
-            Self::HewnStoneSlab => 10,
-            Self::BrickSlab => 10,
-            Self::Lantern => 4,
-            Self::OakStairs => 8,
-            Self::HewnStoneStairs => 8,
-            Self::BrickStairs => 8,
-            Self::Door => 8,
-            Self::DoorTop => 8,
-            Self::OpenDoor => 8,
-            Self::OpenDoorTop => 8,
-            Self::Ladder => 4,
-            Self::Fence => 8,
-            Self::GlassPane => 3,
-            Self::HangingLantern => 4,
-            Self::OakSapling => 1,
-            Self::SpruceSapling => 1,
-            Self::JungleSapling => 1,
-            Self::WillowSapling => 1,
-            Self::AcaciaSapling => 1,
-            Self::AppleSapling => 1,
-            Self::AppleLeaves => 2,
-            Self::Wool => 4,
-            Self::BerryBush => 2,
-            Self::RipeBerryBush => 2,
-            Self::TilledSoil => 5,
-            Self::RyeSprout => 1,
-            Self::YoungRye => 1,
-            Self::RipeRye => 1,
-            Self::CarrotSprout => 1,
-            Self::YoungCarrots => 1,
-            Self::TallCarrots => 1,
-            Self::RipeCarrots => 1,
-            Self::PotatoSprout => 1,
-            Self::YoungPotatoes => 1,
-            Self::TallPotatoes => 1,
-            Self::RipePotatoes => 1,
-            Self::Bedroll => 4,
-            Self::Barrel => 10,
-            Self::MapFrame => 6,
-            Self::RainCistern => 10,
-            Self::FullRainCistern => 10,
-            Self::Campfire => 8,
-            Self::UnlitCampfire => 8,
-            Self::Sign => 6,
-            Self::Kelp | Self::Seagrass | Self::CaveVine => 1,
-            Self::AzureReef | Self::RoseReef | Self::AmberReef => 8,
-            Self::Moss => 4,
-            Self::Glowcrystal => 6,
-            Self::CrystalCluster => 3,
-            Self::Geodestone => 12,
-            Self::Basalt | Self::PolishedBasalt => 12,
-            Self::Magma => 8,
-            // put out by the first hit: a break time of 0 would have no breaking stages
-            Self::Fire => return Some(1),
-            // Minecraft's hardness of 50 would be 500 hits, more than a `breaking_progress`
-            // holds: as long as it gets
-            Self::EmberHeart => 10,
-            Self::Obsidian => return Some(250),
-            Self::Bedrock | Self::Water | Self::Lava => return None,
-            // as the block they are made of
-            crate::new_palette_blocks!() => {
-                return self
-                    .builtin_palette()
-                    .and_then(|palette| palette.base.builtin_break_time())
-            }
-            crate::new_decor_blocks!() => {
-                return self
-                    .decor()
-                    .and_then(|decor| decor.base.builtin_break_time())
-            }
-        };
-        Some(2 * steps)
-    }
-
     /// Whether a tool of `kind` breaks this block faster than a hand, at its speed.
     #[inline]
     pub fn is_mined_faster_by(&self, kind: ToolKind) -> bool {
         self.props().faster_tools & crate::content::tool_bit(kind) != 0
-    }
-
-    /// `is_mined_faster_by` as the code writes it, which `Content::builtin` fills the table with.
-    pub(crate) fn builtin_is_mined_faster_by(&self, kind: ToolKind) -> bool {
-        if let Some(palette) = self.builtin_palette() {
-            return palette.base.builtin_is_mined_faster_by(kind);
-        }
-        if let Some(decor) = self.decor() {
-            return decor.base.builtin_is_mined_faster_by(kind);
-        }
-        match kind {
-            ToolKind::Pickaxe => matches!(
-                *self,
-                Self::Stone
-                    | Self::Cobblestone
-                    | Self::Gloomrock
-                    | Self::CobbledGloomrock
-                    | Self::Furnace
-                    | Self::LitFurnace
-                    | Self::Ice
-                    | Self::CoalOre
-                    | Self::IronOre
-                    | Self::GoldOre
-                    | Self::DiamondOre
-                    | Self::IronBlock
-                    | Self::GoldBlock
-                    | Self::DiamondBlock
-                    | Self::Obsidian
-                    | Self::EmberHeart
-                    | Self::HewnStone
-                    | Self::Limestone
-                    | Self::Slate
-                    | Self::BrickWall
-                    | Self::CoalBlock
-                    | Self::CopperOre
-                    | Self::TinOre
-                    | Self::CopperBlock
-                    | Self::TinBlock
-                    | Self::BronzeBlock
-                    | Self::HewnStoneSlab
-                    | Self::BrickSlab
-                    | Self::Lantern
-                    | Self::HewnStoneStairs
-                    | Self::BrickStairs
-                    | Self::HangingLantern
-                    | Self::RainCistern
-                    | Self::FullRainCistern
-                    | Self::EngravingTable
-                    | Self::Anvil
-                    | Self::AzureReef
-                    | Self::RoseReef
-                    | Self::AmberReef
-                    | Self::Glowcrystal
-                    | Self::CrystalCluster
-                    | Self::Geodestone
-                    | Self::Basalt
-                    | Self::PolishedBasalt
-                    | Self::Magma
-                    | Self::Alembic
-            ),
-            ToolKind::Axe => matches!(
-                *self,
-                Self::OakLog
-                    | Self::SpruceLog
-                    | Self::JungleLog
-                    | Self::OakPlanks
-                    | Self::SprucePlanks
-                    | Self::JunglePlanks
-                    | Self::CraftingTable
-                    | Self::Chest
-                    | Self::Cocoa
-                    | Self::WillowLog
-                    | Self::WillowPlanks
-                    | Self::AcaciaLog
-                    | Self::AcaciaPlanks
-                    | Self::OakSlab
-                    | Self::OakStairs
-                    | Self::Door
-                    | Self::DoorTop
-                    | Self::OpenDoor
-                    | Self::OpenDoorTop
-                    | Self::Ladder
-                    | Self::Fence
-                    | Self::Barrel
-                    | Self::Campfire
-                    | Self::UnlitCampfire
-                    | Self::Sign
-                    | Self::MapFrame
-            ),
-            ToolKind::Shovel => matches!(
-                *self,
-                Self::Dirt
-                    | Self::Grass
-                    | Self::Sand
-                    | Self::Snow
-                    | Self::Gravel
-                    | Self::Clay
-                    | Self::RammedEarth
-                    | Self::TilledSoil
-                    | Self::Moss
-            ),
-            ToolKind::Hoe | ToolKind::Sword => {
-                matches!(
-                    *self,
-                    Self::OakLeaves
-                        | Self::SpruceLeaves
-                        | Self::JungleLeaves
-                        | Self::Thatch
-                        | Self::WillowLeaves
-                        | Self::AcaciaLeaves
-                        | Self::AppleLeaves
-                        | Self::Moss
-                        | Self::Kelp
-                        | Self::CaveVine
-                )
-            }
-        }
     }
 
     /// The tool this block must be broken with to drop anything, like stone and a pickaxe, and
@@ -1680,53 +1182,6 @@ impl BlockId {
     #[inline]
     pub fn get_required_tool(&self) -> Option<RequiredTool> {
         self.props().required_tool
-    }
-
-    /// `get_required_tool` as the code writes it, which `Content::builtin` fills the table with.
-    pub(crate) fn builtin_required_tool(&self) -> Option<RequiredTool> {
-        let level = match *self {
-            Self::Stone
-            | Self::Cobblestone
-            | Self::Gloomrock
-            | Self::CobbledGloomrock
-            | Self::Furnace
-            | Self::LitFurnace
-            | Self::CoalOre
-            | Self::HewnStone
-            | Self::Limestone
-            | Self::Slate
-            | Self::BrickWall
-            | Self::CoalBlock
-            | Self::CopperOre
-            | Self::CopperBlock
-            | Self::HewnStoneSlab
-            | Self::BrickSlab
-            | Self::HewnStoneStairs
-            | Self::BrickStairs
-            | Self::EngravingTable
-            | Self::Anvil
-            | Self::Geodestone
-            | Self::Basalt
-            | Self::PolishedBasalt
-            | Self::Magma
-            | Self::Alembic => 0,
-            Self::IronOre | Self::IronBlock | Self::TinOre | Self::TinBlock | Self::BronzeBlock => {
-                1
-            }
-            Self::GoldOre | Self::DiamondOre | Self::GoldBlock | Self::DiamondBlock => 2,
-            Self::Obsidian => 3,
-            _ => {
-                return match (self.builtin_palette(), self.decor()) {
-                    (Some(palette), _) => palette.base.builtin_required_tool(),
-                    (_, Some(decor)) => decor.base.builtin_required_tool(),
-                    _ => None,
-                }
-            }
-        };
-        Some(RequiredTool {
-            kind: ToolKind::Pickaxe,
-            level,
-        })
     }
 
     /// Whether this block drops its items when broken holding `tool`, see `get_required_tool`.
@@ -1765,174 +1220,11 @@ impl BlockId {
         self.props().drops.clone()
     }
 
-    /// `get_drop_table` as the code writes it, which `Content::builtin` fills the table with.
-    pub(crate) fn builtin_drop_table(&self) -> Vec<(u32, ItemId, u32)> {
-        match *self {
-            BlockId::Dirt | BlockId::Grass => vec![(1, ItemId::Dirt, 1)],
-            BlockId::Stone => vec![(1, ItemId::Cobblestone, 1)],
-            BlockId::Gloomrock => vec![(1, ItemId::CobbledGloomrock, 1)],
-            BlockId::CobbledGloomrock => vec![(1, ItemId::CobbledGloomrock, 1)],
-            BlockId::Sand => vec![(1, ItemId::Sand, 1)],
-            BlockId::Cactus => vec![(1, ItemId::Cactus, 1)],
-            BlockId::OakLog => vec![(1, ItemId::OakLog, 1)],
-            BlockId::OakPlanks => vec![(1, ItemId::OakPlanks, 1)],
-            BlockId::Ice => vec![(1, ItemId::Ice, 1)],
-            BlockId::Dandelion => vec![(1, ItemId::Dandelion, 1)],
-            BlockId::Poppy => vec![(1, ItemId::Poppy, 1)],
-            // a carrot and a potato 2 % each, main's three in their ratios
-            BlockId::TallGrass => vec![
-                (24, ItemId::TallGrass, 1),
-                (16, ItemId::Fiber, 1),
-                (8, ItemId::Rye, 1),
-                (1, ItemId::Carrot, 1),
-                (1, ItemId::Potato, 1),
-            ],
-            BlockId::Fern => vec![(1, ItemId::Fern, 1)],
-            BlockId::Vine => vec![(1, ItemId::Vine, 1)],
-            BlockId::SpruceLog => vec![(1, ItemId::SpruceLog, 1)],
-            BlockId::Snow => vec![(1, ItemId::Snowball, 4)],
-            BlockId::CraftingTable => vec![(1, ItemId::CraftingTable, 1)],
-            BlockId::SprucePlanks => vec![(1, ItemId::SprucePlanks, 1)],
-            BlockId::Furnace | BlockId::LitFurnace => vec![(1, ItemId::Furnace, 1)],
-            BlockId::Chest => vec![(1, ItemId::Chest, 1)],
-            BlockId::CoalOre => vec![(1, ItemId::Coal, 1)],
-            // smelted into ingots
-            BlockId::IronOre => vec![(1, ItemId::IronOre, 1)],
-            BlockId::GoldOre => vec![(1, ItemId::GoldOre, 1)],
-            BlockId::DiamondOre => vec![(1, ItemId::Diamond, 1)],
-            BlockId::IronBlock => vec![(1, ItemId::IronBlock, 1)],
-            BlockId::GoldBlock => vec![(1, ItemId::GoldBlock, 1)],
-            BlockId::DiamondBlock => vec![(1, ItemId::DiamondBlock, 1)],
-            BlockId::Gravel => vec![(9, ItemId::Gravel, 1), (1, ItemId::Flint, 1)],
-            BlockId::Torch | BlockId::WallTorch => vec![(1, ItemId::Torch, 1)],
-            BlockId::JungleLog => vec![(1, ItemId::JungleLog, 1)],
-            BlockId::JunglePlanks => vec![(1, ItemId::JunglePlanks, 1)],
-            BlockId::Cocoa => vec![(1, ItemId::CocoaBeans, 2)],
-            BlockId::HewnStone => vec![(1, ItemId::HewnStone, 1)],
-            BlockId::Limestone => vec![(1, ItemId::Limestone, 1)],
-            BlockId::Slate => vec![(1, ItemId::Slate, 1)],
-            BlockId::Clay => vec![(1, ItemId::Clay, 1)],
-            BlockId::BrickWall => vec![(1, ItemId::BrickWall, 1)],
-            BlockId::RammedEarth => vec![(1, ItemId::RammedEarth, 1)],
-            BlockId::Thatch => vec![(1, ItemId::Thatch, 1)],
-            BlockId::CoalBlock => vec![(1, ItemId::CoalBlock, 1)],
-            BlockId::CopperOre => vec![(1, ItemId::CopperOre, 1)],
-            BlockId::TinOre => vec![(1, ItemId::TinOre, 1)],
-            BlockId::CopperBlock => vec![(1, ItemId::CopperBlock, 1)],
-            BlockId::TinBlock => vec![(1, ItemId::TinBlock, 1)],
-            BlockId::BronzeBlock => vec![(1, ItemId::BronzeBlock, 1)],
-            BlockId::WillowLog => vec![(1, ItemId::WillowLog, 1)],
-            BlockId::WillowPlanks => vec![(1, ItemId::WillowPlanks, 1)],
-            BlockId::AcaciaLog => vec![(1, ItemId::AcaciaLog, 1)],
-            BlockId::AcaciaPlanks => vec![(1, ItemId::AcaciaPlanks, 1)],
-            BlockId::Reed => vec![(1, ItemId::Fiber, 1)],
-            BlockId::Heather => vec![(1, ItemId::Heather, 1)],
-            BlockId::Mushroom => vec![(1, ItemId::Mushroom, 1)],
-            BlockId::OakSlab => vec![(1, ItemId::OakSlab, 1)],
-            BlockId::HewnStoneSlab => vec![(1, ItemId::HewnStoneSlab, 1)],
-            BlockId::BrickSlab => vec![(1, ItemId::BrickSlab, 1)],
-            BlockId::Lantern => vec![(1, ItemId::Lantern, 1)],
-            BlockId::OakStairs => vec![(1, ItemId::OakStairs, 1)],
-            BlockId::HewnStoneStairs => vec![(1, ItemId::HewnStoneStairs, 1)],
-            BlockId::BrickStairs => vec![(1, ItemId::BrickStairs, 1)],
-            BlockId::Door => vec![(1, ItemId::Door, 1)],
-            BlockId::DoorTop => vec![(1, ItemId::Door, 1)],
-            BlockId::OpenDoor => vec![(1, ItemId::Door, 1)],
-            BlockId::OpenDoorTop => vec![(1, ItemId::Door, 1)],
-            BlockId::Ladder => vec![(1, ItemId::Ladder, 1)],
-            BlockId::Fence => vec![(1, ItemId::Fence, 1)],
-            BlockId::HangingLantern => vec![(1, ItemId::Lantern, 1)],
-            BlockId::OakSapling => vec![(1, ItemId::OakSapling, 1)],
-            BlockId::SpruceSapling => vec![(1, ItemId::SpruceSapling, 1)],
-            BlockId::JungleSapling => vec![(1, ItemId::JungleSapling, 1)],
-            BlockId::WillowSapling => vec![(1, ItemId::WillowSapling, 1)],
-            BlockId::AcaciaSapling => vec![(1, ItemId::AcaciaSapling, 1)],
-            BlockId::AppleSapling => vec![(1, ItemId::AppleSapling, 1)],
-            BlockId::Wool => vec![(1, ItemId::Wool, 1)],
-            BlockId::BerryBush => vec![(1, ItemId::BerryBush, 1)],
-            BlockId::RipeBerryBush => vec![(1, ItemId::BerryBush, 1)],
-            BlockId::TilledSoil => vec![(1, ItemId::Dirt, 1)],
-            BlockId::RyeSprout => vec![(1, ItemId::Rye, 1)],
-            BlockId::YoungRye => vec![(1, ItemId::Rye, 1)],
-            BlockId::RipeRye => vec![(1, ItemId::Rye, 3)],
-            BlockId::CarrotSprout | BlockId::YoungCarrots | BlockId::TallCarrots => {
-                vec![(1, ItemId::Carrot, 1)]
-            }
-            // 2 to 4
-            BlockId::RipeCarrots => (2..=4).map(|nb| (1, ItemId::Carrot, nb)).collect(),
-            BlockId::PotatoSprout | BlockId::YoungPotatoes | BlockId::TallPotatoes => {
-                vec![(1, ItemId::Potato, 1)]
-            }
-            BlockId::RipePotatoes => (2..=4).map(|nb| (1, ItemId::Potato, nb)).collect(),
-            BlockId::Bedroll => vec![(1, ItemId::Bedroll, 1)],
-            BlockId::Barrel => vec![(1, ItemId::Barrel, 1)],
-            BlockId::MapFrame => vec![(1, ItemId::MapFrame, 1)],
-            BlockId::RainCistern => vec![(1, ItemId::RainCistern, 1)],
-            BlockId::FullRainCistern => vec![(1, ItemId::RainCistern, 1)],
-            BlockId::Campfire => vec![(1, ItemId::Campfire, 1)],
-            BlockId::UnlitCampfire => vec![(1, ItemId::Campfire, 1)],
-            BlockId::Sign => vec![(1, ItemId::Sign, 1)],
-            BlockId::Obsidian => vec![(1, ItemId::Obsidian, 1)],
-            BlockId::EmberHeart => vec![(1, ItemId::EmberHeart, 1)],
-            BlockId::EngravingTable => vec![(1, ItemId::EngravingTable, 1)],
-            BlockId::Anvil => vec![(1, ItemId::Anvil, 1)],
-            BlockId::Kelp => vec![(1, ItemId::Kelp, 1)],
-            BlockId::Seagrass => vec![(1, ItemId::Seagrass, 1)],
-            BlockId::AzureReef => vec![(1, ItemId::AzureReef, 1)],
-            BlockId::RoseReef => vec![(1, ItemId::RoseReef, 1)],
-            BlockId::AmberReef => vec![(1, ItemId::AmberReef, 1)],
-            BlockId::Moss => vec![(1, ItemId::Moss, 1)],
-            BlockId::CaveVine => vec![(1, ItemId::CaveVine, 1)],
-            // 2 to 4 shards
-            BlockId::Glowcrystal => (2..=4).map(|nb| (1, ItemId::CrystalShard, nb)).collect(),
-            BlockId::CrystalCluster => {
-                vec![(2, ItemId::CrystalShard, 1), (1, ItemId::CrystalShard, 2)]
-            }
-            BlockId::Geodestone => vec![(1, ItemId::Geodestone, 1)],
-            BlockId::Basalt => vec![(1, ItemId::Basalt, 1)],
-            BlockId::PolishedBasalt => vec![(1, ItemId::PolishedBasalt, 1)],
-            BlockId::Magma => vec![(1, ItemId::Magma, 1)],
-            // The furniture drops its item, a canvas of two blocks once
-            crate::new_decor_blocks!() => match self.decor() {
-                Some(decor) => vec![(1, decor.item, 1)],
-                None => vec![],
-            },
-            BlockId::Alembic => vec![(1, ItemId::Alembic, 1)],
-            // The other blocks of the palette drop their item, but glass, which breaks
-            _ => match self.builtin_palette() {
-                Some(palette) if palette.base != BlockId::Glass => vec![(1, palette.item, 1)],
-                _ => vec![],
-            },
-        }
-    }
-
     /// Whether a right click on this block uses it, like a crafting table or a chest, instead of
     /// placing a block against it. Sneaking places the block.
     #[inline]
     pub fn is_usable(&self) -> bool {
         self.props().usable
-    }
-
-    /// `is_usable` as the code writes it, which `Content::builtin` fills the table with.
-    pub(crate) fn builtin_is_usable(&self) -> bool {
-        matches!(
-            *self,
-            Self::CraftingTable
-                | Self::EngravingTable
-                | Self::Alembic
-                | Self::Anvil
-                | Self::Chest
-                | Self::Barrel
-                | Self::Sign
-                | Self::MapFrame
-                | Self::Bedroll
-                | Self::RipeBerryBush
-        ) || self
-            .builtin_palette()
-            .map(|palette| palette.form)
-            .is_some_and(Form::opens)
-            || self.decor_kind().is_some_and(DecorKind::is_usable)
-            || self.is_furnace()
     }
 
     /// Whether this block is a furnace, lit or out: both hold a `Furnace` and open alike.
@@ -1949,11 +1241,6 @@ impl BlockId {
     #[inline]
     pub fn is_replaceable(&self) -> bool {
         self.props().replaceable
-    }
-
-    /// `is_replaceable` as the code writes it, which `Content::builtin` fills the table with.
-    pub(crate) fn builtin_is_replaceable(&self) -> bool {
-        matches!(*self, Self::Water | Self::Lava | Self::Fire)
     }
 
     /// Whether this block grows under water, which fills the rest of its cell: it is seen,
@@ -1977,83 +1264,6 @@ impl BlockId {
         self.props().visibility
     }
 
-    /// `get_visibility` as the code writes it, which `Content::builtin` fills the table with.
-    pub(crate) fn builtin_visibility(&self) -> BlockTransparency {
-        if let Some(decor) = self.decor() {
-            return decor.kind.visibility();
-        }
-        if let Some(palette) = self.builtin_palette() {
-            return match palette.form {
-                Form::Cube => palette.base.builtin_visibility(),
-                _ => BlockTransparency::Decoration,
-            };
-        }
-        match *self {
-            Self::Dandelion
-            | Self::Poppy
-            | Self::TallGrass
-            | Self::Fern
-            | Self::Torch
-            | Self::WallTorch
-            | Self::Vine
-            | Self::Cocoa
-            | Self::Reed
-            | Self::Heather
-            | Self::Mushroom
-            | Self::OakSlab
-            | Self::HewnStoneSlab
-            | Self::BrickSlab
-            | Self::Lantern
-            | Self::OakStairs
-            | Self::HewnStoneStairs
-            | Self::BrickStairs
-            | Self::Door
-            | Self::DoorTop
-            | Self::OpenDoor
-            | Self::OpenDoorTop
-            | Self::Ladder
-            | Self::Fence
-            | Self::GlassPane
-            | Self::HangingLantern
-            | Self::OakSapling
-            | Self::SpruceSapling
-            | Self::JungleSapling
-            | Self::WillowSapling
-            | Self::AcaciaSapling
-            | Self::AppleSapling
-            | Self::BerryBush
-            | Self::RipeBerryBush
-            | Self::RyeSprout
-            | Self::YoungRye
-            | Self::RipeRye
-            | Self::CarrotSprout
-            | Self::YoungCarrots
-            | Self::TallCarrots
-            | Self::RipeCarrots
-            | Self::PotatoSprout
-            | Self::YoungPotatoes
-            | Self::TallPotatoes
-            | Self::RipePotatoes
-            | Self::Bedroll
-            | Self::Campfire
-            | Self::UnlitCampfire
-            | Self::Sign
-            | Self::Fire
-            | Self::CaveVine
-            | Self::CrystalCluster => BlockTransparency::Decoration,
-            Self::Glass
-            | Self::OakLeaves
-            | Self::SpruceLeaves
-            | Self::JungleLeaves
-            | Self::WillowLeaves
-            | Self::AcaciaLeaves
-            | Self::AppleLeaves => BlockTransparency::Transparent,
-            // Water fills the rest of their cell
-            Self::Water | Self::Lava | Self::Kelp | Self::Seagrass => BlockTransparency::Liquid,
-            _ => BlockTransparency::Solid,
-        }
-    }
-
     /// How much the block dims the light that goes through it, as Minecraft's light opacity:
     /// `None` for a block no light goes through. Light loses a level from one cell to the next,
     /// or this much if more, but the light of the sky that goes straight down loses only this.
@@ -2062,41 +1272,10 @@ impl BlockId {
         self.props().light_opacity
     }
 
-    /// `light_opacity` as the code writes it, which `Content::builtin` fills the table with.
-    pub(crate) fn builtin_light_opacity(&self) -> Option<u8> {
-        match self.builtin_visibility() {
-            BlockTransparency::Solid => None,
-            BlockTransparency::Decoration => Some(0),
-            BlockTransparency::Transparent if self.builtin_is_glass() => Some(0),
-            BlockTransparency::Transparent | BlockTransparency::Liquid => Some(1),
-        }
-    }
-
     /// The light the block gives, from 0 for none to 15, as Minecraft's light levels.
     #[inline]
     pub fn light_emission(&self) -> u8 {
         self.props().light_emission
-    }
-
-    /// `light_emission` as the code writes it, which `Content::builtin` fills the table with.
-    pub(crate) fn builtin_light_emission(&self) -> u8 {
-        match *self {
-            Self::Fire | Self::Lava => 15,
-            Self::Torch | Self::WallTorch => 14,
-            Self::EmberHeart => 12,
-            Self::Lantern | Self::HangingLantern => 15,
-            crate::new_decor_blocks!()
-                if matches!(self.decor_kind(), Some(DecorKind::Lantern { .. })) =>
-            {
-                15
-            }
-            Self::Campfire => 13,
-            Self::LitFurnace => 13,
-            Self::Glowcrystal => 12,
-            Self::CrystalCluster => 7,
-            Self::Magma => 3,
-            _ => 0,
-        }
     }
 }
 

@@ -8,8 +8,6 @@
 //! `content()` once, so that it never reads some from one install and some from the next.
 
 mod blocks;
-#[cfg(test)]
-mod dump;
 mod files;
 mod items;
 
@@ -40,16 +38,6 @@ pub struct Content {
 }
 
 impl Content {
-    /// The content written in the code: what the `builtin_*` functions of `BlockId` and
-    /// `ItemId` say of each block and item, which the content files were dumped from.
-    pub fn builtin() -> Self {
-        Self {
-            generation: 0,
-            blocks: BlockId::ALL.into_iter().map(BlockProps::builtin).collect(),
-            items: ItemId::ALL.into_iter().map(ItemProps::builtin).collect(),
-        }
-    }
-
     /// The properties of the block `id`.
     #[inline]
     pub fn block(&self, id: BlockId) -> &BlockProps {
@@ -174,21 +162,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_builtin_content_has_one_entry_per_block_and_per_item_in_their_order() {
-        let builtin = Content::builtin();
-        assert_eq!(builtin.generation, 0);
-        assert_eq!(builtin.blocks.len(), BlockId::ALL.len());
-        assert_eq!(builtin.items.len(), ItemId::ALL.len());
-        for id in BlockId::ALL {
-            assert_eq!(builtin.block(id), &BlockProps::builtin(id), "{id:?}");
-        }
-        for id in ItemId::ALL {
-            assert_eq!(builtin.item(id), &ItemProps::builtin(id), "{id:?}");
-        }
+    fn the_content_has_one_entry_per_block_and_per_item() {
+        let loaded = Content::load(&source_folder()).unwrap();
+        assert_eq!(loaded.generation, 0);
+        assert_eq!(loaded.blocks.len(), BlockId::ALL.len());
+        assert_eq!(loaded.items.len(), ItemId::ALL.len());
     }
 
-    /// The only test that installs: it installs content equal to that of the process, so that
-    /// the tests running beside it read the same properties before and after.
     #[test]
     fn the_process_starts_on_the_content_files_of_the_source_tree() {
         assert!(content().same_properties(&Content::load(&source_folder()).unwrap()));
@@ -201,10 +181,12 @@ mod tests {
         );
     }
 
+    /// The only test that installs: it installs content equal to that of the process, so that
+    /// the tests running beside it read the same properties before and after.
     #[test]
     fn an_install_is_the_next_generation_and_what_the_getters_read() {
         let before = content();
-        let installed = install(Content::builtin());
+        let installed = install(content().clone());
         assert!(installed.generation > before.generation);
         assert!(content().generation >= installed.generation);
         assert_eq!(content().blocks, before.blocks);
@@ -216,7 +198,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "one entry per block")]
     fn an_install_of_a_table_of_the_wrong_size_fails() {
-        let mut short = Content::builtin();
+        let mut short = content().clone();
         short.blocks.pop();
         install(short);
     }

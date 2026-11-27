@@ -18,6 +18,7 @@
         "water": (look: Liquid, collision: None, replaceable: true),
         "gravel": (break: 12, tools: [Shovel], drops: [(9, "gravel", 1), (1, "flint", 1)]),
         "torch": (look: Decoration, light: 14, break: 2, collision: None, outline: Aabb((min: (0.35, 0, 0.35), max: (0.65, 0.6, 0.65)))),
+        "wall_torch": (look: Decoration, light: 14, break: 2, drops: [(1, "torch", 1)], collision: None, outline: Aabb((min: (0.35, 0.2, 0), max: (0.65, 0.85, 0.4)))),
         "iron_block": (break: 50, tools: [Pickaxe], needs_tool: (kind: Pickaxe, level: 1)),
         "gold_block": (break: 30, tools: [Pickaxe], needs_tool: (kind: Pickaxe, level: 2)),
         "diamond_block": (break: 50, tools: [Pickaxe], needs_tool: (kind: Pickaxe, level: 2)),

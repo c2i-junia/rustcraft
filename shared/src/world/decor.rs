@@ -11,11 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use bevy::math::{bounding::Aabb3d, Vec3A};
 
-use super::blocks::{BEDROLL, HANGING_LANTERN, LANTERN};
-use super::{
-    BlockDirection, BlockHitbox, BlockId, BlockTransparency, DyeColor, ItemId, ItemStack, ItemType,
-    Wood,
-};
+use super::{BlockDirection, BlockId, DyeColor, ItemId, ItemStack, ItemType, Wood};
 
 /// What a block of the furniture is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,17 +50,13 @@ const fn sixteenths(a: [f32; 3], b: [f32; 3]) -> Aabb3d {
     }
 }
 
-/// The boxes of the furniture turned to the front, as `BlockData::turned` turns them: a chair's
-/// back and what hangs on a wall are on the back, toward +Z for a chair, on the front, toward
-/// -Z, for what hangs on a wall, as a vine.
-pub const TABLE: Aabb3d = sixteenths([0.0, 0.0, 0.0], [16.0, 16.0, 16.0]);
-pub const CHAIR_SEAT: Aabb3d = sixteenths([2.0, 0.0, 2.0], [14.0, 8.0, 14.0]);
-pub const CHAIR: Aabb3d = sixteenths([2.0, 0.0, 2.0], [14.0, 16.0, 14.0]);
+/// The boxes the furniture is drawn with, turned to the front, as `BlockData::turned` turns
+/// them: what hangs on a wall is on the front, toward -Z, as a vine. Its collision boxes are in
+/// the content files.
 pub const CARPET: Aabb3d = sixteenths([0.0, 0.0, 0.0], [16.0, 1.0, 16.0]);
 pub const FLOWER_POT: Aabb3d = sixteenths([5.0, 0.0, 5.0], [11.0, 6.0, 11.0]);
 pub const ITEM_FRAME: Aabb3d = sixteenths([2.0, 2.0, 0.0], [14.0, 14.0, 1.0]);
 pub const PAINTING: Aabb3d = sixteenths([0.0, 0.0, 0.0], [16.0, 16.0, 1.0]);
-pub const BANNER: Aabb3d = sixteenths([1.0, 0.0, 0.0], [15.0, 15.0, 2.0]);
 /// Where a seated player's hips are above the floor of a chair's cell, in blocks.
 pub const SEAT_HEIGHT: f32 = 0.5;
 
@@ -77,48 +69,6 @@ impl DecorKind {
     /// Whether it is turned toward the player who places it.
     pub fn faces_placer(self) -> bool {
         matches!(self, Self::Bedroll | Self::Chair)
-    }
-
-    /// Its collision box, turned to the front.
-    pub fn hitbox(self) -> BlockHitbox {
-        match self {
-            Self::Bedroll => BlockHitbox::Aabb(BEDROLL),
-            Self::Table => BlockHitbox::Aabb(TABLE),
-            Self::Chair => BlockHitbox::Aabb(CHAIR_SEAT),
-            Self::Bookshelf => BlockHitbox::FullBlock,
-            Self::Carpet => BlockHitbox::Aabb(CARPET),
-            Self::FlowerPot => BlockHitbox::Aabb(FLOWER_POT),
-            Self::ItemFrame | Self::Painting { .. } | Self::Banner => BlockHitbox::None,
-            Self::Lantern { hanging: false } => BlockHitbox::Aabb(LANTERN),
-            Self::Lantern { hanging: true } => BlockHitbox::Aabb(HANGING_LANTERN),
-        }
-    }
-
-    /// The box rays hit, turned to the front.
-    pub fn ray_hitbox(self) -> BlockHitbox {
-        match self {
-            Self::Chair => BlockHitbox::Aabb(CHAIR),
-            Self::ItemFrame => BlockHitbox::Aabb(ITEM_FRAME),
-            Self::Painting { .. } => BlockHitbox::Aabb(PAINTING),
-            Self::Banner => BlockHitbox::Aabb(BANNER),
-            other => other.hitbox(),
-        }
-    }
-
-    pub fn visibility(self) -> BlockTransparency {
-        match self {
-            Self::Bookshelf => BlockTransparency::Solid,
-            _ => BlockTransparency::Decoration,
-        }
-    }
-
-    /// Whether a right click uses it: a bedroll is slept on, a chair sat on, a pot and a frame
-    /// take an item, and a canvas shows the next.
-    pub fn is_usable(self) -> bool {
-        matches!(
-            self,
-            Self::Bedroll | Self::Chair | Self::FlowerPot | Self::ItemFrame | Self::Painting { .. }
-        )
     }
 }
 

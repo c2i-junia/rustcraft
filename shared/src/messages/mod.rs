@@ -386,7 +386,10 @@ mod tests {
             ),
             (ServerToClientMessage::FramedMaps(vec![]), 25),
             (ServerToClientMessage::Decorations(Default::default()), 26),
-            (ServerToClientMessage::Content(Content::builtin()), 27),
+            (
+                ServerToClientMessage::Content(crate::content::content().clone()),
+                27,
+            ),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");
         }

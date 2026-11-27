@@ -161,7 +161,7 @@ fn a_server_sends_its_content_files_at_join_and_again_on_reload() {
             ("apple", "(food_value", "(stack: 16, food_value"),
         ],
     );
-    let builtin = Content::builtin();
+    let builtin = content().clone();
     assert_eq!(torch_light(&builtin), 14, "the test changes the torch");
 
     let socket =
