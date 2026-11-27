@@ -5,6 +5,7 @@ pub mod cartography;
 mod caves;
 pub mod chunk_files;
 pub mod container_files;
+pub mod cracks;
 pub(crate) mod data;
 pub mod decor;
 pub mod depths;
