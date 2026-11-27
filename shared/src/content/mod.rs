@@ -7,6 +7,8 @@
 //! `content()` once, so that it never reads some from one install and some from the next.
 
 mod blocks;
+#[cfg(test)]
+mod dump;
 mod files;
 mod items;
 

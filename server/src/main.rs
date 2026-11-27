@@ -62,7 +62,7 @@ struct Args {
     #[arg(short, long)]
     game_folder_path: Option<String>,
 
-    /// The data folder, whose `content/rustcraft/*.ron` override the properties of the blocks
+    /// The data folder, whose `content/rustcraft/*.ron` define the properties of the blocks
     /// and items, read again once saved
     #[arg(long)]
     assets_folder_path: Option<String>,

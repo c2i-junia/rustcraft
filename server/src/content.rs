@@ -23,12 +23,12 @@ use crate::world::weather::send_to_players;
 /// several steps, and a save may touch several files.
 const SETTLE: Duration = Duration::from_millis(200);
 
-/// The folder of the override files of the base game, in the assets.
+/// The folder of the content files of the base game, in the assets.
 pub fn content_folder(paths: &GameFolderPaths) -> PathBuf {
     paths.assets_folder_path.join("content").join("rustcraft")
 }
 
-/// The override files of a server that reads them (`ContentSource::Files`, `WatchedFiles`).
+/// The content files of a server that reads them (`ContentSource::Files`, `WatchedFiles`).
 #[derive(Resource)]
 pub struct ContentFiles {
     /// Where they are, `content_folder`.

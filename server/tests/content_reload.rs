@@ -1,8 +1,9 @@
-//! The one test that installs content other than the built-in one: a real server reads its
-//! override files, sends them to its player at join, and reads them again on `/reload`. It is
+//! The one test that installs content other than the game's: a real server reads its content
+//! files, sends them to its player at join, and reads them again on `/reload`. It is
 //! alone in its file, so its process (and the content of that process) is its own.
 
 use std::net::{IpAddr, Ipv4Addr, UdpSocket};
+use std::path::Path;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -116,12 +117,35 @@ impl TestClient {
     }
 }
 
+/// Writes the content files of the game into `folder`, with `from` replaced by `to` in the
+/// entry of `name` for each `(name, from, to)` of `edits`.
+fn write_game_files(folder: &Path, edits: &[(&str, &str, &str)]) {
+    let game = Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/content/rustcraft");
+    let mut done = 0;
+    for entry in std::fs::read_dir(game).unwrap() {
+        let path = entry.unwrap().path();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+        for (name, from, to) in edits {
+            let key = format!("\"{name}\": ");
+            if let Some(line) = lines.iter_mut().find(|l| l.trim_start().starts_with(&key)) {
+                assert!(line.contains(from), "{line}");
+                *line = line.replace(from, to);
+                done += 1;
+            }
+        }
+        let name = path.file_name().unwrap();
+        std::fs::write(folder.join(name), lines.join("\n") + "\n").unwrap();
+    }
+    assert_eq!(done, edits.len(), "an entry to edit is missing");
+}
+
 fn torch_light(content: &Content) -> u8 {
     content.block(BlockId::Torch).light_emission
 }
 
 #[test]
-fn a_server_sends_its_override_files_at_join_and_again_on_reload() {
+fn a_server_sends_its_content_files_at_join_and_again_on_reload() {
     let tmp = tempfile::tempdir().unwrap();
     let paths = GameFolderPaths {
         game_folder_path: tmp.path().to_path_buf(),
@@ -130,9 +154,12 @@ fn a_server_sends_its_override_files_at_join_and_again_on_reload() {
     let folder = paths.assets_folder_path.join("content").join("rustcraft");
     std::fs::create_dir_all(&folder).unwrap();
     let write = |name: &str, text: &str| std::fs::write(folder.join(name), text).unwrap();
-    write(
-        "tuning.ron",
-        r#"(blocks: {"torch": (light: 9)}, items: {"apple": (stack: 16)})"#,
+    write_game_files(
+        &folder,
+        &[
+            ("torch", "light: 14", "light: 9"),
+            ("apple", "(food_value", "(stack: 16, food_value"),
+        ],
     );
     let builtin = Content::builtin();
     assert_eq!(torch_light(&builtin), 14, "the test changes the torch");
@@ -153,7 +180,7 @@ fn a_server_sends_its_override_files_at_join_and_again_on_reload() {
     };
     let server = thread::spawn(move || server::init(socket, config, paths).unwrap());
 
-    // 1. At join: the overrides of the files
+    // 1. At join: the content of the files
     let mut client = TestClient::connect(addr);
     let start = Instant::now();
     while !client.client.is_connected() {
@@ -189,7 +216,7 @@ fn a_server_sends_its_override_files_at_join_and_again_on_reload() {
 
     // 3. Fixed and changed: installed and sent again
     std::fs::remove_file(folder.join("broken.ron")).unwrap();
-    write("tuning.ron", r#"(blocks: {"torch": (light: 5)})"#);
+    write_game_files(&folder, &[("torch", "light: 14", "light: 5")]);
     client.chat("/reload");
     assert_eq!(client.wait_for_chat(), "Content files reloaded");
     let reloaded = client.wait_for_content();
