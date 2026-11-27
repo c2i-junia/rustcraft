@@ -11,12 +11,14 @@ mod blocks;
 mod files;
 mod items;
 mod look;
+mod recipes;
 
 pub(crate) use blocks::tool_bit;
 pub use blocks::BlockProps;
 pub use files::{ContentError, NewName};
 pub use items::{DisplayName, ItemProps};
 pub use look::{Behaviour, BlockFlags, Look, Shape, Sway, Tint};
+pub use recipes::{Crafting, Recipe, Tag};
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -52,6 +54,8 @@ pub struct Content {
     /// By `ItemId::index`, the name each item the files name is shown under: its own, or that
     /// of its block (`ItemId::display_name`).
     pub item_display: std::collections::BTreeMap<u16, DisplayName>,
+    /// The recipes, what a furnace smelts and burns, and the families of items they take.
+    pub crafting: Crafting,
 }
 
 impl Content {

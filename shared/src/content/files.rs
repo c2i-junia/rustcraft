@@ -32,9 +32,10 @@ use bevy::math::Vec3A;
 use serde::de::{self, Deserializer, MapAccess, Visitor};
 use serde::Deserialize;
 
+use super::recipes::{CraftingDefs, FuelDef, RecipeDef, TagDef};
 use super::{
-    tool_bit, Behaviour, BlockFlags, BlockProps, Content, DisplayName, ItemProps, Look, Shape,
-    Sway, Tint,
+    tool_bit, Behaviour, BlockFlags, BlockProps, Content, Crafting, DisplayName, ItemProps, Look,
+    Shape, Sway, Tint,
 };
 use crate::players::effects::EffectKind;
 use crate::utils::{pascal_case, snake_case};
@@ -200,6 +201,7 @@ impl Content {
         let names = Names::new(&block_names, &item_names);
 
         let (paths, files): (Vec<PathBuf>, Vec<ContentFile>) = files.into_iter().unzip();
+        let mut crafting_defs = Vec::with_capacity(files.len());
         let mut blocks: Vec<Option<(BlockProps, &Path)>> = vec![None; block_names.len()];
         let mut items: Vec<Option<(ItemProps, &Path)>> = vec![None; item_names.len()];
         // the names to show, by item; that of a block serves its item
@@ -210,6 +212,15 @@ impl Content {
                 file: file.clone(),
                 reason,
             };
+            crafting_defs.push((
+                file.as_path(),
+                CraftingDefs {
+                    tags: defs.tags,
+                    recipes: defs.recipes,
+                    smelting: defs.smelting,
+                    fuel: defs.fuel,
+                },
+            ));
             for (name, mut def) in defs.blocks.0 {
                 let id = names.block("name", &name).map_err(&fail)?;
                 if let Some(display) = def.name.take() {
@@ -270,6 +281,7 @@ impl Content {
                 item_display.entry(index as u16).or_insert(display);
             }
         }
+        let crafting = Crafting::build(crafting_defs, folder, &names, &item_props)?;
         let debug = blocks[BlockId::Debug.index()]
             .as_ref()
             .map(|(props, _)| BlockProps::placeholder(props))
@@ -286,6 +298,7 @@ impl Content {
             item_names,
             items: item_props,
             item_display,
+            crafting,
         };
         Ok((content, new_names))
     }
@@ -297,6 +310,7 @@ impl Content {
             && self.item_names == other.item_names
             && self.items == other.items
             && self.item_display == other.item_display
+            && self.crafting == other.crafting
     }
 
     /// Whether the chunks are drawn alike with `other`: no block changes the properties the
@@ -387,7 +401,7 @@ pub(super) fn is_content_name(name: &str) -> bool {
 }
 
 /// The blocks and items by their names in the files.
-struct Names {
+pub(super) struct Names {
     pub blocks: HashMap<String, BlockId>,
     pub items: HashMap<String, ItemId>,
 }
@@ -416,7 +430,7 @@ impl Names {
             .ok_or_else(|| format!("{field}: no block is named \"{name}\""))
     }
 
-    fn item(&self, field: &str, name: &str) -> Result<ItemId, String> {
+    pub fn item(&self, field: &str, name: &str) -> Result<ItemId, String> {
         self.items
             .get(name)
             .copied()
@@ -472,6 +486,17 @@ struct ContentFile {
     pub blocks: Named<BlockDef>,
     #[serde(default)]
     pub items: Named<ItemDef>,
+    /// The families of items, by name, each a list of item names (`recipes`).
+    #[serde(default)]
+    pub tags: Named<TagDef>,
+    #[serde(default)]
+    pub recipes: Vec<RecipeDef>,
+    /// `(input, output)`: what a furnace makes of an item, or of each item of a `#tag`.
+    #[serde(default)]
+    pub smelting: Vec<(String, String)>,
+    /// How many ticks an item, or each item of a `#tag`, burns in a furnace.
+    #[serde(default)]
+    pub fuel: Named<FuelDef>,
 }
 
 /// What a block of the palette is (`Palette`), its base and its item named as in the files.
@@ -862,14 +887,14 @@ impl ItemDef {
 }
 
 /// A field the file writes: `light: 10` is `Some(10)`, a field it leaves out `None`.
-fn present<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+pub(super) fn present<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
     deserializer: D,
 ) -> Result<Option<T>, D::Error> {
     T::deserialize(deserializer).map(Some)
 }
 
 /// What a kind of definition is called in the errors.
-trait Kind {
+pub(super) trait Kind {
     const KIND: &'static str;
 }
 
@@ -883,7 +908,7 @@ impl Kind for ItemDef {
 
 /// The definitions of a file by name, in the order of the file. An error in one names it, and
 /// so does a name written twice.
-struct Named<T>(pub Vec<(String, T)>);
+pub(super) struct Named<T>(pub Vec<(String, T)>);
 
 impl<T> Default for Named<T> {
     fn default() -> Self {
@@ -925,7 +950,7 @@ impl<'de, T: Deserialize<'de> + Kind> Deserialize<'de> for Named<T> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
 
     /// The content files of the game, in the source tree.
@@ -1224,7 +1249,7 @@ mod tests {
     }
 
     /// A copy of the content files of the game, with the file `extra.ron` of `text`.
-    fn game_folder_with(text: &str) -> tempfile::TempDir {
+    pub fn game_folder_with(text: &str) -> tempfile::TempDir {
         let folder = edited_game_folder(&[]);
         std::fs::write(folder.path().join("extra.ron"), text).unwrap();
         folder

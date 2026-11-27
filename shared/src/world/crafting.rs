@@ -2,6 +2,8 @@
 
 use std::sync::OnceLock;
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     players::Inventory,
     world::{palette::WOOLS, DyeColor, ItemId, ItemStack, Rock, Wood},
@@ -22,23 +24,52 @@ pub const fn grid_slot(row: u32, col: u32) -> u32 {
     CRAFTING_GRID_START + row * CRAFTING_GRID_SIZE + col
 }
 
-/// A family of items any of which a recipe takes in a cell.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ItemTag {
-    Planks,
-    /// The broken rocks: cobblestone, and the gloomrock of the depths.
-    Cobble,
-    /// The wool of every colour, which a dye colours again.
-    Wool,
-    /// The five fish of `world::fishing`, raw.
-    RawFish,
-    /// The meats roasted.
-    RoastMeat,
-}
+/// A family of items any of which a recipe takes in a cell, by its number in the content
+/// (`Crafting::tags`): the families the engine names first, in the order of `ItemTag::ENGINE`,
+/// then those only the files define, in the order of their names. A constant per family the
+/// engine names keeps the spelling `ItemTag::Planks`.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ItemTag(u16);
 
+#[allow(non_upper_case_globals)]
 impl ItemTag {
-    /// The items of the family, in the order of `ItemId::ENGINE`. A new species of wood joins
-    /// `Planks` by being listed here.
+    pub const Planks: Self = Self(0);
+    /// The broken rocks: cobblestone, and the gloomrock of the depths.
+    pub const Cobble: Self = Self(1);
+    /// The wool of every colour, which a dye colours again.
+    pub const Wool: Self = Self(2);
+    /// The five fish of `world::fishing`, raw.
+    pub const RawFish: Self = Self(3);
+    /// The meats roasted.
+    pub const RoastMeat: Self = Self(4);
+
+    /// The families the engine names, by their numbers.
+    pub const ENGINE: [Self; 5] = [
+        Self::Planks,
+        Self::Cobble,
+        Self::Wool,
+        Self::RawFish,
+        Self::RoastMeat,
+    ];
+
+    /// The names in the files of the families of `ENGINE`, in its order: `#planks` in a recipe.
+    pub const ENGINE_NAMES: [&'static str; 5] =
+        ["planks", "cobble", "wool", "raw_fish", "roast_meat"];
+
+    /// Its place in `Crafting::tags`.
+    #[inline]
+    pub const fn index(self) -> usize {
+        self.0 as usize
+    }
+
+    /// The family numbered `index`, which the content may not define.
+    #[inline]
+    pub const fn from_index(index: u16) -> Self {
+        Self(index)
+    }
+
+    /// The items of the family, in the order of its file. A new species of wood joins `Planks`
+    /// by being listed there.
     pub fn members(self) -> &'static [ItemId] {
         match self {
             Self::Planks => &[
@@ -64,6 +95,7 @@ impl ItemTag {
                 ItemId::RoastChicken,
                 ItemId::RoastRabbit,
             ],
+            _ => &[],
         }
     }
 
@@ -75,12 +107,19 @@ impl ItemTag {
             Self::Wool => "Wool",
             Self::RawFish => "RawFish",
             Self::RoastMeat => "RoastMeat",
+            _ => "Tag",
         }
     }
 }
 
+impl std::fmt::Debug for ItemTag {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
 /// What a cell of a recipe takes: an item, or any item of a family.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Ingredient {
     Item(ItemId),
     Tag(ItemTag),
@@ -104,7 +143,7 @@ impl Ingredient {
 /// A shaped recipe: its cells, row after row, must match the filled part of the grid exactly,
 /// wherever that part sits in the grid, or match it mirrored left to right. A shapeless one only
 /// needs its ingredients in the grid, one per cell, anywhere.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 struct Recipe {
     width: usize,
     cells: &'static [Option<Ingredient>],
@@ -909,6 +948,10 @@ fn serve_cells(mut left: Vec<(ItemId, u32)>, recipe: &RecipeView, rounds: u32) -
     }
     cells
 }
+
+#[cfg(test)]
+#[path = "crafting_dump.rs"]
+mod dump;
 
 #[cfg(test)]
 mod tests {
