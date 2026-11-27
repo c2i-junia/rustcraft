@@ -88,6 +88,7 @@ pub fn world_plugin(app: &mut App) {
             (
                 update_climate_map_system,
                 (apply_graphics_settings_system, night_vision_system).chain(),
+                reload_modified_textures_system,
             ),
         )
         .add_systems(

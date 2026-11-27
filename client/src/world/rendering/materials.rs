@@ -1,3 +1,4 @@
+use super::render::respawn_every_group;
 use crate::constants::{BASE_ROUGHNESS, BASE_SPECULAR_HIGHLIGHT, GRASS_COLOR};
 use crate::shader_assets::{embed_shader, embedded_shader};
 use crate::state::PreLoadingCompletion;
@@ -6,8 +7,12 @@ use crate::world::meshing::BlockLooks;
 use crate::world::overcast::new_weather_buffer;
 use crate::world::precipitation::occlusion::OcclusionMap;
 use crate::world::voxel::FaceColor;
-use crate::world::{new_climate_map, GlobalMaterial, GraphicsSettings, BLOCK_LIGHT};
+use crate::world::{
+    new_climate_map, ClientWorldMap, GlobalMaterial, GraphicsSettings,
+    WorldRenderRequestUpdateEvent, BLOCK_LIGHT,
+};
 use bevy::asset::{embedded_path, load_embedded_asset, RenderAssetUsages};
+use bevy::ecs::system::SystemParam;
 use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
 use bevy::prelude::*;
@@ -20,7 +25,7 @@ use bevy::shader::ShaderRef;
 use serde::Deserialize;
 use shared::world::{BlockId, GameElementId, ItemId};
 use shared::GameFolderPaths;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::marker::PhantomData;
 use std::path::Path;
@@ -410,7 +415,7 @@ fn read_animations(folder: &Path) -> HashMap<String, TextureAnimation> {
 /// Builds the block textures and the item atlas once all their textures are loaded, and
 /// reports in `PreLoadingCompletion` whether both are ready.
 pub fn create_all_atlases(
-    mut atlases: (ResMut<AtlasHandles<BlockId>>, ResMut<AtlasHandles<ItemId>>),
+    atlases: (Res<AtlasHandles<BlockId>>, Res<AtlasHandles<ItemId>>),
     mut images: ResMut<Assets<Image>>,
     mut material_resource: ResMut<MaterialResource>,
     mut loading: ResMut<PreLoadingCompletion>,
@@ -475,8 +480,7 @@ pub fn create_all_atlases(
     }
 
     if material_resource.items.is_none() {
-        if let Some(items) = build_texture_atlas(&mut atlases.1, &mut images, &mut texture_atlases)
-        {
+        if let Some(items) = build_texture_atlas(&atlases.1, &mut images, &mut texture_atlases) {
             // The pictures of the items lying in the world turn round: both sides are drawn
             material_resource.global_materials.insert(
                 GlobalMaterial::Items,
@@ -492,6 +496,104 @@ pub fn create_all_atlases(
 
     loading.textures_loaded =
         material_resource.blocks.is_some() && material_resource.items.is_some();
+}
+
+/// What the block textures and the item atlas are built from and into: see `rebuild_textures`.
+#[derive(SystemParam)]
+pub struct TextureBuild<'w> {
+    blocks: Res<'w, AtlasHandles<BlockId>>,
+    items: Res<'w, AtlasHandles<ItemId>>,
+    images: ResMut<'w, Assets<Image>>,
+    material_resource: ResMut<'w, MaterialResource>,
+    texture_atlases: ResMut<'w, Assets<TextureAtlasLayout>>,
+    materials: ResMut<'w, Assets<StandardMaterial>>,
+    chunk_materials: ResMut<'w, Assets<ChunkMaterial>>,
+}
+
+/// Builds the block textures, their table, `BlockLooks` and the item atlas again from their
+/// images as they are now, into what was built from them first: the chunk materials, the item
+/// atlas and the material of the items keep their handles, so the chunks and the pictures of
+/// the items show the new textures. Returns whether it did, which it does not before
+/// `create_all_atlases` built them or while some of the images are loading. The chunks must be
+/// meshed again (`respawn_every_group`) for new looks to show.
+pub fn rebuild_textures(build: &mut TextureBuild) -> bool {
+    let TextureBuild {
+        blocks,
+        items,
+        images,
+        material_resource,
+        texture_atlases,
+        materials,
+        chunk_materials,
+    } = build;
+    let (Some(_), Some(atlas)) = (&material_resource.blocks, &material_resource.items) else {
+        return false;
+    };
+    let (texture, layout) = (atlas.texture.clone(), atlas.layout.clone());
+    let Some((block_textures, table)) = build_block_textures(blocks, images) else {
+        return false;
+    };
+    let Some(mut atlas) = build_texture_atlas(items, images, texture_atlases) else {
+        return false;
+    };
+
+    for handle in material_resource.chunk_materials.values() {
+        if let Some(mut material) = chunk_materials.get_mut(handle) {
+            material.extension.layers = block_textures.array.clone();
+            material.extension.table = table;
+        }
+    }
+    material_resource.blocks = Some(block_textures);
+
+    // Into the image and the layout the pictures of the items hold
+    if let Some(image) = images.remove(&atlas.texture) {
+        let _ = images.insert(&texture, image);
+    }
+    if let Some(built) = texture_atlases.remove(&atlas.layout) {
+        let _ = texture_atlases.insert(&layout, built);
+    }
+    atlas.texture = texture;
+    atlas.layout = layout;
+    if let Some(handle) = material_resource
+        .global_materials
+        .get(&GlobalMaterial::Items)
+    {
+        // Prepared again with the new image
+        if let Some(mut material) = materials.get_mut(handle) {
+            material.base_color_texture = Some(atlas.texture.clone());
+        }
+    }
+    material_resource.items = Some(atlas);
+    true
+}
+
+/// Builds the block textures and the item atlas again when one of their images changes, as
+/// when a dev build sees its file saved while the game runs, and meshes every chunk again.
+pub fn reload_modified_textures_system(
+    mut events: MessageReader<AssetEvent<Image>>,
+    mut build: TextureBuild,
+    mut world_map: ResMut<ClientWorldMap>,
+    mut commands: Commands,
+    mut ev_writer: MessageWriter<WorldRenderRequestUpdateEvent>,
+) {
+    let modified: HashSet<AssetId<Image>> = events
+        .read()
+        .filter_map(|event| match event {
+            AssetEvent::Modified { id } => Some(*id),
+            _ => None,
+        })
+        .collect();
+    let is_texture = |(handle, _): &(Handle<Image>, String)| modified.contains(&handle.id());
+    if modified.is_empty()
+        || !(build.blocks.handles.iter().any(is_texture)
+            || build.items.handles.iter().any(is_texture))
+    {
+        return;
+    }
+    if rebuild_textures(&mut build) {
+        info!("Textures reloaded");
+        respawn_every_group(&mut world_map, &mut commands, &mut ev_writer);
+    }
 }
 
 /// The frames of an image, as RGBA bytes each `size` wide and high: a square image is one
@@ -617,7 +719,7 @@ fn build_block_textures(
 /// One image holding every texture of `atlas_handles`, or `None` while some of them are still
 /// loading. Pixel art is sampled without smoothing.
 fn build_texture_atlas<T: GameElementId>(
-    atlas_handles: &mut AtlasHandles<T>,
+    atlas_handles: &AtlasHandles<T>,
     images: &mut Assets<Image>,
     texture_atlases: &mut Assets<TextureAtlasLayout>,
 ) -> Option<AtlasWrapper> {
@@ -670,6 +772,8 @@ fn build_texture_atlas<T: GameElementId>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::message::Messages;
+    use bevy::ecs::system::RunSystemOnce;
 
     /// A `width` by `height` image whose pixel at `(x, y)` is `[x, y, 0, 255]`.
     fn numbered(width: u32, height: u32) -> Image {
@@ -692,6 +796,155 @@ mod tests {
     fn pixel(frame: &[u8], size: u32, x: u32, y: u32) -> [u8; 2] {
         let at = ((y * size + x) * 4) as usize;
         [frame[at], frame[at + 1]]
+    }
+
+    /// A 16x16 image of one colour.
+    fn plain(rgba: [u8; 4]) -> Image {
+        Image::new_fill(
+            Extent3d {
+                width: 16,
+                height: 16,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            &rgba,
+            TextureFormat::Rgba8UnormSrgb,
+            RenderAssetUsages::all(),
+        )
+    }
+
+    const GREY: [u8; 4] = [128, 128, 128, 255];
+    const RED: [u8; 4] = [255, 0, 0, 255];
+
+    /// A world whose textures are built from a grey `Stone` block texture and a `Stick` item
+    /// texture, with one group of chunks on display, and the handle of the stone image.
+    fn built_textures() -> (World, Handle<Image>) {
+        let mut world = World::new();
+        for init in [
+            World::init_resource::<Assets<Image>>,
+            World::init_resource::<Assets<TextureAtlasLayout>>,
+            World::init_resource::<Assets<StandardMaterial>>,
+            World::init_resource::<Assets<ChunkMaterial>>,
+            World::init_resource::<MaterialResource>,
+            World::init_resource::<ClientWorldMap>,
+            World::init_resource::<Messages<AssetEvent<Image>>>,
+            World::init_resource::<Messages<WorldRenderRequestUpdateEvent>>,
+        ] {
+            init(&mut world);
+        }
+        world.insert_resource(PreLoadingCompletion {
+            textures_loaded: false,
+        });
+        let mut images = world.resource_mut::<Assets<Image>>();
+        let stone = images.add(plain(GREY));
+        let stick = images.add(plain([90, 60, 30, 255]));
+        world.insert_resource(AtlasHandles::<BlockId> {
+            handles: vec![(stone.clone(), "Stone".into())],
+            ..default()
+        });
+        world.insert_resource(AtlasHandles::<ItemId> {
+            handles: vec![(stick, "Stick".into()), (stone.clone(), "Stone".into())],
+            ..default()
+        });
+        world.run_system_once(create_all_atlases).unwrap();
+        assert!(world.resource::<PreLoadingCompletion>().textures_loaded);
+
+        let shown = world.spawn_empty().id();
+        let mut map = world.resource_mut::<ClientWorldMap>();
+        map.chunk_arrived(IVec3::ZERO);
+        map.render.values_mut().next().unwrap().entity = Some(shown);
+        (world, stone)
+    }
+
+    /// The first texel of the block texture array the chunks are drawn with.
+    fn first_layer_texel(world: &World) -> [u8; 4] {
+        let materials = world.resource::<MaterialResource>();
+        let handle = &materials.chunk_materials[&GlobalMaterial::Blocks];
+        let material = world
+            .resource::<Assets<ChunkMaterial>>()
+            .get(handle)
+            .unwrap();
+        let array = world
+            .resource::<Assets<Image>>()
+            .get(&material.extension.layers)
+            .unwrap();
+        array.data.as_ref().unwrap()[..4].try_into().unwrap()
+    }
+
+    /// The first texel of the stone texture in the item atlas.
+    fn stone_icon_texel(world: &World, stone: &Handle<Image>) -> [u8; 4] {
+        let atlas = world.resource::<MaterialResource>().items.as_ref().unwrap();
+        let layout = world
+            .resource::<Assets<TextureAtlasLayout>>()
+            .get(&atlas.layout)
+            .unwrap();
+        let rect = atlas.sources.texture_rect(layout, stone.id()).unwrap();
+        let image = world
+            .resource::<Assets<Image>>()
+            .get(&atlas.texture)
+            .unwrap();
+        let at = ((rect.min.y * image.width() + rect.min.x) * 4) as usize;
+        image.data.as_ref().unwrap()[at..at + 4].try_into().unwrap()
+    }
+
+    #[test]
+    fn a_block_texture_saved_while_the_game_runs_is_drawn_again_everywhere() {
+        let (mut world, stone) = built_textures();
+        let materials = world.resource::<MaterialResource>();
+        let chunk_material = materials.chunk_materials[&GlobalMaterial::Blocks].clone();
+        let atlas = materials.items.as_ref().unwrap();
+        let (atlas_texture, atlas_layout) = (atlas.texture.clone(), atlas.layout.clone());
+        assert_eq!(first_layer_texel(&world), GREY);
+        assert_eq!(stone_icon_texel(&world, &stone), GREY);
+
+        // The file is saved red, and the asset server reloads it
+        world
+            .resource_mut::<Assets<Image>>()
+            .insert(&stone, plain(RED))
+            .unwrap();
+        world.write_message(AssetEvent::Modified { id: stone.id() });
+        world
+            .run_system_once(reload_modified_textures_system)
+            .unwrap();
+
+        assert_eq!(first_layer_texel(&world), RED);
+        assert_eq!(stone_icon_texel(&world, &stone), RED);
+        // What holds the handles, the chunks and the pictures of the items, sees the change
+        let materials = world.resource::<MaterialResource>();
+        assert_eq!(
+            materials.chunk_materials[&GlobalMaterial::Blocks],
+            chunk_material
+        );
+        let atlas = materials.items.as_ref().unwrap();
+        assert_eq!(atlas.texture, atlas_texture);
+        assert_eq!(atlas.layout, atlas_layout);
+        // and every chunk is meshed again
+        let map = world.resource::<ClientWorldMap>();
+        assert!(map.render.values().all(|render| render.entity.is_none()));
+        let remeshed: Vec<_> = world
+            .resource_mut::<Messages<WorldRenderRequestUpdateEvent>>()
+            .drain()
+            .collect();
+        assert_eq!(
+            remeshed,
+            [WorldRenderRequestUpdateEvent::ChunkToReload(IVec3::ZERO)]
+        );
+    }
+
+    #[test]
+    fn an_image_that_is_no_block_or_item_texture_changes_nothing() {
+        let (mut world, _) = built_textures();
+        let other = world.resource_mut::<Assets<Image>>().add(plain(RED));
+        world.write_message(AssetEvent::Modified { id: other.id() });
+        world
+            .run_system_once(reload_modified_textures_system)
+            .unwrap();
+        assert_eq!(first_layer_texel(&world), GREY);
+        let map = world.resource::<ClientWorldMap>();
+        assert!(map.render.values().all(|render| render.entity.is_some()));
+        assert!(world
+            .resource::<Messages<WorldRenderRequestUpdateEvent>>()
+            .is_empty());
     }
 
     #[test]
