@@ -11,6 +11,7 @@ use super::{
     glint::Glints,
     mesh::{copies, copy_offset, orb_class, orb_size, ItemLook, ItemLooks, OrbLook},
     DroppedItemEntities, DroppedItemRoot, DroppedItemSpin, FlyingTo, ItemPickedUp,
+    UpdatesWhileLoading,
 };
 use crate::{
     network::{session::SessionOrigin, CurrentPlayerProfile},
@@ -21,9 +22,18 @@ use crate::{
 /// How long an item picked up or merged takes to fly to its target, in seconds.
 const FLIGHT_SECONDS: f32 = 0.15;
 
+/// Keeps the updates that come while the game loads, for `apply_dropped_items_updates`.
+pub(super) fn keep_updates_while_loading(
+    mut updates: MessageReader<DroppedItemsUpdate>,
+    mut kept: ResMut<UpdatesWhileLoading>,
+) {
+    kept.0.extend(updates.read().cloned());
+}
+
 pub(super) fn apply_dropped_items_updates(
     mut commands: Commands,
     mut updates: MessageReader<DroppedItemsUpdate>,
+    mut kept: ResMut<UpdatesWhileLoading>,
     mut entities: ResMut<DroppedItemEntities>,
     mut looks: ResMut<ItemLooks>,
     (mut orb_look, mut orb_materials, mut glints): (
@@ -39,7 +49,10 @@ pub(super) fn apply_dropped_items_updates(
     (profile, origin): (Res<CurrentPlayerProfile>, Option<Res<SessionOrigin>>),
     mut picked_up: MessageWriter<ItemPickedUp>,
 ) {
-    for update in updates.read() {
+    // Those kept while the game loaded first. The last of them may be read again from the
+    // messages, which is harmless: an update tells where items are, or that they are gone.
+    let kept = std::mem::take(&mut kept.0);
+    for update in kept.iter().chain(updates.read()) {
         // The upserts first: an item may merge into one this update tells of
         for (id, state) in &update.upserts {
             let is_orb = state.experience > 0;
@@ -262,5 +275,24 @@ mod tests {
         assert_eq!(transform.translation, out);
         assert_eq!((root.server_position, root.passes), (out, 1));
         assert_eq!(root.velocity, Vec3::new(-8.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn the_updates_that_come_while_the_game_loads_are_kept_for_it() {
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .insert_state(GameState::PreGameLoading)
+            .add_plugins(super::super::dropped_items_plugin);
+        let update = DroppedItemsUpdate {
+            upserts: vec![(7, state(Vec3::new(3.5, 64.2, -1.5), 0))],
+            removals: Vec::new(),
+        };
+        app.world_mut().write_message(update.clone());
+        // Long after the message is gone
+        for _ in 0..5 {
+            app.update();
+        }
+        let kept = &app.world().resource::<UpdatesWhileLoading>().0;
+        assert_eq!(kept, &vec![update]);
     }
 }

@@ -57,10 +57,17 @@ struct FlyingTo {
 #[derive(Resource, Default, Debug)]
 struct DroppedItemEntities(HashMap<DroppedItemId, Entity>);
 
+/// The updates that came while the game loaded, applied once it is entered: a message lives two
+/// frames, and the server tells of an item that lies still only once, so one lost there would
+/// never be shown (the inventory of a player who died while its client loaded).
+#[derive(Resource, Default, Debug)]
+struct UpdatesWhileLoading(Vec<DroppedItemsUpdate>);
+
 pub fn dropped_items_plugin(app: &mut App) {
     app.add_message::<DroppedItemsUpdate>()
         .add_message::<ItemPickedUp>()
         .init_resource::<DroppedItemEntities>()
+        .init_resource::<UpdatesWhileLoading>()
         .init_resource::<mesh::ItemLooks>()
         .init_resource::<mesh::OrbLook>()
         .init_resource::<glint::Glints>()
@@ -76,6 +83,14 @@ pub fn dropped_items_plugin(app: &mut App) {
                 .run_if(in_state(GameState::Game)),
         )
         .add_systems(Update, glint::shimmer.run_if(in_state(GameState::Game)))
+        .add_systems(
+            OnEnter(GameState::PreGameLoading),
+            |mut kept: ResMut<UpdatesWhileLoading>| kept.0.clear(),
+        )
+        .add_systems(
+            Update,
+            sync::keep_updates_while_loading.run_if(in_state(GameState::PreGameLoading)),
+        )
         // The entities go with the game state; the ids are those of the session that ended
         .add_systems(
             OnExit(GameState::Game),
