@@ -121,24 +121,25 @@ fn start_with(start: Content) -> &'static Content {
 /// files is installed over it, unless it is the same.
 pub fn start(folder: &Path) -> Result<&'static Content, ContentError> {
     let source = source_folder();
-    let folder = match folder.is_dir() {
-        true => folder,
-        false if source.is_dir() => &source,
-        false => {
-            return Err(ContentError {
-                file: folder.to_path_buf(),
-                reason: "no such folder of content files".to_string(),
-            })
-        }
+    let folder = if folder.is_dir() {
+        folder
+    } else if source.is_dir() {
+        &source
+    } else {
+        return Err(ContentError {
+            file: folder.to_path_buf(),
+            reason: "no such folder of content files".to_string(),
+        });
     };
     let loaded = Content::load(folder)?;
     if CONTENT.load(Ordering::Acquire).is_null() {
         return Ok(start_with(loaded));
     }
-    Ok(match loaded.same_properties(content()) {
-        true => content(),
-        false => install(loaded),
-    })
+    if loaded.same_properties(content()) {
+        Ok(content())
+    } else {
+        Ok(install(loaded))
+    }
 }
 
 /// Makes `new` the content of the process, as the generation after the current one, and
