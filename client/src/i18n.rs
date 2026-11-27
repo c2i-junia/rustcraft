@@ -271,6 +271,14 @@ pub fn fill(template: &str, args: &[(&str, &dyn Display)]) -> String {
 
 /// The name of `item` in the language of the game.
 pub fn item_name(item: ItemId) -> &'static str {
+    // the name its content file gives it, before that of the language files
+    let written = item.display_name().and_then(|name| match language() {
+        Language::English => name.en.as_deref(),
+        Language::French => name.fr.as_deref(),
+    });
+    if let Some(name) = written {
+        return name;
+    }
     match tables().item_names[language().index()].get(item.index()) {
         Some(name) => name,
         // an item only the content files define: its name in the files, without a text
@@ -563,6 +571,60 @@ mod tests {
             assert_eq!(item_name(ItemId::OakLog), "Bûche de chêne");
         });
         assert_eq!(tr("home.quit_confirm"), "Quit");
+    }
+
+    /// Set in the process `a_name_written_in_a_content_file_shows_in_the_language_of_the_game`
+    /// starts, which installs content other than the game's.
+    const OWN_PROCESS: &str = "RUSTCRAFT_I18N_CONTENT_NAME";
+
+    #[test]
+    fn a_name_written_in_a_content_file_shows_in_the_language_of_the_game() {
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "i18n::tests::with_a_block_named_in_its_file",
+                "--ignored",
+                "--quiet",
+            ])
+            .env(OWN_PROCESS, "1")
+            .status()
+            .unwrap();
+        assert!(status.success(), "see the output of the child process");
+    }
+
+    #[test]
+    #[ignore = "run alone, in its own process, by the test above"]
+    fn with_a_block_named_in_its_file() {
+        assert!(std::env::var_os(OWN_PROCESS).is_some(), "installs content");
+        let folder = tempfile::tempdir().unwrap();
+        let game =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/content/rustcraft");
+        for entry in std::fs::read_dir(game).unwrap() {
+            let path = entry.unwrap().path();
+            std::fs::copy(&path, folder.path().join(path.file_name().unwrap())).unwrap();
+        }
+        std::fs::write(
+            folder.path().join("amber.ron"),
+            r#"(
+                blocks: {"amber": (name: (en: "Amber", fr: "Ambre"))},
+                items: {"amber_shard": (name: (en: "Amber Shard"))},
+            )"#,
+        )
+        .unwrap();
+        shared::content::install(shared::content::Content::load(folder.path()).unwrap());
+        let block_item = ItemId::from_name("amber").unwrap();
+        let shard = ItemId::from_name("amber_shard").unwrap();
+
+        // the name of a block serves its item
+        assert_eq!(item_name(block_item), "Amber");
+        assert_eq!(item_name(shard), "Amber Shard");
+        in_language(Language::French, || {
+            assert_eq!(item_name(block_item), "Ambre");
+            // a language the file leaves out: the content name, as the language files lack it
+            assert_eq!(item_name(shard), "amber_shard");
+            // an engine item keeps the name of the language files
+            assert_eq!(item_name(ItemId::OakLog), "Bûche de chêne");
+        });
     }
 
     #[test]

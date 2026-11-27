@@ -15,7 +15,7 @@ mod look;
 pub(crate) use blocks::tool_bit;
 pub use blocks::BlockProps;
 pub use files::{ContentError, NewName};
-pub use items::ItemProps;
+pub use items::{DisplayName, ItemProps};
 pub use look::{Behaviour, BlockFlags, Look, Shape, Sway, Tint};
 
 use serde::{Deserialize, Serialize};
@@ -49,6 +49,9 @@ pub struct Content {
     pub item_idents: Vec<String>,
     /// By `ItemId::index`: the items of `ItemId::ENGINE` first, in their order.
     pub items: Vec<ItemProps>,
+    /// By `ItemId::index`, the name each item the files name is shown under: its own, or that
+    /// of its block (`ItemId::display_name`).
+    pub item_display: std::collections::BTreeMap<u16, DisplayName>,
 }
 
 impl Content {

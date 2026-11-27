@@ -33,7 +33,8 @@ use serde::de::{self, Deserializer, MapAccess, Visitor};
 use serde::Deserialize;
 
 use super::{
-    tool_bit, Behaviour, BlockFlags, BlockProps, Content, ItemProps, Look, Shape, Sway, Tint,
+    tool_bit, Behaviour, BlockFlags, BlockProps, Content, DisplayName, ItemProps, Look, Shape,
+    Sway, Tint,
 };
 use crate::players::effects::EffectKind;
 use crate::utils::{pascal_case, snake_case};
@@ -201,13 +202,19 @@ impl Content {
         let (paths, files): (Vec<PathBuf>, Vec<ContentFile>) = files.into_iter().unzip();
         let mut blocks: Vec<Option<(BlockProps, &Path)>> = vec![None; block_names.len()];
         let mut items: Vec<Option<(ItemProps, &Path)>> = vec![None; item_names.len()];
+        // the names to show, by item; that of a block serves its item
+        let mut block_display = HashMap::new();
+        let mut item_display = std::collections::BTreeMap::new();
         for (file, defs) in paths.iter().zip(files) {
             let fail = |reason: String| ContentError {
                 file: file.clone(),
                 reason,
             };
-            for (name, def) in defs.blocks.0 {
+            for (name, mut def) in defs.blocks.0 {
                 let id = names.block("name", &name).map_err(&fail)?;
+                if let Some(display) = def.name.take() {
+                    block_display.insert(name.clone(), display.into());
+                }
                 let props = def
                     .build(&name, &names)
                     .and_then(|props| check_block(&props).map(|()| props))
@@ -219,8 +226,11 @@ impl Content {
                     )));
                 }
             }
-            for (name, def) in defs.items.0 {
+            for (name, mut def) in defs.items.0 {
                 let id = names.item("name", &name).map_err(&fail)?;
+                if let Some(display) = def.name.take() {
+                    item_display.insert(id.index() as u16, display.into());
+                }
                 let props = def
                     .build(&name, &names)
                     .and_then(|props| check_item(&props).map(|()| props))
@@ -256,6 +266,9 @@ impl Content {
                 None => return Err(in_folder(format!("item \"{name}\" is defined in no file"))),
             };
             item_props.push(props);
+            if let Some(display) = block_display.remove(name) {
+                item_display.entry(index as u16).or_insert(display);
+            }
         }
         let debug = blocks[BlockId::Debug.index()]
             .as_ref()
@@ -272,6 +285,7 @@ impl Content {
             item_idents: item_names.iter().map(|name| pascal_case(name)).collect(),
             item_names,
             items: item_props,
+            item_display,
         };
         Ok((content, new_names))
     }
@@ -282,6 +296,7 @@ impl Content {
             && self.blocks == other.blocks
             && self.item_names == other.item_names
             && self.items == other.items
+            && self.item_display == other.item_display
     }
 
     /// Whether the chunks are drawn alike with `other`: no block changes the properties the
@@ -472,6 +487,9 @@ struct PaletteDef {
 #[derive(Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
 struct BlockDef {
+    /// The name the block and its item are shown under, by language.
+    #[serde(default, deserialize_with = "present")]
+    pub name: Option<NameDef>,
     /// `palette`: what the block is, if it is one of the palette. None by default.
     #[serde(default, deserialize_with = "present")]
     pub palette: Option<PaletteDef>,
@@ -621,6 +639,7 @@ impl BlockDef {
     /// The properties of the block `name` this definition gives.
     pub fn build(self, name: &str, names: &Names) -> Result<BlockProps, String> {
         let Self {
+            name: _,
             palette,
             look,
             light,
@@ -719,10 +738,30 @@ impl BlockDef {
     }
 }
 
+/// The name of a block or an item in each language, as a file writes it: `(en: "Amber", fr:
+/// "Ambre")`. A language it leaves out takes the name of the language files.
+#[derive(Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
+struct NameDef {
+    #[serde(default, deserialize_with = "present")]
+    pub en: Option<String>,
+    #[serde(default, deserialize_with = "present")]
+    pub fr: Option<String>,
+}
+
+impl From<NameDef> for DisplayName {
+    fn from(NameDef { en, fr }: NameDef) -> Self {
+        Self { en, fr }
+    }
+}
+
 /// The definition of an item in a file: each field the file leaves out takes its default.
 #[derive(Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
 struct ItemDef {
+    /// The name the item is shown under, by language.
+    #[serde(default, deserialize_with = "present")]
+    pub name: Option<NameDef>,
     /// `max_stack`, 64 by default.
     #[serde(default, deserialize_with = "present")]
     pub stack: Option<u32>,
@@ -774,6 +813,7 @@ impl ItemDef {
     /// The properties of the item `name` this definition gives.
     pub fn build(self, name: &str, names: &Names) -> Result<ItemProps, String> {
         let Self {
+            name: _,
             stack,
             attack_damage,
             food_value,

@@ -6,6 +6,15 @@ use super::content;
 use crate::players::effects::EffectKind;
 use crate::world::{ItemCategory, ItemId, ItemType, MobKind, Tool};
 
+/// The name an item is shown under, in each language, as its file or that of its block writes
+/// it: `name: (en: "Amber", fr: "Ambre")`. A language it leaves out takes the name of the
+/// language files (`item.<Ident>`).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct DisplayName {
+    pub en: Option<String>,
+    pub fr: Option<String>,
+}
+
 /// What an item is and does, as the getters of `ItemId` read it: see each getter.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ItemProps {
@@ -64,6 +73,13 @@ impl ItemId {
     /// it: `oak_log`. `None` for a number the content does not define.
     pub fn content_name(self) -> Option<&'static str> {
         content().item_names.get(self.index()).map(String::as_str)
+    }
+
+    /// The name the content files give the item to be shown under, if they give one.
+    pub fn display_name(self) -> Option<&'static DisplayName> {
+        u16::try_from(self.index())
+            .ok()
+            .and_then(|index| content().item_display.get(&index))
     }
 
     /// The properties of the item in the content of the process.
