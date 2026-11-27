@@ -495,7 +495,7 @@ fn speed(player: &Player, in_liquid: bool, in_lava: bool) -> f32 {
     } else {
         1.0
     };
-    let drawing = held_back * super::effects::StatusEffects::speed_factor(player.slowness);
+    let drawing = held_back * super::effects::StatusEffects::speed_factor_of(player.slowness, player.swiftness);
     let speed = if player.is_flying {
         let sprint = if player.is_sprinting {
             FLY_SPRINT_SPEED_MULTIPLIER

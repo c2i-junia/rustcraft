@@ -79,7 +79,8 @@ pub(super) fn walk_speed(kind: MobKind) -> f32 {
         | MobKind::Ember
         | MobKind::Arrow
         | MobKind::Boat
-        | MobKind::Bobber => 0.0,
+        | MobKind::Bobber
+        | MobKind::ThrownPotion => 0.0,
         MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => 1.5,
         MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 1.6,
         MobKind::Horse => 1.5,
@@ -105,7 +106,11 @@ fn flee_speed(kind: MobKind) -> f32 {
         | MobKind::Slagcrawler => super::hostile::own_speed(kind),
         MobKind::Glintfin | MobKind::Shoalback => super::swim::DART_SPEED,
         MobKind::Mossback => 1.2,
-        MobKind::Ember | MobKind::Arrow | MobKind::Boat | MobKind::Bobber => 0.0,
+        MobKind::Ember
+        | MobKind::Arrow
+        | MobKind::Boat
+        | MobKind::Bobber
+        | MobKind::ThrownPotion => 0.0,
         // Never struck
         MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => 3.0,
         MobKind::Horse => 6.0,

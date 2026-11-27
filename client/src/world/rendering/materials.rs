@@ -200,6 +200,9 @@ pub struct ChunkShading {
     pub effects: u32,
     /// 1 for the material of the liquids, whose surface the water effect draws.
     pub liquid: u32,
+    /// From 0 to 1, how much the night vision of the local player lights what is dark
+    /// (`night_vision_system`).
+    pub night_vision: f32,
 }
 
 impl ChunkShading {
@@ -220,6 +223,7 @@ impl ChunkShading {
             block_light: BLOCK_LIGHT,
             effects,
             liquid: liquid as u32,
+            night_vision: 0.0,
         }
     }
 }

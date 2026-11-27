@@ -259,7 +259,7 @@ fn opened(
         Some(BlockId::EngravingTable) => Some(InventoryAction::OpenEngravingTable(position)),
         Some(BlockId::Anvil) => Some(InventoryAction::OpenAnvil(position)),
         Some(BlockId::Chest | BlockId::Barrel) => Some(InventoryAction::OpenChest(position)),
-        Some(BlockId::Furnace | BlockId::LitFurnace) => {
+        Some(BlockId::Furnace | BlockId::LitFurnace | BlockId::Alembic) => {
             Some(InventoryAction::OpenFurnace(position))
         }
         _ => None,
@@ -399,6 +399,7 @@ mod tests {
             (BlockId::Chest, InventoryAction::OpenChest(at)),
             (BlockId::Furnace, InventoryAction::OpenFurnace(at)),
             (BlockId::LitFurnace, InventoryAction::OpenFurnace(at)),
+            (BlockId::Alembic, InventoryAction::OpenFurnace(at)),
         ] {
             for held in [None, Some(ItemId::Dirt), Some(ItemId::WaterBucket)] {
                 assert_eq!(opened(Some(block), at, held), Some(open), "{block:?}");

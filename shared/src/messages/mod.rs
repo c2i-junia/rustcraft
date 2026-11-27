@@ -280,6 +280,7 @@ mod tests {
                 pack: None,
                 leash: None,
                 prey: None,
+                potion: None,
             },
         };
         let update = PlayerUpdateEvent {

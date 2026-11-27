@@ -80,6 +80,8 @@ struct ChunkShading {
     effects: u32,
     // 1 for the material of the liquids
     liquid: u32,
+    // From 0 to 1, how much night vision lights what is dark (`EffectKind::NightVision`)
+    night_vision: f32,
 }
 @group(#{MATERIAL_BIND_GROUP}) @binding(106) var<uniform> shading: ChunkShading;
 // At 107, the weather of the sky, `weather` of `rustcraft::sky`
@@ -369,6 +371,9 @@ fn biome_color(in: VertexOutput, tint: u32, color: vec3<f32>) -> vec3<f32> {
     }
     return colormap_color(foliage_colors, at);
 }
+
+// How bright night vision makes what it lights, as a share of the full light of the blocks
+const NIGHT_VISION_LIGHT: f32 = 0.75;
 
 // How bright a light level looks, from 0 to 1, as Minecraft's: it falls slowly from the full
 // level, then fast, brightened by `shading.brightness`, and never quite black.
@@ -952,6 +957,11 @@ fn fragment(
     let lit_by_blocks = pbr_input.material.base_color.rgb * block * BLOCK_LIGHT_COLOR
         * shading.block_light * BASE_EXPOSURE;
     out.color = vec4(max(out.color.rgb * sky, lit_by_blocks) * occlusion, out.color.a);
+    // Night vision: nothing is darker than under a light of the blocks a little dimmer than
+    // their full light
+    let seen = pbr_input.material.base_color.rgb * NIGHT_VISION_LIGHT * shading.night_vision
+        * shading.block_light * BASE_EXPOSURE * occlusion;
+    out.color = vec4(max(out.color.rgb, seen), out.color.a);
     // A flash of lightning lights what is open to the sky, as its light comes from it
     let flash = flash_light(in.world_position.xyz, pbr_input.world_normal);
     out.color = vec4(

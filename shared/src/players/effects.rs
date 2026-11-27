@@ -1,5 +1,6 @@
-//! The status effects: poison, burn, slowness, weakness and regeneration, each with a level and
-//! a time left. The server gives them (the blows of some hostiles, an ember), counts them down
+//! The status effects: poison, burn, slowness, weakness and regeneration, and those of the
+//! potions (`world::alchemy`): healing, night vision, water breathing, fire resistance, swiftness
+//! and strength, each with a level and a time left. The server gives them (the blows of some hostiles, an ember), counts them down
 //! once a tick (`Player::tick_effects`) and sends them to the client, which shows them over the
 //! hotbar; they are saved with the player, and a bucket of milk takes them all away.
 //!
@@ -25,20 +26,47 @@ pub enum EffectKind {
     Weakness,
     /// A point of health back every `REGENERATION_PERIOD` ticks, quicker by level.
     Regeneration,
+    /// `HEALING_PER_LEVEL` points of health at once per level: it is given, never kept
+    /// (`Player::give_effect`).
+    Healing,
+    /// The client draws the world brighter (`client::world::rendering::lighting`).
+    NightVision,
+    /// The air of the player does not run out under water (`Player::breathe`).
+    WaterBreathing,
+    /// Fire, lava and magma do not hurt the player (`Player::hurt`).
+    FireResistance,
+    /// The player walks faster: `SWIFTNESS_PER_LEVEL` more per level.
+    Swiftness,
+    /// The blows of the player hurt `STRENGTH_PER_LEVEL` more per level.
+    Strength,
 }
 
 impl EffectKind {
-    pub const ALL: [EffectKind; 5] = [
+    pub const ALL: [EffectKind; 11] = [
         Self::Poison,
         Self::Burn,
         Self::Slowness,
         Self::Weakness,
         Self::Regeneration,
+        Self::Healing,
+        Self::NightVision,
+        Self::WaterBreathing,
+        Self::FireResistance,
+        Self::Swiftness,
+        Self::Strength,
     ];
 
     /// Whether the effect does the player good: the HUD frames it apart.
     pub fn is_beneficial(self) -> bool {
-        self == Self::Regeneration
+        !matches!(
+            self,
+            Self::Poison | Self::Burn | Self::Slowness | Self::Weakness
+        )
+    }
+
+    /// Whether the effect does all it does at once, and is never kept: healing.
+    pub fn is_instant(self) -> bool {
+        self == Self::Healing
     }
 }
 
@@ -50,6 +78,12 @@ pub const REGENERATION_PERIOD: u32 = 50;
 pub const SLOWNESS_PER_LEVEL: f32 = 0.15;
 /// The points a level of weakness takes from a blow.
 pub const WEAKNESS_PER_LEVEL: u32 = 2;
+/// What a level of swiftness adds to the speed of the player, as a share.
+pub const SWIFTNESS_PER_LEVEL: f32 = 0.2;
+/// The points a level of strength adds to a blow.
+pub const STRENGTH_PER_LEVEL: u32 = 3;
+/// The points of health a level of healing gives back at once.
+pub const HEALING_PER_LEVEL: u32 = 4;
 /// The highest level an effect reaches.
 pub const MAX_LEVEL: u8 = 4;
 
@@ -150,10 +184,16 @@ impl StatusEffects {
         (1.0 - SLOWNESS_PER_LEVEL * level as f32).max(0.2)
     }
 
-    /// A blow of `damage` points by a player under weakness: never below 1.
+    /// What slowness and swiftness make of the speed of the player, from 1.
+    pub fn speed_factor_of(slowness: u8, swiftness: u8) -> f32 {
+        Self::speed_factor(slowness) * (1.0 + SWIFTNESS_PER_LEVEL * swiftness as f32)
+    }
+
+    /// A blow of `damage` points by a player under weakness, and strength: never below 1.
     pub fn weakened(&self, damage: u32) -> u32 {
         let less = WEAKNESS_PER_LEVEL * self.level(EffectKind::Weakness) as u32;
-        damage.saturating_sub(less).max(1)
+        let more = STRENGTH_PER_LEVEL * self.level(EffectKind::Strength) as u32;
+        (damage + more).saturating_sub(less).max(1)
     }
 }
 
@@ -165,6 +205,7 @@ impl Player {
         if self.is_dead() {
             self.effects.clear();
             self.slowness = 0;
+            self.swiftness = 0;
             return;
         }
         let done = self.effects.tick();
@@ -179,6 +220,7 @@ impl Player {
             self.health = (self.health + done.healed).min(MAX_HEALTH);
         }
         self.slowness = self.effects.level(EffectKind::Slowness);
+        self.swiftness = self.effects.level(EffectKind::Swiftness);
     }
 
     /// Gives the player an effect, unless it takes no damage (creative) or is dead.
@@ -186,8 +228,26 @@ impl Player {
         if self.is_dead() || !self.game_mode.takes_damage() {
             return;
         }
-        self.effects
-            .give(kind, level, seconds * TICKS_PER_SECOND as u32);
+        self.take_effect(kind, level, seconds * TICKS_PER_SECOND as u32);
+    }
+
+    /// Gives the player an effect for `ticks`, in any game mode, as a potion drunk does: healing
+    /// heals at once, the rest is kept by `StatusEffects::give`. A dead player takes nothing.
+    pub fn take_effect(&mut self, kind: EffectKind, level: u8, ticks: u32) {
+        if self.is_dead() {
+            return;
+        }
+        if kind.is_instant() {
+            let level = level.clamp(1, MAX_LEVEL);
+            self.health = (self.health + HEALING_PER_LEVEL * level as u32).min(MAX_HEALTH);
+            return;
+        }
+        self.effects.give(kind, level, ticks);
+    }
+
+    /// Whether fire, lava and magma leave the player unharmed.
+    pub fn resists_fire(&self) -> bool {
+        self.effects.level(EffectKind::FireResistance) > 0
     }
 }
 
@@ -281,6 +341,44 @@ mod tests {
         assert!(StatusEffects::speed_factor(2) < 1.0);
         assert_eq!(patient.slowness, 0);
         assert!(patient.effects.is_empty());
+    }
+
+    #[test]
+    fn healing_heals_at_once_and_is_not_kept() {
+        let mut patient = player();
+        patient.health = 5;
+        patient.take_effect(EffectKind::Healing, 2, 100);
+        assert_eq!(patient.health, 5 + 2 * HEALING_PER_LEVEL);
+        assert!(patient.effects.is_empty());
+        patient.take_effect(EffectKind::Healing, 4, 100);
+        assert_eq!(patient.health, MAX_HEALTH);
+    }
+
+    #[test]
+    fn swiftness_hastens_and_strength_strengthens() {
+        let mut patient = player();
+        patient.give_effect(EffectKind::Swiftness, 2, 5);
+        patient.give_effect(EffectKind::Strength, 1, 5);
+        patient.tick_effects();
+        assert_eq!(patient.swiftness, 2);
+        assert!(StatusEffects::speed_factor_of(0, 2) > 1.3);
+        assert_eq!(patient.effects.weakened(4), 4 + STRENGTH_PER_LEVEL);
+        patient.give_effect(EffectKind::Weakness, 1, 5);
+        assert_eq!(
+            patient.effects.weakened(4),
+            4 + STRENGTH_PER_LEVEL - WEAKNESS_PER_LEVEL
+        );
+    }
+
+    #[test]
+    fn fire_resistance_keeps_off_fire_and_lava() {
+        let mut patient = player();
+        patient.give_effect(EffectKind::FireResistance, 1, 5);
+        assert!(patient.resists_fire());
+        assert!(!patient.hurt(4, DamageSource::Lava));
+        assert!(!patient.hurt(1, DamageSource::Fire));
+        assert_eq!(patient.health, MAX_HEALTH);
+        assert!(patient.hurt(1, DamageSource::Fall));
     }
 
     #[test]

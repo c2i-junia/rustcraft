@@ -67,10 +67,13 @@ pub enum MobKind {
     Donkey,
     /// Born of a horse and a donkey: it carries a chest too, and never breeds.
     Mule,
+    /// A splash potion in flight (`ServerMob::potion`): a projectile, which bursts where it
+    /// lands (`crate::world::alchemy`).
+    ThrownPotion,
 }
 
 impl MobKind {
-    pub const ALL: [MobKind; 32] = [
+    pub const ALL: [MobKind; 33] = [
         MobKind::Fox,
         MobKind::Sheep,
         MobKind::Cow,
@@ -103,6 +106,7 @@ impl MobKind {
         MobKind::Slagcrawler,
         MobKind::Donkey,
         MobKind::Mule,
+        MobKind::ThrownPotion,
     ];
 
     /// Whether mobs of this kind hunt the players (`crate::world::hostiles`), and appear in the
@@ -145,7 +149,7 @@ impl MobKind {
     /// not walk, are not pushed nor struck, are not counted with the hostiles, and are not
     /// saved.
     pub fn is_projectile(self) -> bool {
-        matches!(self, MobKind::Ember | MobKind::Arrow | MobKind::Bobber)
+        matches!(self, MobKind::Ember | MobKind::Arrow | MobKind::Bobber | MobKind::ThrownPotion)
     }
 
     /// Whether mobs of this kind are villagers: they trade (`trade::offers`), live in a house,
@@ -208,7 +212,7 @@ impl MobKind {
             // Alone against her; more with the players (`ServerMob::extra_health`)
             MobKind::EmberMother => 200,
             // Never struck
-            MobKind::Ember | MobKind::Arrow | MobKind::Bobber => 1,
+            MobKind::Ember | MobKind::Arrow | MobKind::Bobber | MobKind::ThrownPotion => 1,
             MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => 20,
             MobKind::Cow => 12,
             MobKind::Wolf | MobKind::Horse => 16,
@@ -327,6 +331,7 @@ impl MobKind {
             MobKind::Slagcrawler => "Slagcrawler",
             MobKind::Donkey => "Donkey",
             MobKind::Mule => "Mule",
+            MobKind::ThrownPotion => "Splash Potion",
         }
     }
 
@@ -381,6 +386,7 @@ impl MobKind {
             // `scripts/generate_animals.py`: a smaller horse, the mule between the two
             MobKind::Donkey => Vec3::new(1.0, 1.4, 1.0),
             MobKind::Mule => Vec3::new(1.1, 1.55, 1.1),
+            MobKind::ThrownPotion => Vec3::new(0.25, 0.25, 0.25),
         }
     }
 }
@@ -709,6 +715,9 @@ pub struct ServerMob {
     /// saved nor sent.
     #[serde(skip)]
     pub prey: Option<MobId>,
+    /// The splash potion a `MobKind::ThrownPotion` is, which the clients colour its burst by.
+    #[serde(default)]
+    pub potion: Option<ItemId>,
 }
 
 impl ServerMob {
@@ -754,6 +763,7 @@ impl ServerMob {
             pack: None,
             leash: None,
             prey: None,
+            potion: None,
         }
     }
 
@@ -824,7 +834,7 @@ mod tests {
     #[test]
     fn the_embers_and_the_arrows_are_the_projectiles_neither_hostile_nor_animals() {
         for kind in MobKind::ALL {
-            let expected = matches!(kind, MobKind::Ember | MobKind::Arrow | MobKind::Bobber);
+            let expected = matches!(kind, MobKind::Ember | MobKind::Arrow | MobKind::Bobber | MobKind::ThrownPotion);
             assert_eq!(kind.is_projectile(), expected, "{kind:?}");
         }
         assert!(!MobKind::Ember.is_hostile());

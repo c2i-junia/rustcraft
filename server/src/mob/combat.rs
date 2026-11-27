@@ -579,12 +579,14 @@ fn kind_loot(mob: &ServerMob, rng: &mut impl Rng) -> Vec<(ItemId, u32)> {
             (ItemId::Leather, rng.gen_range(0..=2)),
             (ItemId::Saddle, u32::from(mob.saddled)),
         ],
+        // A part of the creature, which distils into strength (`alchemy`)
+        MobKind::Gnawer => vec![(ItemId::GnawerFang, u32::from(rng.gen_ratio(1, 2)))],
         MobKind::Fox
         | MobKind::Wolf
         | MobKind::Goat
         | MobKind::Cat
-        | MobKind::Gnawer
         | MobKind::Drowner
+        | MobKind::ThrownPotion
         | MobKind::Ember
         | MobKind::Arrow
         | MobKind::Bobber
@@ -1024,12 +1026,13 @@ mod tests {
             MobKind::Wolf,
             MobKind::Goat,
             MobKind::Cat,
-            MobKind::Gnawer,
             MobKind::Drowner,
             MobKind::Ember,
         ] {
             assert_eq!(drops(kind), [], "{kind:?}");
         }
+        // Its fang, one time in two, for the potions of strength
+        assert_eq!(drops(MobKind::Gnawer), [(GnawerFang, (1, 1))]);
         assert_eq!(drops(MobKind::Bramble), [(Stick, (1, 3))]);
         assert_eq!(
             drops(MobKind::Stumpling),

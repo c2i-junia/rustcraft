@@ -233,14 +233,14 @@ custom_textures/blocks/Left, custom_textures/blocks/Right, custom_textures/block
 
 ## Sounds, music and models
 
-- The 255 files of `data/sounds/` and the 8 of `data/music/`: synthesised by `scripts/generate_sounds.py`
+- The 261 files of `data/sounds/` and the 8 of `data/music/`: synthesised by `scripts/generate_sounds.py`
   (the voices of the donkey and the mule among them),
-  `scripts/generate_feature_sounds.py` (the 78 of the armour, the bow, the experience, the engraving
+  `scripts/generate_feature_sounds.py` (the 84 of the armour, the bow, the experience, the engraving
   table, the anvil, the trade, the villagers, the breeding, the progress, the melee, the mounts, the
-  shield, the crossbow, the fishing and the companions, and the voices of the fish and the creatures of the deep
-  caves) and `scripts/generate_music.py`, as commits `86973646`, `52050487`, `2396d533`, `75bd05c9` and others
+  shield, the crossbow, the fishing, the companions, the furniture and the alchemy, and the voices of
+  the fish and the creatures of the deep caves) and `scripts/generate_music.py`, as commits `86973646`, `52050487`, `2396d533`, `75bd05c9` and others
   and `docs/ressources.txt` say. Not run again to compare their output.
-- The 37 models of `data/models/animated/`: built by `scripts/generate_{animals,sheep,hostiles,villagers,boat,bobber,caverns}.py`.
+- The 38 models of `data/models/animated/`: built by `scripts/generate_{animals,sheep,hostiles,villagers,boat,bobber,caverns,thrown_potion}.py`.
   Not run again either.
 
 ## Added after the audit, from Nova_Wostra's pack (10)
@@ -317,6 +317,23 @@ Taken as they are from the `main` branch of the Chorus Edit, not compared with C
 are. items/LeatherHorseArmour (`item/leather_horse_armor`), items/IronHorseArmour
 (`iron_horse_armor`), items/GoldHorseArmour (`golden_horse_armor`), items/DiamondHorseArmour
 (`diamond_horse_armor`), items/Lead (`lead`).
+
+## Added after the audit, alchemy
+
+From the `master` branch of Pixel Perfection CE (CC BY-SA 4.0), made by
+`scripts/generate_alchemy_textures.py`. Taken as they are (7): items/GlassVial (`item/glass_bottle`),
+items/Alembic (`item/brewing_stand`), hud/effect_healing (`mob_effect/instant_health`),
+hud/effect_nightvision (`night_vision`), hud/effect_waterbreathing (`water_breathing`),
+hud/effect_swiftness (`speed`), hud/effect_strength (`strength`). Put together from its files, as
+C, the changes being those of the script (16): the vials and the potions, the inside of the flask
+of `item/potion` (items/WaterVial, NeutralBase, HealingPotion, NightVisionPotion,
+WaterBreathingPotion, FireResistancePotion, SwiftnessPotion, StrengthPotion, RegenerationPotion)
+or of `item/splash_potion` (items/SplashPoisonPotion, SplashSlownessPotion, SplashWeaknessPotion)
+filled with the colour of the potion; blocks/Alembic (`block/cauldron_side`, its gaps closed by
+`block/cauldron_inner`), blocks/AlembicTop (`block/cauldron_top` over a violet brew), and
+hud/effect_fireresistance (`mob_effect/fire_resistance`, its reds turned golden). Drawn by the
+script, MIT (1): items/GnawerFang. The model of the splash potion in flight,
+models/animated/ThrownPotion.glb, is built by `scripts/generate_thrown_potion.py`.
 
 ## To do before the release
 

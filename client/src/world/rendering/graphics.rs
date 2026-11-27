@@ -99,11 +99,15 @@ pub fn apply_graphics_settings_system(
             // Shaded as the settings say when made
             continue;
         };
-        let shading = ChunkShading::new(&settings, liquid);
-        if chunk_materials
-            .get(handle)
-            .is_some_and(|material| material.extension.shading != shading)
-        {
+        let Some(current) = chunk_materials.get(handle).map(|m| m.extension.shading) else {
+            continue;
+        };
+        // The night vision is the player's, not a setting's
+        let shading = ChunkShading {
+            night_vision: current.night_vision,
+            ..ChunkShading::new(&settings, liquid)
+        };
+        if current != shading {
             if let Some(mut material) = chunk_materials.get_mut(handle) {
                 material.extension.shading = shading;
             }
@@ -121,6 +125,59 @@ pub fn apply_graphics_settings_system(
     }
     *applied = Some(*settings);
 }
+
+/// Lights what is dark while the local player is under night vision
+/// (`EffectKind::NightVision`), as `chunk.wgsl` reads `ChunkShading::night_vision`; it fades in
+/// and out over a second, and flickers in its last seconds, as Minecraft's.
+pub fn night_vision_system(
+    time: Option<Res<Time>>,
+    players: Query<&shared::players::Player, With<crate::player::CurrentPlayerMarker>>,
+    materials: Option<Res<MaterialResource>>,
+    chunk_materials: Option<ResMut<Assets<ChunkMaterial>>>,
+    mut level: Local<f32>,
+) {
+    let (Some(materials), Some(mut chunk_materials)) = (materials, chunk_materials) else {
+        return;
+    };
+    let effect = players
+        .single()
+        .ok()
+        .and_then(|player| {
+            player
+                .effects
+                .get(shared::players::effects::EffectKind::NightVision)
+                .copied()
+        });
+    let wanted = match effect {
+        None => 0.0,
+        Some(effect) if effect.seconds_left() > NIGHT_VISION_FLICKER => 1.0,
+        // Its last seconds flicker, so that it is not lost unawares
+        Some(effect) => (effect.ticks_left / 5 % 2) as f32,
+    };
+    let step = time.map_or(1.0, |time| time.delta_secs() * 2.0);
+    let now = if (*level - wanted).abs() <= step {
+        wanted
+    } else {
+        *level + step * (wanted - *level).signum()
+    };
+    // Only a change: a change of the shading prepares every chunk drawn again
+    let now = (now * 20.0).round() / 20.0;
+    if now == *level {
+        return;
+    }
+    *level = now;
+    for material in [GlobalMaterial::Blocks, GlobalMaterial::Liquids] {
+        let Some(handle) = materials.chunk_materials.get(&material) else {
+            continue;
+        };
+        if let Some(mut material) = chunk_materials.get_mut(handle) {
+            material.extension.shading.night_vision = now;
+        }
+    }
+}
+
+/// The seconds of night vision left from which it flickers.
+const NIGHT_VISION_FLICKER: u32 = 10;
 
 /// The exposure of the camera without the shaders, `Exposure::BLENDER`.
 const BASE_EV100: f32 = 9.7;
@@ -175,7 +232,10 @@ mod tests {
             .init_resource::<Assets<ChunkMaterial>>()
             .init_resource::<ClientWorldMap>()
             .add_message::<WorldRenderRequestUpdateEvent>()
-            .add_systems(Update, apply_graphics_settings_system);
+            .add_systems(
+                Update,
+                (apply_graphics_settings_system, night_vision_system).chain(),
+            );
         let entity = app.world_mut().spawn_empty().id();
         let mut render = ChunkRender::new();
         render.entity = Some(entity);

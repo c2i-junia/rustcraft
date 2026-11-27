@@ -272,6 +272,20 @@ pub fn simulate_player_block_interactions(
                     "drink milk",
                     drink_milk(player, action).map(|()| player.place_wait_ms = UNTIL_RELEASED_MS),
                 ),
+                Some(ItemId::GlassVial) => (
+                    "fill a vial",
+                    fill_vial(player, world_map, action).map(|left| {
+                        dropped.extend(left);
+                        player.place_wait_ms = UNTIL_RELEASED_MS
+                    }),
+                ),
+                // `bow::draw_bow` swings it back, as a throwing axe
+                Some(potion) if potion.is_splash_potion() => continue,
+                Some(potion) if potion.potion().is_some() => (
+                    "drink a potion",
+                    drink_potion(player, action)
+                        .map(|()| player.place_wait_ms = UNTIL_RELEASED_MS),
+                ),
                 // The server draws it, as it gives it an id
                 Some(ItemId::EmptyMap) => {
                     drawn_maps.push(action.hotbar_slot);
@@ -382,7 +396,7 @@ pub fn aim(
     held: Option<ItemId>,
 ) -> Option<RaycastResponse> {
     match held {
-        Some(ItemId::Bucket | ItemId::Boat) => {
+        Some(ItemId::Bucket | ItemId::Boat | ItemId::GlassVial) => {
             raycast::raycast_to_source(world_map, camera, player_position, view_mode)
         }
         Some(ItemId::PortalGun) => {
@@ -919,7 +933,7 @@ fn place_block(
     if block_id.is_container() {
         world_map.insert_container(position, Container::default());
     }
-    if block_id == BlockId::Furnace {
+    if block_id == BlockId::Furnace || block_id == BlockId::Alembic {
         world_map.insert_furnace(position, Furnace::default());
     }
     Ok((None, Some(position)))
@@ -979,6 +993,7 @@ fn drink_milk(player: &mut Player, action: &PlayerFrameInput) -> Result<(), Refu
     }
     player.effects.clear();
     player.slowness = 0;
+    player.swiftness = 0;
     player.inventory.inner.insert(
         slot,
         ItemStack {
@@ -988,6 +1003,74 @@ fn drink_milk(player: &mut Player, action: &PlayerFrameInput) -> Result<(), Refu
         },
     );
     Ok(())
+}
+
+/// Drinks the potion held in the selected hotbar slot, which gives its effect
+/// (`alchemy::potion_effect`), and leaves the empty vial in its place.
+fn drink_potion(player: &mut Player, action: &PlayerFrameInput) -> Result<(), Refused> {
+    let slot = action.hotbar_slot;
+    let refused = |reason| Refused {
+        reason,
+        predicted_at: None,
+    };
+    let stack = *player
+        .inventory
+        .inner
+        .get(&slot)
+        .ok_or(refused(Refusal::EmptySlot(slot)))?;
+    let (kind, level, ticks) =
+        crate::world::alchemy::potion_effect(&stack).ok_or(refused(Refusal::EmptySlot(slot)))?;
+    player.take_effect(kind, level, ticks);
+    player.inventory.remove_item_from_stack(slot, 1);
+    let vial = ItemStack {
+        item_id: ItemId::GlassVial,
+        item_type: ItemId::GlassVial.get_default_type(),
+        nb: 1,
+    };
+    if player.inventory.inner.contains_key(&slot) {
+        player.inventory.add_item_to_inventory(vial);
+    } else {
+        player.inventory.inner.insert(slot, vial);
+    }
+    Ok(())
+}
+
+/// Fills a glass vial of the stack held in the selected hotbar slot at the source of water the
+/// player aims at, which stays. A single vial becomes the water vial; from a stack, the water
+/// vial goes into the inventory, and is returned when there is no room for it.
+fn fill_vial(
+    player: &mut Player,
+    world_map: &mut ChunkMap,
+    action: &PlayerFrameInput,
+) -> Result<Option<ItemStack>, Refused> {
+    let target = aimed_block(player, world_map, action, INTERACTION_DISTANCE, |target| {
+        target.position
+    })?;
+    refuse_used_block(world_map, &target, action)?;
+    if target.block.id != BlockId::Water || !is_source(&target.block) {
+        return Err(Refused {
+            reason: Refusal::NotASource(target.block.id),
+            predicted_at: None,
+        });
+    }
+    let water = ItemStack {
+        item_id: ItemId::WaterVial,
+        item_type: ItemId::WaterVial.get_default_type(),
+        nb: 1,
+    };
+    let slot = action.hotbar_slot;
+    if player
+        .inventory
+        .inner
+        .get(&slot)
+        .is_some_and(|held| held.nb == 1)
+    {
+        player.inventory.inner.insert(slot, water);
+        return Ok(None);
+    }
+    player.inventory.remove_item_from_stack(slot, 1);
+    let left = player.inventory.add_item_to_inventory(water);
+    Ok((left > 0).then_some(water))
 }
 
 /// Fills the bucket held in the selected hotbar slot from the source the player aims at, water
@@ -1974,6 +2057,16 @@ mod tests {
     }
 
     #[test]
+    fn a_glass_vial_is_filled_at_a_water_source_which_stays() {
+        let (mut player, mut world, input) =
+            bucket_in_front_of(&[(IN_FRONT, water(0))], stack(ItemId::GlassVial, 2));
+        assert!(right_click(&mut player, &mut world, &input).is_empty());
+        assert_eq!(world.get_block(IN_FRONT), Some(&water(0)));
+        assert_eq!(held(&player, 0), Some((ItemId::GlassVial, 1)));
+        assert_eq!(held(&player, 1), Some((ItemId::WaterVial, 1)));
+    }
+
+    #[test]
     fn a_bucket_of_a_stack_fills_into_the_inventory_or_is_handed_to_the_server() {
         let (mut player, mut world, input) =
             bucket_in_front_of(&[(IN_FRONT, water(0))], stack(ItemId::Bucket, 3));
@@ -2822,6 +2915,23 @@ mod use_tests {
                 assert!(player.food > 10, "{item:?} on {block:?}");
             }
         }
+    }
+
+    #[test]
+    fn a_potion_drunk_gives_its_effect_and_leaves_its_vial() {
+        use crate::players::effects::EffectKind;
+        let (mut player, mut world) = facing_a(BlockId::Stone, Some(ItemId::SwiftnessPotion));
+        click(&mut player, &mut world, NetworkAction::RightClick);
+        assert_eq!(player.effects.level(EffectKind::Swiftness), 1);
+        let held = player.inventory.inner.values().map(|stack| stack.item_id);
+        assert_eq!(held.collect::<Vec<_>>(), [ItemId::GlassVial]);
+
+        // A splash potion is thrown, never drunk
+        let (mut player, mut world) = facing_a(BlockId::Stone, Some(ItemId::SplashPoisonPotion));
+        click(&mut player, &mut world, NetworkAction::RightClick);
+        assert!(player.effects.is_empty());
+        let held = player.inventory.inner.values().map(|stack| stack.item_id);
+        assert_eq!(held.collect::<Vec<_>>(), [ItemId::SplashPoisonPotion]);
     }
 
     #[test]

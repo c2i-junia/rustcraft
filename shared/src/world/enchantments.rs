@@ -148,6 +148,7 @@ impl ItemType {
             | Self::Block(_)
             | Self::Map { .. }
             | Self::Treasure { .. }
+            | Self::Brewed { .. }
             | Self::Banner { .. } => None,
         }
     }

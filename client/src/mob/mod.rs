@@ -7,6 +7,7 @@ mod hearts;
 mod hurt;
 mod leads;
 mod models;
+mod potions;
 mod strikes;
 mod sync;
 
@@ -23,6 +24,8 @@ pub fn mob_plugin(app: &mut App) {
     app.add_message::<MobHurt>()
         .add_message::<fishing::BobberBite>()
         .init_resource::<fishing::Bubbles>()
+        .add_message::<potions::PotionBurst>()
+        .init_resource::<potions::Drops>()
         .init_resource::<ClientMobs>()
         .init_resource::<MobEntities>()
         .init_resource::<models::MobAnimations>()
@@ -43,6 +46,7 @@ pub fn mob_plugin(app: &mut App) {
                 setup_mob_animators,
                 play_mob_clips,
                 fishing::show_bites,
+                potions::show_bursts,
                 fishing::draw_lines,
                 leads::draw_leads,
             )

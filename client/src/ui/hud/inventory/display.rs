@@ -539,6 +539,7 @@ pub fn style_inventory_panel(
 pub fn display_crafting_system(
     inventory: Res<Inventory>,
     trade: Option<Res<OpenTrade>>,
+    world_map: Option<Res<ClientWorldMap>>,
     pictures: SlotPictures,
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
     mut grid_cells: Query<(&CraftingGridCell, &mut Node)>,
@@ -579,6 +580,9 @@ pub fn display_crafting_system(
     ) {
         _ if inventory.open_pack.is_some() => crate::i18n::tr(PACK_TITLE),
         (Some(_), _, _) => crate::i18n::tr(CHEST_TITLE),
+        (None, Some(at), _) if super::furnace::is_alembic(world_map.as_deref(), at) => {
+            crate::i18n::tr(super::furnace::ALEMBIC_TITLE)
+        }
         (None, Some(_), _) => crate::i18n::tr(FURNACE_TITLE),
         (None, None, Some(_)) => crate::i18n::tr(CRAFTING_TABLE_TITLE),
         (None, None, None) if is_anvil_shown(&inventory) => crate::i18n::tr(ANVIL_TITLE),
@@ -698,8 +702,36 @@ fn notes(stack: &ItemStack) -> String {
         .into_iter()
         .chain(armour)
         .chain(enchantments)
+        .chain(potion_note(stack))
         .collect();
     lines.join("\n")
+}
+
+/// What a potion gives: its effect, its level and its time, thrown or drunk, and its
+/// modifiers (`shared::world::alchemy`).
+fn potion_note(stack: &ItemStack) -> Option<String> {
+    use shared::world::alchemy::{potion_effect, Brew};
+    let potion = stack.item_id.potion()?;
+    let (kind, level, ticks) = potion_effect(stack)?;
+    let name = crate::ui::hud::effects::effect_name(kind, level);
+    let effect = if kind.is_instant() {
+        name
+    } else {
+        let seconds = ticks.div_ceil(shared::TICKS_PER_SECOND as u32);
+        format!("{name} ({})", crate::ui::hud::effects::time_left(seconds))
+    };
+    let mut lines = vec![trf("inventory.potion", &[("effect", &effect)])];
+    if potion.splash {
+        lines.push(tr("inventory.potion.splash").to_string());
+    }
+    let brew = Brew::of(stack.item_type);
+    if brew.longer {
+        lines.push(tr("inventory.potion.longer").to_string());
+    }
+    if brew.stronger {
+        lines.push(tr("inventory.potion.stronger").to_string());
+    }
+    Some(lines.join("\n"))
 }
 
 /// The blows of a weapon (`melee::WeaponClass`): their damage and their pace, and what the

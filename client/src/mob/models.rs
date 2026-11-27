@@ -89,6 +89,8 @@ pub fn model(kind: MobKind) -> MobModel {
         MobKind::Slagcrawler => ("models/animated/Slagcrawler.glb", HOSTILE_CLIPS),
         MobKind::Donkey => ("models/animated/Donkey.glb", GRAZER_CLIPS),
         MobKind::Mule => ("models/animated/Mule.glb", GRAZER_CLIPS),
+        // `scripts/generate_thrown_potion.py`: it tumbles as it flies
+        MobKind::ThrownPotion => ("models/animated/ThrownPotion.glb", HOSTILE_CLIPS),
     };
     MobModel { path, clips }
 }

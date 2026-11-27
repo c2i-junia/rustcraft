@@ -19,7 +19,7 @@ use super::catalog::category_detail;
 use super::layout::BrowserLayout;
 use super::recipes::{
     back_label, bookmarked_detail, burns_for, card_label, cards_of, empty_view_message,
-    fill_button, fuel_note, ingredient_label, item_keys_hint, recipe_problem, smelting_note,
+    fill_button, fuel_note, ingredient_label, item_keys_hint, recipe_problem, smelting_note, distilling_note,
     station_label, tab_label, view_title, BrowserCard,
 };
 use super::{
@@ -582,6 +582,52 @@ fn spawn_fuel_card(
     commands.spawn((label(&fuel_note(ticks), font, FONT_S, MUTED), ChildOf(card)));
 }
 
+/// A card of the alembic making `output` of `vial` with `ingredient`: the ingredient over the
+/// flame, the vial, the arrow and the output, and under them the alembic and how long it takes.
+fn spawn_distilling_card(
+    commands: &mut Commands,
+    cards: Entity,
+    (vial, ingredient, output): (ItemId, ItemId, ItemId),
+    atlas: &AtlasWrapper,
+    font: &Handle<Font>,
+    assets: &AssetServer,
+) {
+    let name = card_label(&BrowserCard::Distilling {
+        vial,
+        ingredient,
+        output,
+    });
+    let (card, body) = spawn_furnace_card(
+        commands,
+        cards,
+        name,
+        Some(ingredient),
+        None,
+        atlas,
+        font,
+        assets,
+    );
+    let slot = |commands: &mut Commands, item| {
+        spawn_card_slot(
+            commands,
+            body,
+            Ingredient::Item(item),
+            None,
+            1,
+            SLOT_SIZE,
+            atlas,
+            font,
+        )
+    };
+    slot(commands, vial);
+    commands.spawn((card_arrow(font), ChildOf(body)));
+    slot(commands, output);
+    commands.spawn((
+        label(&distilling_note(ingredient), font, FONT_S, MUTED),
+        ChildOf(card),
+    ));
+}
+
 /// The parts of the panel that `show_view` writes.
 #[derive(bevy::ecs::system::SystemParam)]
 pub struct ViewParts<'w, 's> {
@@ -753,6 +799,18 @@ pub fn show_view(
             BrowserCard::Fuel { item, ticks } => {
                 spawn_fuel_card(&mut commands, cards, (item, ticks), atlas, &font, assets)
             }
+            BrowserCard::Distilling {
+                vial,
+                ingredient,
+                output,
+            } => spawn_distilling_card(
+                &mut commands,
+                cards,
+                (vial, ingredient, output),
+                atlas,
+                &font,
+                assets,
+            ),
         }
     }
 }

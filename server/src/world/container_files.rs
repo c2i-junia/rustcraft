@@ -72,7 +72,7 @@ impl Stored for Furnace {
     const NAME: &'static str = "furnace";
 
     fn held_by(id: BlockId) -> bool {
-        id.is_furnace()
+        id.holds_furnace()
     }
 
     fn insert_into(chunks: &mut ChunkMap, pos: IVec3, value: Self) {

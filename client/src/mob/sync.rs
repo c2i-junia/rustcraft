@@ -100,6 +100,8 @@ pub struct Mob {
     pub chested: bool,
     /// What the lead of the mob is tied to: it is drawn (`draw_leads`).
     pub leash: Option<Leash>,
+    /// The splash potion a thrown potion is: its burst is of its colour.
+    pub potion: Option<ItemId>,
 }
 
 /// The model of a mob, a child of its entity, scaled with the mob.
@@ -167,6 +169,7 @@ impl Mob {
             horse_armour: server.horse_armour,
             chested: server.pack.is_some(),
             leash: server.leash.clone(),
+            potion: server.potion,
         }
     }
 
@@ -192,6 +195,7 @@ pub fn apply_mob_updates(
     mut hurts: MessageWriter<MobHurt>,
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut bites: MessageWriter<super::fishing::BobberBite>,
+    mut bursts: MessageWriter<super::potions::PotionBurst>,
 ) {
     use crate::audio::{PlaySound, Sound};
     for id in std::mem::take(&mut client_mobs.removed) {
@@ -200,6 +204,14 @@ pub fn apply_mob_updates(
             if let Ok((mob, transform)) = mobs.get(entity) {
                 if mob.kind == MobKind::Bobber {
                     sounds.write(PlaySound::at(Sound::FishingReel, transform.translation));
+                }
+                // A splash potion bursts where it ends
+                if mob.kind == MobKind::ThrownPotion {
+                    sounds.write(PlaySound::at(Sound::PotionShatter, transform.translation));
+                    bursts.write(super::potions::PotionBurst {
+                        at: transform.translation,
+                        potion: mob.potion,
+                    });
                 }
             }
             commands.entity(entity).despawn();
@@ -519,6 +531,7 @@ mod tests {
             horse_armour: None,
             chested: false,
             leash: None,
+            potion: None,
         };
         let mut transform = Transform::from_translation(shown).with_rotation(mob.rotation);
         let mut server = ServerMob {

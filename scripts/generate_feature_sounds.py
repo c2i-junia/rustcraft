@@ -8,7 +8,8 @@ hull, and the shield's parry and the crossbow's loading and shot, and the fishin
 a bite and the line drawn in; and the creatures of the seas and the deep caves: the fish, the
 Mossback, the Shardling and the Slagcrawler; and the companions: horse armour put on, a lead
 tied, a chest strapped on a donkey and a wolf's bite; and the furniture: a chair sat on, and an item
-put in a frame or turned in it.
+put in a frame or turned in it; and the alchemy: an alembic bubbling open, a potion drunk, a splash
+potion shattering and a vial filled.
 
 Built with the primitives of `generate_sounds.py` (its seed, its loudness and its output), so
 that they sound of a piece with the others; every sound is synthesised here, entirely original
@@ -616,6 +617,59 @@ def build_frame_turn(rng):
     return finish(outdoors(rng, click * 0.7 + rub * 0.35), -24)
 
 
+# --- alchemy ----------------------------------------------------------------
+
+
+def blips(rng, d, count, start, end, f_low=300, f_high=900, gain=(0.15, 0.35)):
+    """Bubbles bursting in a liquid: short blips that rise in pitch."""
+    parts = []
+    for offset in np.sort(rng.uniform(start, end, count)):
+        f0 = rng.uniform(f_low, f_high)
+        tau = 0.02 * 500 / f0
+        t = t_axis(tau * 7)
+        blip = np.sin(2 * np.pi * np.cumsum(f0 * (1 + 3.0 * t)) / 44100) * env(tau * 7, 0.002, tau)
+        parts.append(place_at(d, blip * rng.uniform(*gain), offset))
+    return mix(np.zeros(n_of(d)), *parts)
+
+
+def build_alembic_open(rng):
+    """An alembic opened: the liquid in its flask simmering, a clink of its glass."""
+    d = 0.9
+    simmer = blips(rng, d, 14, 0.0, 0.75)
+    hiss = band(colored(rng, d, 1), 2000, 6000) * curve(d, (0, 0), (0.1, 0.2), (0.6, 0.15), (d, 0))
+    clink = bell(rng, d, 2400, 0.25, (1.0, 2.76, 5.4), 0.35)
+    return finish(outdoors(rng, simmer + hiss * 0.3 + clink * 0.25), -23)
+
+
+def build_potion_drink(rng):
+    """A potion drunk: three gulps, and a little sigh of glass."""
+    d = 0.8
+    gulps = []
+    for t0 in (0.05, 0.27, 0.49):
+        gulp = thump(rng, 0.2, 240, 120, 0.04) * 0.7 + blips(rng, 0.2, 3, 0.0, 0.08, 200, 500)
+        gulps.append(place_at(d, gulp, t0))
+    clink = place_at(d, bell(rng, 0.2, 2900, 0.08, (1.0, 2.76), 0.3), 0.7)
+    return finish(outdoors(rng, mix(np.zeros(n_of(d)), *gulps) + clink * 0.2), -21)
+
+
+def build_potion_shatter(rng):
+    """A splash potion shattering: the glass breaking into shards, and the liquid splashing."""
+    d = 0.9
+    crack = band(white(rng, d), 2500, 9000) * env(d, 0.0005, 0.03)
+    shards = clinks(rng, d, sorted(rng.uniform(0.02, 0.35, 7)), 2800, 6500, 0.05)
+    splash = band(colored(rng, d, 1), 400, 3500) * curve(d, (0, 0), (0.03, 1), (0.25, 0.3), (d, 0))
+    drip = blips(rng, d, 6, 0.2, 0.7, 500, 1200, (0.05, 0.15))
+    return finish(outdoors(rng, crack * 0.7 + shards * 0.5 + splash * 0.6 + drip), -18)
+
+
+def build_vial_fill(rng):
+    """A glass vial filled at the water: the water gurgling in as the air bubbles out."""
+    d = 0.6
+    gurgle = blips(rng, d, 12, 0.0, 0.45, 350, 1100)
+    pour = band(colored(rng, d, 1), 600, 3000) * curve(d, (0, 0), (0.05, 0.5), (0.4, 0.3), (d, 0))
+    return finish(outdoors(rng, gurgle + pour * 0.3), -23)
+
+
 # --- fishing ----------------------------------------------------------------
 
 
@@ -847,6 +901,10 @@ def main():
     write_ogg("mob/wolf_bite", build_wolf_bite)
     write_ogg("furniture/sit", build_sit)
     write_ogg("furniture/frame", build_frame_turn)
+    write_ogg("alchemy/alembic", build_alembic_open)
+    write_ogg("alchemy/drink", build_potion_drink)
+    write_ogg("alchemy/shatter", build_potion_shatter)
+    write_ogg("alchemy/fill", build_vial_fill)
 
 
 if __name__ == "__main__":

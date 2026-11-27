@@ -132,6 +132,9 @@ mod tests {
             [
                 ItemId::SprucePlanks,
                 ItemId::SpruceSapling,
+                ItemId::SplashPoisonPotion,
+                ItemId::SplashSlownessPotion,
+                ItemId::SplashWeaknessPotion,
                 ItemId::StumplingSpawnEgg
             ]
         );

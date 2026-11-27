@@ -1,3 +1,4 @@
+pub mod alchemy;
 pub mod anvil;
 pub mod biome;
 pub mod blocks;

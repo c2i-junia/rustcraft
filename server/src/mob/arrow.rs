@@ -16,11 +16,12 @@ use shared::{
     messages::PlayerId,
     players::{
         bow::{BowShot, ARROW_SPEED},
+        effects::EffectKind,
         game_mode::DamageSource,
         movement::is_terrain_loaded,
     },
     world::{
-        hostiles::is_prey, ArrowFlight, BlockHitbox, BlockTransparency, ChunkMap, DroppedItem,
+        alchemy, hostiles::is_prey, ArrowFlight, BlockHitbox, BlockTransparency, ChunkMap, DroppedItem,
         ItemId, ItemStack, MobAction, MobKind, ServerMob,
     },
     TICKS_PER_SECOND,
@@ -49,11 +50,18 @@ const PUSH_SPEED: (f32, f32) = (2.0, 7.0);
 /// An arrow `shooter` lets fly from `from`, its eyes, toward `direction`.
 pub fn arrow(shooter: PlayerId, from: Vec3, direction: Vec3, shot: BowShot) -> ServerMob {
     let direction = direction.normalize_or(Vec3::NEG_Z);
-    // A bolt flies faster and flatter, a throwing axe slower
+    // A bolt flies faster and flatter, a throwing axe slower, a potion slower still
     let speed = match shot.ammo {
         ItemId::Bolt => ARROW_SPEED * 1.3,
         ItemId::ThrowingAxe => ARROW_SPEED * 0.55,
+        potion if potion.is_splash_potion() => ARROW_SPEED * 0.45,
         _ => ARROW_SPEED,
+    };
+    let potion = shot.ammo.is_splash_potion().then_some(shot.ammo);
+    let kind = if potion.is_some() {
+        MobKind::ThrownPotion
+    } else {
+        MobKind::Arrow
     };
     ServerMob {
         velocity: direction * (speed * shot.power),
@@ -66,7 +74,8 @@ pub fn arrow(shooter: PlayerId, from: Vec3, direction: Vec3, shot: BowShot) -> S
             stuck_in: None,
             pierce_left: shot.pierce,
         }),
-        ..ServerMob::new(MobKind::Arrow, from - Vec3::Y * BELOW_EYES)
+        potion,
+        ..ServerMob::new(kind, from - Vec3::Y * BELOW_EYES)
     }
 }
 
@@ -84,7 +93,7 @@ pub fn arrow_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time<Fixed>
     let ids: Vec<_> = map
         .mobs
         .iter()
-        .filter(|(_, mob)| mob.kind == MobKind::Arrow)
+        .filter(|(_, mob)| matches!(mob.kind, MobKind::Arrow | MobKind::ThrownPotion))
         .map(|(id, _)| *id)
         .collect();
     let mut rng = rand::thread_rng();
@@ -222,6 +231,12 @@ fn fly(
                 && !(safe && player.id == flight.shooter)
                 && body.intersects(&Aabb3d::new(player.position, half))
         });
+        if flight.shot.ammo.is_splash_potion()
+            && (struck.is_some() || near.iter().any(|(_, target)| body.intersects(target)))
+        {
+            burst(&flight, at - direction * 0.3, map, rng);
+            return false;
+        }
         if let Some(player) = struck {
             let source = DamageSource::Arrow(flight.shooter);
             let parried = player
@@ -268,7 +283,11 @@ fn fly(
             }
             return false;
         }
-        if is_in_block(&map.chunks, at) {
+        if is_in_block(&map.chunks, at) || flight.shot.ammo.is_splash_potion() && is_liquid(&map.chunks, at) {
+            if flight.shot.ammo.is_splash_potion() {
+                burst(&flight, at - direction * STUCK_BACK, map, rng);
+                return false;
+            }
             if flight.shot.ammo == ItemId::ThrowingAxe {
                 fall_as_item(&flight, at - direction * STUCK_BACK, map);
                 return false;
@@ -286,6 +305,58 @@ fn fly(
         arrow.position = at;
     }
     true
+}
+
+/// The points of health a splash of poison takes at once from the mobs it reaches, which have no
+/// status effects: all of them on the spot, half at the edge (`alchemy::splash_share`).
+const POISON_SPLASH_DAMAGE: f32 = 4.0;
+
+/// A splash potion bursts at `at`: each living player within `alchemy::SPLASH_RADIUS` gets its
+/// effect, for a share of its time by how far it is (`alchemy::splash_share`), and a splash of
+/// poison hurts the mobs around, but the villagers.
+fn burst(flight: &ArrowFlight, at: Vec3, map: &mut ServerWorldMap, rng: &mut impl Rng) {
+    let stack = ItemStack {
+        item_id: flight.shot.ammo,
+        item_type: flight.shot.ammo_type,
+        nb: 1,
+    };
+    let Some((kind, level, ticks)) = alchemy::potion_effect(&stack) else {
+        return;
+    };
+    for player in map.players.values_mut() {
+        let share = alchemy::splash_share(player.position.distance(at));
+        if share > 0.0 && !player.is_dead() && player.game_mode.takes_damage() {
+            player.take_effect(kind, level, (ticks as f32 * share).round() as u32);
+        }
+    }
+    if kind != EffectKind::Poison {
+        return;
+    }
+    let reached: Vec<_> = map
+        .mobs
+        .iter()
+        .filter(|(_, mob)| !mob.kind.is_projectile() && !mob.kind.is_villager())
+        .map(|(id, mob)| (*id, alchemy::splash_share(mob.position.distance(at))))
+        .filter(|(_, share)| *share > 0.0)
+        .collect();
+    for (id, share) in reached {
+        let Some(mob) = map.mobs.get_mut(&id) else {
+            continue;
+        };
+        let damage = (POISON_SPLASH_DAMAGE * share * level as f32).round() as u32;
+        map.changed_mobs.insert(id);
+        if wound(mob, flight.shooter, damage.max(1), Vec3::ZERO) {
+            if let Some(shooter) = map.players.get_mut(&flight.shooter) {
+                shooter.beat(mob.kind);
+            }
+            let (drops, position) = (loot(mob, rng), mob.position);
+            drop_loot(&mut map.dropped_items, drops, position);
+            let points = mob.experience();
+            map.dropped_items.drop_orb(points, position, rng);
+            map.mobs.remove(&id);
+            map.changed_mobs.remove(&id);
+        }
+    }
 }
 
 fn mob_box(mob: &ServerMob) -> Aabb3d {
@@ -368,6 +439,7 @@ mod tests {
             recoverable: true,
             ammo,
             pierce,
+            ammo_type: shared::world::ItemType::Generic,
         };
         let mut map = world.resource_mut::<ServerWorldMap>();
         map.mobs.insert(9, arrow(1, EYES, Vec3::X, shot));
@@ -440,6 +512,58 @@ mod tests {
         assert!(mob.velocity.x > 3.0);
         assert!(matches!(mob.target, shared::world::MobTarget::Player(1)));
         assert!(!map(&w).mobs.contains_key(&9));
+    }
+
+    #[test]
+    fn a_splash_potion_bursts_on_a_player_and_reaches_those_around() {
+        use shared::players::effects::EffectKind;
+        let mut w = world(Some(player_at(2, 6.5)));
+        w.resource_mut::<ServerWorldMap>()
+            .players
+            .insert(3, player_at(3, 8.5));
+        let shot = BowShot::splash(
+            &ItemStack {
+                item_id: ItemId::SplashSlownessPotion,
+                item_type: shared::world::ItemType::Generic,
+                nb: 1,
+            },
+            600,
+        );
+        let mut map_ = w.resource_mut::<ServerWorldMap>();
+        let potion = arrow(1, EYES, Vec3::X, shot);
+        assert_eq!(potion.kind, MobKind::ThrownPotion);
+        assert_eq!(potion.potion, Some(ItemId::SplashSlownessPotion));
+        map_.mobs.insert(9, potion);
+        run(&mut w, 20);
+        assert!(map(&w).mobs.is_empty());
+        let hit = map(&w).players[&2].effects.get(EffectKind::Slowness).unwrap();
+        let near = map(&w).players[&3].effects.get(EffectKind::Slowness).unwrap();
+        assert_eq!(map(&w).players[&2].health, MAX_HEALTH, "it hurts nothing");
+        assert!(near.ticks_left < hit.ticks_left);
+        // The thrower, far away, is spared
+        assert!(map(&w).players[&1].effects.is_empty());
+    }
+
+    #[test]
+    fn a_splash_of_poison_hurts_the_mobs_around() {
+        let mut w = world(None);
+        let at = ServerMob::standing_at(MobKind::Mossback, 6.5, 1.0, 0.5);
+        w.resource_mut::<ServerWorldMap>()
+            .mobs
+            .insert(3, ServerMob::new(MobKind::Mossback, at));
+        let shot = BowShot::splash(
+            &ItemStack {
+                item_id: ItemId::SplashPoisonPotion,
+                item_type: shared::world::ItemType::Generic,
+                nb: 1,
+            },
+            600,
+        );
+        let mut map_ = w.resource_mut::<ServerWorldMap>();
+        map_.mobs.insert(9, arrow(1, EYES, Vec3::X, shot));
+        run(&mut w, 30);
+        assert!(!map(&w).mobs.contains_key(&9));
+        assert!(map(&w).mobs[&3].damage > 0);
     }
 
     fn stumplings(w: &mut World) {

@@ -874,12 +874,12 @@ mod tests {
                 ItemId::OakSapling
             ]
         );
-        assert_eq!(single::<Text, ItemCount>(&mut world).0, "11 / 504");
+        assert_eq!(single::<Text, ItemCount>(&mut world).0, "11 / 519");
         assert_eq!(single::<Node, NoMatch>(&mut world).display, Display::None);
 
         set_search(&mut world, "oak", Some(ItemCategory::Wood));
         assert_eq!(shown_slots(&mut world).len(), 2);
-        assert_eq!(single::<Text, ItemCount>(&mut world).0, "2 / 504");
+        assert_eq!(single::<Text, ItemCount>(&mut world).0, "2 / 519");
 
         set_search(&mut world, "zzz", Some(ItemCategory::Wood));
         assert!(shown_slots(&mut world).is_empty());
@@ -897,7 +897,7 @@ mod tests {
             .spawn((CatalogSlot(ItemId::Chest), BookmarkSlot, Node::default()))
             .id();
         set_search(&mut world, "oak", None);
-        assert_eq!(single::<Text, ItemCount>(&mut world).0, "11 / 504");
+        assert_eq!(single::<Text, ItemCount>(&mut world).0, "11 / 519");
         assert_eq!(world.get::<Node>(bookmark).unwrap().display, Display::Flex);
     }
 
@@ -908,7 +908,7 @@ mod tests {
             .spawn((CatalogSlot(ItemId::Torch), RecentSlot, Node::default()))
             .id();
         set_search(&mut world, "oak", None);
-        assert_eq!(single::<Text, ItemCount>(&mut world).0, "11 / 504");
+        assert_eq!(single::<Text, ItemCount>(&mut world).0, "11 / 519");
         assert_eq!(world.get::<Node>(recent).unwrap().display, Display::Flex);
     }
 
@@ -994,7 +994,7 @@ mod tests {
         world.resource_mut::<ItemBrowserState>().craftable = true;
         world.run_system_once(filter_catalog).unwrap();
         assert_eq!(shown_slots(&mut world), [ItemId::OakPlanks]);
-        assert_eq!(single::<Text, ItemCount>(&mut world).0, "1 / 504");
+        assert_eq!(single::<Text, ItemCount>(&mut world).0, "1 / 519");
 
         // Nothing craftable: the empty state says so
         give(&mut world, ItemId::Dirt, 1);

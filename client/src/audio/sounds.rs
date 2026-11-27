@@ -119,7 +119,8 @@ impl SoundMaterial {
             | BlockId::Geodestone
             | BlockId::Basalt
             | BlockId::PolishedBasalt
-            | BlockId::Magma => Self::Stone,
+            | BlockId::Magma
+            | BlockId::Alembic => Self::Stone,
             BlockId::OakLog
             | BlockId::OakPlanks
             | BlockId::SpruceLog
@@ -218,7 +219,9 @@ impl CreatureCall {
     /// attacks too, and a projectile, never struck, only flies, and a
     /// villager speaks and is hurt as an animal is.
     pub fn of(kind: MobKind) -> &'static [CreatureCall] {
-        if matches!(kind, MobKind::Arrow | MobKind::Bobber) || kind.is_vehicle() {
+        if matches!(kind, MobKind::Arrow | MobKind::Bobber | MobKind::ThrownPotion)
+            || kind.is_vehicle()
+        {
             // `creatures::creature_calls` gives the arrow other sounds, `mob::sync` the float
             // its own; a boat has no voice
             &[]
@@ -274,6 +277,7 @@ fn creature_folder(kind: MobKind) -> &'static str {
         MobKind::Slagcrawler => "slagcrawler",
         MobKind::Donkey => "donkey",
         MobKind::Mule => "mule",
+        MobKind::ThrownPotion => "thrown_potion",
     }
 }
 
@@ -410,6 +414,14 @@ pub enum Sound {
     Sit,
     /// An item is put in a frame or turned in it: a light wooden click.
     FrameTurn,
+    /// An alembic opens: the liquid in its flask simmers.
+    AlembicOpen,
+    /// The local player drinks a potion: gulps.
+    PotionDrink,
+    /// A splash potion bursts: glass shatters and the liquid splashes.
+    PotionShatter,
+    /// A glass vial is filled at the water.
+    VialFill,
 }
 
 impl Sound {
@@ -460,7 +472,7 @@ impl Sound {
 
     /// The sounds of the later features (`scripts/generate_feature_sounds.py`), but those of
     /// the armour put on and off and the voices of the villagers.
-    pub const FEATURES: [Sound; 44] = [
+    pub const FEATURES: [Sound; 48] = [
         Sound::BowLoose,
         Sound::ArmourBreak,
         Sound::BowDraw,
@@ -505,6 +517,10 @@ impl Sound {
         Sound::WolfBite,
         Sound::Sit,
         Sound::FrameTurn,
+        Sound::AlembicOpen,
+        Sound::PotionDrink,
+        Sound::PotionShatter,
+        Sound::VialFill,
     ];
 
     /// The sounds of the weather, played by `audio::weather`.
@@ -631,6 +647,10 @@ impl Sound {
             Sound::WolfBite => one("mob/wolf_bite"),
             Sound::Sit => one("furniture/sit"),
             Sound::FrameTurn => one("furniture/frame"),
+            Sound::AlembicOpen => one("alchemy/alembic"),
+            Sound::PotionDrink => one("alchemy/drink"),
+            Sound::PotionShatter => one("alchemy/shatter"),
+            Sound::VialFill => one("alchemy/fill"),
             Sound::PortalPass => vec!["sounds/player/pickup.ogg".to_string()],
             Sound::Creature(kind, call) => {
                 let folder = creature_folder(kind);
@@ -773,7 +793,7 @@ mod tests {
             let calls = CreatureCall::of(kind);
             assert!(
                 calls.contains(&CreatureCall::Cry)
-                    || matches!(kind, MobKind::Arrow | MobKind::Bobber)
+                    || matches!(kind, MobKind::Arrow | MobKind::Bobber | MobKind::ThrownPotion)
                     || kind.is_vehicle(),
                 "{kind:?}"
             );

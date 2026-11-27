@@ -156,7 +156,7 @@ impl ChunkMap {
             self.containers.take(pos);
         }
         // A furnace that lights or goes out keeps what it holds
-        if !block.id.is_furnace() {
+        if !block.id.holds_furnace() {
             self.furnaces.take(pos);
         }
     }
@@ -230,7 +230,7 @@ impl ChunkMap {
     pub fn insert_furnace(&mut self, pos: IVec3, furnace: Furnace) {
         if self
             .get_block(pos)
-            .is_some_and(|block| block.id.is_furnace())
+            .is_some_and(|block| block.id.holds_furnace())
         {
             self.furnaces.values.insert(pos, furnace);
         }

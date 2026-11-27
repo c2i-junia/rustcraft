@@ -2,7 +2,7 @@
 //! in a chunk that is not loaded waits, as in Minecraft.
 
 use bevy::prelude::*;
-use shared::world::{BlockData, BlockId, ChunkMap, FurnaceChange};
+use shared::world::{BlockData, BlockId, ChunkMap, FurnaceChange, Station};
 
 use crate::world::data::ServerWorldMap;
 
@@ -13,17 +13,29 @@ pub fn tick_furnaces_system(mut world_map: ResMut<ServerWorldMap>) {
 
 /// Ticks every furnace of `chunks` once. One that changed is recorded, for the save and for the
 /// player who has it open. Its block is a `LitFurnace` while it burns and a `Furnace` otherwise,
-/// turned as it was: the clients learn it lit or went out from the block updates.
+/// turned as it was: the clients learn it lit or went out from the block updates. An alembic
+/// distils instead (`alchemy`), and stays an alembic.
 fn tick_furnaces(chunks: &mut ChunkMap) {
     let positions: Vec<IVec3> = chunks.furnace_positions().collect();
     for pos in positions {
         let Some(mut furnace) = chunks.furnace(pos).cloned() else {
             continue;
         };
-        if furnace.tick() != FurnaceChange::Same {
+        let alembic = chunks
+            .get_block(pos)
+            .is_some_and(|block| block.id == BlockId::Alembic);
+        let station = if alembic {
+            Station::Alembic
+        } else {
+            Station::Furnace
+        };
+        if furnace.tick_as(station) != FurnaceChange::Same {
             if let Some(stored) = chunks.furnace_mut(pos) {
                 *stored = furnace.clone();
             }
+        }
+        if alembic {
+            continue;
         }
         let id = if furnace.is_lit() {
             BlockId::LitFurnace
@@ -118,6 +130,36 @@ mod tests {
         );
         assert_eq!(chunks.furnace(AT).unwrap().burn_left, 0);
         assert_eq!(chunks.take_changed_furnaces(), vec![AT]);
+    }
+
+    #[test]
+    fn an_alembic_distils_and_stays_an_alembic() {
+        let block = BlockData::new(BlockId::Alembic, BlockDirection::Front);
+        let vial = stack(ItemId::WaterVial, 1);
+        let mut chunks = holding(
+            block,
+            Furnace {
+                input: Some(stack(ItemId::Mushroom, 2)),
+                fuel: Some(stack(ItemId::Coal, 1)),
+                output: Some(vial),
+                ..Default::default()
+            },
+        );
+        for _ in 0..shared::world::alchemy::DISTILL_TICKS {
+            tick_furnaces(&mut chunks);
+        }
+        let alembic = chunks.furnace(AT).unwrap();
+        assert_eq!(alembic.output, Some(stack(ItemId::NeutralBase, 1)));
+        assert_eq!(alembic.input, Some(stack(ItemId::Mushroom, 1)));
+        assert_eq!(chunks.get_block(AT), Some(&block));
+        // The base waits for its ingredient
+        for _ in 0..shared::world::alchemy::DISTILL_TICKS {
+            tick_furnaces(&mut chunks);
+        }
+        assert_eq!(
+            chunks.furnace(AT).unwrap().output,
+            Some(stack(ItemId::NeutralBase, 1))
+        );
     }
 
     #[test]

@@ -63,6 +63,10 @@ pub struct Inventory {
     /// a chest. Never at the same time as a block.
     #[serde(default)]
     pub open_pack: Option<crate::world::MobId>,
+    /// Whether the furnace lent to the inventory while an action applies is an alembic, whose
+    /// output takes a vial (`inventory::OpenContents::Alembic`). Never sent nor saved.
+    #[serde(skip)]
+    pub alembic_lent: bool,
 }
 
 impl Default for Inventory {
@@ -82,6 +86,7 @@ impl Inventory {
             open_engraver: None,
             open_anvil: None,
             open_pack: None,
+            alembic_lent: false,
         }
     }
 
@@ -360,6 +365,9 @@ pub struct Player {
     /// the `MovementState`, as it slows the player. Not saved: the effects give it again.
     #[serde(skip)]
     pub slowness: u8,
+    /// The level of swiftness of the player, as `slowness`.
+    #[serde(skip)]
+    pub swiftness: u8,
     /// How long the player has raised its shield, in ms (`shield::raise_shield`). Part of the
     /// `MovementState`. Not saved.
     #[serde(skip)]
@@ -399,6 +407,8 @@ pub struct MovementState {
     pub riding: Option<Riding>,
     /// `Player::slowness`.
     pub slowness: u8,
+    /// `Player::swiftness`.
+    pub swiftness: u8,
     /// `Player::shield_ms`: the others see the shield raised.
     pub shield_ms: u32,
     /// `Player::shield_disabled_ms`.
@@ -434,6 +444,7 @@ impl Player {
             bow_draw_ms: self.bow_draw_ms,
             riding: self.riding,
             slowness: self.slowness,
+            swiftness: self.swiftness,
             shield_ms: self.shield_ms,
             shield_disabled_ms: self.shield_disabled_ms,
             sitting: self.sitting,
@@ -454,6 +465,7 @@ impl Player {
         self.bow_draw_ms = state.bow_draw_ms;
         self.riding = state.riding;
         self.slowness = state.slowness;
+        self.swiftness = state.swiftness;
         self.shield_ms = state.shield_ms;
         self.shield_disabled_ms = state.shield_disabled_ms;
         self.sitting = state.sitting;
@@ -480,6 +492,9 @@ impl Player {
     /// hit landed, even when the armour left nothing of it.
     pub fn hurt(&mut self, amount: u32, source: DamageSource) -> bool {
         if amount == 0 || self.is_dead() || !self.game_mode.takes_damage() {
+            return false;
+        }
+        if matches!(source, DamageSource::Fire | DamageSource::Lava) && self.resists_fire() {
             return false;
         }
         if let DamageSource::Mob(kind) = source {
@@ -610,6 +625,7 @@ impl Player {
             sitting: None,
             effects: StatusEffects::default(),
             slowness: 0,
+            swiftness: 0,
             shield_ms: 0,
             shield_disabled_ms: 0,
             parries: 0,

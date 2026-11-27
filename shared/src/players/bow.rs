@@ -6,7 +6,7 @@
 use crate::{
     messages::{NetworkAction, PlayerFrameInput},
     players::{blocks::held_item, Player},
-    world::{ItemId, ItemStack},
+    world::{ItemId, ItemStack, ItemType},
     MAX_INVENTORY_SLOTS,
 };
 
@@ -47,6 +47,8 @@ pub struct BowShot {
     pub ammo: ItemId,
     /// How many creatures it goes through before the one it stops in.
     pub pierce: u8,
+    /// The type of what flies: the modifiers of a splash potion (`alchemy::Brew`).
+    pub ammo_type: ItemType,
 }
 
 impl BowShot {
@@ -60,6 +62,7 @@ impl BowShot {
             recoverable,
             ammo: ItemId::Arrow,
             pierce: 0,
+            ammo_type: ItemType::Generic,
         }
     }
 
@@ -71,6 +74,7 @@ impl BowShot {
             recoverable,
             ammo: ItemId::Bolt,
             pierce: BOLT_PIERCE,
+            ammo_type: ItemType::Generic,
         }
     }
 
@@ -85,6 +89,22 @@ impl BowShot {
             recoverable,
             ammo: ItemId::ThrowingAxe,
             pierce: 0,
+            ammo_type: ItemType::Generic,
+        }
+    }
+}
+
+impl BowShot {
+    /// A splash potion swung back for `draw_ms`: it hurts nothing, it bursts
+    /// (`alchemy::SPLASH_RADIUS`).
+    pub fn splash(potion: &ItemStack, draw_ms: u32) -> Self {
+        Self {
+            power: power_of(draw_ms, THROW_FULL_MS),
+            damage: 0,
+            recoverable: false,
+            ammo: potion.item_id,
+            pierce: 0,
+            ammo_type: potion.item_type,
         }
     }
 }
@@ -96,6 +116,7 @@ pub fn full_draw_ms(item: ItemId) -> Option<u32> {
         ItemId::Bow => Some(FULL_DRAW_MS),
         ItemId::Crossbow => Some(CROSSBOW_LOAD_MS),
         ItemId::ThrowingAxe => Some(THROW_FULL_MS),
+        item if item.is_splash_potion() => Some(THROW_FULL_MS),
         _ => None,
     }
 }
@@ -105,6 +126,7 @@ fn ammo_of(item: ItemId) -> ItemId {
     match item {
         ItemId::Crossbow => ItemId::Bolt,
         ItemId::ThrowingAxe => ItemId::ThrowingAxe,
+        item if item.is_splash_potion() => item,
         _ => ItemId::Arrow,
     }
 }
@@ -193,7 +215,7 @@ pub fn shoot_bow(player: &mut Player, action: &PlayerFrameInput) -> Option<BowSh
     }
     let creative = player.game_mode.is_creative();
     if !creative {
-        if weapon.item_id == ItemId::ThrowingAxe {
+        if weapon.item_id == ItemId::ThrowingAxe || weapon.item_id.is_splash_potion() {
             player
                 .inventory
                 .remove_item_from_stack(action.hotbar_slot, 1);
@@ -206,6 +228,7 @@ pub fn shoot_bow(player: &mut Player, action: &PlayerFrameInput) -> Option<BowSh
     Some(match weapon.item_id {
         ItemId::Crossbow => BowShot::bolt(&weapon, !creative),
         ItemId::ThrowingAxe => BowShot::throwing_axe(player.bow_draw_ms, !creative),
+        item if item.is_splash_potion() => BowShot::splash(&weapon, player.bow_draw_ms),
         _ => BowShot::new(&weapon, player.bow_draw_ms, !creative),
     })
 }
@@ -214,7 +237,6 @@ pub fn shoot_bow(player: &mut Player, action: &PlayerFrameInput) -> Option<BowSh
 mod tests {
     use super::*;
     use crate::players::game_mode::GameMode;
-    use crate::world::ItemType;
     use bevy::prelude::{Transform, Vec3};
 
     fn archer(arrows: u32) -> Player {
@@ -311,6 +333,29 @@ mod tests {
         let axe = shoot(&mut player, 800).unwrap();
         assert_eq!((axe.ammo, axe.pierce, axe.power), (ItemId::ThrowingAxe, 0, 1.0));
         assert_eq!(player.inventory.inner[&0].nb, 1);
+    }
+
+    #[test]
+    fn a_splash_potion_is_thrown_with_its_modifiers() {
+        let mut player = archer(0);
+        let brewed = ItemType::Brewed {
+            longer: true,
+            stronger: false,
+        };
+        player.inventory.inner.insert(
+            0,
+            ItemStack {
+                item_id: ItemId::SplashWeaknessPotion,
+                item_type: brewed,
+                nb: 1,
+            },
+        );
+        let potion = shoot(&mut player, 800).unwrap();
+        assert_eq!(
+            (potion.ammo, potion.ammo_type, potion.damage),
+            (ItemId::SplashWeaknessPotion, brewed, 0)
+        );
+        assert!(!player.inventory.inner.contains_key(&0));
     }
 
     #[test]

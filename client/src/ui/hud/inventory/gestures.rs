@@ -206,7 +206,13 @@ pub(crate) fn planned_drag(
         .cloned();
     let contents = match (&mut chest, &mut furnace) {
         (Some(chest), _) => Some(OpenContents::Chest(chest)),
-        (None, Some(furnace)) => Some(OpenContents::Furnace(furnace)),
+        (None, Some(furnace)) => Some(OpenContents::of_furnace(
+            inventory
+                .open_furnace
+                .and_then(|pos| world_map.blocks.get_block(pos))
+                .map(|block| block.id),
+            furnace,
+        )),
         (None, None) => None,
     };
     // The server checks that the table is within reach; the panel follows its updates

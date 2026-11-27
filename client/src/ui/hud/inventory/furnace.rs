@@ -10,7 +10,7 @@ use bevy::a11y::AccessibilityNode;
 use bevy::prelude::*;
 use shared::players::inventory::{FURNACE_FUEL_SLOT, FURNACE_INPUT_SLOT, FURNACE_OUTPUT_SLOT};
 use shared::players::Inventory;
-use shared::world::{Furnace, COOK_TICKS};
+use shared::world::{Furnace, Station, COOK_TICKS};
 
 use super::setup::icon;
 use super::{FurnaceRow, InventoryCell};
@@ -20,6 +20,14 @@ use crate::ui::widgets::tooltip::Tooltip;
 use crate::world::{AtlasWrapper, ClientWorldMap};
 
 pub const FURNACE_TITLE: &str = "furnace.title";
+pub const ALEMBIC_TITLE: &str = "alembic.title";
+
+/// Whether the block at `at` is an alembic, whose furnace distils (`shared::world::alchemy`).
+pub fn is_alembic(world_map: Option<&ClientWorldMap>, at: IVec3) -> bool {
+    world_map
+        .and_then(|map| map.blocks.get_block(at))
+        .is_some_and(|block| block.id == shared::world::BlockId::Alembic)
+}
 
 pub const FLAME_PATH: &str = "./graphics/hud/furnace_flame.png";
 pub const FLAME_EMPTY_PATH: &str = "./graphics/hud/furnace_flame_empty.png";
@@ -63,7 +71,13 @@ pub fn flame_rows(furnace: &Furnace) -> u32 {
 /// The columns of the arrow shown from its left, as Minecraft draws it: as far as the input has
 /// cooked.
 pub fn arrow_columns(furnace: &Furnace) -> u32 {
-    let cooked = f32::from(furnace.cook.min(COOK_TICKS)) / f32::from(COOK_TICKS);
+    arrow_columns_of(furnace, COOK_TICKS)
+}
+
+/// The columns of the arrow of a furnace that makes a thing in `work_ticks`: an alembic's
+/// distils slower.
+pub fn arrow_columns_of(furnace: &Furnace, work_ticks: u16) -> u32 {
+    let cooked = f32::from(furnace.cook.min(work_ticks)) / f32::from(work_ticks);
     (cooked * ARROW_TEXELS.x as f32).ceil() as u32
 }
 
@@ -76,13 +90,15 @@ impl FurnaceGauge {
         }
     }
 
-    /// The texels of its sprite `furnace` shows: the flame burns down from its top, the arrow
-    /// fills from its left.
-    fn shown(self, furnace: &Furnace) -> URect {
+    /// The texels of its sprite `furnace` shows, which makes a thing in `work_ticks`: the
+    /// flame burns down from its top, the arrow fills from its left.
+    fn shown(self, furnace: &Furnace, work_ticks: u16) -> URect {
         let full = self.texels();
         match self {
             FurnaceGauge::Flame => URect::new(0, full.y - flame_rows(furnace), full.x, full.y),
-            FurnaceGauge::Arrow => URect::new(0, 0, arrow_columns(furnace), full.y),
+            FurnaceGauge::Arrow => {
+                URect::new(0, 0, arrow_columns_of(furnace, work_ticks), full.y)
+            }
         }
     }
 
@@ -226,8 +242,16 @@ pub fn display_furnace_system(
         .and_then(|pos| world_map.blocks.furnace(pos))
         .cloned()
         .unwrap_or_default();
+    let alembic = inventory
+        .open_furnace
+        .is_some_and(|at| is_alembic(Some(&world_map), at));
+    let station = if alembic {
+        Station::Alembic
+    } else {
+        Station::Furnace
+    };
     for (&gauge, mut accessible, children) in &mut gauges {
-        let shown = gauge.shown(&furnace);
+        let shown = gauge.shown(&furnace, station.work_ticks());
         let full = gauge.texels();
         let value = f64::from(shown.width() * shown.height()) / f64::from(full.x * full.y) * 100.0;
         if accessible.numeric_value() != Some(value) {

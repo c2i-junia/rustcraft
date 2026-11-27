@@ -246,6 +246,12 @@ impl VoxelShape {
                 shape.faces[TOP].texture += "Top";
                 shape
             }
+            // A still of iron: its brew seen from above
+            BlockId::Alembic => {
+                let mut shape = Self::full_cube(block);
+                shape.faces[TOP].texture += "Top";
+                shape
+            }
             BlockId::EngravingTable => {
                 let mut shape = Self::full_cube(block);
                 shape.faces[TOP].texture += "Top";

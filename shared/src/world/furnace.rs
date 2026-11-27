@@ -24,6 +24,24 @@ pub struct Furnace {
     pub cook: u16,
 }
 
+/// What a block holding a `Furnace` makes with it: a furnace smelts, an alembic distils
+/// (`alchemy`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Station {
+    Furnace,
+    Alembic,
+}
+
+impl Station {
+    /// The ticks it takes to make one thing.
+    pub fn work_ticks(self) -> u16 {
+        match self {
+            Station::Furnace => COOK_TICKS,
+            Station::Alembic => super::alchemy::DISTILL_TICKS,
+        }
+    }
+}
+
 /// What one tick did to a furnace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FurnaceChange {
@@ -160,24 +178,45 @@ impl Furnace {
         }
     }
 
+    /// What the output becomes once the input is made into it at `station`, if it can be now.
+    fn product(&self, station: Station) -> Option<ItemStack> {
+        match station {
+            Station::Furnace => self.smelting().map(|result| ItemStack {
+                item_id: result,
+                item_type: result.get_default_type(),
+                nb: self.output.map_or(0, |output| output.nb) + 1,
+            }),
+            Station::Alembic => {
+                super::alchemy::distilled(self.input?.item_id, self.output.as_ref()?)
+            }
+        }
+    }
+
     /// One tick, by Minecraft's rules. The fuel burns on whatever the furnace holds. Once it is
     /// out, a furnace that can smelt burns its next fuel item, on the same tick, so that a fuel
     /// cooks as many ticks as it lasts. A burning furnace that can smelt cooks, an item every
     /// `COOK_TICKS`; one that cannot loses what it cooked, and one with nothing to burn loses it
     /// two ticks at a time.
     pub fn tick(&mut self) -> FurnaceChange {
+        self.tick_as(Station::Furnace)
+    }
+
+    /// One tick of a furnace, or of an alembic, which distils its input into its output instead
+    /// of smelting it, every `DISTILL_TICKS`, by the same rules.
+    pub fn tick_as(&mut self, station: Station) -> FurnaceChange {
         let before = self.clone();
         self.burn_left = self.burn_left.saturating_sub(1);
-        let smelting = self.smelting();
+        let smelting = self.product(station);
         if self.burn_left == 0 && smelting.is_some() {
             self.burn_fuel();
         }
         match smelting {
-            Some(result) if self.is_lit() => {
+            Some(product) if self.is_lit() => {
                 self.cook += 1;
-                if self.cook >= COOK_TICKS {
+                if self.cook >= station.work_ticks() {
                     self.cook = 0;
-                    self.smelt(result);
+                    self.input = self.input.and_then(one_less);
+                    self.output = Some(product);
                 }
             }
             Some(_) => self.cook = self.cook.saturating_sub(2),
@@ -212,15 +251,6 @@ impl Furnace {
         self.burn_total = ticks;
     }
 
-    /// One input item becomes one `result` in the output.
-    fn smelt(&mut self, result: ItemId) {
-        self.input = self.input.and_then(one_less);
-        self.output = Some(ItemStack {
-            item_id: result,
-            item_type: result.get_default_type(),
-            nb: self.output.map_or(0, |output| output.nb) + 1,
-        });
-    }
 }
 
 /// `stack` with an item less, `None` once it is empty.

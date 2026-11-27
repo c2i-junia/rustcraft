@@ -182,6 +182,47 @@ pub enum BrowserCard {
         item: ItemId,
         ticks: u16,
     },
+    /// The alembic makes `output` of `vial` with `ingredient` (`shared::world::alchemy`); with a
+    /// modifier, `output` is `vial` made longer or stronger.
+    Distilling {
+        vial: ItemId,
+        ingredient: ItemId,
+        output: ItemId,
+    },
+}
+
+/// The cards of the alembic about `item`: what makes it, with `recipes`, else what it makes or
+/// works, the modifiers shown on the potion of swiftness.
+fn distilling_cards(item: ItemId, recipes: bool) -> Vec<BrowserCard> {
+    use shared::world::alchemy::{distilling_inputs, LONGER, RECIPES, STRONGER};
+    let card = |vial, ingredient, output| BrowserCard::Distilling {
+        vial,
+        ingredient,
+        output,
+    };
+    if recipes {
+        let mut cards: Vec<_> = distilling_inputs(item)
+            .map(|(vial, ingredient)| card(vial, ingredient, item))
+            .collect();
+        if let Some(potion) = item.potion() {
+            if potion.lengthens() {
+                cards.push(card(item, LONGER, item));
+            }
+            if potion.strengthens() {
+                cards.push(card(item, STRONGER, item));
+            }
+        }
+        return cards;
+    }
+    let mut cards: Vec<_> = RECIPES
+        .iter()
+        .filter(|(vial, with, _)| *vial == item || *with == item)
+        .map(|&(vial, with, output)| card(vial, with, output))
+        .collect();
+    if item == LONGER || item == STRONGER {
+        cards.push(card(ItemId::SwiftnessPotion, item, ItemId::SwiftnessPotion));
+    }
+    cards
 }
 
 /// The cards `view` shows: the crafting recipes first, then the smeltings, then, among the uses
@@ -195,6 +236,7 @@ pub fn cards_of(view: ItemView) -> Vec<BrowserCard> {
                 input,
                 output: item,
             }))
+            .chain(distilling_cards(item, true))
             .collect(),
         RecipeTab::Uses => uses_of(item)
             .map(BrowserCard::Crafting)
@@ -203,6 +245,7 @@ pub fn cards_of(view: ItemView) -> Vec<BrowserCard> {
                 output,
             }))
             .chain(fuel_ticks(item).map(|ticks| BrowserCard::Fuel { item, ticks }))
+            .chain(distilling_cards(item, false))
             .collect(),
     }
 }
@@ -218,6 +261,24 @@ pub fn card_label(card: &BrowserCard) -> String {
             trf("browser.smelting_of", &[("item", &item_name(*output))])
         }
         BrowserCard::Fuel { item, .. } => trf("browser.as_fuel", &[("item", &item_name(*item))]),
+        BrowserCard::Distilling { output, .. } => {
+            trf("browser.distilling_of", &[("item", &item_name(*output))])
+        }
+    }
+}
+
+/// Under a card of the alembic: where it is made and how long it takes, and what a modifier
+/// `ingredient` does.
+pub fn distilling_note(ingredient: ItemId) -> String {
+    use shared::world::alchemy::{DISTILL_TICKS, LONGER, STRONGER};
+    let time = trf(
+        "browser.alembic_time",
+        &[("s", &(u64::from(DISTILL_TICKS) / TICKS_PER_SECOND))],
+    );
+    match ingredient {
+        LONGER => format!("{time} · {}", tr("browser.alembic_longer")),
+        STRONGER => format!("{time} · {}", tr("browser.alembic_stronger")),
+        _ => time,
     }
 }
 
@@ -544,7 +605,7 @@ mod tests {
         // Its uses count its smelting and its burning
         assert_eq!(
             empty_view_message(view(ItemId::Cobblestone, RecipeTab::Recipes)),
-            "Cobblestone is gathered, not crafted. It goes into 10 recipes: see Uses."
+            "Cobblestone is gathered, not crafted. It goes into 11 recipes: see Uses."
         );
         assert_eq!(
             empty_view_message(view(ItemId::IronOre, RecipeTab::Recipes)),

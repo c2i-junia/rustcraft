@@ -537,6 +537,13 @@ const MAP_RECIPES: &[Recipe] = &[
 
 const PAPER: Option<Ingredient> = item(ItemId::Paper);
 
+/// The recipes of alchemy (`alchemy`): the alembic, and the glass vials.
+#[rustfmt::skip]
+const ALCHEMY_RECIPES: &[Recipe] = &[
+    Recipe { width: 3, cells: &[None, GLASS, None, item(ItemId::CopperIngot), GLASS, item(ItemId::CopperIngot), COBBLE, COBBLE, COBBLE], output: ItemId::Alembic, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &[GLASS, None, GLASS, None, GLASS, None], output: ItemId::GlassVial, nb: 3, shapeless: false },
+];
+
 /// Whether the grid makes a copy of a paper map, which keeps the map in its cell.
 pub fn copies_a_map(grid: &CraftingGrid) -> bool {
     grid.iter().flatten().any(|&cell| cell == ItemId::FilledMap)
@@ -554,6 +561,7 @@ fn all_recipes() -> &'static [Recipe] {
             .chain(palette_recipes())
             .chain(MAP_RECIPES.iter().copied())
             .chain(decor_recipes())
+            .chain(ALCHEMY_RECIPES.iter().copied())
             .collect()
     })
 }
@@ -1250,8 +1258,9 @@ mod tests {
     fn every_recipe_is_listed_with_its_index_and_size() {
         let all: Vec<RecipeView> = recipes().collect();
         // + 3: the glowing crystal, the polished basalt and the paper of kelp; + 5: the lead and
-        // the four horse armours; + 79: the furniture (`decor_recipes`)
-        assert_eq!(all.len(), 109 - 3 + 152 + 5 + 9 + 6 + 3 + 5 + 79);
+        // the four horse armours; + 79: the furniture (`decor_recipes`); + 2: the alembic and
+        // the glass vials
+        assert_eq!(all.len(), 109 - 3 + 152 + 5 + 9 + 6 + 3 + 5 + 79 + 2);
         for (position, recipe) in all.iter().enumerate() {
             assert_eq!(recipe.index as usize, position);
             assert_eq!(recipe.cells.len(), recipe.width * recipe.height);
@@ -1280,8 +1289,8 @@ mod tests {
         assert_eq!(uses(ItemId::OakPlanks)[..14], uses(ItemId::SprucePlanks)[..14]);
         assert_eq!(uses(ItemId::OakPlanks)[..14], uses(ItemId::JunglePlanks)[..14]);
         assert_ne!(uses(ItemId::OakPlanks)[14..], uses(ItemId::SprucePlanks)[14..]);
-        // the tools, the furnace, and the slab, stairs and low wall
-        assert_eq!(counts(ItemId::Cobblestone), (0, 6 + 3));
+        // the tools, the furnace, the alembic, and the slab, stairs and low wall
+        assert_eq!(counts(ItemId::Cobblestone), (0, 6 + 1 + 3));
         assert_eq!(counts(ItemId::IronIngot), (1, 23));
         assert_eq!(counts(ItemId::Torch), (2, 1));
         assert_eq!(counts(ItemId::Bedrock), (0, 0));

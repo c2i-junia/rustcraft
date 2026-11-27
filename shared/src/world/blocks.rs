@@ -464,6 +464,8 @@ pub enum BlockId {
     HangingGreenLantern,
     HangingRedLantern,
     HangingBlackLantern,
+    /// Distils the potions: it holds a `Furnace`, which it ticks by `alchemy::distilled`.
+    Alembic,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -687,7 +689,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 398] = [
+    pub const ALL: [BlockId; 399] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -1086,6 +1088,7 @@ impl BlockId {
         BlockId::HangingGreenLantern,
         BlockId::HangingRedLantern,
         BlockId::HangingBlackLantern,
+        BlockId::Alembic,
     ];
 
     pub fn is_stairs(&self) -> bool {
@@ -1362,7 +1365,7 @@ impl BlockId {
             Self::SpruceLog => 10,
             Self::CraftingTable => 10,
             Self::SprucePlanks => 10,
-            Self::Furnace | Self::LitFurnace | Self::EngravingTable => 15,
+            Self::Furnace | Self::LitFurnace | Self::EngravingTable | Self::Alembic => 15,
             Self::Chest => 10,
             Self::CoalOre => 12,
             Self::IronOre => 15,
@@ -1526,6 +1529,7 @@ impl BlockId {
                     | Self::Basalt
                     | Self::PolishedBasalt
                     | Self::Magma
+                    | Self::Alembic
             ),
             ToolKind::Axe => matches!(
                 *self,
@@ -1614,7 +1618,8 @@ impl BlockId {
             | Self::Geodestone
             | Self::Basalt
             | Self::PolishedBasalt
-            | Self::Magma => 0,
+            | Self::Magma
+            | Self::Alembic => 0,
             Self::IronOre | Self::IronBlock | Self::TinOre | Self::TinBlock | Self::BronzeBlock => {
                 1
             }
@@ -1796,6 +1801,7 @@ impl BlockId {
                 Some(decor) => vec![(1, decor.item, 1)],
                 None => vec![],
             },
+            BlockId::Alembic => vec![(1, ItemId::Alembic, 1)],
             // The other blocks of the palette drop their item, but glass, which breaks
             _ => match self.palette() {
                 Some(palette) if palette.base != BlockId::Glass => vec![(1, palette.item, 1)],
@@ -1811,6 +1817,7 @@ impl BlockId {
             *self,
             Self::CraftingTable
                 | Self::EngravingTable
+                | Self::Alembic
                 | Self::Anvil
                 | Self::Chest
                 | Self::Barrel
@@ -1826,6 +1833,11 @@ impl BlockId {
     /// Whether this block is a furnace, lit or out: both hold a `Furnace` and open alike.
     pub fn is_furnace(&self) -> bool {
         matches!(*self, Self::Furnace | Self::LitFurnace)
+    }
+
+    /// Whether this block holds a `Furnace`: a furnace, lit or out, or an alembic.
+    pub fn holds_furnace(&self) -> bool {
+        self.is_furnace() || *self == Self::Alembic
     }
 
     /// Whether a block placed in the cell of this one takes its place.
@@ -1977,7 +1989,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 398] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 399] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 3] = [BlockId::Bedrock, BlockId::Water, BlockId::Lava];
@@ -2114,7 +2126,8 @@ mod tests {
             | BlockId::PolishedBasalt
             | BlockId::Magma
             | crate::new_palette_blocks!()
-            | crate::new_decor_blocks!() => {}
+            | crate::new_decor_blocks!()
+            | BlockId::Alembic => {}
         }
     }
 
@@ -2569,6 +2582,7 @@ mod tests {
                 BlockId::HangingGreenLantern => 395,
                 BlockId::HangingRedLantern => 396,
                 BlockId::HangingBlackLantern => 397,
+                BlockId::Alembic => 398,
             };
             assert_eq!(encoded(&id), varint(expected), "{id:?}: {ENCODING_WARNING}");
         }
@@ -3082,7 +3096,8 @@ mod tests {
                 | BlockId::Geodestone
                 | BlockId::Basalt
                 | BlockId::PolishedBasalt
-                | BlockId::Magma => Some(0),
+                | BlockId::Magma
+                | BlockId::Alembic => Some(0),
                 BlockId::IronOre
                 | BlockId::IronBlock
                 | BlockId::TinOre

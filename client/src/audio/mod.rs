@@ -62,6 +62,7 @@ pub fn audio_plugin(app: &mut App) {
                         cues::achievement_cue.before(progress::show_earned),
                         cues::boss_cue,
                         cues::furniture_cues,
+                        cues::alchemy_cues,
                     ),
                 )
                     .after(GameSet::Reconciliation)

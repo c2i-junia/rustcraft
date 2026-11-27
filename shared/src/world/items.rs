@@ -578,11 +578,33 @@ pub enum ItemId {
     GreenLantern,
     RedLantern,
     BlackLantern,
+    // Alchemy: see `alchemy`
+    /// Distils the ingredients into potions, burning a fuel (`alchemy::distilled`).
+    Alembic,
+    /// Filled at a source of water.
+    GlassVial,
+    WaterVial,
+    /// Water distilled with a mushroom, which every potion is made of.
+    NeutralBase,
+    /// Drunk, of `ItemType::Generic` or `ItemType::Brewed` (`alchemy::Brew`).
+    HealingPotion,
+    NightVisionPotion,
+    WaterBreathingPotion,
+    FireResistancePotion,
+    SwiftnessPotion,
+    StrengthPotion,
+    RegenerationPotion,
+    /// Thrown, they burst where they land and give their effect around (`alchemy::SPLASH_RADIUS`).
+    SplashPoisonPotion,
+    SplashSlownessPotion,
+    SplashWeaknessPotion,
+    /// The fang of a Gnawer, which distils into strength.
+    GnawerFang,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 504] = [
+    pub const ALL: [ItemId; 519] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -1087,6 +1109,21 @@ impl ItemId {
         Self::GreenLantern,
         Self::RedLantern,
         Self::BlackLantern,
+        Self::Alembic,
+        Self::GlassVial,
+        Self::WaterVial,
+        Self::NeutralBase,
+        Self::HealingPotion,
+        Self::NightVisionPotion,
+        Self::WaterBreathingPotion,
+        Self::FireResistancePotion,
+        Self::SwiftnessPotion,
+        Self::StrengthPotion,
+        Self::RegenerationPotion,
+        Self::SplashPoisonPotion,
+        Self::SplashSlownessPotion,
+        Self::SplashWeaknessPotion,
+        Self::GnawerFang,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -1139,9 +1176,11 @@ impl ItemId {
             | Self::Stew
             | Self::BerrySalad
             | Self::FishChowder => 1,
-            Self::ThrowingAxe | Self::Egg => 16,
+            Self::ThrowingAxe | Self::Egg | Self::GlassVial => 16,
             // each banner may hold patterns of its own
             _ if self.banner_color().is_some() => 1,
+            // A potion is one, so that its `ItemType::Brewed` never mixes with another's
+            item if item.is_vial_filled() => 1,
             _ if self.durability().is_some() => 1,
             _ => 64,
         }
@@ -1529,8 +1568,23 @@ impl ItemId {
             | Self::ApplePie
             | Self::Compost
             | Self::CrystalShard
+            | Self::GlassVial
+            | Self::WaterVial
+            | Self::NeutralBase
+            | Self::HealingPotion
+            | Self::NightVisionPotion
+            | Self::WaterBreathingPotion
+            | Self::FireResistancePotion
+            | Self::SwiftnessPotion
+            | Self::StrengthPotion
+            | Self::RegenerationPotion
+            | Self::SplashPoisonPotion
+            | Self::SplashSlownessPotion
+            | Self::SplashWeaknessPotion
+            | Self::GnawerFang
             | crate::dye_items!() => ItemCategory::Materials,
             Self::CraftingTable
+            | Self::Alembic
             | Self::EngravingTable
             | Self::Anvil
             | Self::Furnace
@@ -1869,6 +1923,21 @@ impl ItemId {
             Self::PolishedBasalt => ItemType::Block(BlockId::PolishedBasalt),
             Self::Magma => ItemType::Block(BlockId::Magma),
             Self::CrystalShard => ItemType::Generic,
+            Self::Alembic => ItemType::Block(BlockId::Alembic),
+            Self::GlassVial
+            | Self::WaterVial
+            | Self::NeutralBase
+            | Self::HealingPotion
+            | Self::NightVisionPotion
+            | Self::WaterBreathingPotion
+            | Self::FireResistancePotion
+            | Self::SwiftnessPotion
+            | Self::StrengthPotion
+            | Self::RegenerationPotion
+            | Self::SplashPoisonPotion
+            | Self::SplashSlownessPotion
+            | Self::SplashWeaknessPotion
+            | Self::GnawerFang => ItemType::Generic,
             // the wreck that holds it gives it the place of its chest
             Self::TreasureMap => ItemType::Treasure { at: IVec3::ZERO },
 
@@ -2075,6 +2144,12 @@ pub enum ItemType {
     /// A banner, and the patterns dyed on it (`decor`).
     Banner {
         patterns: super::decor::BannerPatterns,
+    },
+    /// A potion distilled again with a modifier (`alchemy::Brew`): it lasts longer, or is
+    /// stronger.
+    Brewed {
+        longer: bool,
+        stronger: bool,
     },
 }
 
@@ -2605,6 +2680,21 @@ mod tests {
             (ItemId::GreenLantern, 501),
             (ItemId::RedLantern, 502),
             (ItemId::BlackLantern, 503),
+            (ItemId::Alembic, 504),
+            (ItemId::GlassVial, 505),
+            (ItemId::WaterVial, 506),
+            (ItemId::NeutralBase, 507),
+            (ItemId::HealingPotion, 508),
+            (ItemId::NightVisionPotion, 509),
+            (ItemId::WaterBreathingPotion, 510),
+            (ItemId::FireResistancePotion, 511),
+            (ItemId::SwiftnessPotion, 512),
+            (ItemId::StrengthPotion, 513),
+            (ItemId::RegenerationPotion, 514),
+            (ItemId::SplashPoisonPotion, 515),
+            (ItemId::SplashSlownessPotion, 516),
+            (ItemId::SplashWeaknessPotion, 517),
+            (ItemId::GnawerFang, 518),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -2874,7 +2964,22 @@ mod tests {
                 | ItemId::MossbackSpawnEgg
                 | ItemId::ShardlingSpawnEgg
                 | ItemId::SlagcrawlerSpawnEgg
-                | crate::new_decor_items!() => {}
+                | crate::new_decor_items!()
+                | ItemId::Alembic
+                | ItemId::GlassVial
+                | ItemId::WaterVial
+                | ItemId::NeutralBase
+                | ItemId::HealingPotion
+                | ItemId::NightVisionPotion
+                | ItemId::WaterBreathingPotion
+                | ItemId::FireResistancePotion
+                | ItemId::SwiftnessPotion
+                | ItemId::StrengthPotion
+                | ItemId::RegenerationPotion
+                | ItemId::SplashPoisonPotion
+                | ItemId::SplashSlownessPotion
+                | ItemId::SplashWeaknessPotion
+                | ItemId::GnawerFang => {}
             }
         }
         for (id, expected) in table {
@@ -3118,6 +3223,13 @@ mod tests {
             ItemId::FishChowder,
             ItemId::Egg,
         ];
+        // The vials stack to 16, filled to one
+        let vials: Vec<ItemId> = ItemId::ALL.into_iter().filter(|item| item.is_vial()).collect();
+        for vial in &vials {
+            let max = if vial.is_vial_filled() { 1 } else { 16 };
+            assert_eq!(vial.get_max_stack(), max, "{vial:?}");
+        }
+        let buckets = [buckets.as_slice(), &vials].concat();
         let others = ItemId::ALL
             .iter()
             .filter(|item| !tools.iter().any(|(t, ..)| t == *item) && !buckets.contains(item))

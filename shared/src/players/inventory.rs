@@ -250,15 +250,30 @@ fn container_in_reach(in_reach: impl Fn(IVec3, BlockId) -> bool, pos: IVec3) -> 
     in_reach(pos, BlockId::Chest) || in_reach(pos, BlockId::Barrel)
 }
 
-/// Whether `pos` holds a furnace, lit or out, `in_reach`.
+/// Whether `pos` holds a furnace, lit or out, or an alembic, `in_reach`: both open alike.
 fn furnace_in_reach(in_reach: impl Fn(IVec3, BlockId) -> bool, pos: IVec3) -> bool {
-    in_reach(pos, BlockId::Furnace) || in_reach(pos, BlockId::LitFurnace)
+    in_reach(pos, BlockId::Furnace)
+        || in_reach(pos, BlockId::LitFurnace)
+        || in_reach(pos, BlockId::Alembic)
 }
 
 /// What the block a player has open holds, lent to its inventory while an action applies.
 pub enum OpenContents<'a> {
     Chest(&'a mut Container),
     Furnace(&'a mut Furnace),
+    /// The `Furnace` of an alembic: its output is the vial, which takes what goes in a vial.
+    Alembic(&'a mut Furnace),
+}
+
+impl<'a> OpenContents<'a> {
+    /// The contents of the furnace of the block `id`: an alembic's, or a furnace's.
+    pub fn of_furnace(id: Option<BlockId>, furnace: &'a mut Furnace) -> Self {
+        if id == Some(BlockId::Alembic) {
+            Self::Alembic(furnace)
+        } else {
+            Self::Furnace(furnace)
+        }
+    }
 }
 
 /// The slots of an open block lent to the inventory while an action applies.
@@ -267,6 +282,7 @@ enum Lent {
     Nothing,
     Chest,
     Furnace,
+    Alembic,
 }
 
 /// What one inventory action of an input did: the client's feedback.
@@ -374,7 +390,10 @@ pub fn simulate_inventory_actions(
         let output_before = output(&furnace);
         let contents = match (&mut chest, &mut furnace, &mut pack) {
             (Some((_, contents)), _, _) => Some(OpenContents::Chest(contents)),
-            (None, Some((_, furnace)), _) => Some(OpenContents::Furnace(furnace)),
+            (None, Some((pos, furnace)), _) => Some(OpenContents::of_furnace(
+                world_map.get_block(*pos).map(|block| block.id),
+                furnace,
+            )),
             (None, None, Some((_, contents))) => Some(OpenContents::Chest(contents)),
             (None, None, None) => None,
         };
@@ -548,19 +567,45 @@ fn with_lent<T>(
             })
         }
         Some(OpenContents::Furnace(furnace)) if inventory.open_furnace.is_some() => {
-            let cooked = furnace.input.map(|stack| stack.item_id);
-            let stacks = vec![&mut furnace.input, &mut furnace.fuel, &mut furnace.output];
-            let applied = lend(inventory, stacks, furnace_slots(), |inventory| {
-                apply(inventory, Lent::Furnace)
-            });
-            // As in Minecraft, another item starts from nothing: what cooked was not it
-            if furnace.input.map(|stack| stack.item_id) != cooked {
-                furnace.cook = 0;
-            }
+            lend_furnace(inventory, furnace, Lent::Furnace, apply)
+        }
+        Some(OpenContents::Alembic(furnace)) if inventory.open_furnace.is_some() => {
+            inventory.alembic_lent = true;
+            let applied = lend_furnace(inventory, furnace, Lent::Alembic, apply);
+            inventory.alembic_lent = false;
             applied
         }
         _ => apply(inventory, Lent::Nothing),
     }
+}
+
+/// Lends the stacks of `furnace` to `inventory` while `apply` runs, as `lent`.
+fn lend_furnace<T>(
+    inventory: &mut Inventory,
+    furnace: &mut Furnace,
+    lent: Lent,
+    apply: impl FnOnce(&mut Inventory, Lent) -> T,
+) -> T {
+    let kinds = |furnace: &Furnace| {
+        let kind = |stack: Option<ItemStack>| stack.map(|stack| (stack.item_id, stack.item_type));
+        (kind(furnace.input), kind(furnace.output))
+    };
+    let worked = kinds(furnace);
+    let stacks = vec![&mut furnace.input, &mut furnace.fuel, &mut furnace.output];
+    let applied = lend(inventory, stacks, furnace_slots(), |inventory| {
+        apply(inventory, lent)
+    });
+    // As in Minecraft, another item starts from nothing: what cooked was not it, nor, in an
+    // alembic, the vial it distilled
+    let now = kinds(furnace);
+    let changed = match lent {
+        Lent::Alembic => now != worked,
+        _ => now.0 != worked.0,
+    };
+    if changed {
+        furnace.cook = 0;
+    }
+    applied
 }
 
 /// Lends `stacks` to `inventory` in `slots` while `apply` runs, and takes back what the slots
@@ -740,7 +785,7 @@ fn plan_drag(
     let filled: Vec<(u32, Option<ItemStack>)> = (0..u128::BITS)
         .filter(|slot| slots & 1 << slot != 0)
         .filter(|&slot| {
-            check_slot(inventory, slot, size, floating, lent).is_ok() && takes(slot, held.item_id)
+            check_slot(inventory, slot, size, floating, lent).is_ok() && takes(inventory, slot, held.item_id)
         })
         .filter_map(|slot| match inventory.inner.get(&slot) {
             None => Some((slot, None)),
@@ -948,6 +993,16 @@ fn quick_move_slot(inventory: &mut Inventory, slot: u32, nb: u32, lent: Lent) ->
             }
             // Neither smelts nor burns: it stays
             Lent::Furnace => Some(slot..slot),
+            Lent::Alembic if stack.item_id.is_vial() => {
+                Some(FURNACE_OUTPUT_SLOT..FURNACE_OUTPUT_SLOT + 1)
+            }
+            Lent::Alembic if crate::world::alchemy::is_ingredient(stack.item_id) => {
+                Some(FURNACE_INPUT_SLOT..FURNACE_FUEL_SLOT)
+            }
+            Lent::Alembic if fuel_ticks(stack.item_id).is_some() => {
+                Some(FURNACE_FUEL_SLOT..FURNACE_OUTPUT_SLOT)
+            }
+            Lent::Alembic => Some(slot..slot),
             Lent::Nothing
                 if inventory.open_engraver.is_some() && stack.item_id.is_enchantable() =>
             {
@@ -1112,7 +1167,7 @@ fn swap_with_hotbar(
         return Err(InventoryRefusal::InvalidSlot(slot));
     }
     if let Some(held) = inventory.inner.get(&hotbar) {
-        if !takes(slot, held.item_id) {
+        if !takes(inventory, slot, held.item_id) {
             return Err(InventoryRefusal::NotTaken(slot));
         }
     }
@@ -1284,7 +1339,7 @@ fn is_lent(slot: u32, lent: Lent) -> bool {
     match lent {
         Lent::Nothing => false,
         Lent::Chest => chest_slots().contains(&slot),
-        Lent::Furnace => furnace_slots().contains(&slot),
+        Lent::Furnace | Lent::Alembic => furnace_slots().contains(&slot),
     }
 }
 
@@ -1315,12 +1370,13 @@ fn anvil_slot_for(inventory: &Inventory, stack: &ItemStack) -> Option<Range<u32>
     }
 }
 
-/// Whether `item` may be put into `slot`: the output of a furnace takes nothing, its fuel slot
-/// only a fuel, an armour slot only its piece, the engraving slot only what may be enchanted,
-/// the first slot of the anvil only what wears, every other slot anything.
-fn takes(slot: u32, item: ItemId) -> bool {
+/// Whether `item` may be put into `slot` of `inventory`: the output of a furnace takes nothing,
+/// that of an alembic a vial, their fuel slot only a fuel, an armour slot only its piece, the
+/// engraving slot only what may be enchanted, the first slot of the anvil only what wears,
+/// every other slot anything.
+fn takes(inventory: &Inventory, slot: u32, item: ItemId) -> bool {
     match slot {
-        FURNACE_OUTPUT_SLOT => false,
+        FURNACE_OUTPUT_SLOT => inventory.alembic_lent && item.is_vial(),
         FURNACE_FUEL_SLOT => fuel_ticks(item).is_some(),
         ENGRAVING_SLOT => item.is_enchantable(),
         ANVIL_LEFT_SLOT => item.durability().is_some(),
@@ -1417,7 +1473,7 @@ fn left_click_slot(
     let in_slot = inventory.inner.get(&slot).copied();
 
     if let Some(floating) = *floating_stack {
-        if !takes(slot, floating.item_id) {
+        if !takes(inventory, slot, floating.item_id) {
             let Some(in_slot) = in_slot.filter(|in_slot| in_slot.item_id == floating.item_id)
             else {
                 return Err(InventoryRefusal::NotTaken(slot));
@@ -1457,7 +1513,7 @@ fn right_click_slot(
     let in_slot = inventory.inner.get(&slot).copied();
 
     match (*floating_stack, in_slot) {
-        (Some(floating), _) if !takes(slot, floating.item_id) => {
+        (Some(floating), _) if !takes(inventory, slot, floating.item_id) => {
             return Err(InventoryRefusal::NotTaken(slot));
         }
         (Some(floating), in_slot) => {
@@ -2629,6 +2685,56 @@ mod tests {
             output,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn an_alembic_opens_as_a_furnace_and_its_output_takes_a_vial() {
+        let (mut player, mut world) = player_by(BlockId::Alembic, NEAR);
+        world.insert_furnace(FURNACE, Furnace::default());
+        act(
+            &mut player,
+            &mut world,
+            vec![InventoryAction::OpenFurnace(FURNACE)],
+        );
+        assert_eq!(player.inventory.open_furnace, Some(FURNACE));
+        player.inventory.floating = Some(stack(ItemId::WaterVial, 1));
+        player.inventory.inner.insert(0, stack(ItemId::Mushroom, 3));
+        player.inventory.inner.insert(1, stack(ItemId::Coal, 2));
+        player.inventory.inner.insert(2, stack(ItemId::Sand, 2));
+        act(
+            &mut player,
+            &mut world,
+            vec![
+                InventoryAction::LeftClickSlot(FURNACE_OUTPUT_SLOT),
+                InventoryAction::QuickMoveSlot(0),
+                InventoryAction::QuickMoveSlot(1),
+                InventoryAction::QuickMoveSlot(2),
+            ],
+        );
+        assert_eq!(player.inventory.floating, None);
+        assert_eq!(
+            world.furnace(FURNACE),
+            Some(&furnace_holding(
+                Some(stack(ItemId::Mushroom, 3)),
+                Some(stack(ItemId::Coal, 2)),
+                Some(stack(ItemId::WaterVial, 1)),
+            ))
+        );
+        // Sand is no ingredient: it stays
+        assert_eq!(player.inventory.inner[&2], stack(ItemId::Sand, 2));
+        assert!(!player.inventory.alembic_lent);
+    }
+
+    #[test]
+    fn the_output_of_a_furnace_takes_no_vial() {
+        let (mut player, mut world) = by_an_open_furnace(Furnace::default());
+        player.inventory.floating = Some(stack(ItemId::WaterVial, 1));
+        act(
+            &mut player,
+            &mut world,
+            vec![InventoryAction::LeftClickSlot(FURNACE_OUTPUT_SLOT)],
+        );
+        assert_eq!(player.inventory.floating, Some(stack(ItemId::WaterVial, 1)));
     }
 
     #[test]

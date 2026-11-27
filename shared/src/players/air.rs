@@ -61,12 +61,17 @@ impl Player {
 
     /// One tick of breathing: with `eyes_in_liquid`, a survival player loses a tick of air,
     /// and with none left takes `DROWNING_DAMAGE` every `DROWNING_INTERVAL` ticks; else, or in
-    /// creative, the air comes back `AIR_REFILL` a tick. A dead player does not breathe.
+    /// creative or under water breathing, the air comes back `AIR_REFILL` a tick. A dead player
+    /// does not breathe.
     pub fn breathe(&mut self, eyes_in_liquid: bool) {
         if self.is_dead() {
             return;
         }
-        if !eyes_in_liquid || !self.game_mode.takes_damage() {
+        let water_breathing = self
+            .effects
+            .level(super::effects::EffectKind::WaterBreathing)
+            > 0;
+        if !eyes_in_liquid || !self.game_mode.takes_damage() || water_breathing {
             self.air = (self.air + AIR_REFILL).min(MAX_AIR);
             self.drowning_ticks = 0;
             return;

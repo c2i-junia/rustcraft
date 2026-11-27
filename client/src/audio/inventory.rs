@@ -61,6 +61,7 @@ pub fn inventory_sounds(
     mut predicted: MessageReader<InventoryActionPredicted>,
     mut refusals: MessageReader<ActionRefused>,
     shaking: Query<(), With<RefusalShake>>,
+    world_map: Option<Res<crate::world::ClientWorldMap>>,
     mut sounds: MessageWriter<PlaySound>,
 ) {
     let mut heard = Vec::new();
@@ -72,7 +73,16 @@ pub fn inventory_sounds(
     refusals.clear();
     let played = predicted
         .read()
-        .filter_map(|InventoryActionPredicted(outcome)| inventory_sound(outcome))
+        .filter_map(|InventoryActionPredicted(outcome)| {
+            // An alembic simmers as it opens; a furnace is silent
+            if let (InventoryAction::OpenFurnace(at), Ok(())) = (outcome.action, &outcome.result) {
+                let block = world_map.as_ref().and_then(|map| map.blocks.get_block(at));
+                if block.is_some_and(|block| block.id == shared::world::BlockId::Alembic) {
+                    return Some(Sound::AlembicOpen);
+                }
+            }
+            inventory_sound(outcome)
+        })
         .chain(refused);
     for sound in played {
         if !heard.contains(&sound) {

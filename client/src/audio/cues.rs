@@ -626,3 +626,43 @@ mod tests {
         );
     }
 }
+
+/// How many glass vials, water vials and drinkable potions the inventory of `player` holds.
+fn vials(player: &Player) -> (u32, u32, u32) {
+    let count = |which: &dyn Fn(shared::world::ItemId) -> bool| {
+        player
+            .inventory
+            .inner
+            .values()
+            .filter(|stack| which(stack.item_id))
+            .map(|stack| stack.nb)
+            .sum::<u32>()
+    };
+    (
+        count(&|item| item == shared::world::ItemId::GlassVial),
+        count(&|item| item == shared::world::ItemId::WaterVial),
+        count(&|item| item.potion().is_some_and(|potion| !potion.splash)),
+    )
+}
+
+/// The gulps of a potion the local player drinks, its vial left in its hand, and the gurgle of
+/// a vial it fills at the water.
+pub fn alchemy_cues(
+    players: Query<&Player, With<CurrentPlayerMarker>>,
+    mut before: Local<Option<(u32, u32, u32)>>,
+    mut sounds: MessageWriter<PlaySound>,
+) {
+    let Ok(player) = players.single() else {
+        *before = None;
+        return;
+    };
+    let now = vials(player);
+    if let Some((glass, water, potions)) = *before {
+        if now.2 < potions && now.0 > glass {
+            sounds.write(PlaySound::here(Sound::PotionDrink));
+        } else if now.1 > water && now.0 < glass {
+            sounds.write(PlaySound::here(Sound::VialFill));
+        }
+    }
+    *before = Some(now);
+}

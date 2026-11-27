@@ -625,7 +625,7 @@ breed, the hostiles hunt and strike, `push_mobs`), `cinder_system` (the embers f
 `dropped_items_physics_system`. In **Simulate**, chained: `tick_damage_timers_system` (the
 invulnerability and the memory of the last mob hit count down), `handle_player_inputs_system`
 (movement, blocks, blows, eating; a fall hurts here), `boss_system`, `breathe_system`, `burn_system` (lava
-first, then fire), `tick_furnaces_system`, `metabolism_system` (every 80 ticks: regeneration or
+first, then fire), `tick_furnaces_system` (the alembics too), `metabolism_system` (every 80 ticks: regeneration or
 starvation), `trade_system`, `drop_on_death_system`, `pickup_dropped_items_system`, `announce_depths_system`, `home_system` (bedrolls and
 signs), `block_ticks_system` (the one random tick, above), `liquid_flow_system`,
 `weather_system`, `remove_unfit_portals_system`. Every source of damage of a tick, the mobs'
@@ -711,8 +711,9 @@ three fly as `MobKind::Arrow`; `BowShot::ammo` says what is picked up again.
 
 ### Status effects
 
-`shared/src/players/effects.rs` is the generic system the potions will use: an `EffectKind`
-(poison, burn, slowness, weakness, regeneration), a level and the ticks left (`Effect`), one at most
+`shared/src/players/effects.rs` is the generic system the potions use: an `EffectKind`
+(poison, burn, slowness, weakness, regeneration, and those of the potions below), a level and the
+ticks left (`Effect`), one at most
 of each kind in `Player::effects` (`StatusEffects::give`: the higher level wins, at the same level
 the longer time). The server gives them (`Player::give_effect`, never in creative) and counts them
 down once a tick (`status_effects_system`, `Player::tick_effects`): poison takes a point every 25
@@ -723,6 +724,43 @@ They are saved with the player, sent in `PlayerUpdateEvent::effects` and shown a
 the HUD (`ui/hud/effects.rs`). The Drowner's grip slows, the Bramble's thorns poison, the Gnawer's
 bite weakens (`hostile::inflicted_effect`), an ember burns. A bucket of milk, from a cow with a
 bucket, takes them all away (`blocks::drink_milk`).
+
+The potions add six: healing is instant (`EffectKind::is_instant`: `Player::take_effect` heals 4
+points per level and keeps nothing), night vision is drawn by the client alone
+(`night_vision_system` sets `ChunkShading::night_vision`, which `chunk.wgsl` reads as a floor of
+light: nothing is darker than three quarters of the full light of the blocks; it fades in and out
+and flickers in its last 10 s), water breathing keeps the air from running out (`Player::breathe`),
+fire resistance turns away every hit of `DamageSource::Fire` and `Lava` in `Player::hurt` (the
+burning, the lava, the magma, an ember's burn), swiftness sets `Player::swiftness`, part of the
+`MovementState` beside the slowness (20 % per level, `StatusEffects::speed_factor_of`), and
+strength adds 3 points per level to a blow (`StatusEffects::weakened`, which weakness lowers).
+
+### Alchemy
+
+`shared/src/world/alchemy.rs` holds the rules. The alembic (`BlockId::Alembic`) holds a `Furnace`
+as a furnace does (`BlockId::holds_furnace`): placed, broken, saved in the furnace files, opened by
+`InventoryAction::OpenFurnace` into the same three slots. `Furnace::tick_as(Station::Alembic)`
+ticks it by the furnace's rules of fuel, but every `DISTILL_TICKS` (15 s) turns the vial in its
+output slot into `alchemy::distilled(input, vial)` and spends one ingredient: water and a mushroom
+make the neutral base, the base and an ingredient a potion (`alchemy::RECIPES`), and a potion
+with moss (`LONGER`) or a crystal shard (`STRONGER`) is kept as `ItemType::Brewed { longer,
+stronger }`, once each: twice the time, or a level more for half the time
+(`PotionKind::effect`). `tick_furnaces` (server) never lights an alembic's block. While an alembic
+is lent to the inventory (`OpenContents::Alembic`, `Inventory::alembic_lent`), its output takes
+what goes in a vial (`ItemId::is_vial`), and a quick move sends a vial there, an ingredient to the
+input and a fuel to the fuel slot. A filled vial stacks to one, so that the modifiers of a potion
+never mix with another's.
+
+A glass vial is filled at a source of water, which stays (`blocks::fill_vial`); a potion is drunk
+at a right click (`blocks::drink_potion`) and leaves its vial. A splash potion is swung back and
+thrown as a throwing axe (`BowShot::splash`, which carries its `ItemType` in `ammo_type`): the
+server flies it as `MobKind::ThrownPotion`, whose `ServerMob::potion` the clients colour it by,
+through `arrow_system`, and it bursts on the first player, mob, block or water it meets
+(`arrow::burst`): every player within `SPLASH_RADIUS` (4 blocks) takes its effect for a share of
+its time (`splash_share`: all of it at the burst, half at the edge), and a splash of poison hurts
+the mobs around, which have no status effects, 4 points at the burst. The client shatters it in
+drops of its colour (`mob/potions.rs`) as it is removed. The Gnawer drops its fang, the strength
+of the potions. The recipe view lists the distillations (`BrowserCard::Distilling`).
 
 ### Hostile mobs
 
