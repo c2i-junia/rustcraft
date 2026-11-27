@@ -306,25 +306,41 @@ fn the_view_through_a_portal_looks_as_the_world_with(quality: ShaderQuality) {
     // In the day, however long the scene took to build
     h.set_time("day");
     h.world_mut().resource_mut::<GraphicsSettings>().shaders = quality;
-    // The effects inserted, the exposure settled and TAA's history filled
+    // The effects inserted, the exposure settled and TAA's history filled. The pipelines of the
+    // new effects are built in the background, which a machine under load may take longer to:
+    // the picture is taken again until it holds, for as long as a server may take.
     h.frames(40);
-    let shot = h.screenshot();
+    let (far_sand, near_sand) = (
+        on_screen(&mut h, far_sand - THROUGH),
+        on_screen(&mut h, near_sand),
+    );
+    let corner = on_screen(&mut h, corner);
+    let beside = Vec2::new(on_screen(&mut h, wall_edge).x - 8.0, corner.y);
+    let start = std::time::Instant::now();
+    let (shot, sand, sky) = loop {
+        let shot = h.screenshot();
+        let sand = (mean_color(&shot, far_sand), mean_color(&shot, near_sand));
+        let sky = (mean_color(&shot, corner), mean_color(&shot, beside));
+        let holds = (sand.0 - sand.1).abs().max_element() < 10.0
+            && (sky.0 - sky.1).abs().max_element() < 4.0;
+        if holds || start.elapsed() > SERVER {
+            break (shot, sand, sky);
+        }
+        h.frames(10);
+    };
     keep(
         &shot,
         "the_view_through_a_portal_looks_as_the_world_with_every_shader",
         &format!("{quality:?}").to_lowercase(),
     );
-    let through = mean_color(&shot, on_screen(&mut h, far_sand - THROUGH));
-    let straight = mean_color(&shot, on_screen(&mut h, near_sand));
+    let (through, straight) = sand;
     assert!(
         (through - straight).abs().max_element() < 10.0,
         "{quality:?}: sand through the portal {through}, seen straight {straight}"
     );
-    let corner = on_screen(&mut h, corner);
-    let beside = Vec2::new(on_screen(&mut h, wall_edge).x - 8.0, corner.y);
-    let (through, straight) = (mean_color(&shot, corner), mean_color(&shot, beside));
     // The portal cameras draw the haze of the rays of light too (`volumetric_fog.rs`): the
     // sky through the portal is as hazed as the sky seen straight
+    let (through, straight) = sky;
     assert!(
         (through - straight).abs().max_element() < 4.0,
         "{quality:?}: sky through the portal {through}, seen straight {straight}"
