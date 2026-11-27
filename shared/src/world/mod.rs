@@ -18,6 +18,7 @@ pub mod fishing;
 pub mod furnace;
 pub mod growth;
 pub mod hostiles;
+pub mod item_names;
 pub mod items;
 pub mod lair;
 pub mod lava;
@@ -51,6 +52,7 @@ pub use decor::{BannerPattern, BannerPatterns, Decor, DecorKind, Decorations, Sh
 pub use dropped_items::*;
 pub use enchantments::*;
 pub use furnace::*;
+pub use item_names::*;
 pub use items::*;
 pub use loot::*;
 pub use mobs::*;
