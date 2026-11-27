@@ -265,6 +265,17 @@ impl SavedBlocks {
         chunk.map_blocks(to_process)
     }
 
+    /// The block of the process the block `saved`, read from a file of the world, stands for.
+    pub fn read_block(&self, saved: BlockId) -> BlockId {
+        Self::block_to_process(&self.numbering(), saved)
+    }
+
+    /// The number the world saves `id` as, numbered first if the world does not know it yet.
+    pub fn write_block(&self, id: BlockId) -> BlockId {
+        self.number_new([id]);
+        Self::block_to_saved(&self.numbering(), id)
+    }
+
     /// Gives a number to each block of `chunks` the world does not know yet, before they are
     /// written (`write`).
     pub fn number_new_blocks<'a>(&self, chunks: impl IntoIterator<Item = &'a Chunk>) {

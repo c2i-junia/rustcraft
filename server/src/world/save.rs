@@ -110,7 +110,9 @@ fn queue_save(
     writer: &mut WorldWriter,
 ) {
     let dir = world_map.saved.clone();
-    world_map.paper_maps.save(dir.as_deref());
+    world_map
+        .paper_maps
+        .save(dir.as_deref(), &world_map.numbers.blocks);
     let dirty: Vec<IVec3> = world_map.dirty_chunks.drain().collect();
     if dirty.is_empty() {
         debug!(

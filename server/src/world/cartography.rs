@@ -13,11 +13,12 @@ use bevy_renet::RenetServer;
 use shared::messages::{PlayerId, ServerToClientMessage};
 use shared::players::Player;
 use shared::world::cartography::{
-    paper_map_centre, MapId, PaperMap, PlaceKind, WaypointsView, PAPER_MAP_REACH,
+    paper_map_centre, MapId, PaperMap, PlaceKind, Surface, WaypointsView, PAPER_MAP_REACH,
 };
 use shared::world::{BlockId, DroppedItem, ItemId, ItemStack, ItemType};
 use shared::{CHUNK_SIZE, MAX_INVENTORY_SLOTS};
 
+use super::block_numbers::SavedBlocks;
 use super::data::ServerWorldMap;
 use super::generation::dungeon::{self, DungeonKind};
 use super::generation::village;
@@ -63,8 +64,9 @@ pub struct PaperMaps {
 }
 
 impl PaperMaps {
-    /// Reads the maps of the world in `dir`, once.
-    fn load(&mut self, dir: Option<&Path>) {
+    /// Reads the maps of the world in `dir`, once, their blocks saved in the numbers of the
+    /// world `blocks`.
+    fn load(&mut self, dir: Option<&Path>, blocks: &SavedBlocks) {
         if std::mem::replace(&mut self.loaded, true) {
             return;
         }
@@ -87,6 +89,7 @@ impl PaperMaps {
                 });
             match map {
                 Ok(map) => {
+                    let map = with_blocks(&map, |block| blocks.read_block(block));
                     self.maps.insert(id, map);
                     self.next_id = self.next_id.max(id + 1);
                 }
@@ -109,8 +112,9 @@ impl PaperMaps {
         self.unsaved.insert(id);
     }
 
-    /// Writes the maps changed since the last time into the folder of the world `dir`.
-    pub fn save(&mut self, dir: Option<&Path>) {
+    /// Writes the maps changed since the last time into the folder of the world `dir`, their
+    /// blocks in the numbers of the world `blocks`, which the metadata written next lists.
+    pub fn save(&mut self, dir: Option<&Path>, blocks: &SavedBlocks) {
         let Some(dir) = dir else {
             return;
         };
@@ -119,15 +123,33 @@ impl PaperMaps {
             let Some(map) = self.maps.get(&id) else {
                 continue;
             };
+            let map = with_blocks(map, |block| blocks.write_block(block));
             let part = folder.join(format!("{id}.map.part"));
             let written = std::fs::create_dir_all(&folder)
-                .and_then(|()| std::fs::write(&part, shared::game_message_to_payload(map)))
+                .and_then(|()| std::fs::write(&part, shared::game_message_to_payload(&map)))
                 .and_then(|()| std::fs::rename(&part, folder.join(format!("{id}.map"))));
             if let Err(err) = written {
                 error!("Could not save the map {id}: {err}");
                 self.unsaved.insert(id);
             }
         }
+    }
+}
+
+/// `map` with the block of each of its cells given by `block`.
+fn with_blocks(map: &PaperMap, block: impl Fn(BlockId) -> BlockId) -> PaperMap {
+    PaperMap {
+        centre: map.centre,
+        cells: map
+            .cells
+            .iter()
+            .map(|cell| {
+                cell.map(|surface| Surface {
+                    block: block(surface.block),
+                    ..surface
+                })
+            })
+            .collect(),
     }
 }
 
@@ -227,7 +249,9 @@ pub fn cartography_system(
     generator: Option<Res<LoadedGenerator>>,
 ) {
     let world_map = world_map.as_mut();
-    world_map.paper_maps.load(world_map.saved.as_deref());
+    world_map
+        .paper_maps
+        .load(world_map.saved.as_deref(), &world_map.numbers.blocks);
 
     // The empty maps used are drawn where their user stands
     for (id, slot) in std::mem::take(&mut world_map.home.drawn) {
@@ -415,15 +439,54 @@ mod tests {
         let first = maps.draw(PaperMap::new(IVec2::ZERO));
         let second = maps.draw(PaperMap::new(IVec2::new(128, 0)));
         assert_eq!((first, second), (0, 1));
-        maps.save(Some(dir.path()));
+        maps.save(Some(dir.path()), &SavedBlocks::default());
         assert!(maps.unsaved.is_empty());
 
         let mut read = PaperMaps::default();
-        read.load(Some(dir.path()));
+        read.load(Some(dir.path()), &SavedBlocks::default());
         assert_eq!(
             read.maps.get(&second).map(|map| map.centre),
             Some(IVec2::new(128, 0))
         );
         assert_eq!(read.draw(PaperMap::new(IVec2::ZERO)), 2);
+    }
+
+    #[test]
+    fn a_map_is_saved_in_the_numbers_of_its_world_and_read_back_in_those_of_the_process() {
+        // a world whose list numbers two blocks unlike the process does, as one where a block
+        // only the files define was numbered by another process
+        let process = shared::world::LEGACY_BLOCK_NAMES
+            .map(str::to_string)
+            .to_vec();
+        let mut world = process.clone();
+        let (stone, dirt) = (BlockId::Stone.index(), BlockId::Dirt.index());
+        world.swap(stone, dirt);
+        let dir = tempfile::tempdir().unwrap();
+        let mut maps = PaperMaps {
+            loaded: true,
+            ..Default::default()
+        };
+        let mut map = PaperMap::new(IVec2::ZERO);
+        let surface = |block| Surface {
+            block,
+            y: 64,
+            water_depth: 0,
+        };
+        map.cells[0] = Some(surface(BlockId::Stone));
+        let id = maps.draw(map);
+        maps.save(Some(dir.path()), &SavedBlocks::new(world.clone()));
+
+        // written as the world numbers it
+        let bytes = std::fs::read(dir.path().join(MAPS_DIR).join(format!("{id}.map"))).unwrap();
+        let written = shared::payload_to_game_message::<PaperMap>(&bytes).unwrap();
+        assert_eq!(
+            written.cells[0],
+            Some(surface(BlockId::from_index(dirt as u16)))
+        );
+        // and read back as the same block, by its name
+        let mut read = PaperMaps::default();
+        read.load(Some(dir.path()), &SavedBlocks::new(world));
+        assert_eq!(read.maps[&id].cells[0], Some(surface(BlockId::Stone)));
+        assert_eq!(read.maps[&id].cells[1], None);
     }
 }
