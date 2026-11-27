@@ -1202,6 +1202,52 @@ fn left_click_frame(time_ms: u64, camera: Transform) -> ClientToServerMessage {
 }
 
 #[test]
+fn the_cracks_of_a_block_no_longer_hit_mend_a_stage_at_a_time() {
+    let server = TestServer::start(WORLD_NAME);
+    let mut a = TestClient::connect(server.addr, PLAYER_ID);
+    authenticate(&mut a, "miner");
+
+    let (camera, target) = land_and_aim_down(&mut a);
+    let break_time = a.world.get_block(target).unwrap().id.get_break_time();
+    assert!(break_time.expect("the target is breakable") > 3);
+
+    a.inbox.clear();
+    for time_ms in 1000..1003 {
+        a.send(left_click_frame(time_ms, camera));
+    }
+    // The button released, the progress climbs to 3, then falls back to nothing
+    let start = Instant::now();
+    let mut progress = Vec::new();
+    while progress.last() != Some(&0) {
+        assert!(
+            start.elapsed() < WAIT_TIMEOUT,
+            "the cracks never mended: {progress:?}"
+        );
+        a.pump();
+        progress.extend(
+            a.take_updates_for(target)
+                .into_iter()
+                .map(|block| block.expect("the block stays").breaking_progress),
+        );
+    }
+    // The hits of one tick reach the client as one update
+    let top = progress.iter().position(|&p| p == 3).unwrap();
+    assert!(
+        progress[..=top].windows(2).all(|w| w[1] > w[0]),
+        "{progress:?}"
+    );
+    assert!(
+        progress[top..].windows(2).all(|w| w[1] < w[0]),
+        "{progress:?}"
+    );
+    assert!(
+        progress.len() - top > 2,
+        "gradual, not at once: {progress:?}"
+    );
+    assert_eq!(a.world.get_block(target).unwrap().breaking_progress, 0);
+}
+
+#[test]
 fn a_broken_block_reaches_every_client_as_updates_and_never_as_a_whole_chunk() {
     let mut server = TestServer::start(WORLD_NAME);
     let mut a = TestClient::connect(server.addr, PLAYER_ID);
