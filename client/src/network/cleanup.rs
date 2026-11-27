@@ -735,7 +735,9 @@ mod tests {
         let start = Instant::now();
         let left = stop_session(None, None, Some(&mut local_server), true, true);
         assert!(
-            start.elapsed() < Duration::from_millis(50),
+            // A wait lasts STOP_TIMEOUT, as the thread never ends: well under it, however
+            // loaded the machine
+            start.elapsed() < STOP_TIMEOUT / 2,
             "waited {:?}",
             start.elapsed()
         );
@@ -824,7 +826,7 @@ mod tests {
             .unwrap();
 
         assert!(
-            start.elapsed() < Duration::from_secs(1),
+            start.elapsed() < STOP_TIMEOUT / 2,
             "waited {:?}",
             start.elapsed()
         );
@@ -997,7 +999,9 @@ mod tests {
             .run_system_once(close_session_on_app_exit)
             .unwrap();
         assert!(
-            start.elapsed() < Duration::from_millis(50),
+            // A wait lasts STOP_TIMEOUT, as the thread never ends: well under it, however
+            // loaded the machine
+            start.elapsed() < STOP_TIMEOUT / 2,
             "waited {:?}",
             start.elapsed()
         );
