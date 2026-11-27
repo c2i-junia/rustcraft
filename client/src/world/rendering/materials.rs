@@ -554,12 +554,21 @@ pub fn rebuild_textures(build: &mut TextureBuild) -> bool {
     }
     atlas.texture = texture;
     atlas.layout = layout;
-    if let Some(handle) = material_resource
-        .global_materials
-        .get(&GlobalMaterial::Items)
-    {
-        // Prepared again with the new image
-        if let Some(mut material) = materials.get_mut(handle) {
+    // A material is not prepared again when its image is, and an atlas of another size is a new
+    // texture on the GPU: every material drawn with the atlas, as the items lying in the world
+    // and their glints, is marked changed to be bound to it again
+    let drawn_with_atlas: Vec<_> = materials
+        .iter()
+        .filter(|(_, material)| {
+            material
+                .base_color_texture
+                .as_ref()
+                .is_some_and(|image| image.id() == atlas.texture.id())
+        })
+        .map(|(id, _)| id)
+        .collect();
+    for id in drawn_with_atlas {
+        if let Some(mut material) = materials.get_mut(id) {
             material.base_color_texture = Some(atlas.texture.clone());
         }
     }
@@ -820,6 +829,13 @@ mod tests {
     /// texture, with one group of chunks on display, and the handle of the stone image.
     fn built_textures() -> (World, Handle<Image>) {
         let mut world = World::new();
+        let stone = build_textures_in(&mut world);
+        (world, stone)
+    }
+
+    /// Builds the textures of `built_textures` in `world`, and returns the handle of the stone
+    /// image.
+    fn build_textures_in(world: &mut World) -> Handle<Image> {
         for init in [
             World::init_resource::<Assets<Image>>,
             World::init_resource::<Assets<TextureAtlasLayout>>,
@@ -830,7 +846,7 @@ mod tests {
             World::init_resource::<Messages<AssetEvent<Image>>>,
             World::init_resource::<Messages<WorldRenderRequestUpdateEvent>>,
         ] {
-            init(&mut world);
+            init(world);
         }
         world.insert_resource(PreLoadingCompletion {
             textures_loaded: false,
@@ -853,7 +869,7 @@ mod tests {
         let mut map = world.resource_mut::<ClientWorldMap>();
         map.chunk_arrived(IVec3::ZERO);
         map.render.values_mut().next().unwrap().entity = Some(shown);
-        (world, stone)
+        stone
     }
 
     /// The first texel of the block texture array the chunks are drawn with.
@@ -929,6 +945,48 @@ mod tests {
             remeshed,
             [WorldRenderRequestUpdateEvent::ChunkToReload(IVec3::ZERO)]
         );
+    }
+
+    #[test]
+    fn every_material_drawn_with_the_item_atlas_is_prepared_again() {
+        // The asset plugin turns the changes of the materials into their events
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<StandardMaterial>();
+        let stone = build_textures_in(app.world_mut());
+        let world = app.world_mut();
+        let materials = world.resource::<MaterialResource>();
+        let items = materials.global_materials[&GlobalMaterial::Items].clone();
+        let texture = materials.items.as_ref().unwrap().texture.clone();
+        // as the glint of an item lying in the world
+        let mut standard = world.resource_mut::<Assets<StandardMaterial>>();
+        let glint = standard.add(StandardMaterial {
+            base_color_texture: Some(texture),
+            ..default()
+        });
+        standard.add(StandardMaterial::default());
+        app.update();
+        app.world_mut()
+            .resource_mut::<Messages<AssetEvent<StandardMaterial>>>()
+            .clear();
+
+        let world = app.world_mut();
+        world.write_message(AssetEvent::Modified { id: stone.id() });
+        world
+            .run_system_once(reload_modified_textures_system)
+            .unwrap();
+        app.update();
+        let modified: HashSet<_> = app
+            .world()
+            .resource::<Messages<AssetEvent<StandardMaterial>>>()
+            .iter_current_update_messages()
+            .filter_map(|event| match event {
+                AssetEvent::Modified { id } => Some(*id),
+                _ => None,
+            })
+            .collect();
+        // and no other
+        assert_eq!(modified, HashSet::from([items.id(), glint.id()]));
     }
 
     #[test]
