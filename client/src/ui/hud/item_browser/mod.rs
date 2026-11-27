@@ -298,6 +298,10 @@ pub fn item_browser_plugin(app: &mut App) {
             Update,
             (
                 read_search,
+                setup::add_new_items_to_catalog.run_if(
+                    resource_changed::<crate::world::content::ContentGeneration>
+                        .or_else(on_message::<crate::world::TexturesRebuilt>),
+                ),
                 layout_item_browser,
                 show_item_icons,
                 update_craftable_now,

@@ -79,6 +79,7 @@ pub fn world_plugin(app: &mut App) {
             decor::decor_plugin,
         ))
         .add_message::<WorldRenderRequestUpdateEvent>()
+        .add_message::<TexturesRebuilt>()
         .add_message::<BlockChanged>()
         .add_message::<ChunkLoadEvent>()
         .add_systems(
@@ -92,8 +93,13 @@ pub fn world_plugin(app: &mut App) {
                 update_climate_map_system,
                 (apply_graphics_settings_system, night_vision_system).chain(),
                 reload_modified_textures_system.run_if(on_message::<AssetEvent<Image>>),
-                content::apply_received_content_system
-                    .run_if(resource_exists::<content::ReceivedContent>),
+                (
+                    content::apply_received_content_system
+                        .run_if(resource_exists::<content::ReceivedContent>),
+                    load_new_textures_system.run_if(resource_changed::<content::ContentGeneration>),
+                    rebuild_pending_textures_system.run_if(resource_exists::<TexturesToRebuild>),
+                )
+                    .chain(),
             ),
         )
         .add_systems(

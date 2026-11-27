@@ -11,10 +11,11 @@ use super::creative::{TRASH_HINT, TRASH_LABEL};
 use super::recipes::item_keys_hint;
 use super::{
     choose_category, clear_or_leave_search, open_drawer, search_arrow_down, spawn_recipe_panel,
-    submit_search, toggle_craftable, BookmarkBar, BookmarkRow, BrowserTitle, CatalogGrid,
-    CatalogList, CatalogPart, CatalogSlot, CategoryChip, CraftableChip, CraftableDot, DrawerHandle,
-    ItemBrowser, ItemBrowserState, ItemCount, ItemSearchField, ModeFooter, NoMatch, NoMatchHint,
-    NoMatchMessage, RecentBar, RecentRow, TrashSlot, ITEM_BROWSER_TITLE, SEARCH_LABEL,
+    submit_search, toggle_craftable, BookmarkBar, BookmarkRow, BookmarkSlot, BrowserTitle,
+    CatalogGrid, CatalogList, CatalogPart, CatalogSlot, CategoryChip, CraftableChip, CraftableDot,
+    DrawerHandle, ItemBrowser, ItemBrowserState, ItemCount, ItemSearchField, ModeFooter, NoMatch,
+    NoMatchHint, NoMatchMessage, RecentBar, RecentRow, RecentSlot, TrashSlot, ITEM_BROWSER_TITLE,
+    SEARCH_LABEL,
 };
 use crate::ui::assets::{load_font, MONO_FONT_PATH};
 use crate::ui::hud::{item_name, HudBottom};
@@ -22,7 +23,7 @@ use crate::ui::theme;
 use crate::ui::widgets::focus::{ArrowNav, FocusRing};
 use crate::ui::widgets::hints::key_cap;
 use crate::ui::widgets::list::{ring_room, spawn_scroll_list, ScrollListParts, WheelStep};
-use crate::ui::widgets::slot::{slot, SLOT_SIZE};
+use crate::ui::widgets::slot::{slot, SlotIcon, SLOT_SIZE};
 use crate::ui::widgets::text_field::{set_text, spawn_text_field, TextField};
 use crate::ui::widgets::tooltip::Tooltip;
 use crate::world::{AtlasWrapper, MaterialResource};
@@ -494,6 +495,42 @@ pub(super) fn spawn_catalog_slot(
             Pickable::IGNORE,
         ))
         .id()
+}
+
+/// Gives the catalog a slot for each item the content gained since it was built, as the item
+/// of a block only the content files define, read again while the game runs, after the others;
+/// and gives the slots of the items only the files define their icons again, whose textures may
+/// have been loaded since (`TexturesRebuilt`).
+#[allow(clippy::type_complexity)]
+pub fn add_new_items_to_catalog(
+    mut commands: Commands,
+    materials: Res<MaterialResource>,
+    asset_server: Res<AssetServer>,
+    grid: Single<Entity, With<CatalogGrid>>,
+    slots: Query<(&CatalogSlot, &Children), (Without<BookmarkSlot>, Without<RecentSlot>)>,
+    mut icons: Query<&mut ImageNode, With<SlotIcon>>,
+) {
+    let Some(atlas) = materials.items.as_ref() else {
+        return;
+    };
+    let mut listed = Vec::new();
+    for (slot, children) in &slots {
+        listed.push(slot.0);
+        if slot.0.index() < ItemId::ENGINE.len() {
+            continue;
+        }
+        for child in children.iter() {
+            if let Ok(mut icon) = icons.get_mut(child) {
+                icon.texture_atlas = atlas.sprite(&format!("{:?}", slot.0));
+            }
+        }
+    }
+    let font = load_font(&asset_server);
+    for item in catalog() {
+        if !listed.contains(&item) {
+            spawn_catalog_slot(&mut commands, *grid, item, atlas, &font);
+        }
+    }
 }
 
 /// The bookmarks, hidden until there is one: a label over a row of slots, which wraps as the

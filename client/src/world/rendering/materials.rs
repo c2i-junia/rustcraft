@@ -28,7 +28,7 @@ use shared::GameFolderPaths;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::marker::PhantomData;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -305,7 +305,7 @@ pub fn setup_materials(
     texture_path: Res<TexturePath>,
     paths: Res<GameFolderPaths>,
 ) {
-    let textures_path = paths.assets_folder_path.join(&texture_path.path);
+    let textures_path = textures_folder(&paths, &texture_path);
     let blocks = textures_path.join("blocks/");
     block_atlas_handles.handles = load_textures(&asset_server, &blocks);
     block_atlas_handles.animations = read_animations(&blocks);
@@ -330,6 +330,86 @@ pub fn setup_materials(
         load_colormap(&asset_server, &mut images, &colormaps.join("grass.png"));
     material_resource.foliage_colors =
         load_colormap(&asset_server, &mut images, &colormaps.join("foliage.png"));
+}
+
+/// The folder of the texture pack in use.
+fn textures_folder(paths: &GameFolderPaths, texture_path: &TexturePath) -> PathBuf {
+    paths.assets_folder_path.join(&texture_path.path)
+}
+
+/// Set while the block textures and the item atlas are to be built again once their new
+/// images are loaded (`load_new_textures_system`).
+#[derive(Resource)]
+pub struct TexturesToRebuild;
+
+/// Sent once the block textures and the item atlas were built again with new images.
+#[derive(Message)]
+pub struct TexturesRebuilt;
+
+/// Starts loading the textures of the pack the game has not loaded yet, as those of a block
+/// only the content files define, saved with its file while the game runs, once the content
+/// changed: the block textures and the item atlas are built again once they are loaded
+/// (`rebuild_pending_textures_system`). An item with no texture of its own shows that of its
+/// block, as at the start (`setup_materials`).
+pub fn load_new_textures_system(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    texture_path: Res<TexturePath>,
+    paths: Res<GameFolderPaths>,
+    mut blocks: ResMut<AtlasHandles<BlockId>>,
+    mut items: ResMut<AtlasHandles<ItemId>>,
+) {
+    let textures_path = textures_folder(&paths, &texture_path);
+    let folder = textures_path.join("blocks/");
+    let named = |handles: &[(Handle<Image>, String)], name: &str| {
+        handles.iter().position(|(_, known)| known == name)
+    };
+    let mut new = false;
+    for (handle, name) in load_textures(&asset_server, &folder) {
+        if named(&blocks.handles, &name).is_some() {
+            continue;
+        }
+        if named(&items.handles, &name).is_none() {
+            items.handles.push((handle.clone(), name.clone()));
+        }
+        blocks.handles.push((handle, name));
+        new = true;
+    }
+    for (handle, name) in load_textures(&asset_server, &textures_path.join("items/")) {
+        match named(&items.handles, &name) {
+            Some(place) if items.handles[place].0 == handle => {}
+            // shown with the texture of its block until now
+            Some(place) => {
+                items.handles[place].0 = handle;
+                new = true;
+            }
+            None => {
+                items.handles.push((handle, name));
+                new = true;
+            }
+        }
+    }
+    if new {
+        blocks.animations = read_animations(&folder);
+        commands.insert_resource(TexturesToRebuild);
+    }
+}
+
+/// Builds the block textures and the item atlas again once the images `load_new_textures_system`
+/// started loading are loaded, and meshes every chunk again.
+pub fn rebuild_pending_textures_system(
+    mut commands: Commands,
+    mut build: TextureBuild,
+    mut world_map: ResMut<ClientWorldMap>,
+    mut ev_writer: MessageWriter<WorldRenderRequestUpdateEvent>,
+    mut rebuilt: MessageWriter<TexturesRebuilt>,
+) {
+    if rebuild_textures(&mut build) {
+        info!("Textures reloaded with new ones");
+        commands.remove_resource::<TexturesToRebuild>();
+        respawn_every_group(&mut world_map, &mut commands, &mut ev_writer);
+        rebuilt.write(TexturesRebuilt);
+    }
 }
 
 /// Starts loading the colour map at `path`, or, for a texture pack without it, makes one of a
@@ -748,6 +828,19 @@ fn build_texture_atlas<T: GameElementId>(
     texture.sampler = ImageSampler::nearest();
     let size = texture.size_f32();
     let texture = images.add(texture);
+    // Each texture keeps its index in the layout from one build to the next, the place of its
+    // handle: what was drawn with the atlas still is when a texture is added
+    let mut layout = TextureAtlasLayout::new_empty(texture_atlas_layout.size);
+    let mut texture_ids = bevy::platform::collections::HashMap::default();
+    for (handle, _) in atlas_handles.handles.iter() {
+        if let Some(&packed) = texture_atlas_sources.texture_ids.get(&handle.id()) {
+            texture_ids
+                .entry(handle.id())
+                .or_insert_with(|| layout.add_texture(texture_atlas_layout.textures[packed]));
+        }
+    }
+    let (texture_atlas_layout, texture_atlas_sources) =
+        (layout, TextureAtlasSources { texture_ids });
 
     // Create UV references
     let mut handles = HashMap::new();
@@ -1003,6 +1096,113 @@ mod tests {
         assert!(world
             .resource::<Messages<WorldRenderRequestUpdateEvent>>()
             .is_empty());
+    }
+
+    #[test]
+    fn a_texture_new_to_the_game_is_built_in_once_loaded_and_the_others_keep_their_places() {
+        let (mut world, stone) = built_textures();
+        world.init_resource::<Messages<TexturesRebuilt>>();
+        let sprite = |world: &World, name: &str| {
+            let atlas = world.resource::<MaterialResource>().items.as_ref().unwrap();
+            atlas.sprite(name).map(|sprite| sprite.index)
+        };
+        let (stick, stone_index) = (sprite(&world, "Stick"), sprite(&world, "Stone"));
+        // as `load_new_textures_system` leaves them: a new block, whose item shows its texture
+        let amber = world.resource_mut::<Assets<Image>>().add(plain(RED));
+        let new = (amber.clone(), "Amber".to_string());
+        let mut blocks = world.resource_mut::<AtlasHandles<BlockId>>();
+        blocks.handles.push(new.clone());
+        world
+            .resource_mut::<AtlasHandles<ItemId>>()
+            .handles
+            .push(new);
+        world.insert_resource(TexturesToRebuild);
+
+        world
+            .run_system_once(rebuild_pending_textures_system)
+            .unwrap();
+
+        assert!(!world.contains_resource::<TexturesToRebuild>());
+        assert_eq!(world.resource::<Messages<TexturesRebuilt>>().len(), 1);
+        let materials = world.resource::<MaterialResource>();
+        let looks = &materials.blocks.as_ref().unwrap().handles;
+        assert!(looks.contains_key("Amber"), "a layer of the block textures");
+        assert!(
+            sprite(&world, "Amber").is_some(),
+            "an icon of the item atlas"
+        );
+        assert_eq!(first_layer_texel(&world), GREY, "the stone keeps its layer");
+        assert_eq!(stone_icon_texel(&world, &stone), GREY);
+        // an icon taken from the atlas before still shows its texture
+        assert_eq!(
+            (sprite(&world, "Stick"), sprite(&world, "Stone")),
+            (stick, stone_index)
+        );
+        let map = world.resource::<ClientWorldMap>();
+        assert!(map.render.values().all(|render| render.entity.is_none()));
+    }
+
+    #[test]
+    fn a_texture_saved_into_the_pack_while_the_game_runs_is_loaded_once_the_content_changes() {
+        let pack = tempfile::tempdir().unwrap();
+        for folder in ["blocks", "items"] {
+            fs::create_dir_all(pack.path().join("textures").join(folder)).unwrap();
+        }
+        let write = |file: &str| {
+            let image = image::RgbaImage::from_pixel(16, 16, image::Rgba(RED));
+            image.save(pack.path().join("textures").join(file)).unwrap();
+        };
+        write("blocks/Stone.png");
+        let mut app = App::new();
+        let assets = AssetPlugin {
+            // the pack lies outside the assets folder, as the game's does
+            unapproved_path_mode: bevy::asset::UnapprovedPathMode::Allow,
+            ..default()
+        };
+        app.add_plugins((MinimalPlugins, assets, ImagePlugin::default()))
+            .insert_resource(TexturePath {
+                path: "textures".into(),
+            })
+            .insert_resource(GameFolderPaths {
+                game_folder_path: pack.path().to_path_buf(),
+                assets_folder_path: pack.path().to_path_buf(),
+            })
+            .init_resource::<AtlasHandles<BlockId>>()
+            .init_resource::<AtlasHandles<ItemId>>();
+        let world = app.world_mut();
+        let names = |world: &World| {
+            let blocks = &world.resource::<AtlasHandles<BlockId>>().handles;
+            let items = &world.resource::<AtlasHandles<ItemId>>().handles;
+            let names = |handles: &[(Handle<Image>, String)]| {
+                handles
+                    .iter()
+                    .map(|(_, name)| name.clone())
+                    .collect::<Vec<_>>()
+            };
+            (names(blocks), names(items))
+        };
+        world.run_system_once(load_new_textures_system).unwrap();
+        assert_eq!(names(world), (vec!["Stone".into()], vec!["Stone".into()]));
+        world.remove_resource::<TexturesToRebuild>().unwrap();
+
+        // nothing new: nothing to build
+        world.run_system_once(load_new_textures_system).unwrap();
+        assert!(!world.contains_resource::<TexturesToRebuild>());
+
+        // a block with its texture, and an icon of its own for the stone
+        write("blocks/Amber.png");
+        write("items/Stone.png");
+        world.run_system_once(load_new_textures_system).unwrap();
+        let (blocks, items) = names(world);
+        assert_eq!(blocks, ["Stone", "Amber"]);
+        assert_eq!(items, ["Stone", "Amber"]);
+        let handles = &world.resource::<AtlasHandles<ItemId>>().handles;
+        let block_stone = &world.resource::<AtlasHandles<BlockId>>().handles[0].0;
+        assert_ne!(
+            &handles[0].0, block_stone,
+            "the stone shows its icon of its own"
+        );
+        assert!(world.contains_resource::<TexturesToRebuild>());
     }
 
     #[test]
