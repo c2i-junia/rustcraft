@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::content;
+use super::{content, Behaviour, BlockFlags, Look};
 use crate::world::{
     BlockHitbox, BlockId, BlockTransparency, ItemId, Palette, RequiredTool, ToolKind,
 };
@@ -30,20 +30,17 @@ pub struct BlockProps {
     pub hitbox: BlockHitbox,
     /// `BlockId::get_ray_hitbox`.
     pub ray_hitbox: BlockHitbox,
-    /// `BlockId::is_usable`.
-    pub usable: bool,
-    /// `BlockId::is_replaceable`.
-    pub replaceable: bool,
-    /// `BlockId::is_tall`.
-    pub tall: bool,
-    /// `BlockId::is_glass`.
-    pub glass: bool,
-    /// `BlockId::is_container`.
-    pub container: bool,
+    /// `BlockId::is_usable`, `is_replaceable`, `is_tall`, `is_glass`, `is_container`,
+    /// `is_submerged`, `hangs`.
+    pub flags: BlockFlags,
+    /// `BlockId::behaviour`.
+    pub behaviour: Behaviour,
     /// `BlockId::sapling`.
     pub sapling: Option<ItemId>,
     /// `BlockId::soil`.
     pub soil: Option<Vec<BlockId>>,
+    /// `BlockId::look`.
+    pub look: Look,
 }
 
 impl BlockId {
@@ -51,6 +48,24 @@ impl BlockId {
     #[inline]
     pub fn props(self) -> &'static BlockProps {
         content().block(self)
+    }
+
+    /// Whether the block has every flag of `flags`.
+    #[inline]
+    pub fn has(self, flags: BlockFlags) -> bool {
+        self.props().flags.contains(flags)
+    }
+
+    /// What the engine does with the block beyond its properties.
+    #[inline]
+    pub fn behaviour(self) -> Behaviour {
+        self.props().behaviour
+    }
+
+    /// How the block is drawn.
+    #[inline]
+    pub fn look(self) -> &'static Look {
+        &self.props().look
     }
 }
 

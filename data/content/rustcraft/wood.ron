@@ -5,15 +5,15 @@
 // `ItemDef` in `shared/src/content/files.rs`. A block or an item is defined in one file only.
 (
     blocks: {
-        "oak_log": (break: 20, tools: [Axe]),
+        "oak_log": (break: 20, tools: [Axe], faces: (top: "OakLogTop", bottom: "OakLogTop")),
         "oak_planks": (break: 20, tools: [Axe]),
-        "spruce_log": (break: 20, tools: [Axe]),
+        "spruce_log": (break: 20, tools: [Axe], faces: (top: "SpruceLogTop", bottom: "SpruceLogTop")),
         "spruce_planks": (break: 20, tools: [Axe]),
-        "jungle_log": (break: 20, tools: [Axe]),
+        "jungle_log": (break: 20, tools: [Axe], faces: (top: "JungleLogTop", bottom: "JungleLogTop")),
         "jungle_planks": (break: 20, tools: [Axe]),
-        "willow_log": (break: 20, tools: [Axe]),
+        "willow_log": (break: 20, tools: [Axe], faces: (top: "WillowLogTop", bottom: "WillowLogTop")),
         "willow_planks": (break: 20, tools: [Axe]),
-        "acacia_log": (break: 20, tools: [Axe]),
+        "acacia_log": (break: 20, tools: [Axe], faces: (top: "AcaciaLogTop", bottom: "AcaciaLogTop")),
         "acacia_planks": (break: 20, tools: [Axe]),
     },
     items: {

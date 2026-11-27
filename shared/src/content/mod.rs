@@ -10,11 +10,13 @@
 mod blocks;
 mod files;
 mod items;
+mod look;
 
 pub(crate) use blocks::tool_bit;
 pub use blocks::BlockProps;
 pub use files::ContentError;
 pub use items::ItemProps;
+pub use look::{Behaviour, BlockFlags, Look, Shape, Sway, Tint};
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};

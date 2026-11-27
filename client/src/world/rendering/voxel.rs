@@ -1,12 +1,14 @@
 use crate::constants::{GRASS_COLOR, WATER_COLOR};
 use bevy::math::bounding::Aabb3d;
 use bevy::math::{IVec3, Vec3};
+pub use shared::content::Sway;
+use shared::content::{Shape, Tint};
 use shared::world::blocks::{
-    BEDROLL, CAMPFIRE, DOOR, HANGING_LANTERN, LANTERN, OPEN_DOOR, SIGN, SLAB, STAIR_BACK, TRAPDOOR,
+    BEDROLL, DOOR, HANGING_LANTERN, LANTERN, OPEN_DOOR, SIGN, SLAB, STAIR_BACK, TRAPDOOR,
 };
 use shared::world::decor::{CARPET, FLOWER_POT, ITEM_FRAME, PAINTING};
 use shared::world::{
-    BlockData, BlockDirection, BlockId, Decor, DecorKind, Form, Palette, VINE_GAP,
+    BlockData, BlockDirection, BlockHitbox, BlockId, Decor, DecorKind, Form, Palette, VINE_GAP,
 };
 
 /// Specifies which position in the voxel this face occupies
@@ -77,25 +79,6 @@ impl FaceColor {
             FaceColor::Grass => GRASS_COLOR,
             FaceColor::Water => WATER_COLOR,
         }
-    }
-}
-
-/// How a face moves in the wind, in `chunk.wgsl`: each point of it by how far it is from the
-/// ground, so that the faces of two blocks never part.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum Sway {
-    #[default]
-    None,
-    /// As leaves: every point a little.
-    Whole,
-    /// As a plant rooted in the block below: its top only.
-    Top,
-}
-
-impl Sway {
-    /// The number that names the sway in `UV_1.y` of a chunk mesh, as `chunk.wgsl` reads it.
-    pub fn index(self) -> u16 {
-        self as u16
     }
 }
 
@@ -194,220 +177,120 @@ const TOP: usize = 0;
 const BOTTOM: usize = 1;
 
 impl VoxelShape {
-    /// Creates a VoxelShape based on the given BlockData
+    /// Creates a VoxelShape based on the given BlockData, as its look says
+    /// (`shared::content::Look`): the shape and the textures, then their tint and their sway.
     pub fn create_from_block(block: &BlockData) -> VoxelShape {
+        // The furniture is drawn as a family of its own, as its kind says (`of_decor`)
         if let Some(decor) = block.id.decor() {
             return Self::of_decor(block.id, decor);
         }
+        let look = block.id.look();
+        let texture = look.faces[0].as_str();
         if let Some(palette) = block.id.palette() {
             if palette.form != Form::Cube {
-                return Self::of_palette(block.id, palette);
+                return Self::of_palette(block.id, palette, texture);
             }
         }
-        match block.id {
-            BlockId::Grass => {
-                // As the model of the texture pack: the top is grey and tinted, the sides are
-                // dirt under a grey overlay that is tinted, and the bottom is dirt
+        let shape = match look.shape {
+            Shape::Cube => {
                 let mut shape = Self::full_cube(block);
-                shape.faces[TOP].texture += "Top";
-                shape.faces[TOP].biome_tint(BiomeTint::Grass, FaceColor::Grass);
-                shape.faces[BOTTOM].texture = "Dirt".into();
-                for side in shape.faces.iter_mut().skip(BOTTOM + 1) {
-                    side.biome_tint(BiomeTint::Grass, FaceColor::Grass);
-                    side.overlay = Some("GrassSideOverlay".into());
+                for (face, texture) in shape.faces.iter_mut().zip(&look.faces) {
+                    face.texture.clone_from(texture);
                 }
                 shape
             }
-            BlockId::CraftingTable => {
-                // A texture per face, like the model of the texture pack: the front looks
-                // north, toward -Z
-                let mut shape = Self::full_cube(block);
-                let suffixes = ["Top", "Bottom", "", "Side2", "Side1", "Side"];
-                for (face, suffix) in shape.faces.iter_mut().zip(suffixes) {
-                    face.texture += suffix;
-                }
-                shape
-            }
-            BlockId::OakLog
-            | BlockId::SpruceLog
-            | BlockId::JungleLog
-            | BlockId::WillowLog
-            | BlockId::AcaciaLog
-            | BlockId::Cactus
-            | BlockId::Barrel
-            | BlockId::Basalt
-            | BlockId::PolishedBasalt
-            | BlockId::Chest => {
-                let mut shape = Self::full_cube(block);
-                shape.faces[TOP].texture += "Top";
-                shape.faces[BOTTOM].texture += "Top";
-                shape
-            }
-            BlockId::Anvil => {
-                let mut shape = Self::full_cube(block);
-                shape.faces[TOP].texture += "Top";
-                shape
-            }
-            // A still of iron: its brew seen from above
-            BlockId::Alembic => {
-                let mut shape = Self::full_cube(block);
-                shape.faces[TOP].texture += "Top";
-                shape
-            }
-            BlockId::EngravingTable => {
-                let mut shape = Self::full_cube(block);
-                shape.faces[TOP].texture += "Top";
-                shape.faces[BOTTOM].texture = "HewnStone".into();
-                shape
-            }
-            // A board of planks, its frame and the leather under the map on the front only
-            BlockId::MapFrame => {
-                let mut shape = Self::full_cube(block);
-                for (index, face) in shape.faces.iter_mut().enumerate() {
-                    if index != BOTTOM + 1 {
-                        face.texture = "OakPlanks".into();
-                    }
-                }
-                shape
-            }
-            // As the model of the texture pack: its opening, or its fire, on the front only
-            BlockId::Furnace | BlockId::LitFurnace => {
-                let mut shape = Self::full_cube(block);
-                let textures = ["FurnaceTop", "FurnaceBottom"];
-                for (face, texture) in shape.faces.iter_mut().zip(textures) {
-                    face.texture = texture.into();
-                }
-                for side in shape.faces.iter_mut().skip(BOTTOM + 2) {
-                    side.texture = "FurnaceSide".into();
-                }
-                shape
-            }
-            // Like Minecraft's, the needles of the spruce are of one colour everywhere
-            BlockId::OakLeaves
-            | BlockId::JungleLeaves
-            | BlockId::WillowLeaves
-            | BlockId::AcaciaLeaves => Self::full_cube(block)
-                .biome_tinted(BiomeTint::Foliage)
-                .swaying(Sway::Whole),
-            // Its texture has the colours of its leaves and of its apples
-            BlockId::AppleLeaves => Self::full_cube(block).swaying(Sway::Whole),
-            BlockId::SpruceLeaves => Self::full_cube(block)
-                .tinted(FaceColor::Grass)
-                .swaying(Sway::Whole),
-            BlockId::Debug => {
-                let mut shape = Self::full_cube(block);
-                let names = ["Top", "Down", "Front", "Back", "Left", "Right"];
-                for (face, name) in shape.faces.iter_mut().zip(names) {
-                    face.texture = name.into();
-                }
-                shape
-            }
-            BlockId::OakSapling
-            | BlockId::SpruceSapling
-            | BlockId::JungleSapling
-            | BlockId::WillowSapling
-            | BlockId::AcaciaSapling
-            | BlockId::AppleSapling
-            | BlockId::BerryBush
-            | BlockId::RipeBerryBush
-            | BlockId::RyeSprout
-            | BlockId::YoungRye
-            | BlockId::RipeRye
-            | BlockId::CarrotSprout
-            | BlockId::YoungCarrots
-            | BlockId::TallCarrots
-            | BlockId::RipeCarrots
-            | BlockId::PotatoSprout
-            | BlockId::YoungPotatoes
-            | BlockId::TallPotatoes
-            | BlockId::RipePotatoes
-            | BlockId::Poppy
-            | BlockId::Dandelion
-            | BlockId::Reed
-            | BlockId::Heather
-            | BlockId::Mushroom => Self::flora(block).swaying(Sway::Top),
-            BlockId::Ladder => Self::plate(block),
-            BlockId::Fence => Self::arms(
-                "OakPlanks",
-                6.,
-                10.,
-                &[(7., 9., 6., 9.), (7., 9., 12., 15.)],
-            ),
-            BlockId::HangingLantern => Self::boxes("Lantern", &[HANGING_LANTERN]),
-            BlockId::Bedroll => Self::boxed(block, BEDROLL),
-            BlockId::Sign => {
+            Shape::Flora => Self::flora(block).textured(texture),
+            Shape::Plate => Self::plate(block).textured(texture),
+            Shape::Torch => Self::torch(block).textured(texture),
+            Shape::WallTorch => Self::wall_torch(block).textured(texture),
+            Shape::Pod => Self::pod(block).textured(texture),
+            Shape::Box => Self::boxes(texture, &[Self::collision_box(block.id)]),
+            Shape::Fence => Self::arms(texture, 6., 10., &[(7., 9., 6., 9.), (7., 9., 12., 15.)]),
+            Shape::Sign => {
                 let post = Aabb3d {
                     min: Vec3::new(7., 0., 7.).to_vec3a() / 16.,
                     max: Vec3::new(9., 8., 9.).to_vec3a() / 16.,
                 };
-                Self::boxes("OakPlanks", &[SIGN, post])
+                Self::boxes(texture, &[SIGN, post])
             }
-            BlockId::UnlitCampfire => Self::boxes("OakLog", &[CAMPFIRE]),
-            BlockId::Campfire => {
-                let mut shape = Self::boxes("OakLog", &[CAMPFIRE]);
-                let mut flame = Self::flora(block);
-                flame.faces[0].texture = "CampfireFlame".into();
-                shape.faces.extend(flame.faces);
+            Shape::Campfire => {
+                let mut shape = Self::boxes(texture, &[Self::collision_box(block.id)]);
+                shape
+                    .faces
+                    .extend(Self::flora(block).textured("CampfireFlame").faces);
                 shape
             }
-            BlockId::RainCistern | BlockId::FullRainCistern => {
-                let mut shape = Self::full_cube(block);
-                shape.faces[TOP].texture += "Top";
-                for face in shape.faces.iter_mut().skip(BOTTOM) {
-                    face.texture = "RainCistern".into();
-                }
-                shape
-            }
-            BlockId::TilledSoil => {
-                let mut shape = Self::full_cube(block);
-                for face in shape.faces.iter_mut().skip(BOTTOM) {
-                    face.texture = "Dirt".into();
-                }
-                shape
-            }
-            BlockId::Torch => Self::torch(block),
-            BlockId::WallTorch => Self::wall_torch(block),
-            BlockId::Lantern => Self::boxed(block, LANTERN),
-            // Its flames, unlike the plants, are not stirred by the wind
-            BlockId::Fire => Self::flora(block),
-            BlockId::TallGrass | BlockId::Fern => Self::flora(block)
-                .biome_tinted(BiomeTint::Grass)
-                .swaying(Sway::Top),
-            // Held on the side of a block, it does not sway
-            BlockId::Vine => Self::plate(block).biome_tinted(BiomeTint::Foliage),
-            BlockId::Cocoa => Self::pod(block),
-            // Its texture is grey too. Lava's is orange: it stays a plain cube
-            BlockId::Water => Self::full_cube(block).tinted(FaceColor::Water),
-            // The water around a plant of the sea (`VoxelShape::is_water_face`), then it: a
-            // column of kelp sways as a whole, so that its cells never part
-            BlockId::Kelp => Self::flora(block).swaying(Sway::Whole).in_water(),
-            BlockId::Seagrass => Self::flora(block).swaying(Sway::Top).in_water(),
-            BlockId::CaveVine => Self::flora(block).swaying(Sway::Whole),
-            BlockId::CrystalCluster => Self::flora(block),
-            _ => Self::full_cube(block),
+        };
+        let shape = shape
+            .coloured(look.tint, look.overlay.as_deref())
+            .swaying(look.sway);
+        // The water around a plant of the sea (`VoxelShape::is_water_face`), then it
+        if block.id.is_submerged() {
+            shape.in_water()
+        } else {
+            shape
         }
     }
 
-    /// A block of the palette that is not a whole block: a slab, a stair or a low wall shows the
-    /// texture of the block it is made of, a door or a trapdoor its own, open or shut, a fence
-    /// gate its planks, and a pane its glass.
-    fn of_palette(id: BlockId, palette: Palette) -> VoxelShape {
-        let base = format!("{:?}", palette.base);
-        let name = format!("{id:?}");
-        // an open door or trapdoor shows the texture of the shut one
-        let own = name.strip_prefix("Open").unwrap_or(&name);
+    /// The collision box of a block of `id` in its cell, the whole cell if it has none.
+    fn collision_box(id: BlockId) -> Aabb3d {
+        match id.get_hitbox() {
+            BlockHitbox::Aabb(hitbox) => hitbox,
+            BlockHitbox::FullBlock | BlockHitbox::None => Aabb3d {
+                min: Vec3::ZERO.to_vec3a(),
+                max: Vec3::ONE.to_vec3a(),
+            },
+        }
+    }
+
+    /// Every face showing `texture`.
+    fn textured(mut self, texture: &str) -> Self {
+        for face in self.faces.iter_mut() {
+            face.texture = texture.to_string();
+        }
+        self
+    }
+
+    /// The faces coloured as `tint` says: all of them, or with an `overlay` on the sides the
+    /// top and the overlays only.
+    fn coloured(mut self, tint: Tint, overlay: Option<&str>) -> Self {
+        let (biome_tint, color) = match tint {
+            Tint::None => return self,
+            Tint::Grass => (BiomeTint::Grass, FaceColor::Grass),
+            Tint::Foliage => (BiomeTint::Foliage, FaceColor::Grass),
+            Tint::Green => (BiomeTint::None, FaceColor::Grass),
+            Tint::Water => (BiomeTint::None, FaceColor::Water),
+        };
+        let Some(overlay) = overlay else {
+            for face in self.faces.iter_mut() {
+                face.biome_tint(biome_tint, color);
+            }
+            return self;
+        };
+        self.faces[TOP].biome_tint(biome_tint, color);
+        for side in self.faces.iter_mut().skip(BOTTOM + 1) {
+            side.biome_tint(biome_tint, color);
+            side.overlay = Some(overlay.to_string());
+        }
+        self
+    }
+
+    /// A block of the palette that is not a whole block, showing `texture`: a slab, a stair, a
+    /// low wall or a fence gate that of the block it is made of, a door or a trapdoor its own,
+    /// open or shut, and a pane its glass.
+    fn of_palette(id: BlockId, palette: Palette, texture: &str) -> VoxelShape {
         let of = |a: [f32; 3], b: [f32; 3]| Aabb3d {
             min: (Vec3::from(a) / 16.).to_vec3a(),
             max: (Vec3::from(b) / 16.).to_vec3a(),
         };
         match palette.form {
-            Form::Slab => Self::boxes(&base, &[SLAB]),
-            Form::Stairs => Self::boxes(&base, &[SLAB, STAIR_BACK]),
-            Form::LowWall => Self::arms(&base, 4., 12., &[(5., 11., 0., 14.)]),
-            Form::Door { open: false, .. } => Self::boxes(own, &[DOOR]),
-            Form::Door { open: true, .. } => Self::boxes(own, &[OPEN_DOOR]),
-            Form::Trapdoor { open: false } => Self::boxes(own, &[TRAPDOOR]),
-            Form::Trapdoor { open: true } => Self::boxes(own, &[DOOR]),
+            Form::Slab => Self::boxes(texture, &[SLAB]),
+            Form::Stairs => Self::boxes(texture, &[SLAB, STAIR_BACK]),
+            Form::LowWall => Self::arms(texture, 4., 12., &[(5., 11., 0., 14.)]),
+            Form::Door { open: false, .. } => Self::boxes(texture, &[DOOR]),
+            Form::Door { open: true, .. } => Self::boxes(texture, &[OPEN_DOOR]),
+            Form::Trapdoor { open: false } => Self::boxes(texture, &[TRAPDOOR]),
+            Form::Trapdoor { open: true } => Self::boxes(texture, &[DOOR]),
             Form::FenceGate { open } => {
                 // two posts, and between them two rails, swung back toward +Z once open
                 let mut parts = vec![
@@ -422,18 +305,9 @@ impl VoxelShape {
                         parts.push(of([2., low, 7.], [14., high, 9.]));
                     }
                 }
-                Self::boxes(&base, &parts)
+                Self::boxes(texture, &parts)
             }
-            Form::Pane => {
-                // its glass: the pane of plain glass shows the glass, a stained one its own
-                let glass = name.strip_suffix("Pane").unwrap_or(&name);
-                let glass = if id == BlockId::GlassPane {
-                    "Glass"
-                } else {
-                    glass
-                };
-                Self::arms(glass, 7., 9., &[(7., 9., 0., 16.)])
-            }
+            Form::Pane => Self::arms(texture, 7., 9., &[(7., 9., 0., 16.)]),
             Form::Cube => {
                 Self::full_cube(&BlockData::new(id, shared::world::BlockDirection::Front))
             }
@@ -535,15 +409,6 @@ impl VoxelShape {
     fn tinted(mut self, color: FaceColor) -> Self {
         for face in self.faces.iter_mut() {
             face.color = color;
-        }
-        self
-    }
-
-    /// Every face coloured with the colour map `biome_tint`, or `GRASS_COLOR` where the climate is
-    /// not known.
-    fn biome_tinted(mut self, biome_tint: BiomeTint) -> Self {
-        for face in self.faces.iter_mut() {
-            face.biome_tint(biome_tint, FaceColor::Grass);
         }
         self
     }
@@ -656,7 +521,6 @@ impl VoxelShape {
         let lean = |y: f32, z: f32| [y * cos - z * sin, z * cos + y * sin];
         let mut shape = Self::torch(block);
         for face in shape.faces.iter_mut() {
-            face.texture = "Torch".into();
             for vertex in face.vertices.iter_mut() {
                 let [y, z] = lean(vertex[1], vertex[2] - 0.5);
                 vertex[1] = y + FOOT;
@@ -746,12 +610,6 @@ impl VoxelShape {
             }
         }
         VoxelShape { faces }
-    }
-
-    /// The six faces of `hitbox`, each showing the part of the texture of the block that lies
-    /// over it, as a whole cube would.
-    pub fn boxed(block: &BlockData, hitbox: Aabb3d) -> VoxelShape {
-        Self::boxes(&format!("{:?}", block.id), &[hitbox])
     }
 
     /// A post from `from` to `to` sixteenths across the middle of the cell, then for each side

@@ -14,8 +14,9 @@
 //! )
 //! ```
 //!
-//! A block that leaves every field out is a solid whole block that cannot be broken and drops
-//! the item of its name, if there is one. An item that leaves every field out stacks by 64,
+//! A block that leaves every field out is a solid whole block that cannot be broken, drops the
+//! item of its name, if there is one, and shows the texture of its name (`OakLog` for
+//! `oak_log`) on its six faces. An item that leaves every field out stacks by 64,
 //! deals 1 point of damage, is filed under `Blocks`, and places the block of its name, if there
 //! is one: such an item needs no entry at all. See the fields of `BlockDef` and `ItemDef`.
 //!
@@ -32,7 +33,9 @@ use serde::de::{self, Deserializer, MapAccess, Visitor};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 
-use super::{tool_bit, BlockProps, Content, ItemProps};
+use super::{
+    tool_bit, Behaviour, BlockFlags, BlockProps, Content, ItemProps, Look, Shape, Sway, Tint,
+};
 use crate::players::effects::EffectKind;
 use crate::utils::snake_case;
 use crate::world::{
@@ -159,13 +162,16 @@ impl Content {
     }
 
     /// Whether the chunks are drawn alike with `other`: no block changes the properties the
-    /// meshes are made from (`palette`, `visibility`, `light_opacity`, `light_emission`).
+    /// meshes are made from (`palette`, `visibility`, `light_opacity`, `light_emission`,
+    /// `flags`, `look`).
     pub fn draws_like(&self, other: &Content) -> bool {
         self.blocks.iter().zip(&other.blocks).all(|(a, b)| {
             a.palette == b.palette
                 && a.visibility == b.visibility
                 && a.light_opacity == b.light_opacity
                 && a.light_emission == b.light_emission
+                && a.flags == b.flags
+                && a.look == b.look
         })
     }
 }
@@ -384,6 +390,30 @@ pub(super) struct BlockDef {
     )]
     #[serde(serialize_with = "inner")]
     pub container: Option<bool>,
+    /// `submerged`: the block grows under water, which fills the rest of its cell.
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[serde(serialize_with = "inner")]
+    pub submerged: Option<bool>,
+    /// `hangs`: the block hangs from the one above it.
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[serde(serialize_with = "inner")]
+    pub hangs: Option<bool>,
+    /// `behaviour`: `None` (the default) or `Furnace(lit: false)`.
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[serde(serialize_with = "inner")]
+    pub behaviour: Option<Behaviour>,
     /// `sapling`: the item the leaves sometimes drop. None by default.
     #[serde(
         default,
@@ -400,6 +430,136 @@ pub(super) struct BlockDef {
     )]
     #[serde(serialize_with = "inner")]
     pub soil: Option<Vec<String>>,
+    /// The `shape` of `look`: `Cube` by default.
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[serde(serialize_with = "inner")]
+    pub shape: Option<Shape>,
+    /// The textures of the faces: by default, the texture of the block's name (`OakLog` for
+    /// `oak_log`) on every face.
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[serde(serialize_with = "inner")]
+    pub faces: Option<FacesDef>,
+    /// The texture drawn over the sides, see `Look::overlay`.
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[serde(serialize_with = "inner")]
+    pub overlay: Option<String>,
+    /// `None` (the default), `Grass`, `Foliage`, `Green` or `Water`.
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[serde(serialize_with = "inner")]
+    pub tint: Option<Tint>,
+    /// `None` (the default), `Whole` or `Top`.
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[serde(serialize_with = "inner")]
+    pub sway: Option<Sway>,
+}
+
+/// The textures of the faces of a block, each by its name in the textures: `all` for every
+/// face, `sides` for the four around, then each face for itself.
+#[derive(Deserialize, Serialize, Default, Debug, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub(super) struct FacesDef {
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[serde(serialize_with = "inner")]
+    pub all: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[serde(serialize_with = "inner")]
+    pub sides: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[serde(serialize_with = "inner")]
+    pub top: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[serde(serialize_with = "inner")]
+    pub bottom: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[serde(serialize_with = "inner")]
+    pub front: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[serde(serialize_with = "inner")]
+    pub back: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[serde(serialize_with = "inner")]
+    pub left: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[serde(serialize_with = "inner")]
+    pub right: Option<String>,
+}
+
+impl FacesDef {
+    /// The texture of each face, in the order of `Look::faces`, `own` where nothing is given.
+    fn resolve(self, own: &str) -> [String; 6] {
+        let Self {
+            all,
+            sides,
+            top,
+            bottom,
+            front,
+            back,
+            left,
+            right,
+        } = self;
+        let all = all.unwrap_or_else(|| own.to_string());
+        let sides = sides.unwrap_or_else(|| all.clone());
+        [
+            top.unwrap_or_else(|| all.clone()),
+            bottom.unwrap_or(all),
+            front.unwrap_or_else(|| sides.clone()),
+            back.unwrap_or_else(|| sides.clone()),
+            left.unwrap_or_else(|| sides.clone()),
+            right.unwrap_or(sides),
+        ]
+    }
 }
 
 /// The light a block of `visibility` lets through when its file does not say: see
@@ -441,9 +601,18 @@ impl BlockDef {
             tall,
             glass,
             container,
+            submerged,
+            hangs,
+            behaviour,
             sapling,
             soil,
+            shape,
+            faces,
+            overlay,
+            tint,
+            sway,
         } = self;
+        let own = format!("{:?}", names.block("name", name)?);
         let palette = palette
             .map(|PaletteDef { form, base, item }| {
                 Ok::<_, String>(Palette {
@@ -484,15 +653,32 @@ impl BlockDef {
             drops,
             hitbox,
             ray_hitbox: outline.unwrap_or(hitbox),
-            usable: usable.unwrap_or(false),
-            replaceable: replaceable.unwrap_or(false),
-            tall: tall.unwrap_or(false),
-            glass,
-            container: container.unwrap_or(false),
+            flags: [
+                (BlockFlags::USABLE, usable),
+                (BlockFlags::REPLACEABLE, replaceable),
+                (BlockFlags::TALL, tall),
+                (BlockFlags::GLASS, Some(glass)),
+                (BlockFlags::CONTAINER, container),
+                (BlockFlags::SUBMERGED, submerged),
+                (BlockFlags::HANGS, hangs),
+            ]
+            .into_iter()
+            .fold(BlockFlags::default(), |mut flags, (flag, on)| {
+                flags.set(flag, on.unwrap_or(false));
+                flags
+            }),
+            behaviour: behaviour.unwrap_or_default(),
             sapling: sapling
                 .map(|sapling| names.item("sapling", &sapling))
                 .transpose()?,
             soil,
+            look: Look {
+                shape: shape.unwrap_or_default(),
+                faces: faces.unwrap_or_default().resolve(&own),
+                overlay,
+                tint: tint.unwrap_or_default(),
+                sway: sway.unwrap_or_default(),
+            },
         })
     }
 }
@@ -820,7 +1006,7 @@ pub(super) mod tests {
             (
                 "torch",
                 "(look: Decoration, light: 9, break: 2, collision: None, \
-                 outline: Aabb((min: (0.35, 0, 0.35), max: (0.65, 0.6, 0.65))))",
+                 outline: Aabb((min: (0.35, 0, 0.35), max: (0.65, 0.6, 0.65))), shape: Torch)",
             ),
             (
                 "stone",
@@ -911,6 +1097,68 @@ pub(super) mod tests {
         assert_eq!(dirt.default_type, ItemType::Block(BlockId::Dirt));
         let stick = ItemDef::default().build("stick", &names).unwrap();
         assert_eq!(stick.default_type, ItemType::Generic);
+    }
+
+    #[test]
+    fn the_look_of_a_block_reads_its_faces_from_the_widest_to_the_narrowest() {
+        let names = Names::new();
+        let def: BlockDef = ron::de::from_str(
+            r#"(faces: (all: "A", sides: "S", front: "F", top: "T"), shape: Flora,
+                tint: Foliage, sway: Top, overlay: "O")"#,
+        )
+        .unwrap();
+        let look = def.build("dirt", &names).unwrap().look;
+        assert_eq!(look.faces, ["T", "A", "F", "S", "S", "S"].map(String::from));
+        assert_eq!(look.shape, Shape::Flora);
+        assert_eq!(look.tint, Tint::Foliage);
+        assert_eq!(look.sway, Sway::Top);
+        assert_eq!(look.overlay.as_deref(), Some("O"));
+
+        let plain = BlockDef::default().build("oak_log", &names).unwrap().look;
+        assert_eq!(plain.faces, ["OakLog"; 6].map(String::from));
+        assert_eq!(plain.shape, Shape::Cube);
+        assert_eq!(
+            (plain.tint, plain.sway, plain.overlay),
+            (Tint::None, Sway::None, None)
+        );
+    }
+
+    #[test]
+    fn the_flags_and_the_behaviour_of_the_game_blocks() {
+        let game = Content::load(&game_folder()).unwrap();
+        let flagged = |flag: BlockFlags| -> Vec<BlockId> {
+            BlockId::ALL
+                .into_iter()
+                .filter(|id| game.block(*id).flags.contains(flag))
+                .collect()
+        };
+        assert_eq!(
+            flagged(BlockFlags::SUBMERGED),
+            [BlockId::Kelp, BlockId::Seagrass]
+        );
+        assert_eq!(flagged(BlockFlags::HANGS), [BlockId::CaveVine]);
+        assert_eq!(
+            flagged(BlockFlags::CONTAINER),
+            [BlockId::Chest, BlockId::Barrel]
+        );
+        let furnaces: Vec<_> = BlockId::ALL
+            .into_iter()
+            .filter_map(|id| match game.block(id).behaviour {
+                Behaviour::Furnace { lit } => Some((id, lit)),
+                Behaviour::None => None,
+            })
+            .collect();
+        assert_eq!(
+            furnaces,
+            [(BlockId::Furnace, false), (BlockId::LitFurnace, true)]
+        );
+    }
+
+    #[test]
+    fn a_new_look_draws_otherwise() {
+        let folder = edited_game_folder(&[("dirt", "(break: 10, tools: [Shovel], tint: Grass)")]);
+        let content = Content::load(folder.path()).unwrap();
+        assert!(!content.draws_like(&Content::load(&game_folder()).unwrap()));
     }
 
     /// The error of a bad file names the file and the block or item, and nothing is loaded.

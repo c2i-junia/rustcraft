@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use super::{palette::Form, GameElementId, ItemId, Tool, ToolKind};
+use crate::content::{Behaviour, BlockFlags};
 use bevy::math::{bounding::Aabb3d, IVec3, Vec3A};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -1112,19 +1113,19 @@ impl BlockId {
     /// `ChunkMap::check_collision_box`.
     #[inline]
     pub fn is_tall(&self) -> bool {
-        self.props().tall
+        self.has(BlockFlags::TALL)
     }
 
     /// Whether this is a glass, plain or stained, which a pane reaches out to.
     #[inline]
     pub fn is_glass(&self) -> bool {
-        self.props().glass
+        self.has(BlockFlags::GLASS)
     }
 
     /// Whether this block holds a `Container`.
     #[inline]
     pub fn is_container(&self) -> bool {
-        self.props().container
+        self.has(BlockFlags::CONTAINER)
     }
 
     /// The sapling the leaves sometimes drop.
@@ -1224,12 +1225,13 @@ impl BlockId {
     /// placing a block against it. Sneaking places the block.
     #[inline]
     pub fn is_usable(&self) -> bool {
-        self.props().usable
+        self.has(BlockFlags::USABLE)
     }
 
     /// Whether this block is a furnace, lit or out: both hold a `Furnace` and open alike.
+    #[inline]
     pub fn is_furnace(&self) -> bool {
-        matches!(*self, Self::Furnace | Self::LitFurnace)
+        matches!(self.behaviour(), Behaviour::Furnace { .. })
     }
 
     /// Whether this block holds a `Furnace`: a furnace, lit or out, or an alembic.
@@ -1240,13 +1242,14 @@ impl BlockId {
     /// Whether a block placed in the cell of this one takes its place.
     #[inline]
     pub fn is_replaceable(&self) -> bool {
-        self.props().replaceable
+        self.has(BlockFlags::REPLACEABLE)
     }
 
     /// Whether this block grows under water, which fills the rest of its cell: it is seen,
     /// swum in and breathed in as water, only grows in water, and leaves water when broken.
+    #[inline]
     pub fn is_submerged(&self) -> bool {
-        matches!(*self, Self::Kelp | Self::Seagrass)
+        self.has(BlockFlags::SUBMERGED)
     }
 
     /// Whether the cell of this block holds water: water, or a plant that grows in it.
@@ -1255,8 +1258,9 @@ impl BlockId {
     }
 
     /// Whether this block hangs from the block above it, rather than standing on the one below.
+    #[inline]
     pub fn hangs(&self) -> bool {
-        *self == Self::CaveVine
+        self.has(BlockFlags::HANGS)
     }
 
     #[inline]
