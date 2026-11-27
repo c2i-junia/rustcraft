@@ -1,30 +1,53 @@
 use std::collections::HashMap;
+use std::fmt;
 
 use super::{palette::Form, GameElementId, ItemId, Tool, ToolKind};
 use crate::content::{Behaviour, BlockFlags};
 use bevy::math::{bounding::Aabb3d, IVec3, Vec3A};
 use rand::Rng;
-use serde::{Deserialize, Serialize};
+use serde::de::{self, EnumAccess, VariantAccess, Visitor};
+use serde::{ser, Deserialize, Deserializer, Serialize, Serializer};
 
-/// Append only: never reorder, insert before the end or remove a variant. The variant's position
-/// is what chunk files and network messages store (bincode), so any other change turns the
-/// blocks of every existing world into other blocks. Bump `PROTOCOL_ID` and, if the saved
-/// encoding changes, `FORMAT_VERSION`. The test `block_encoding_is_pinned` guards this.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    serde::Serialize,
-    serde::Deserialize,
-    Hash,
-    Default,
-)]
-pub enum BlockId {
-    #[default]
+/// A kind of block: its number in the content of the process (`crate::content::Content`), which
+/// the chunks hold and the network carries. The blocks the engine names have a constant each,
+/// spelled as the variants of the enum it once was (`BlockId::Stone`), and numbered at compile
+/// time by `engine_blocks!`; the blocks that only the content files define are numbered after
+/// them as the files are read (`docs/design/content-registry.md`, 1.3 and 3.1).
+///
+/// The number of a block is the process's own: a world saves its blocks by name
+/// (`LEGACY_BLOCK_NAMES` for the worlds saved before), and a client takes the numbers of its
+/// server.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct BlockId(u16);
+
+/// Declares the blocks the engine names: a constant of `BlockId` each, numbered in the order
+/// given from 0, and `BlockId::ENGINE`, every one of them in that order.
+macro_rules! engine_blocks {
+    ($($(#[$meta:meta])* $name:ident,)*) => {
+        /// Numbers the constants: the position of each in the list.
+        #[allow(dead_code)]
+        #[repr(u16)]
+        enum Engine {
+            $($name,)*
+        }
+
+        #[allow(non_upper_case_globals)]
+        impl BlockId {
+            $(
+                $(#[$meta])*
+                pub const $name: BlockId = BlockId(Engine::$name as u16);
+            )*
+
+            /// The Rust names of the engine blocks, by number.
+            const ENGINE_IDENTS: &[&str] = &[$(stringify!($name),)*];
+
+            /// Every block the engine names, by number.
+            pub const ENGINE: [BlockId; Self::ENGINE_IDENTS.len()] = [$(BlockId::$name,)*];
+        }
+    };
+}
+
+engine_blocks! {
     Dirt,
     Debug,
     Grass,
@@ -89,12 +112,10 @@ pub enum BlockId {
     Heather,
     Mushroom,
     /// The slab of oak, once the only wooden slab.
-    #[serde(alias = "WoodenSlab")]
     OakSlab,
     HewnStoneSlab,
     BrickSlab,
     Lantern,
-    #[serde(alias = "WoodenStairs")]
     OakStairs,
     HewnStoneStairs,
     BrickStairs,
@@ -472,8 +493,122 @@ pub enum BlockId {
     WallTorch,
 }
 
-/// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
-/// in chunk files and sent on the network.
+/// The Rust names the former variants of `BlockId` were also read by, in the RON files.
+const FORMER_IDENTS: [(&str, BlockId); 2] = [
+    ("WoodenSlab", BlockId::OakSlab),
+    ("WoodenStairs", BlockId::OakStairs),
+];
+
+impl BlockId {
+    /// The number of the block, where the table of the content holds its properties.
+    #[inline]
+    pub const fn index(self) -> usize {
+        self.0 as usize
+    }
+
+    /// The block numbered `index`, which the content may not define.
+    #[inline]
+    pub const fn from_index(index: u16) -> Self {
+        Self(index)
+    }
+
+    /// The Rust name of the block, as the constant of an engine block spells it, `None` for a
+    /// number the engine does not name.
+    fn ident(self) -> Option<&'static str> {
+        Self::ENGINE_IDENTS.get(self.index()).copied()
+    }
+
+    /// The block of the Rust name `ident`.
+    fn of_ident(ident: &str) -> Option<Self> {
+        Self::ENGINE_IDENTS
+            .iter()
+            .position(|known| *known == ident)
+            .map(|index| Self(index as u16))
+            .or_else(|| {
+                FORMER_IDENTS
+                    .iter()
+                    .find(|(former, _)| *former == ident)
+                    .map(|(_, id)| *id)
+            })
+    }
+}
+
+/// The Rust name of the block, which also names its textures: `OakLog`.
+impl fmt::Debug for BlockId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.ident() {
+            Some(ident) => f.write_str(ident),
+            None => write!(f, "BlockId({})", self.0),
+        }
+    }
+}
+
+/// A block is its number in bincode, as in the chunk files and on the network, and its Rust name
+/// in a human-readable format such as RON, where it reads as the variant it once was: `Stone`.
+impl Serialize for BlockId {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if !serializer.is_human_readable() {
+            return serializer.serialize_u16(self.0);
+        }
+        let ident = self
+            .ident()
+            .ok_or_else(|| ser::Error::custom(format!("{self:?} has no name")))?;
+        serializer.serialize_unit_variant("BlockId", u32::from(self.0), ident)
+    }
+}
+
+impl<'de> Deserialize<'de> for BlockId {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        if !deserializer.is_human_readable() {
+            return u16::deserialize(deserializer).map(Self);
+        }
+
+        /// The name of a variant, read as an identifier: `Stone`, not `"Stone"`, in RON.
+        struct Ident(String);
+
+        impl<'de> Deserialize<'de> for Ident {
+            fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                deserializer.deserialize_identifier(IdentVisitor)
+            }
+        }
+
+        struct IdentVisitor;
+
+        impl<'de> Visitor<'de> for IdentVisitor {
+            type Value = Ident;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("the name of a block")
+            }
+
+            fn visit_str<E: de::Error>(self, ident: &str) -> Result<Ident, E> {
+                Ok(Ident(ident.to_string()))
+            }
+        }
+
+        struct BlockVisitor;
+
+        impl<'de> Visitor<'de> for BlockVisitor {
+            type Value = BlockId;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("the name of a block")
+            }
+
+            fn visit_enum<A: EnumAccess<'de>>(self, data: A) -> Result<BlockId, A::Error> {
+                let (Ident(ident), variant) = data.variant()?;
+                variant.unit_variant()?;
+                BlockId::of_ident(&ident)
+                    .ok_or_else(|| de::Error::custom(format!("no block is named {ident}")))
+            }
+        }
+
+        deserializer.deserialize_enum("BlockId", BlockId::ENGINE_IDENTS, BlockVisitor)
+    }
+}
+
+/// Append only: the position of the variant is what is stored in chunk files and sent on the
+/// network.
 ///
 /// A block drawn turned is turned from its front by the direction: `Right` turns its front
 /// toward +X. The direction of a vine or a cocoa pod names the side of its cell the block
@@ -696,410 +831,6 @@ pub enum BlockHitbox {
 }
 
 impl BlockId {
-    /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 400] = [
-        BlockId::Dirt,
-        BlockId::Debug,
-        BlockId::Grass,
-        BlockId::Stone,
-        BlockId::OakLog,
-        BlockId::OakPlanks,
-        BlockId::OakLeaves,
-        BlockId::Sand,
-        BlockId::Cactus,
-        BlockId::Ice,
-        BlockId::Glass,
-        BlockId::Bedrock,
-        BlockId::Dandelion,
-        BlockId::Poppy,
-        BlockId::TallGrass,
-        BlockId::Cobblestone,
-        BlockId::Snow,
-        BlockId::SpruceLeaves,
-        BlockId::SpruceLog,
-        BlockId::Water,
-        BlockId::CraftingTable,
-        BlockId::SprucePlanks,
-        BlockId::Furnace,
-        BlockId::Chest,
-        BlockId::CoalOre,
-        BlockId::IronOre,
-        BlockId::GoldOre,
-        BlockId::Gravel,
-        BlockId::Torch,
-        BlockId::JungleLog,
-        BlockId::JunglePlanks,
-        BlockId::JungleLeaves,
-        BlockId::Fern,
-        BlockId::Vine,
-        BlockId::Cocoa,
-        BlockId::LitFurnace,
-        BlockId::DiamondOre,
-        BlockId::IronBlock,
-        BlockId::GoldBlock,
-        BlockId::DiamondBlock,
-        BlockId::HewnStone,
-        BlockId::Limestone,
-        BlockId::Slate,
-        BlockId::Clay,
-        BlockId::BrickWall,
-        BlockId::RammedEarth,
-        BlockId::Thatch,
-        BlockId::CoalBlock,
-        BlockId::CopperOre,
-        BlockId::TinOre,
-        BlockId::CopperBlock,
-        BlockId::TinBlock,
-        BlockId::BronzeBlock,
-        BlockId::WillowLog,
-        BlockId::WillowPlanks,
-        BlockId::WillowLeaves,
-        BlockId::AcaciaLog,
-        BlockId::AcaciaPlanks,
-        BlockId::AcaciaLeaves,
-        BlockId::Reed,
-        BlockId::Heather,
-        BlockId::Mushroom,
-        BlockId::OakSlab,
-        BlockId::HewnStoneSlab,
-        BlockId::BrickSlab,
-        BlockId::Lantern,
-        BlockId::OakStairs,
-        BlockId::HewnStoneStairs,
-        BlockId::BrickStairs,
-        BlockId::Door,
-        BlockId::DoorTop,
-        BlockId::OpenDoor,
-        BlockId::OpenDoorTop,
-        BlockId::Ladder,
-        BlockId::Fence,
-        BlockId::GlassPane,
-        BlockId::HangingLantern,
-        BlockId::OakSapling,
-        BlockId::SpruceSapling,
-        BlockId::JungleSapling,
-        BlockId::WillowSapling,
-        BlockId::AcaciaSapling,
-        BlockId::Wool,
-        BlockId::BerryBush,
-        BlockId::RipeBerryBush,
-        BlockId::TilledSoil,
-        BlockId::RyeSprout,
-        BlockId::YoungRye,
-        BlockId::RipeRye,
-        BlockId::Bedroll,
-        BlockId::Barrel,
-        BlockId::RainCistern,
-        BlockId::FullRainCistern,
-        BlockId::Campfire,
-        BlockId::UnlitCampfire,
-        BlockId::Sign,
-        BlockId::Fire,
-        BlockId::Lava,
-        BlockId::Obsidian,
-        BlockId::CarrotSprout,
-        BlockId::YoungCarrots,
-        BlockId::TallCarrots,
-        BlockId::RipeCarrots,
-        BlockId::PotatoSprout,
-        BlockId::YoungPotatoes,
-        BlockId::TallPotatoes,
-        BlockId::RipePotatoes,
-        BlockId::EmberHeart,
-        BlockId::EngravingTable,
-        BlockId::Gloomrock,
-        BlockId::CobbledGloomrock,
-        BlockId::Anvil,
-        BlockId::SpruceSlab,
-        BlockId::JungleSlab,
-        BlockId::WillowSlab,
-        BlockId::AcaciaSlab,
-        BlockId::SpruceStairs,
-        BlockId::JungleStairs,
-        BlockId::WillowStairs,
-        BlockId::AcaciaStairs,
-        BlockId::SpruceDoor,
-        BlockId::SpruceDoorTop,
-        BlockId::OpenSpruceDoor,
-        BlockId::OpenSpruceDoorTop,
-        BlockId::JungleDoor,
-        BlockId::JungleDoorTop,
-        BlockId::OpenJungleDoor,
-        BlockId::OpenJungleDoorTop,
-        BlockId::WillowDoor,
-        BlockId::WillowDoorTop,
-        BlockId::OpenWillowDoor,
-        BlockId::OpenWillowDoorTop,
-        BlockId::AcaciaDoor,
-        BlockId::AcaciaDoorTop,
-        BlockId::OpenAcaciaDoor,
-        BlockId::OpenAcaciaDoorTop,
-        BlockId::OakTrapdoor,
-        BlockId::OpenOakTrapdoor,
-        BlockId::SpruceTrapdoor,
-        BlockId::OpenSpruceTrapdoor,
-        BlockId::JungleTrapdoor,
-        BlockId::OpenJungleTrapdoor,
-        BlockId::WillowTrapdoor,
-        BlockId::OpenWillowTrapdoor,
-        BlockId::AcaciaTrapdoor,
-        BlockId::OpenAcaciaTrapdoor,
-        BlockId::OakFenceGate,
-        BlockId::OpenOakFenceGate,
-        BlockId::SpruceFenceGate,
-        BlockId::OpenSpruceFenceGate,
-        BlockId::JungleFenceGate,
-        BlockId::OpenJungleFenceGate,
-        BlockId::WillowFenceGate,
-        BlockId::OpenWillowFenceGate,
-        BlockId::AcaciaFenceGate,
-        BlockId::OpenAcaciaFenceGate,
-        BlockId::StoneSlab,
-        BlockId::CobblestoneSlab,
-        BlockId::LimestoneSlab,
-        BlockId::SlateSlab,
-        BlockId::GloomrockSlab,
-        BlockId::CobbledGloomrockSlab,
-        BlockId::StoneStairs,
-        BlockId::CobblestoneStairs,
-        BlockId::LimestoneStairs,
-        BlockId::SlateStairs,
-        BlockId::GloomrockStairs,
-        BlockId::CobbledGloomrockStairs,
-        BlockId::StoneLowWall,
-        BlockId::CobblestoneLowWall,
-        BlockId::HewnStoneLowWall,
-        BlockId::LimestoneLowWall,
-        BlockId::SlateLowWall,
-        BlockId::BrickLowWall,
-        BlockId::GloomrockLowWall,
-        BlockId::CobbledGloomrockLowWall,
-        BlockId::PolishedStone,
-        BlockId::PolishedLimestone,
-        BlockId::PolishedSlate,
-        BlockId::PolishedGloomrock,
-        BlockId::ChiseledStone,
-        BlockId::ChiseledLimestone,
-        BlockId::ChiseledSlate,
-        BlockId::ChiseledGloomrock,
-        BlockId::OrangeWool,
-        BlockId::MagentaWool,
-        BlockId::LightBlueWool,
-        BlockId::YellowWool,
-        BlockId::LimeWool,
-        BlockId::PinkWool,
-        BlockId::GrayWool,
-        BlockId::LightGrayWool,
-        BlockId::CyanWool,
-        BlockId::PurpleWool,
-        BlockId::BlueWool,
-        BlockId::BrownWool,
-        BlockId::GreenWool,
-        BlockId::RedWool,
-        BlockId::BlackWool,
-        BlockId::WhiteStainedGlass,
-        BlockId::OrangeStainedGlass,
-        BlockId::MagentaStainedGlass,
-        BlockId::LightBlueStainedGlass,
-        BlockId::YellowStainedGlass,
-        BlockId::LimeStainedGlass,
-        BlockId::PinkStainedGlass,
-        BlockId::GrayStainedGlass,
-        BlockId::LightGrayStainedGlass,
-        BlockId::CyanStainedGlass,
-        BlockId::PurpleStainedGlass,
-        BlockId::BlueStainedGlass,
-        BlockId::BrownStainedGlass,
-        BlockId::GreenStainedGlass,
-        BlockId::RedStainedGlass,
-        BlockId::BlackStainedGlass,
-        BlockId::WhiteStainedGlassPane,
-        BlockId::OrangeStainedGlassPane,
-        BlockId::MagentaStainedGlassPane,
-        BlockId::LightBlueStainedGlassPane,
-        BlockId::YellowStainedGlassPane,
-        BlockId::LimeStainedGlassPane,
-        BlockId::PinkStainedGlassPane,
-        BlockId::GrayStainedGlassPane,
-        BlockId::LightGrayStainedGlassPane,
-        BlockId::CyanStainedGlassPane,
-        BlockId::PurpleStainedGlassPane,
-        BlockId::BlueStainedGlassPane,
-        BlockId::BrownStainedGlassPane,
-        BlockId::GreenStainedGlassPane,
-        BlockId::RedStainedGlassPane,
-        BlockId::BlackStainedGlassPane,
-        BlockId::Terracotta,
-        BlockId::WhiteTerracotta,
-        BlockId::OrangeTerracotta,
-        BlockId::MagentaTerracotta,
-        BlockId::LightBlueTerracotta,
-        BlockId::YellowTerracotta,
-        BlockId::LimeTerracotta,
-        BlockId::PinkTerracotta,
-        BlockId::GrayTerracotta,
-        BlockId::LightGrayTerracotta,
-        BlockId::CyanTerracotta,
-        BlockId::PurpleTerracotta,
-        BlockId::BlueTerracotta,
-        BlockId::BrownTerracotta,
-        BlockId::GreenTerracotta,
-        BlockId::RedTerracotta,
-        BlockId::BlackTerracotta,
-        BlockId::WhiteConcrete,
-        BlockId::OrangeConcrete,
-        BlockId::MagentaConcrete,
-        BlockId::LightBlueConcrete,
-        BlockId::YellowConcrete,
-        BlockId::LimeConcrete,
-        BlockId::PinkConcrete,
-        BlockId::GrayConcrete,
-        BlockId::LightGrayConcrete,
-        BlockId::CyanConcrete,
-        BlockId::PurpleConcrete,
-        BlockId::BlueConcrete,
-        BlockId::BrownConcrete,
-        BlockId::GreenConcrete,
-        BlockId::RedConcrete,
-        BlockId::BlackConcrete,
-        BlockId::WhiteConcretePowder,
-        BlockId::OrangeConcretePowder,
-        BlockId::MagentaConcretePowder,
-        BlockId::LightBlueConcretePowder,
-        BlockId::YellowConcretePowder,
-        BlockId::LimeConcretePowder,
-        BlockId::PinkConcretePowder,
-        BlockId::GrayConcretePowder,
-        BlockId::LightGrayConcretePowder,
-        BlockId::CyanConcretePowder,
-        BlockId::PurpleConcretePowder,
-        BlockId::BlueConcretePowder,
-        BlockId::BrownConcretePowder,
-        BlockId::GreenConcretePowder,
-        BlockId::RedConcretePowder,
-        BlockId::BlackConcretePowder,
-        BlockId::MapFrame,
-        BlockId::AppleLeaves,
-        BlockId::AppleSapling,
-        BlockId::Kelp,
-        BlockId::Seagrass,
-        BlockId::AzureReef,
-        BlockId::RoseReef,
-        BlockId::AmberReef,
-        BlockId::Moss,
-        BlockId::CaveVine,
-        BlockId::Glowcrystal,
-        BlockId::CrystalCluster,
-        BlockId::Geodestone,
-        BlockId::Basalt,
-        BlockId::PolishedBasalt,
-        BlockId::Magma,
-        BlockId::WhiteBedroll,
-        BlockId::OrangeBedroll,
-        BlockId::MagentaBedroll,
-        BlockId::LightBlueBedroll,
-        BlockId::YellowBedroll,
-        BlockId::LimeBedroll,
-        BlockId::PinkBedroll,
-        BlockId::GrayBedroll,
-        BlockId::LightGrayBedroll,
-        BlockId::CyanBedroll,
-        BlockId::PurpleBedroll,
-        BlockId::BlueBedroll,
-        BlockId::BrownBedroll,
-        BlockId::GreenBedroll,
-        BlockId::BlackBedroll,
-        BlockId::OakTable,
-        BlockId::SpruceTable,
-        BlockId::JungleTable,
-        BlockId::WillowTable,
-        BlockId::AcaciaTable,
-        BlockId::OakChair,
-        BlockId::SpruceChair,
-        BlockId::JungleChair,
-        BlockId::WillowChair,
-        BlockId::AcaciaChair,
-        BlockId::Bookshelf,
-        BlockId::WhiteCarpet,
-        BlockId::OrangeCarpet,
-        BlockId::MagentaCarpet,
-        BlockId::LightBlueCarpet,
-        BlockId::YellowCarpet,
-        BlockId::LimeCarpet,
-        BlockId::PinkCarpet,
-        BlockId::GrayCarpet,
-        BlockId::LightGrayCarpet,
-        BlockId::CyanCarpet,
-        BlockId::PurpleCarpet,
-        BlockId::BlueCarpet,
-        BlockId::BrownCarpet,
-        BlockId::GreenCarpet,
-        BlockId::RedCarpet,
-        BlockId::BlackCarpet,
-        BlockId::FlowerPot,
-        BlockId::ItemFrame,
-        BlockId::DawnPainting,
-        BlockId::MeadowPainting,
-        BlockId::HarbourPainting,
-        BlockId::StillLifePainting,
-        BlockId::ValleyPainting,
-        BlockId::ValleyPaintingRight,
-        BlockId::SeascapePainting,
-        BlockId::SeascapePaintingRight,
-        BlockId::ForestPainting,
-        BlockId::ForestPaintingRight,
-        BlockId::WhiteBanner,
-        BlockId::OrangeBanner,
-        BlockId::MagentaBanner,
-        BlockId::LightBlueBanner,
-        BlockId::YellowBanner,
-        BlockId::LimeBanner,
-        BlockId::PinkBanner,
-        BlockId::GrayBanner,
-        BlockId::LightGrayBanner,
-        BlockId::CyanBanner,
-        BlockId::PurpleBanner,
-        BlockId::BlueBanner,
-        BlockId::BrownBanner,
-        BlockId::GreenBanner,
-        BlockId::RedBanner,
-        BlockId::BlackBanner,
-        BlockId::WhiteLantern,
-        BlockId::OrangeLantern,
-        BlockId::MagentaLantern,
-        BlockId::LightBlueLantern,
-        BlockId::YellowLantern,
-        BlockId::LimeLantern,
-        BlockId::PinkLantern,
-        BlockId::GrayLantern,
-        BlockId::LightGrayLantern,
-        BlockId::CyanLantern,
-        BlockId::PurpleLantern,
-        BlockId::BlueLantern,
-        BlockId::BrownLantern,
-        BlockId::GreenLantern,
-        BlockId::RedLantern,
-        BlockId::BlackLantern,
-        BlockId::HangingWhiteLantern,
-        BlockId::HangingOrangeLantern,
-        BlockId::HangingMagentaLantern,
-        BlockId::HangingLightBlueLantern,
-        BlockId::HangingYellowLantern,
-        BlockId::HangingLimeLantern,
-        BlockId::HangingPinkLantern,
-        BlockId::HangingGrayLantern,
-        BlockId::HangingLightGrayLantern,
-        BlockId::HangingCyanLantern,
-        BlockId::HangingPurpleLantern,
-        BlockId::HangingBlueLantern,
-        BlockId::HangingBrownLantern,
-        BlockId::HangingGreenLantern,
-        BlockId::HangingRedLantern,
-        BlockId::HangingBlackLantern,
-        BlockId::Alembic,
-        BlockId::WallTorch,
-    ];
-
     pub fn is_stairs(&self) -> bool {
         self.form() == Some(Form::Stairs)
     }
@@ -1302,153 +1033,14 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 400] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 400] = BlockId::ENGINE;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 3] = [BlockId::Bedrock, BlockId::Water, BlockId::Lava];
 
-    /// Fails to compile when a `BlockId` variant is added without updating `ALL_BLOCKS`.
-    fn all_blocks_is_exhaustive(id: BlockId) {
-        match id {
-            BlockId::Dirt
-            | BlockId::Debug
-            | BlockId::Grass
-            | BlockId::Stone
-            | BlockId::OakLog
-            | BlockId::OakPlanks
-            | BlockId::OakLeaves
-            | BlockId::Sand
-            | BlockId::Cactus
-            | BlockId::Ice
-            | BlockId::Glass
-            | BlockId::Bedrock
-            | BlockId::Dandelion
-            | BlockId::Poppy
-            | BlockId::TallGrass
-            | BlockId::Cobblestone
-            | BlockId::Snow
-            | BlockId::SpruceLeaves
-            | BlockId::SpruceLog
-            | BlockId::Water
-            | BlockId::CraftingTable
-            | BlockId::SprucePlanks
-            | BlockId::Furnace
-            | BlockId::Chest
-            | BlockId::CoalOre
-            | BlockId::IronOre
-            | BlockId::GoldOre
-            | BlockId::Gravel
-            | BlockId::Torch
-            | BlockId::WallTorch
-            | BlockId::JungleLog
-            | BlockId::JunglePlanks
-            | BlockId::JungleLeaves
-            | BlockId::Fern
-            | BlockId::Vine
-            | BlockId::Cocoa
-            | BlockId::LitFurnace
-            | BlockId::DiamondOre
-            | BlockId::IronBlock
-            | BlockId::GoldBlock
-            | BlockId::DiamondBlock
-            | BlockId::HewnStone
-            | BlockId::Limestone
-            | BlockId::Slate
-            | BlockId::Clay
-            | BlockId::BrickWall
-            | BlockId::RammedEarth
-            | BlockId::Thatch
-            | BlockId::CoalBlock
-            | BlockId::CopperOre
-            | BlockId::TinOre
-            | BlockId::CopperBlock
-            | BlockId::TinBlock
-            | BlockId::BronzeBlock
-            | BlockId::WillowLog
-            | BlockId::WillowPlanks
-            | BlockId::WillowLeaves
-            | BlockId::AcaciaLog
-            | BlockId::AcaciaPlanks
-            | BlockId::AcaciaLeaves
-            | BlockId::Reed
-            | BlockId::Heather
-            | BlockId::Mushroom
-            | BlockId::OakSlab
-            | BlockId::HewnStoneSlab
-            | BlockId::BrickSlab
-            | BlockId::Lantern
-            | BlockId::OakStairs
-            | BlockId::HewnStoneStairs
-            | BlockId::BrickStairs
-            | BlockId::Door
-            | BlockId::DoorTop
-            | BlockId::OpenDoor
-            | BlockId::OpenDoorTop
-            | BlockId::Ladder
-            | BlockId::Fence
-            | BlockId::GlassPane
-            | BlockId::HangingLantern
-            | BlockId::OakSapling
-            | BlockId::SpruceSapling
-            | BlockId::JungleSapling
-            | BlockId::WillowSapling
-            | BlockId::AcaciaSapling
-            | BlockId::Wool
-            | BlockId::BerryBush
-            | BlockId::RipeBerryBush
-            | BlockId::TilledSoil
-            | BlockId::RyeSprout
-            | BlockId::YoungRye
-            | BlockId::RipeRye
-            | BlockId::Bedroll
-            | BlockId::Barrel
-            | BlockId::RainCistern
-            | BlockId::FullRainCistern
-            | BlockId::Campfire
-            | BlockId::UnlitCampfire
-            | BlockId::Sign
-            | BlockId::Fire
-            | BlockId::Lava
-            | BlockId::Obsidian
-            | BlockId::CarrotSprout
-            | BlockId::YoungCarrots
-            | BlockId::TallCarrots
-            | BlockId::RipeCarrots
-            | BlockId::PotatoSprout
-            | BlockId::YoungPotatoes
-            | BlockId::TallPotatoes
-            | BlockId::RipePotatoes
-            | BlockId::EmberHeart
-            | BlockId::EngravingTable
-            | BlockId::Gloomrock
-            | BlockId::CobbledGloomrock
-            | BlockId::Anvil
-            | BlockId::MapFrame
-            | BlockId::AppleLeaves
-            | BlockId::AppleSapling
-            | BlockId::Kelp
-            | BlockId::Seagrass
-            | BlockId::AzureReef
-            | BlockId::RoseReef
-            | BlockId::AmberReef
-            | BlockId::Moss
-            | BlockId::CaveVine
-            | BlockId::Glowcrystal
-            | BlockId::CrystalCluster
-            | BlockId::Geodestone
-            | BlockId::Basalt
-            | BlockId::PolishedBasalt
-            | BlockId::Magma
-            | crate::new_palette_blocks!()
-            | crate::new_decor_blocks!()
-            | BlockId::Alembic => {}
-        }
-    }
-
     fn regular_blocks() -> impl Iterator<Item = BlockId> {
         ALL_BLOCKS
             .into_iter()
-            .inspect(|id| all_blocks_is_exhaustive(*id))
             .filter(|id| !UNBREAKABLE_BLOCKS.contains(id))
     }
 
@@ -1495,412 +1087,12 @@ mod tests {
     }
 
     #[test]
-    fn block_encoding_is_pinned() {
+    fn a_block_is_encoded_as_its_number() {
         for id in ALL_BLOCKS {
-            let expected: u16 = match id {
-                BlockId::Dirt => 0,
-                BlockId::Debug => 1,
-                BlockId::Grass => 2,
-                BlockId::Stone => 3,
-                BlockId::OakLog => 4,
-                BlockId::OakPlanks => 5,
-                BlockId::OakLeaves => 6,
-                BlockId::Sand => 7,
-                BlockId::Cactus => 8,
-                BlockId::Ice => 9,
-                BlockId::Glass => 10,
-                BlockId::Bedrock => 11,
-                BlockId::Dandelion => 12,
-                BlockId::Poppy => 13,
-                BlockId::TallGrass => 14,
-                BlockId::Cobblestone => 15,
-                BlockId::Snow => 16,
-                BlockId::SpruceLeaves => 17,
-                BlockId::SpruceLog => 18,
-                BlockId::Water => 19,
-                BlockId::CraftingTable => 20,
-                BlockId::SprucePlanks => 21,
-                BlockId::Furnace => 22,
-                BlockId::Chest => 23,
-                BlockId::CoalOre => 24,
-                BlockId::IronOre => 25,
-                BlockId::GoldOre => 26,
-                BlockId::Gravel => 27,
-                BlockId::Torch => 28,
-                BlockId::JungleLog => 29,
-                BlockId::JunglePlanks => 30,
-                BlockId::JungleLeaves => 31,
-                BlockId::Fern => 32,
-                BlockId::Vine => 33,
-                BlockId::Cocoa => 34,
-                BlockId::LitFurnace => 35,
-                BlockId::DiamondOre => 36,
-                BlockId::IronBlock => 37,
-                BlockId::GoldBlock => 38,
-                BlockId::DiamondBlock => 39,
-                BlockId::HewnStone => 40,
-                BlockId::Limestone => 41,
-                BlockId::Slate => 42,
-                BlockId::Clay => 43,
-                BlockId::BrickWall => 44,
-                BlockId::RammedEarth => 45,
-                BlockId::Thatch => 46,
-                BlockId::CoalBlock => 47,
-                BlockId::CopperOre => 48,
-                BlockId::TinOre => 49,
-                BlockId::CopperBlock => 50,
-                BlockId::TinBlock => 51,
-                BlockId::BronzeBlock => 52,
-                BlockId::WillowLog => 53,
-                BlockId::WillowPlanks => 54,
-                BlockId::WillowLeaves => 55,
-                BlockId::AcaciaLog => 56,
-                BlockId::AcaciaPlanks => 57,
-                BlockId::AcaciaLeaves => 58,
-                BlockId::Reed => 59,
-                BlockId::Heather => 60,
-                BlockId::Mushroom => 61,
-                BlockId::OakSlab => 62,
-                BlockId::HewnStoneSlab => 63,
-                BlockId::BrickSlab => 64,
-                BlockId::Lantern => 65,
-                BlockId::OakStairs => 66,
-                BlockId::HewnStoneStairs => 67,
-                BlockId::BrickStairs => 68,
-                BlockId::Door => 69,
-                BlockId::DoorTop => 70,
-                BlockId::OpenDoor => 71,
-                BlockId::OpenDoorTop => 72,
-                BlockId::Ladder => 73,
-                BlockId::Fence => 74,
-                BlockId::GlassPane => 75,
-                BlockId::HangingLantern => 76,
-                BlockId::OakSapling => 77,
-                BlockId::SpruceSapling => 78,
-                BlockId::JungleSapling => 79,
-                BlockId::WillowSapling => 80,
-                BlockId::AcaciaSapling => 81,
-                BlockId::Wool => 82,
-                BlockId::BerryBush => 83,
-                BlockId::RipeBerryBush => 84,
-                BlockId::TilledSoil => 85,
-                BlockId::RyeSprout => 86,
-                BlockId::YoungRye => 87,
-                BlockId::RipeRye => 88,
-                BlockId::Bedroll => 89,
-                BlockId::Barrel => 90,
-                BlockId::RainCistern => 91,
-                BlockId::FullRainCistern => 92,
-                BlockId::Campfire => 93,
-                BlockId::UnlitCampfire => 94,
-                BlockId::Sign => 95,
-                BlockId::Fire => 96,
-                BlockId::Lava => 97,
-                BlockId::Obsidian => 98,
-                BlockId::CarrotSprout => 99,
-                BlockId::YoungCarrots => 100,
-                BlockId::TallCarrots => 101,
-                BlockId::RipeCarrots => 102,
-                BlockId::PotatoSprout => 103,
-                BlockId::YoungPotatoes => 104,
-                BlockId::TallPotatoes => 105,
-                BlockId::RipePotatoes => 106,
-                BlockId::EmberHeart => 107,
-                BlockId::EngravingTable => 108,
-                BlockId::Gloomrock => 109,
-                BlockId::CobbledGloomrock => 110,
-                BlockId::Anvil => 111,
-                BlockId::SpruceSlab => 112,
-                BlockId::JungleSlab => 113,
-                BlockId::WillowSlab => 114,
-                BlockId::AcaciaSlab => 115,
-                BlockId::SpruceStairs => 116,
-                BlockId::JungleStairs => 117,
-                BlockId::WillowStairs => 118,
-                BlockId::AcaciaStairs => 119,
-                BlockId::SpruceDoor => 120,
-                BlockId::SpruceDoorTop => 121,
-                BlockId::OpenSpruceDoor => 122,
-                BlockId::OpenSpruceDoorTop => 123,
-                BlockId::JungleDoor => 124,
-                BlockId::JungleDoorTop => 125,
-                BlockId::OpenJungleDoor => 126,
-                BlockId::OpenJungleDoorTop => 127,
-                BlockId::WillowDoor => 128,
-                BlockId::WillowDoorTop => 129,
-                BlockId::OpenWillowDoor => 130,
-                BlockId::OpenWillowDoorTop => 131,
-                BlockId::AcaciaDoor => 132,
-                BlockId::AcaciaDoorTop => 133,
-                BlockId::OpenAcaciaDoor => 134,
-                BlockId::OpenAcaciaDoorTop => 135,
-                BlockId::OakTrapdoor => 136,
-                BlockId::OpenOakTrapdoor => 137,
-                BlockId::SpruceTrapdoor => 138,
-                BlockId::OpenSpruceTrapdoor => 139,
-                BlockId::JungleTrapdoor => 140,
-                BlockId::OpenJungleTrapdoor => 141,
-                BlockId::WillowTrapdoor => 142,
-                BlockId::OpenWillowTrapdoor => 143,
-                BlockId::AcaciaTrapdoor => 144,
-                BlockId::OpenAcaciaTrapdoor => 145,
-                BlockId::OakFenceGate => 146,
-                BlockId::OpenOakFenceGate => 147,
-                BlockId::SpruceFenceGate => 148,
-                BlockId::OpenSpruceFenceGate => 149,
-                BlockId::JungleFenceGate => 150,
-                BlockId::OpenJungleFenceGate => 151,
-                BlockId::WillowFenceGate => 152,
-                BlockId::OpenWillowFenceGate => 153,
-                BlockId::AcaciaFenceGate => 154,
-                BlockId::OpenAcaciaFenceGate => 155,
-                BlockId::StoneSlab => 156,
-                BlockId::CobblestoneSlab => 157,
-                BlockId::LimestoneSlab => 158,
-                BlockId::SlateSlab => 159,
-                BlockId::GloomrockSlab => 160,
-                BlockId::CobbledGloomrockSlab => 161,
-                BlockId::StoneStairs => 162,
-                BlockId::CobblestoneStairs => 163,
-                BlockId::LimestoneStairs => 164,
-                BlockId::SlateStairs => 165,
-                BlockId::GloomrockStairs => 166,
-                BlockId::CobbledGloomrockStairs => 167,
-                BlockId::StoneLowWall => 168,
-                BlockId::CobblestoneLowWall => 169,
-                BlockId::HewnStoneLowWall => 170,
-                BlockId::LimestoneLowWall => 171,
-                BlockId::SlateLowWall => 172,
-                BlockId::BrickLowWall => 173,
-                BlockId::GloomrockLowWall => 174,
-                BlockId::CobbledGloomrockLowWall => 175,
-                BlockId::PolishedStone => 176,
-                BlockId::PolishedLimestone => 177,
-                BlockId::PolishedSlate => 178,
-                BlockId::PolishedGloomrock => 179,
-                BlockId::ChiseledStone => 180,
-                BlockId::ChiseledLimestone => 181,
-                BlockId::ChiseledSlate => 182,
-                BlockId::ChiseledGloomrock => 183,
-                BlockId::OrangeWool => 184,
-                BlockId::MagentaWool => 185,
-                BlockId::LightBlueWool => 186,
-                BlockId::YellowWool => 187,
-                BlockId::LimeWool => 188,
-                BlockId::PinkWool => 189,
-                BlockId::GrayWool => 190,
-                BlockId::LightGrayWool => 191,
-                BlockId::CyanWool => 192,
-                BlockId::PurpleWool => 193,
-                BlockId::BlueWool => 194,
-                BlockId::BrownWool => 195,
-                BlockId::GreenWool => 196,
-                BlockId::RedWool => 197,
-                BlockId::BlackWool => 198,
-                BlockId::WhiteStainedGlass => 199,
-                BlockId::OrangeStainedGlass => 200,
-                BlockId::MagentaStainedGlass => 201,
-                BlockId::LightBlueStainedGlass => 202,
-                BlockId::YellowStainedGlass => 203,
-                BlockId::LimeStainedGlass => 204,
-                BlockId::PinkStainedGlass => 205,
-                BlockId::GrayStainedGlass => 206,
-                BlockId::LightGrayStainedGlass => 207,
-                BlockId::CyanStainedGlass => 208,
-                BlockId::PurpleStainedGlass => 209,
-                BlockId::BlueStainedGlass => 210,
-                BlockId::BrownStainedGlass => 211,
-                BlockId::GreenStainedGlass => 212,
-                BlockId::RedStainedGlass => 213,
-                BlockId::BlackStainedGlass => 214,
-                BlockId::WhiteStainedGlassPane => 215,
-                BlockId::OrangeStainedGlassPane => 216,
-                BlockId::MagentaStainedGlassPane => 217,
-                BlockId::LightBlueStainedGlassPane => 218,
-                BlockId::YellowStainedGlassPane => 219,
-                BlockId::LimeStainedGlassPane => 220,
-                BlockId::PinkStainedGlassPane => 221,
-                BlockId::GrayStainedGlassPane => 222,
-                BlockId::LightGrayStainedGlassPane => 223,
-                BlockId::CyanStainedGlassPane => 224,
-                BlockId::PurpleStainedGlassPane => 225,
-                BlockId::BlueStainedGlassPane => 226,
-                BlockId::BrownStainedGlassPane => 227,
-                BlockId::GreenStainedGlassPane => 228,
-                BlockId::RedStainedGlassPane => 229,
-                BlockId::BlackStainedGlassPane => 230,
-                BlockId::Terracotta => 231,
-                BlockId::WhiteTerracotta => 232,
-                BlockId::OrangeTerracotta => 233,
-                BlockId::MagentaTerracotta => 234,
-                BlockId::LightBlueTerracotta => 235,
-                BlockId::YellowTerracotta => 236,
-                BlockId::LimeTerracotta => 237,
-                BlockId::PinkTerracotta => 238,
-                BlockId::GrayTerracotta => 239,
-                BlockId::LightGrayTerracotta => 240,
-                BlockId::CyanTerracotta => 241,
-                BlockId::PurpleTerracotta => 242,
-                BlockId::BlueTerracotta => 243,
-                BlockId::BrownTerracotta => 244,
-                BlockId::GreenTerracotta => 245,
-                BlockId::RedTerracotta => 246,
-                BlockId::BlackTerracotta => 247,
-                BlockId::WhiteConcrete => 248,
-                BlockId::OrangeConcrete => 249,
-                BlockId::MagentaConcrete => 250,
-                BlockId::LightBlueConcrete => 251,
-                BlockId::YellowConcrete => 252,
-                BlockId::LimeConcrete => 253,
-                BlockId::PinkConcrete => 254,
-                BlockId::GrayConcrete => 255,
-                BlockId::LightGrayConcrete => 256,
-                BlockId::CyanConcrete => 257,
-                BlockId::PurpleConcrete => 258,
-                BlockId::BlueConcrete => 259,
-                BlockId::BrownConcrete => 260,
-                BlockId::GreenConcrete => 261,
-                BlockId::RedConcrete => 262,
-                BlockId::BlackConcrete => 263,
-                BlockId::WhiteConcretePowder => 264,
-                BlockId::OrangeConcretePowder => 265,
-                BlockId::MagentaConcretePowder => 266,
-                BlockId::LightBlueConcretePowder => 267,
-                BlockId::YellowConcretePowder => 268,
-                BlockId::LimeConcretePowder => 269,
-                BlockId::PinkConcretePowder => 270,
-                BlockId::GrayConcretePowder => 271,
-                BlockId::LightGrayConcretePowder => 272,
-                BlockId::CyanConcretePowder => 273,
-                BlockId::PurpleConcretePowder => 274,
-                BlockId::BlueConcretePowder => 275,
-                BlockId::BrownConcretePowder => 276,
-                BlockId::GreenConcretePowder => 277,
-                BlockId::RedConcretePowder => 278,
-                BlockId::BlackConcretePowder => 279,
-                BlockId::MapFrame => 280,
-                BlockId::AppleLeaves => 281,
-                BlockId::AppleSapling => 282,
-                BlockId::Kelp => 283,
-                BlockId::Seagrass => 284,
-                BlockId::AzureReef => 285,
-                BlockId::RoseReef => 286,
-                BlockId::AmberReef => 287,
-                BlockId::Moss => 288,
-                BlockId::CaveVine => 289,
-                BlockId::Glowcrystal => 290,
-                BlockId::CrystalCluster => 291,
-                BlockId::Geodestone => 292,
-                BlockId::Basalt => 293,
-                BlockId::PolishedBasalt => 294,
-                BlockId::Magma => 295,
-                BlockId::WhiteBedroll => 296,
-                BlockId::OrangeBedroll => 297,
-                BlockId::MagentaBedroll => 298,
-                BlockId::LightBlueBedroll => 299,
-                BlockId::YellowBedroll => 300,
-                BlockId::LimeBedroll => 301,
-                BlockId::PinkBedroll => 302,
-                BlockId::GrayBedroll => 303,
-                BlockId::LightGrayBedroll => 304,
-                BlockId::CyanBedroll => 305,
-                BlockId::PurpleBedroll => 306,
-                BlockId::BlueBedroll => 307,
-                BlockId::BrownBedroll => 308,
-                BlockId::GreenBedroll => 309,
-                BlockId::BlackBedroll => 310,
-                BlockId::OakTable => 311,
-                BlockId::SpruceTable => 312,
-                BlockId::JungleTable => 313,
-                BlockId::WillowTable => 314,
-                BlockId::AcaciaTable => 315,
-                BlockId::OakChair => 316,
-                BlockId::SpruceChair => 317,
-                BlockId::JungleChair => 318,
-                BlockId::WillowChair => 319,
-                BlockId::AcaciaChair => 320,
-                BlockId::Bookshelf => 321,
-                BlockId::WhiteCarpet => 322,
-                BlockId::OrangeCarpet => 323,
-                BlockId::MagentaCarpet => 324,
-                BlockId::LightBlueCarpet => 325,
-                BlockId::YellowCarpet => 326,
-                BlockId::LimeCarpet => 327,
-                BlockId::PinkCarpet => 328,
-                BlockId::GrayCarpet => 329,
-                BlockId::LightGrayCarpet => 330,
-                BlockId::CyanCarpet => 331,
-                BlockId::PurpleCarpet => 332,
-                BlockId::BlueCarpet => 333,
-                BlockId::BrownCarpet => 334,
-                BlockId::GreenCarpet => 335,
-                BlockId::RedCarpet => 336,
-                BlockId::BlackCarpet => 337,
-                BlockId::FlowerPot => 338,
-                BlockId::ItemFrame => 339,
-                BlockId::DawnPainting => 340,
-                BlockId::MeadowPainting => 341,
-                BlockId::HarbourPainting => 342,
-                BlockId::StillLifePainting => 343,
-                BlockId::ValleyPainting => 344,
-                BlockId::ValleyPaintingRight => 345,
-                BlockId::SeascapePainting => 346,
-                BlockId::SeascapePaintingRight => 347,
-                BlockId::ForestPainting => 348,
-                BlockId::ForestPaintingRight => 349,
-                BlockId::WhiteBanner => 350,
-                BlockId::OrangeBanner => 351,
-                BlockId::MagentaBanner => 352,
-                BlockId::LightBlueBanner => 353,
-                BlockId::YellowBanner => 354,
-                BlockId::LimeBanner => 355,
-                BlockId::PinkBanner => 356,
-                BlockId::GrayBanner => 357,
-                BlockId::LightGrayBanner => 358,
-                BlockId::CyanBanner => 359,
-                BlockId::PurpleBanner => 360,
-                BlockId::BlueBanner => 361,
-                BlockId::BrownBanner => 362,
-                BlockId::GreenBanner => 363,
-                BlockId::RedBanner => 364,
-                BlockId::BlackBanner => 365,
-                BlockId::WhiteLantern => 366,
-                BlockId::OrangeLantern => 367,
-                BlockId::MagentaLantern => 368,
-                BlockId::LightBlueLantern => 369,
-                BlockId::YellowLantern => 370,
-                BlockId::LimeLantern => 371,
-                BlockId::PinkLantern => 372,
-                BlockId::GrayLantern => 373,
-                BlockId::LightGrayLantern => 374,
-                BlockId::CyanLantern => 375,
-                BlockId::PurpleLantern => 376,
-                BlockId::BlueLantern => 377,
-                BlockId::BrownLantern => 378,
-                BlockId::GreenLantern => 379,
-                BlockId::RedLantern => 380,
-                BlockId::BlackLantern => 381,
-                BlockId::HangingWhiteLantern => 382,
-                BlockId::HangingOrangeLantern => 383,
-                BlockId::HangingMagentaLantern => 384,
-                BlockId::HangingLightBlueLantern => 385,
-                BlockId::HangingYellowLantern => 386,
-                BlockId::HangingLimeLantern => 387,
-                BlockId::HangingPinkLantern => 388,
-                BlockId::HangingGrayLantern => 389,
-                BlockId::HangingLightGrayLantern => 390,
-                BlockId::HangingCyanLantern => 391,
-                BlockId::HangingPurpleLantern => 392,
-                BlockId::HangingBlueLantern => 393,
-                BlockId::HangingBrownLantern => 394,
-                BlockId::HangingGreenLantern => 395,
-                BlockId::HangingRedLantern => 396,
-                BlockId::HangingBlackLantern => 397,
-                BlockId::Alembic => 398,
-                BlockId::WallTorch => 399,
-            };
-            assert_eq!(encoded(&id), varint(expected), "{id:?}: {ENCODING_WARNING}");
+            assert_eq!(encoded(&id), varint(id.index() as u16), "{id:?}");
         }
+        assert_eq!(encoded(&BlockId::Stone), [3]);
+        assert_eq!(encoded(&BlockId::Alembic), [251, 142, 1]);
     }
 
     #[test]

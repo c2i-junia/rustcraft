@@ -64,7 +64,7 @@ pub fn compute_minimap_colors(
     let Some(blocks) = &materials.blocks else {
         return;
     };
-    let colors = BlockId::ALL.into_iter().filter_map(|id| {
+    let colors = BlockId::all().filter_map(|id| {
         let shape = blocks.looks.shape(id);
         // the top face of a cube, or the only face of a plant
         let top = shape.faces.first()?;

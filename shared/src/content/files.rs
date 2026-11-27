@@ -128,10 +128,10 @@ impl Content {
 
         let mut content = Content {
             generation: 0,
-            blocks: Vec::with_capacity(BlockId::ALL.len()),
+            blocks: Vec::with_capacity(BlockId::ENGINE.len()),
             items: Vec::with_capacity(ItemId::ALL.len()),
         };
-        for id in BlockId::ALL {
+        for id in BlockId::ENGINE {
             let (props, _) = blocks.remove(&id).ok_or_else(|| {
                 in_folder(format!(
                     "block \"{}\" is defined in no file",
@@ -190,7 +190,7 @@ struct Names {
 impl Names {
     pub fn new() -> Self {
         Self {
-            blocks: BlockId::ALL
+            blocks: BlockId::ENGINE
                 .into_iter()
                 .map(|id| (block_name(id), id))
                 .collect(),
@@ -811,7 +811,7 @@ mod tests {
         assert_eq!(apple.food_value, Some((2, 1.5)));
 
         let untouched = |id: BlockId| content.block(id) == game.block(id);
-        assert!(BlockId::ALL
+        assert!(BlockId::ENGINE
             .into_iter()
             .filter(|id| ![BlockId::Torch, BlockId::Stone].contains(id))
             .all(untouched));
@@ -886,7 +886,7 @@ mod tests {
     fn the_flags_and_the_behaviour_of_the_game_blocks() {
         let game = Content::load(&game_folder()).unwrap();
         let flagged = |flag: BlockFlags| -> Vec<BlockId> {
-            BlockId::ALL
+            BlockId::ENGINE
                 .into_iter()
                 .filter(|id| game.block(*id).flags.contains(flag))
                 .collect()
@@ -900,7 +900,7 @@ mod tests {
             flagged(BlockFlags::CONTAINER),
             [BlockId::Chest, BlockId::Barrel]
         );
-        let furnaces: Vec<_> = BlockId::ALL
+        let furnaces: Vec<_> = BlockId::ENGINE
             .into_iter()
             .filter_map(|id| match game.block(id).behaviour {
                 Behaviour::Furnace { lit } => Some((id, lit)),

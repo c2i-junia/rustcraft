@@ -92,7 +92,7 @@ fn generation_around(name: &str, centre: IVec3) {
         let chunk = black_box(generate_chunk(chunk_pos, SEED));
         let time = micros(one);
         for (pos, block) in chunk.iter() {
-            (chunk_pos, pos, block.id as u32).hash(&mut checksum);
+            (chunk_pos, pos, block.id.index() as u32).hash(&mut checksum);
         }
         let full = chunk.iter().count();
         let kind = match full {
@@ -292,7 +292,7 @@ fn bench_join_generation() {
         let chunk = chunks.chunk(chunk_pos).unwrap();
         uniform += chunk.uniform().is_some() as usize;
         for (pos, block) in chunk.iter() {
-            (chunk_pos, pos, block.id as u32).hash(&mut checksum);
+            (chunk_pos, pos, block.id.index() as u32).hash(&mut checksum);
         }
     }
     println!(

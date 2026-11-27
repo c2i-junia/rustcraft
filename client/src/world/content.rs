@@ -117,7 +117,7 @@ mod tests {
     #[test]
     fn content_that_draws_otherwise_meshes_every_chunk_again() {
         let mut brighter = content().clone();
-        brighter.blocks[BlockId::Torch as usize].light_emission = 3;
+        brighter.blocks[BlockId::Torch.index()].light_emission = 3;
         let mut world = client(brighter);
 
         receive(&mut world);
@@ -133,7 +133,7 @@ mod tests {
     #[test]
     fn content_that_changes_only_properties_meshes_nothing_again() {
         let mut harder = content().clone();
-        harder.blocks[BlockId::Dirt as usize].break_time = Some(99);
+        harder.blocks[BlockId::Dirt.index()].break_time = Some(99);
         let mut world = client(harder);
 
         receive(&mut world);

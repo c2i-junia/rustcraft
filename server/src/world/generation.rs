@@ -1997,7 +1997,7 @@ mod tests {
             if actual == *block {
                 *exact_per_chunk.entry(chunk_pos).or_default() += 1;
             }
-            let log = matches!(block, BlockId::OakLog | BlockId::JungleLog);
+            let log = matches!(*block, BlockId::OakLog | BlockId::JungleLog);
             if log && pos.x == column.x && pos.z == column.z {
                 assert_eq!(actual, *block, "trunk block at {pos}");
             }

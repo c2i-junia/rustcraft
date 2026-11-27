@@ -379,7 +379,7 @@ impl BlockLook {
 /// How every kind of block is drawn with the block textures of a texture pack, by `BlockId`:
 /// made once with the textures, and read by every chunk mesh and every block item.
 pub(crate) struct BlockLooks {
-    /// By `BlockId`, in the order of `BlockId::ALL`.
+    /// By `BlockId::index`.
     looks: Vec<BlockLook>,
     /// The block texture of the cracks of each breaking stage, `None` where the pack lacks it.
     cracks: [Option<u32>; MAX_BREAKING_LEVEL as usize + 1],
@@ -388,9 +388,8 @@ pub(crate) struct BlockLooks {
 impl BlockLooks {
     /// The looks of the blocks drawn with the block textures `tiles`, the index of each by name.
     pub(crate) fn new(tiles: &HashMap<String, u32>) -> Self {
-        let looks = BlockId::ALL
-            .iter()
-            .map(|id| BlockLook::new(&BlockData::new(*id, BlockDirection::Front), tiles))
+        let looks = BlockId::all()
+            .map(|id| BlockLook::new(&BlockData::new(id, BlockDirection::Front), tiles))
             .collect();
         let cracks =
             std::array::from_fn(|stage| tiles.get(&format!("DestroyStage{stage}")).copied());
@@ -401,8 +400,8 @@ impl BlockLooks {
     /// a mesh may be made with looks older than the content of its chunk.
     fn get(&self, id: BlockId) -> &BlockLook {
         self.looks
-            .get(id as usize)
-            .unwrap_or(&self.looks[BlockId::Debug as usize])
+            .get(id.index())
+            .unwrap_or(&self.looks[BlockId::Debug.index()])
     }
 
     /// The shape of `id`, with the names of the textures of its faces.
@@ -1079,14 +1078,14 @@ mod tests {
 
     #[test]
     fn each_block_has_the_look_made_from_its_own_shape() {
-        let tiles: HashMap<String, u32> = BlockId::ALL
+        let tiles: HashMap<String, u32> = BlockId::ENGINE
             .iter()
             .map(|id| format!("{id:?}"))
             .chain(["DestroyStage3".to_string()])
             .zip(0..)
             .collect();
         let looks = BlockLooks::new(&tiles);
-        for id in BlockId::ALL {
+        for id in BlockId::ENGINE {
             let shape = VoxelShape::create_from_block(&BlockData::new(id, BlockDirection::Front));
             let textures: Vec<_> = looks.shape(id).faces.iter().map(|f| &f.texture).collect();
             let expected: Vec<_> = shape.faces.iter().map(|f| &f.texture).collect();
@@ -1626,7 +1625,7 @@ mod tests {
     #[test]
     fn a_block_the_looks_were_not_made_with_looks_like_debug() {
         let mut looks = BlockLooks::new(&HashMap::from([("_Default".to_string(), 0)]));
-        looks.looks.truncate(BlockId::Stone as usize);
+        looks.looks.truncate(BlockId::Stone.index());
         assert!(std::ptr::eq(
             looks.get(BlockId::Magma),
             looks.get(BlockId::Debug)

@@ -267,11 +267,20 @@ impl Player {
 
     /// The player broke `broken` and placed `placed`, in survival: steps are done by it.
     pub fn learn_blocks(&mut self, mut broken: impl Iterator<Item = BlockId>, placed: &[ItemId]) {
-        use BlockId::*;
         if !self.game_mode.takes_damage() {
             return;
         }
-        if broken.any(|b| matches!(b, OakLog | SpruceLog | JungleLog | WillowLog | AcaciaLog)) {
+        let log = |b| {
+            matches!(
+                b,
+                BlockId::OakLog
+                    | BlockId::SpruceLog
+                    | BlockId::JungleLog
+                    | BlockId::WillowLog
+                    | BlockId::AcaciaLog
+            )
+        };
+        if broken.any(log) {
             self.learn(FirstStep::Wood);
         }
         if placed.contains(&ItemId::Torch) {

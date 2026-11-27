@@ -1132,7 +1132,7 @@ mod tests {
 
     #[test]
     fn every_block_of_the_furniture_is_placed_by_its_item_and_drops_it() {
-        for id in BlockId::ALL {
+        for id in BlockId::ENGINE {
             let Some(decor) = id.decor() else {
                 continue;
             };
@@ -1144,9 +1144,9 @@ mod tests {
             assert!(id.get_break_time().is_some(), "{id:?}");
         }
         // every new block but the old bedroll's colours is one of them
-        assert!(BlockId::ALL
+        assert!(BlockId::ENGINE
             .into_iter()
-            .filter(|id| matches!(id, crate::new_decor_blocks!()))
+            .filter(|id| matches!(*id, crate::new_decor_blocks!()))
             .all(|id| id.decor().is_some()));
     }
 
@@ -1206,7 +1206,10 @@ mod tests {
 
     #[test]
     fn the_furniture_is_seen_through_and_the_lanterns_glow() {
-        for id in BlockId::ALL.into_iter().filter(|id| id.decor().is_some()) {
+        for id in BlockId::ENGINE
+            .into_iter()
+            .filter(|id| id.decor().is_some())
+        {
             let expected = match id.decor_kind() {
                 Some(DecorKind::Bookshelf) => BlockTransparency::Solid,
                 _ => BlockTransparency::Decoration,

@@ -967,7 +967,10 @@ mod tests {
     fn every_face_of_the_furniture_and_every_icon_of_it_has_its_texture() {
         let textures =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/graphics/base_textures");
-        for id in BlockId::ALL.into_iter().filter(|id| id.decor().is_some()) {
+        for id in BlockId::ENGINE
+            .into_iter()
+            .filter(|id| id.decor().is_some())
+        {
             for face in shape_of(id).faces {
                 let path = textures.join(format!("blocks/{}.png", face.texture));
                 assert!(path.is_file(), "{id:?}: {}", path.display());

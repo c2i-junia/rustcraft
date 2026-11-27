@@ -44,6 +44,11 @@ pub struct BlockProps {
 }
 
 impl BlockId {
+    /// Every block of the content of the process, by number: those of the engine first.
+    pub fn all() -> impl Iterator<Item = BlockId> {
+        (0..content().blocks.len()).map(|index| BlockId::from_index(index as u16))
+    }
+
     /// The properties of the block in the content of the process.
     #[inline]
     pub fn props(self) -> &'static BlockProps {

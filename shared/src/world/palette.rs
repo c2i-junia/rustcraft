@@ -1107,7 +1107,7 @@ mod tests {
 
     #[test]
     fn every_block_of_the_palette_is_placed_by_its_item_and_drops_it_or_nothing() {
-        for id in BlockId::ALL {
+        for id in BlockId::ENGINE {
             let Some(palette) = id.palette() else {
                 continue;
             };

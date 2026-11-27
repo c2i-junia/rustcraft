@@ -145,7 +145,7 @@ fn chunk_column_tops(
                     };
                     let y = (cy * CHUNK_SIZE + dy) as i16;
                     if tops[i].is_none() {
-                        tops[i] = Some((y, block as u8));
+                        tops[i] = Some((y, block.index() as u8));
                     }
                     if floors[i].is_none() && is_ground(block) {
                         floors[i] = Some(y);
@@ -255,7 +255,7 @@ fn slice(seed: u32, z: i32, x0: i32, width: i32, out: &str) {
             let pos = IVec3::new(x, y, z);
             let chunk = &chunks[&pos.div_euclid(IVec3::splat(CHUNK_SIZE))];
             let local = pos.rem_euclid(IVec3::splat(CHUNK_SIZE));
-            data.push(block_at(chunk, local).map_or(AIR, |b| b as u8));
+            data.push(block_at(chunk, local).map_or(AIR, |b| b.index() as u8));
         }
     }
     write(out, width as usize, SLICE_TOP as usize, &data);
@@ -280,7 +280,7 @@ fn layer(seed: u32, y: i32, x0: i32, z0: i32, size: i32, out: &str) {
             let pos = IVec3::new(x, y, z);
             let chunk = &chunks[&pos.div_euclid(IVec3::splat(CHUNK_SIZE))];
             let local = pos.rem_euclid(IVec3::splat(CHUNK_SIZE));
-            data.push(block_at(chunk, local).map_or(AIR, |b| b as u8));
+            data.push(block_at(chunk, local).map_or(AIR, |b| b.index() as u8));
         }
     }
     write(out, size as usize, size as usize, &data);

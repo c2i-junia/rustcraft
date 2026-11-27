@@ -33,17 +33,20 @@ pub struct Content {
     /// Which install of the process this is: 0 for the content the process starts with, one
     /// more at each `install`. What the caches built from the content watch.
     pub generation: u32,
-    /// By `BlockId`, in the order of `BlockId::ALL`.
+    /// By `BlockId::index`: the blocks of `BlockId::ENGINE` first, in their order.
     pub blocks: Vec<BlockProps>,
     /// By `ItemId`, in the order of `ItemId::ALL`.
     pub items: Vec<ItemProps>,
 }
 
 impl Content {
-    /// The properties of the block `id`.
+    /// The properties of the block `id`, those of `BlockId::Debug` for a number the content
+    /// does not define, as one a server of other content may send.
     #[inline]
     pub fn block(&self, id: BlockId) -> &BlockProps {
-        &self.blocks[id as usize]
+        self.blocks
+            .get(id.index())
+            .unwrap_or(&self.blocks[BlockId::Debug.index()])
     }
 
     /// The properties of the item `id`.
@@ -146,11 +149,13 @@ pub fn start(folder: &Path) -> Result<PathBuf, ContentError> {
 ///
 /// # Panics
 ///
-/// If `new` does not have one entry per block and per item, which every read would trip on.
+/// If `new` does not define every block of the engine, or not one entry per item, which every
+/// read would trip on.
 pub fn install(mut new: Content) -> &'static Content {
-    // Lot 4 of `docs/design/content-registry.md` numbers the blocks at load: the table then has
-    // as many entries as the content defines, and this check goes
-    assert_eq!(new.blocks.len(), BlockId::ALL.len(), "one entry per block");
+    assert!(
+        new.blocks.len() >= BlockId::ENGINE.len(),
+        "one entry per block of the engine"
+    );
     assert_eq!(new.items.len(), ItemId::ALL.len(), "one entry per item");
     let _installing = INSTALLING.lock().unwrap_or_else(PoisonError::into_inner);
     new.generation = content().generation + 1;
@@ -167,7 +172,7 @@ mod tests {
     fn the_content_has_one_entry_per_block_and_per_item() {
         let loaded = Content::load(&source_folder()).unwrap();
         assert_eq!(loaded.generation, 0);
-        assert_eq!(loaded.blocks.len(), BlockId::ALL.len());
+        assert_eq!(loaded.blocks.len(), BlockId::ENGINE.len());
         assert_eq!(loaded.items.len(), ItemId::ALL.len());
     }
 
@@ -200,10 +205,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "one entry per block")]
+    #[should_panic(expected = "one entry per block of the engine")]
     fn an_install_of_a_table_of_the_wrong_size_fails() {
         let mut short = content().clone();
-        short.blocks.pop();
+        short.blocks.truncate(BlockId::ENGINE.len() - 1);
         install(short);
     }
 }

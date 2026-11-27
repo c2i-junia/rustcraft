@@ -5,7 +5,10 @@
 /// number their chunk files and the network gave it: the variants of the former enum `BlockId`,
 /// in their order, as the content files name them. A world without a list of its own is read
 /// with this one, so it never changes: the test `the_legacy_block_names_never_change` guards it.
-pub const LEGACY_BLOCK_NAMES: [&str; 399] = [
+/// Its last name, `wall_torch`, is the variant that came last into the enum while the worlds were
+/// still saved in format 5, as number 399: it is there so that those worlds read their wall
+/// torches, and the worlds saved before it, which never hold 399, read the same.
+pub const LEGACY_BLOCK_NAMES: [&str; 400] = [
     "dirt",
     "debug",
     "grass",
@@ -405,6 +408,7 @@ pub const LEGACY_BLOCK_NAMES: [&str; 399] = [
     "hanging_red_lantern",
     "hanging_black_lantern",
     "alembic",
+    "wall_torch",
 ];
 
 #[cfg(test)]
@@ -421,17 +425,17 @@ mod tests {
             .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
                 (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
             });
-        assert_eq!(LEGACY_BLOCK_NAMES.len(), 399);
+        assert_eq!(LEGACY_BLOCK_NAMES.len(), 400);
         assert_eq!(
-            hash, 0x0fa4_836e_b6c8_04cc,
+            hash, 0xdc40_1234_b036_a709,
             "the legacy list of block names changed: the blocks of the \
             worlds saved without a list of their own would turn into other blocks"
         );
     }
 
     #[test]
-    fn the_legacy_block_names_are_those_of_the_blocks_in_their_order() {
-        for (place, id) in BlockId::ALL.into_iter().enumerate() {
+    fn the_engine_blocks_are_numbered_as_the_legacy_names() {
+        for (place, id) in BlockId::ENGINE.into_iter().enumerate() {
             assert_eq!(
                 LEGACY_BLOCK_NAMES[place],
                 crate::utils::snake_case(&format!("{id:?}"))
