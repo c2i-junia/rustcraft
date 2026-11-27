@@ -19,8 +19,10 @@ default: `cargo build`, `cargo test` and the releases do not change. Bevy 0.19.1
 dioxus-devtools `0.7.0-alpha.1` and subsecond `0.7.0-rc.0`, which cargo resolves to alphas that
 do not build on our nightly; the lock file pins the 0.7.10 crates instead (with libloading
 0.8.9 and rustversion 1.0.23, which they need). To redo it: `cargo update -p libloading
---precise 0.8.9`, `cargo update -p rustversion`, then with the feature declared
-`cargo update -p dioxus-devtools --precise 0.7.10`.
+--precise 0.8.9`, `cargo update -p rustversion --precise 1.0.23`, then with the feature declared
+`cargo update -p dioxus-devtools --precise 0.7.10`. That last step also moves the `windows-sys`
+edges of crates the default build uses (rustix, tempfile, socket2, errno...): put their entries
+back as they were, so that the lock differs only by the crates hot patching needs.
 
 dx starts the game from `target/dx/`, not from the repository: the recipe passes the absolute
 paths of `data/` and `appdata/client-1`, and `BEVY_ASSET_ROOT` for the fonts and sounds. It
@@ -88,7 +90,7 @@ panel at the bottom with the hotbar, the inventory and the bars over it, the ite
 right column with the minimap and the FPS counter, and the debug overlays. `respawn_hud`
 despawns the roots it spawned last and runs it again; the pause menu, if open, is despawned and
 spawned again by `spawn_pause_menu`. What lived only in their entities goes back to how it
-starts: the zoom of the minimap, the focus in the pause menu. Their systems that draw only what
+starts: the zoom of the minimap, the focus in the pause menu. The slot selected in the hotbar is kept. Their systems that draw only what
 changed (the hearts, the drumsticks, the bubbles, the recharge gauge, the effects) remember the
 entity they drew in, so that a new HUD is drawn at once.
 
