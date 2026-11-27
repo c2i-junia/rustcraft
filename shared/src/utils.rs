@@ -21,6 +21,19 @@ pub fn format_bytes(bytes: u64) -> String {
 }
 
 /// Milliseconds since the Unix epoch, 0 if the system clock is set before it.
+/// The snake case of a PascalCase name, as the commands and the content files name a block or
+/// an item: `OakLog` is `oak_log`.
+pub fn snake_case(pascal: &str) -> String {
+    let mut name = String::new();
+    for c in pascal.chars() {
+        if c.is_uppercase() && !name.is_empty() {
+            name.push('_');
+        }
+        name.extend(c.to_lowercase());
+    }
+    name
+}
+
 pub fn unix_time_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

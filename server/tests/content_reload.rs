@@ -99,9 +99,12 @@ impl TestClient {
         })
     }
 
+    /// The next chat message of the server, the answers to the commands.
     fn wait_for_chat(&mut self) -> String {
-        self.wait_for("a chat message", |m| match m {
-            ServerToClientMessage::ChatMessage(message) => Some(message.content.clone()),
+        self.wait_for("a chat message of the server", |m| match m {
+            ServerToClientMessage::ChatMessage(message) if message.author == "Server" => {
+                Some(message.content.clone())
+            }
             _ => None,
         })
     }
@@ -129,7 +132,7 @@ fn a_server_sends_its_override_files_at_join_and_again_on_reload() {
     let write = |name: &str, text: &str| std::fs::write(folder.join(name), text).unwrap();
     write(
         "tuning.ron",
-        r#"(blocks: {"torch": (light_emission: 9)}, items: {"apple": (max_stack: 16)})"#,
+        r#"(blocks: {"torch": (light: 9)}, items: {"apple": (stack: 16)})"#,
     );
     let builtin = Content::builtin();
     assert_eq!(torch_light(&builtin), 14, "the test changes the torch");
@@ -174,7 +177,7 @@ fn a_server_sends_its_override_files_at_join_and_again_on_reload() {
     assert!(joined.generation > 0);
 
     // 2. A bad file: nothing changes, and the player is told the file and the block
-    write("broken.ron", r#"(blocks: {"stone": (light_emission: 99)})"#);
+    write("broken.ron", r#"(blocks: {"stone": (light: 99)})"#);
     client.chat("/reload");
     let refusal = client.wait_for_chat();
     assert!(
@@ -186,7 +189,7 @@ fn a_server_sends_its_override_files_at_join_and_again_on_reload() {
 
     // 3. Fixed and changed: installed and sent again
     std::fs::remove_file(folder.join("broken.ron")).unwrap();
-    write("tuning.ron", r#"(blocks: {"torch": (light_emission: 5)})"#);
+    write("tuning.ron", r#"(blocks: {"torch": (light: 5)})"#);
     client.chat("/reload");
     assert_eq!(client.wait_for_chat(), "Content files reloaded");
     let reloaded = client.wait_for_content();

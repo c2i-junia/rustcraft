@@ -1128,14 +1128,7 @@ impl ItemId {
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
     pub fn name(&self) -> String {
-        let mut name = String::new();
-        for c in format!("{self:?}").chars() {
-            if c.is_uppercase() && !name.is_empty() {
-                name.push('_');
-            }
-            name.extend(c.to_lowercase());
-        }
-        name
+        crate::utils::snake_case(&format!("{self:?}"))
     }
 
     /// The item called `name`: `oak_log` like in Minecraft, in any case, or `OakLog` like the

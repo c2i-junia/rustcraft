@@ -87,8 +87,12 @@ impl ContentFiles {
         };
         let (sender, receiver) = mpsc::channel();
         let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-            let Ok(event) = event else {
-                return;
+            let event = match event {
+                Ok(event) => event,
+                Err(err) => {
+                    warn!("The watcher of the content files failed: {err}");
+                    return;
+                }
             };
             if !matches!(event.kind, EventKind::Access(_))
                 && event.paths.iter().any(|path| is_ron(path))

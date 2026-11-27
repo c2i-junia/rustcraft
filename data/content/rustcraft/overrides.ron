@@ -3,16 +3,19 @@
 // sends them to its players. A file with an error changes nothing: the error goes to the log and
 // to the chat.
 //
-// Blocks and items are named as the commands name them (`oak_log`). A field is written as the
-// property it replaces (`shared/src/content/files.rs` lists them):
+// Blocks and items are named as the commands name them (`oak_log`), and so are the items a block
+// drops. The fields (`shared/src/content/files.rs` lists them all): `light`, `opacity`, `break`
+// (the hits of a hand), `tools`, `needs_tool`, `drops` (chance, item, count), `look`,
+// `collision`, `outline`, `replaceable`; for an item `stack`, `attack_damage`, `food_value`,
+// `food_effect`, `horse_armour`, `durability`, `category`.
 //
 // (
 //     blocks: {
-//         "torch": (light_emission: 10),
-//         "stone": (break_time: Some(20), drops: [(1, Gravel, 1)]),
+//         "torch": (light: 10),
+//         "stone": (break: 20, tools: [Pickaxe], drops: [(1, "gravel", 1)]),
 //     },
 //     items: {
-//         "apple": (max_stack: 16),
+//         "apple": (stack: 16),
 //     },
 // )
 ()
