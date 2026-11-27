@@ -12,7 +12,7 @@ use shared::players::Player;
 use shared::world::{Enchantment, ItemId, ItemStack};
 
 use super::game::{enter_world, slot};
-use super::harness::{Harness, SCREEN, SERVER};
+use super::harness::{Harness, SERVER};
 use super::seed::GameFolder;
 use crate::camera::CameraController;
 use crate::dropped_items::glint::Glint;
@@ -170,14 +170,15 @@ fn the_player_sees_its_arm_and_the_item_it_holds_and_the_model_holds_it_too() {
 
     // An empty slot: the hand goes down, and comes up with the arm alone. A clock of 50 ms a
     // frame, a few frames each way: on a loaded machine, a frame could take the whole way down
-    // and up again
+    // and up again. The waits of this test bear a slow machine: what they wait for comes in a
+    // few frames, which may take more than the 2 s of a screen
     h.world_mut()
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
             50,
         )));
     h.press(KeyCode::Digit3);
-    h.wait_until("the hand going down", SCREEN, |w| hand(w).0.lowered > 0.0);
-    h.wait_until("the empty hand", SCREEN, |w| holds(w, None));
+    h.wait_until("the hand going down", SERVER, |w| hand(w).0.lowered > 0.0);
+    h.wait_until("the empty hand", SERVER, |w| holds(w, None));
     h.world_mut().insert_resource(TimeUpdateStrategy::Automatic);
     h.frames(10);
     h.snapshot("empty_hand");
@@ -187,7 +188,7 @@ fn the_player_sees_its_arm_and_the_item_it_holds_and_the_model_holds_it_too() {
 
     // The dirt, as a small block
     h.press(KeyCode::Digit2);
-    h.wait_until("the dirt in the hand", SCREEN, |w| {
+    h.wait_until("the dirt in the hand", SERVER, |w| {
         holds(w, Some(ItemId::Dirt))
     });
     h.frames(10);
@@ -198,12 +199,12 @@ fn the_player_sees_its_arm_and_the_item_it_holds_and_the_model_holds_it_too() {
     // The left button strikes: the hand leaves its rest
     let rest = view_model_transform(HandOffset::NONE);
     h.button_down(MouseButton::Left);
-    h.wait_until("the hand striking", SCREEN, |w| {
+    h.wait_until("the hand striking", SERVER, |w| {
         hand(w).1.translation.distance(rest.translation) > 0.03
     });
     h.snapshot("striking");
     h.button_up(MouseButton::Left);
-    h.wait_until("the hand back at rest", SCREEN, |w| {
+    h.wait_until("the hand back at rest", SERVER, |w| {
         hand(w).1.translation.distance(rest.translation) < 1e-4
     });
 
@@ -213,14 +214,14 @@ fn the_player_sees_its_arm_and_the_item_it_holds_and_the_model_holds_it_too() {
     controllers.single_mut(w).unwrap().angle_y = 0.7;
     h.frames(5);
     h.button_down(MouseButton::Right);
-    h.wait_until("the hand pushing the block placed", SCREEN, |w| {
+    h.wait_until("the hand pushing the block placed", SERVER, |w| {
         hand(w).0.using.is_some()
     });
     h.button_up(MouseButton::Right);
     h.wait_until("the block placed", SERVER, |w| {
         slot(w, 1).is_some_and(|(_, count)| count < 5)
     });
-    h.wait_until("the hand back at rest", SCREEN, |w| {
+    h.wait_until("the hand back at rest", SERVER, |w| {
         hand(w).0.using.is_none()
     });
 
@@ -243,7 +244,7 @@ fn the_player_sees_its_arm_and_the_item_it_holds_and_the_model_holds_it_too() {
 
     // And the pickaxe, once selected
     h.press(KeyCode::Digit1);
-    h.wait_until("the pickaxe in the hand of the model", SCREEN, |w| {
+    h.wait_until("the pickaxe in the hand of the model", SERVER, |w| {
         let (_, meshes) = holder(w, Grip::ThirdPerson);
         meshes == [(ItemId::WoodenPickaxe, Some(RenderLayers::layer(0)))]
     });
@@ -312,13 +313,13 @@ fn an_enchanted_item_glints_in_the_hand_on_the_model_and_on_the_ground() {
 
     // The same sword, not enchanted, has none
     h.press(KeyCode::Digit2);
-    h.wait_until("the plain sword", SCREEN, |w| glints(w).is_empty());
+    h.wait_until("the plain sword", SERVER, |w| glints(w).is_empty());
     h.frames(10);
     h.snapshot("plain_sword");
 
     // Thrown, on the ground
     h.press(KeyCode::Digit3);
-    h.wait_until("the other enchanted sword", SCREEN, |w| {
+    h.wait_until("the other enchanted sword", SERVER, |w| {
         glints(w).len() == 2
     });
     h.press(KeyCode::KeyQ);
@@ -332,7 +333,7 @@ fn an_enchanted_item_glints_in_the_hand_on_the_model_and_on_the_ground() {
     h.key_down(KeyCode::F5);
     h.frames(1);
     h.key_up(KeyCode::F5);
-    h.wait_until("the glint in the hand of the model", SCREEN, |w| {
+    h.wait_until("the glint in the hand of the model", SERVER, |w| {
         glints(w).contains(&Some(RenderLayers::layer(0)))
     });
     // Pictured from the right of the player, the sword on the ground beyond it
