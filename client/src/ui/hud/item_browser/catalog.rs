@@ -13,6 +13,8 @@ pub fn catalog() -> Vec<ItemId> {
     ItemCategory::ALL
         .into_iter()
         .flat_map(|category| ItemId::all().filter(move |item| item.category() == category))
+        // one that only holds the place of an item gone has nothing to show
+        .filter(|item| !item.is_placeholder())
         .collect()
 }
 

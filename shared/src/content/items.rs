@@ -42,6 +42,9 @@ pub struct ItemProps {
     pub category: ItemCategory,
     /// `ItemId::get_default_type`.
     pub default_type: ItemType,
+    /// Whether the item only holds the place of one the files no longer define, or never did
+    /// in this process (`Content::hold_item_places`).
+    pub placeholder: bool,
 }
 
 impl ItemProps {
@@ -60,6 +63,7 @@ impl ItemProps {
         durability: None,
         category: ItemCategory::Blocks,
         default_type: ItemType::Generic,
+        placeholder: true,
     };
 }
 
@@ -80,6 +84,11 @@ impl ItemId {
         u16::try_from(self.index())
             .ok()
             .and_then(|index| content().item_display.get(&index))
+    }
+
+    /// Whether the item only holds the place of one the content files do not define.
+    pub fn is_placeholder(self) -> bool {
+        content().item(self).placeholder
     }
 
     /// The properties of the item in the content of the process.

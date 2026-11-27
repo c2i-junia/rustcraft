@@ -494,6 +494,13 @@ mod tests {
         assert_eq!(held.item_named("ruby"), Some(ruby));
         assert_eq!(held.item_idents[ruby.index()], "Ruby");
         assert_eq!(*held.item(ruby), ItemProps::PLACEHOLDER);
+        // marked so, which no item of the files is (the item browser leaves it out)
+        assert!(held.item(ruby).placeholder);
+        assert!(held
+            .items
+            .iter()
+            .take(content().items.len())
+            .all(|item| !item.placeholder));
         assert_eq!(held.flaw(), None);
         // a number no content defines reads as a placeholder
         assert_eq!(

@@ -856,6 +856,7 @@ impl ItemDef {
             durability,
             category: category.unwrap_or(ItemCategory::Blocks),
             default_type,
+            placeholder: false,
         })
     }
 }
