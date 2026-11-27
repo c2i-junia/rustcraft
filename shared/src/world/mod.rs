@@ -1,6 +1,7 @@
 pub mod alchemy;
 pub mod anvil;
 pub mod biome;
+pub mod block_names;
 pub mod blocks;
 pub mod cartography;
 pub mod chunk;
@@ -39,6 +40,7 @@ pub mod weather;
 
 pub use anvil::*;
 pub use biome::*;
+pub use block_names::*;
 pub use blocks::*;
 pub use chunk::*;
 pub use chunk_map::*;
