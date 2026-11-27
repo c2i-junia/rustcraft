@@ -56,6 +56,9 @@ dev = ["bevy/dynamic_linking", "bevy/file_watcher", "bevy/embedded_watcher", "de
 # Hot patching of the systems under `dx serve --hot-patch` (`just hot`, docs/HOT_RELOAD.md). Off by
 # default: normal builds are unchanged.
 hot = ["bevy/hotpatching"]
+# The Bevy Remote Protocol, through which agents drive the game and take screenshots of it (`just
+# brp`, `client/src/brp.rs`). Off by default: normal builds are unchanged.
+brp = ["bevy/bevy_remote"]
 
 [lints]
 workspace = true

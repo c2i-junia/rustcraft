@@ -4,6 +4,8 @@ mod account;
 mod app;
 mod atomic_write;
 mod audio;
+#[cfg(feature = "brp")]
+mod brp;
 mod camera;
 mod constants;
 mod dropped_items;
@@ -129,6 +131,8 @@ fn main() {
     app.add_plugins((i18n::watch::watch_plugin, ui::theme::watch::watch_plugin));
     #[cfg(feature = "hot")]
     app.add_plugins(hot::hot_plugin);
+    #[cfg(feature = "brp")]
+    app.add_plugins(brp::brp_plugin);
     app.run();
 }
 

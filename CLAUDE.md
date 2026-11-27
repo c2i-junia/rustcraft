@@ -61,3 +61,40 @@ Agents run it through `scripts/headless.sh` like any other command; the owner ru
 
 `just hot` (hot patching under dx, `docs/HOT_RELOAD.md`) is the owner's tool; agents run it only
 headless, as `scripts/headless.sh 240 just hot --interactive=false`.
+
+### Driving the game and seeing it (BRP)
+
+`just brp [SECONDS] [client args]` (in the background) runs the client headless for SECONDS
+(240 by default) with the Bevy Remote Protocol, a JSON-RPC server on http://127.0.0.1:15702
+(the `brp` feature, `client/src/brp.rs`). It plays in `appdata/client-1`; for a world of your
+own, run `scripts/headless.sh 240 cargo run -p client --features brp -- --game-folder-path
+<scratch folder> --assets-folder-path $PWD/data --player-name PlayerOne` instead. Then:
+
+```sh
+brp() { curl -s --max-time 10 http://127.0.0.1:15702 -H 'content-type: application/json' \
+  -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$1\",\"params\":${2:-null}}"; echo; }
+brp rpc.discover                                            # the methods
+brp rustcraft/screenshot '{"path":"/abs/shot.png"}'          # written a few frames later
+brp world.query '{"data":{"components":["bevy_ui::widget::text::Text"]}}'   # the texts shown
+brp world.get_components '{"entity":ID,"components":["bevy_ui::ui_transform::UiGlobalTransform"]}'
+brp world.query '{"data":{"components":["bevy_transform::components::transform::Transform"]},"filter":{"with":["bevy_camera::camera::Camera"]}}'
+W=$(brp world.query '{"data":{},"filter":{"with":["bevy_window::window::PrimaryWindow"]}}' | grep -o '"entity":[0-9]*' | cut -d: -f2)
+```
+
+Only reflected types can be read (the Bevy ones, not most of the game's). The last six numbers
+of a `UiGlobalTransform` are an affine matrix: its last two are the centre of the node, in the
+window's pixels (1280x720). Input goes in as messages, so the game reacts as to a real one:
+
+```sh
+# a click at (640, 300): the cursor moves there, then the left button goes down and up
+for m in "{\"CursorMoved\":{\"window\":$W,\"position\":[640.0,300.0],\"delta\":null}}" \
+         "{\"MouseButtonInput\":{\"button\":\"Left\",\"state\":\"Pressed\",\"window\":$W}}" \
+         "{\"MouseButtonInput\":{\"button\":\"Left\",\"state\":\"Released\",\"window\":$W}}"; do
+  brp world.write_message "{\"message\":\"bevy_window::event::WindowEvent\",\"value\":$m}"; done
+# a key: Pressed, then Released (in between, it is held: W walks forward)
+brp world.write_message "{\"message\":\"bevy_input::keyboard::KeyboardInput\",\"value\":{\"key_code\":\"Enter\",\"logical_key\":\"Enter\",\"state\":\"Pressed\",\"text\":null,\"repeat\":false,\"window\":$W}}"
+```
+
+A letter key is `"key_code":"KeyW","logical_key":{"Character":"w"},"text":"w"`. To enter a new
+world from the home menu: click Singleplayer (640, 300), click New world (1188, 45), Enter
+(creates it and focuses its card), Enter (plays it).

@@ -64,6 +64,14 @@ generate-release-folder-server:
     # copy paste binaries 
     cp target/release/server release/bin/rustcraft-server
 
+# Runs the client headless under gamescope for SECONDS with the Bevy Remote Protocol on
+# http://127.0.0.1:15702 (the `brp` feature), for an agent to drive it and take screenshots of it.
+# Run it in the background; CLAUDE.md lists the calls. Extra arguments go to the client.
+brp seconds="240" *args="": create-game-folders
+    scripts/headless.sh {{seconds}} cargo run --package client --bin client --features brp -- \
+        --game-folder-path {{justfile_directory()}}/appdata/client-1 \
+        --assets-folder-path {{justfile_directory()}}/data --player-name PlayerOne {{args}}
+
 # Fmt, clippy and the whole suite; returns at once when the tree already passed.
 # `just check --force` runs it anyway.
 check *args:
