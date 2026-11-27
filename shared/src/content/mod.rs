@@ -14,7 +14,7 @@ mod look;
 
 pub(crate) use blocks::tool_bit;
 pub use blocks::BlockProps;
-pub use files::ContentError;
+pub use files::{ContentError, NewBlock};
 pub use items::ItemProps;
 pub use look::{Behaviour, BlockFlags, Look, Shape, Sway, Tint};
 
@@ -189,15 +189,26 @@ pub fn start(folder: &Path) -> Result<PathBuf, ContentError> {
         file: folder.to_path_buf(),
         reason: "no such folder of content files".to_string(),
     })?;
-    if CONTENT.load(Ordering::Acquire).is_null() {
-        start_with(Content::load(&folder)?);
-    } else {
-        let loaded = Content::reload(&folder, content())?;
-        if !loaded.same_properties(content()) {
-            install(loaded);
-        }
+    let started = !CONTENT.load(Ordering::Acquire).is_null();
+    let (loaded, new) = Content::load_telling(&folder, started.then(content))?;
+    tell_new_blocks(&new);
+    if !started {
+        start_with(loaded);
+    } else if !loaded.same_properties(content()) {
+        install(loaded);
     }
     Ok(folder)
+}
+
+/// Logs each of `new`: a warning for one that may be a typo.
+pub fn tell_new_blocks(new: &[NewBlock]) {
+    for block in new {
+        if block.near.is_some() {
+            bevy_log::warn!("{block}");
+        } else {
+            bevy_log::info!("{block}");
+        }
+    }
 }
 
 /// Makes `new` the content of the process, as the generation after the current one, and

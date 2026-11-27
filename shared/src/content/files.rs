@@ -66,13 +66,60 @@ impl fmt::Display for ContentError {
 
 impl std::error::Error for ContentError {}
 
+/// A block that only the files define and that a load numbered anew: what to tell whoever
+/// edits them, as a name mistyped defines a new block instead of changing the one it meant.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewBlock {
+    pub name: String,
+    /// The file that defines it.
+    pub file: PathBuf,
+    /// The name of another block it is close to (`MAX_TYPO` edits or fewer), the one meant
+    /// if it was mistyped.
+    pub near: Option<String>,
+}
+
+/// Most edits that turn a new name into an existing one for `NewBlock::near`.
+const MAX_TYPO: usize = 2;
+
+impl fmt::Display for NewBlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let file = self.file.file_name().unwrap_or(self.file.as_os_str());
+        write!(
+            f,
+            "block \"{}\" in {} is new",
+            self.name,
+            file.to_string_lossy()
+        )?;
+        if let Some(near) = &self.near {
+            write!(f, "; did you mean \"{near}\"?")?;
+        }
+        Ok(())
+    }
+}
+
+/// The fewest insertions, removals and replacements of a character that turn `a` into `b`.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut diagonal = row[0];
+        row[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let replaced = diagonal + usize::from(ca != *cb);
+            diagonal = row[j + 1];
+            row[j + 1] = replaced.min(row[j] + 1).min(diagonal + 1);
+        }
+    }
+    row[b.len()]
+}
+
 impl Content {
     /// The content the files of `folder` define, read in the order of their names, the blocks
     /// numbered as at the start of a process: those of the engine first (`BlockId::ENGINE`),
     /// then the others in the order of their names. Every block of the engine and every item
     /// must be defined. Nothing is installed: the caller decides.
     pub fn load(folder: &Path) -> Result<Content, ContentError> {
-        Self::load_numbered(folder, None)
+        Self::load_telling(folder, None).map(|(content, _)| content)
     }
 
     /// The content the files of `folder` define, as `load` reads it, but numbered as `previous`
@@ -80,10 +127,15 @@ impl Content {
     /// takes the next one, and a block `previous` has that the files no longer define keeps
     /// its number as a placeholder (`BlockProps::placeholder`).
     pub fn reload(folder: &Path, previous: &Content) -> Result<Content, ContentError> {
-        Self::load_numbered(folder, Some(previous))
+        Self::load_telling(folder, Some(previous)).map(|(content, _)| content)
     }
 
-    fn load_numbered(folder: &Path, previous: Option<&Content>) -> Result<Content, ContentError> {
+    /// `reload` over `previous`, or `load` without, with the blocks only the files define that
+    /// it numbered anew, to be told to whoever edits the files.
+    pub fn load_telling(
+        folder: &Path,
+        previous: Option<&Content>,
+    ) -> Result<(Content, Vec<NewBlock>), ContentError> {
         let in_folder = |reason: String| ContentError {
             file: folder.to_path_buf(),
             reason,
@@ -126,12 +178,26 @@ impl Content {
                         ),
                     });
                 }
-                new_names.push(name.clone());
+                if !new_names.iter().any(|(new, _)| new == name) {
+                    new_names.push((name.clone(), path.clone()));
+                }
             }
         }
         new_names.sort();
-        new_names.dedup();
-        block_names.extend(new_names);
+        block_names.extend(new_names.iter().map(|(name, _)| name.clone()));
+        let new_blocks: Vec<NewBlock> = new_names
+            .into_iter()
+            .map(|(name, file)| {
+                let near = block_names
+                    .iter()
+                    .filter(|other| **other != name)
+                    .map(|other| (edit_distance(&name, other), other))
+                    .filter(|(distance, _)| *distance <= MAX_TYPO)
+                    .min_by_key(|(distance, _)| *distance)
+                    .map(|(_, other)| other.clone());
+                NewBlock { name, file, near }
+            })
+            .collect();
         let names = Names::new(&block_names);
 
         let (paths, files): (Vec<PathBuf>, Vec<ContentFile>) = files.into_iter().unzip();
@@ -204,7 +270,7 @@ impl Content {
             };
             content.items.push(props);
         }
-        Ok(content)
+        Ok((content, new_blocks))
     }
 
     /// Whether `other` holds the same properties, whatever their generations.
@@ -1126,6 +1192,31 @@ mod tests {
                 .contains("block \"debug\" is defined in no file"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn a_new_block_is_told_and_one_named_close_to_another_may_be_a_typo() {
+        let folder = game_folder_with(r#"(blocks: {"tourch": (light: 9), "glow_moss": ()})"#);
+        let (content, new) = Content::load_telling(folder.path(), None).unwrap();
+        let told: Vec<String> = new.iter().map(ToString::to_string).collect();
+        assert_eq!(
+            told,
+            [
+                "block \"glow_moss\" in extra.ron is new",
+                "block \"tourch\" in extra.ron is new; did you mean \"torch\"?",
+            ]
+        );
+        assert_eq!(
+            content.block(BlockId::Torch).light_emission,
+            14,
+            "the torch is untouched"
+        );
+        // a reload tells only the blocks it numbers anew
+        let (_, again) = Content::load_telling(folder.path(), Some(&content)).unwrap();
+        assert_eq!(again, []);
+        assert_eq!(edit_distance("tourch", "torch"), 1);
+        assert_eq!(edit_distance("stone", "tones"), 2);
+        assert_eq!(edit_distance("", "ab"), 2);
     }
 
     #[test]

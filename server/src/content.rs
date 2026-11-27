@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use bevy::prelude::*;
 use bevy_renet::RenetServer;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use shared::content::{content, install, Content};
+use shared::content::{content, install, tell_new_blocks, Content};
 use shared::messages::{FullChatMessage, ServerToClientMessage};
 use shared::utils::unix_time_ms;
 use shared::{ContentSource, GameFolderPaths};
@@ -59,8 +59,9 @@ impl ContentFiles {
             );
             return None;
         };
-        match Content::reload(&folder, content()) {
-            Ok(new) => {
+        match Content::load_telling(&folder, Some(content())) {
+            Ok((new, new_blocks)) => {
+                tell_new_blocks(&new_blocks);
                 if install_if_new(new) {
                     info!("Content files of {} installed", folder.display());
                 }
@@ -174,8 +175,11 @@ pub fn reload_content_system(
     if !files.take_due(Instant::now()) {
         return;
     }
-    let answer = match Content::reload(&files.folder, content()) {
-        Ok(new) => {
+    let mut told = Vec::new();
+    let answer = match Content::load_telling(&files.folder, Some(content())) {
+        Ok((new, new_blocks)) => {
+            tell_new_blocks(&new_blocks);
+            told = new_blocks.iter().map(ToString::to_string).collect();
             if install_if_new(new) {
                 info!("Content files reloaded");
                 send_to_players(
@@ -193,15 +197,18 @@ pub fn reload_content_system(
             format!("Content files not reloaded: {err}")
         }
     };
-    send_to_players(
-        &mut server,
-        &lobby,
-        ServerToClientMessage::ChatMessage(FullChatMessage {
-            author: SERVER_AUTHOR.to_string(),
-            content: answer,
-            timestamp: unix_time_ms(),
-        }),
-    );
+    // then the blocks it numbered anew, of which a name may be mistyped
+    for content in std::iter::once(answer).chain(told) {
+        send_to_players(
+            &mut server,
+            &lobby,
+            ServerToClientMessage::ChatMessage(FullChatMessage {
+                author: SERVER_AUTHOR.to_string(),
+                content,
+                timestamp: unix_time_ms(),
+            }),
+        );
+    }
 }
 
 #[cfg(test)]

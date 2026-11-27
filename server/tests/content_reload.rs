@@ -233,6 +233,16 @@ fn a_server_sends_its_content_files_at_join_and_again_on_reload() {
     client.chat("/reload");
     assert_eq!(client.wait_for_chat(), "The content files changed nothing");
 
+    // 5. A mistyped name defines a new block: the player is told, and of the name it is near
+    write("typo.ron", r#"(blocks: {"tourch": (light: 2)})"#);
+    client.chat("/reload");
+    assert_eq!(client.wait_for_chat(), "Content files reloaded");
+    assert_eq!(
+        client.wait_for_chat(),
+        "block \"tourch\" in typo.ron is new; did you mean \"torch\"?"
+    );
+    assert_eq!(BlockId::Torch.light_emission(), 5);
+
     client.send(ClientToServerMessage::Exit);
     let _ = client.transport.send_packets(&mut client.client);
     let start = Instant::now();
