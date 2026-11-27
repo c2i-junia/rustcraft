@@ -40,15 +40,15 @@ fn player_position(w: &mut World) -> Vec3 {
         .translation
 }
 
-/// Turns the camera of the player toward `target`.
+/// Turns the camera of the player toward `target`, from the camera: the server casts the aim from
+/// the eye, well above the centre of the player's box.
 fn look_at(h: &mut Harness, target: Vec3) {
-    let eye = player_position(h.world_mut());
-    let direction = (target - eye).normalize();
     let world = h.world_mut();
-    let mut controller = world
-        .query::<&mut CameraController>()
+    let (mut controller, camera) = world
+        .query::<(&mut CameraController, &Transform)>()
         .single_mut(world)
         .unwrap();
+    let direction = (target - camera.translation).normalize();
     controller.angle_x = (-direction.x).atan2(-direction.z);
     controller.angle_y = (-direction.y).atan2(direction.xz().length());
 }
