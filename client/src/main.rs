@@ -123,6 +123,8 @@ fn main() {
             hub: args.hub,
         },
     );
+    #[cfg(feature = "dev")]
+    app.add_plugins(i18n::watch::watch_plugin);
     #[cfg(feature = "hot")]
     app.add_plugins(hot::hot_plugin);
     app.run();

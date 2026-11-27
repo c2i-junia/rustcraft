@@ -44,12 +44,15 @@ uuid = { version = "1", default-features = false, features = ["serde"] }
 ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 # The pages of the wiki, opened in the web browser from the Codex
 opener = "0.8"
+# The watcher of the language files, in a dev build
+notify = { version = "8", optional = true }
 
 [features]
 default = ["dev"]
-# Links Bevy dynamically to speed up debug builds, and reloads the assets and the shaders when their
-# files are saved while the game runs. Release builds disable it with `--no-default-features`.
-dev = ["bevy/dynamic_linking", "bevy/file_watcher", "bevy/embedded_watcher"]
+# Links Bevy dynamically to speed up debug builds, and reloads the assets, the shaders and the
+# language files when their files are saved while the game runs. Release builds disable it with
+# `--no-default-features`.
+dev = ["bevy/dynamic_linking", "bevy/file_watcher", "bevy/embedded_watcher", "dep:notify"]
 # Hot patching of the systems under `dx serve --hot-patch` (`just hot`, docs/HOT_RELOAD.md). Off by
 # default: normal builds are unchanged.
 hot = ["bevy/hotpatching"]

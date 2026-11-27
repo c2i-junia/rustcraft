@@ -15,6 +15,7 @@ use crate::state::{GameState, PlayerNameSupplied, TexturePath};
 use crate::ui::menus::player_name::{load_player_name, AskPlayerName, DEFAULT_PLAYER_NAME};
 use crate::ui::menus::{self, solo::SelectedWorld};
 use crate::ui::quit::quit_plugin;
+use crate::ui::rebuild::rebuild_plugin;
 use crate::ui::settings::load_interface_settings;
 use crate::ui::widgets::widgets_plugin;
 use crate::world::load_video_settings;
@@ -81,6 +82,7 @@ pub fn add_client(app: &mut App, settings: ClientSettings) {
     network::add_base_netcode(app);
     let (render_distance, clouds, biome_blend, graphics) = load_video_settings(&game_folder_paths);
     let interface = load_interface_settings(&game_folder_paths);
+    crate::i18n::load(&game_folder_paths.assets_folder_path);
     crate::i18n::set_language(interface.language());
     app.insert_resource(get_bindings(&game_folder_paths))
         .insert_resource(load_audio_settings(&game_folder_paths))
@@ -110,5 +112,6 @@ pub fn add_client(app: &mut App, settings: ClientSettings) {
             audio::audio_plugin,
             quit_plugin,
             account_plugin,
+            rebuild_plugin,
         ));
 }

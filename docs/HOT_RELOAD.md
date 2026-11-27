@@ -74,7 +74,8 @@ which the client embeds, extracting assets, linking).
 
 ### Menu screens
 
-A patch re-enters the menu screen shown (`client/src/hot.rs`): `NextState::set` to the same
+A patch re-enters the menu screen shown (`client/src/hot.rs` sends `RebuildScreens`,
+`client/src/ui/rebuild.rs` does it; a saved language file does the same): `NextState::set` to the same
 state runs `OnExit` (which despawns the screen, `DespawnOnExit`) and `OnEnter` (which spawns
 it with the patched code). What lived only in the screen's entities is lost: the focus goes
 back to the screen's `AutoFocus`, text typed in its fields and scroll positions are gone; what
@@ -84,7 +85,7 @@ is not part of the screen and would be left over the new one.
 ### In game
 
 In game, a patch rebuilds the HUD and the pause menu without leaving the world
-(`rebuild_in_game_screens` in `client/src/hot.rs`). The HUD's setup systems are in a schedule of
+(`rebuild_in_game_screens` in `client/src/ui/rebuild.rs`). The HUD's setup systems are in a schedule of
 their own, `SpawnHud` (`client/src/ui/hud/mod.rs`), which entering a world runs: the reticle, the
 panel at the bottom with the hotbar, the inventory and the bars over it, the item browser, the top
 right column with the minimap and the FPS counter, and the debug overlays. `respawn_hud`

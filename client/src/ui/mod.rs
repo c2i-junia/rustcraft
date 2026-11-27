@@ -6,6 +6,7 @@ pub mod golden;
 pub mod hud;
 pub mod menus;
 pub mod quit;
+pub mod rebuild;
 pub mod settings;
 pub mod theme;
 pub mod widgets;

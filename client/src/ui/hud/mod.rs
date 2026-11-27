@@ -348,8 +348,7 @@ pub fn spawn_hud(world: &mut World) {
 /// runs `SpawnHud` again, so that the code of its setup systems runs anew. The slot selected in
 /// the hotbar is kept, which the server knows as the item held; what else lives only in its
 /// entities goes back to how it starts: the inventory closed, the zoom of the minimap. The chat,
-/// which is not part of it, keeps its lines. Used by the hot patching (`client/src/hot.rs`).
-#[cfg_attr(not(feature = "hot"), allow(dead_code))]
+/// which is not part of it, keeps its lines. Used by the rebuild of the screens (`ui/rebuild.rs`).
 pub fn respawn_hud(world: &mut World) {
     let mut hotbars = world.query::<&mut Hotbar>();
     let selected = hotbars.single(world).ok().map(|hotbar| hotbar.selected);

@@ -1,18 +1,23 @@
-//! The languages of the game. Each has one file of `data/lang/`, `<code>.ron`, a map from a key
-//! to its text; English is complete, and gives the text of a key another language lacks. A text
-//! may hold parameters, `{name}`, filled by `trf`.
+//! The languages of the game. Each has one file of `lang/` in the assets, `<code>.ron`, a map
+//! from a key to its text; English is complete, and gives the text of a key another language
+//! lacks. A text may hold parameters, `{name}`, filled by `trf`.
 //!
 //! The language chosen is global: `tr` and `trf` read it, so that the names of items and the
 //! labels of enums need no resource. The UI looks a text up when it spawns or changes, never
-//! every frame. Adding a language: its file, a variant of `Language` and a line of `SOURCES`.
+//! every frame. The files are read at start (`load`); a dev build reads them again when one is
+//! saved (`watch`). Adding a language: its file and a variant of `Language`.
 
 use serde::{Deserialize, Serialize};
 use shared::players::{armour::ArmourPiece, game_mode::DeathCause, progress::Achievement};
 use shared::world::{depths::DepthTier, Enchantment, ItemCategory, ItemId, ItemTag, MobKind};
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::OnceLock;
+use std::sync::RwLock;
+
+#[cfg(feature = "dev")]
+pub mod watch;
 
 /// A language of the game.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -21,12 +26,6 @@ pub enum Language {
     English,
     French,
 }
-
-/// The file of each language, in the order of `Language::ALL`.
-const SOURCES: [&str; 2] = [
-    include_str!("../../data/lang/en.ron"),
-    include_str!("../../data/lang/fr.ron"),
-];
 
 impl Language {
     pub const ALL: [Language; 2] = [Language::English, Language::French];
@@ -66,40 +65,93 @@ impl Language {
     }
 }
 
-/// The texts of a language, read from its file, and the names of the items.
+/// The folder of the language files in the assets folder.
+pub fn lang_folder(assets_folder: &Path) -> PathBuf {
+    assets_folder.join("lang")
+}
+
+/// The texts of a language, read from its file.
 struct Table {
     texts: HashMap<String, String>,
 }
 
-fn tables() -> &'static [Table] {
-    static TABLES: OnceLock<Vec<Table>> = OnceLock::new();
-    TABLES.get_or_init(|| {
-        SOURCES
-            .iter()
-            .zip(Language::ALL)
-            .map(|(source, language)| Table {
-                texts: ron::from_str(source).unwrap_or_else(|e| {
-                    panic!("data/lang/{}.ron cannot be read: {e}", language.code())
-                }),
-            })
-            .collect()
+/// The texts of every language, in the order of `Language::ALL`, and the names of the items.
+/// Each reading of the files is leaked, so that the texts handed out stay valid when the files
+/// are read again: a few hundred kilobytes for each save of a language file, in a dev build.
+#[derive(Clone, Copy)]
+struct Tables {
+    languages: &'static [Table],
+    /// The names of the items in each language, in the order of `ItemId::ALL`.
+    item_names: &'static [Vec<&'static str>],
+}
+
+/// The tables in use, installed by `load` or `install`.
+static TABLES: RwLock<Option<Tables>> = RwLock::new(None);
+
+/// Reads the files of every language from `folder`, or says which one cannot be read.
+fn read(folder: &Path) -> Result<Tables, String> {
+    let mut languages = Vec::with_capacity(Language::ALL.len());
+    for language in Language::ALL {
+        let path = folder.join(format!("{}.ron", language.code()));
+        let source = std::fs::read_to_string(&path)
+            .map_err(|e| format!("{} cannot be read: {e}", path.display()))?;
+        let texts = ron::from_str(&source)
+            .map_err(|e| format!("{} cannot be read: {e}", path.display()))?;
+        languages.push(Table { texts });
+    }
+    let languages: &'static [Table] = languages.leak();
+    let item_names = Language::ALL
+        .iter()
+        .map(|&language| {
+            ItemId::ALL
+                .iter()
+                .map(|item| {
+                    lookup_in(languages, language, &format!("item.{item:?}")).unwrap_or("?")
+                })
+                .collect()
+        })
+        .collect::<Vec<_>>()
+        .leak();
+    Ok(Tables {
+        languages,
+        item_names,
     })
 }
 
-/// The names of the items in each language, in the order of `ItemId::ALL`.
-fn item_names() -> &'static [Vec<&'static str>] {
-    static NAMES: OnceLock<Vec<Vec<&'static str>>> = OnceLock::new();
-    NAMES.get_or_init(|| {
-        Language::ALL
-            .iter()
-            .map(|&language| {
-                ItemId::ALL
-                    .iter()
-                    .map(|item| lookup(language, &format!("item.{item:?}")).unwrap_or("?"))
-                    .collect()
-            })
-            .collect()
-    })
+/// Puts `tables` in use: the UI spawned from now on shows their texts.
+fn install(tables: Tables) {
+    *TABLES.write().unwrap_or_else(|poison| poison.into_inner()) = Some(tables);
+}
+
+/// Reads the language files of the assets folder and puts them in use. The game cannot show a
+/// word without them: a file missing or wrong stops it, naming the file.
+///
+/// The clients of the tests, whose assets folder is the source tree, leave the tables to
+/// `tables`, read once for the whole process: reading them again for each would undo, under
+/// the tests running beside it, the table a test of the reload installs.
+pub fn load(assets_folder: &Path) {
+    if cfg!(test) {
+        return;
+    }
+    let folder = lang_folder(assets_folder);
+    install(read(&folder).unwrap_or_else(|e| panic!("{e}")));
+}
+
+/// The tables in use. The tests, for which `load` reads nothing, read those of the source tree.
+fn tables() -> Tables {
+    if let Some(tables) = *TABLES.read().unwrap_or_else(|poison| poison.into_inner()) {
+        return tables;
+    }
+    #[cfg(test)]
+    {
+        let mut installed = TABLES.write().unwrap_or_else(|poison| poison.into_inner());
+        *installed.get_or_insert_with(|| {
+            let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../data");
+            read(&lang_folder(&data)).unwrap_or_else(|e| panic!("{e}"))
+        })
+    }
+    #[cfg(not(test))]
+    panic!("a text was looked up before the language files were loaded (`i18n::load`)")
 }
 
 static CURRENT: AtomicUsize = AtomicUsize::new(0);
@@ -134,11 +186,15 @@ pub fn in_language<T>(language: Language, f: impl FnOnce() -> T) -> T {
 }
 
 fn lookup(language: Language, key: &str) -> Option<&'static str> {
-    let tables = tables();
-    tables[language.index()]
+    lookup_in(tables().languages, language, key)
+}
+
+/// The text of `key` in `language` among `languages`, or in English when it lacks it.
+fn lookup_in(languages: &'static [Table], language: Language, key: &str) -> Option<&'static str> {
+    languages[language.index()]
         .texts
         .get(key)
-        .or_else(|| tables[Language::English.index()].texts.get(key))
+        .or_else(|| languages[Language::English.index()].texts.get(key))
         .map(String::as_str)
 }
 
@@ -201,7 +257,7 @@ pub fn fill(template: &str, args: &[(&str, &dyn Display)]) -> String {
 /// The name of `item` in the language of the game.
 pub fn item_name(item: ItemId) -> &'static str {
     // `ItemId::ALL` is in the order of the variants
-    item_names()[language().index()][item as usize]
+    tables().item_names[language().index()][item as usize]
 }
 
 /// The text of a key built at run time, such as `mob.Fox`: "?" when no language has it.
@@ -307,7 +363,7 @@ pub fn folded(text: &str) -> String {
 /// A parameter named `item` holds an item as the server writes it, `OakLog` or `oak_log`, and
 /// is given its name; the value of another is replaced by `server.word.<value>` when there is one.
 pub fn translate_server_answer(content: &str) -> Option<String> {
-    let english = &tables()[Language::English.index()].texts;
+    let english = &tables().languages[Language::English.index()].texts;
     let mut templates: Vec<(&String, &String)> = english
         .iter()
         .filter(|(key, _)| key.starts_with("server.") && !key.starts_with("server.word."))
@@ -409,7 +465,7 @@ mod tests {
     use std::collections::BTreeSet;
 
     fn keys(language: Language) -> BTreeSet<&'static str> {
-        tables()[language.index()]
+        tables().languages[language.index()]
             .texts
             .keys()
             .map(String::as_str)
@@ -436,8 +492,8 @@ mod tests {
             let missing: Vec<_> = english.difference(&theirs).collect();
             assert!(missing.is_empty(), "{language:?} lacks {missing:?}");
             for key in theirs {
-                let text = &tables()[language.index()].texts[key];
-                let english = &tables()[0].texts[key];
+                let text = &tables().languages[language.index()].texts[key];
+                let english = &tables().languages[0].texts[key];
                 assert_eq!(
                     parameters(text),
                     parameters(english),
@@ -452,7 +508,7 @@ mod tests {
         for language in Language::ALL {
             for item in ItemId::ALL {
                 assert!(
-                    tables()[language.index()]
+                    tables().languages[language.index()]
                         .texts
                         .contains_key(&format!("item.{item:?}")),
                     "{language:?} has no name for {item:?}"
@@ -468,8 +524,8 @@ mod tests {
             Some("Quitter")
         );
         // a key French would lack is looked up in English
-        let english = &tables()[0].texts;
-        let french = &tables()[1].texts;
+        let english = &tables().languages[0].texts;
+        let french = &tables().languages[1].texts;
         let key = english.keys().next().unwrap();
         assert!(french.contains_key(key));
         in_language(Language::French, || {
