@@ -12,7 +12,8 @@
 		><Icon {r} size={20} /><span>{label ?? r.name}</span>{#if count && count > 1}<span class="times">×{count}</span>{/if}</a
 	>
 {:else}
-	<span>{label ?? id}</span>
+	<!-- No ref: the page's load did not name this id (see README, "Writing a page") -->
+	<span data-missing-ref={id}>{label ?? id}</span>
 {/if}
 
 <style>
