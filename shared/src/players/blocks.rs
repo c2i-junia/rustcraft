@@ -533,7 +533,7 @@ fn break_block(
     world_map: &mut ChunkMap,
     action: &PlayerFrameInput,
     hits: u8,
-) -> Result<Option<BrokenBlock>, Refused> {
+) -> Result<Vec<BrokenBlock>, Refused> {
     let position = aimed_block(player, world_map, action, INTERACTION_DISTANCE, |target| {
         target.position
     })?
@@ -555,7 +555,7 @@ fn break_block(
         .saturating_add(hits.saturating_mul(speed));
     if block.breaking_progress < break_time {
         world_map.set_block(position, block);
-        return Ok(None);
+        return Ok(Vec::new());
     }
 
     let harvested = block.id.is_harvested_by(tool);
@@ -596,13 +596,31 @@ fn break_block(
             world_map.remove_block(other);
         }
     }
-    Ok(Some(BrokenBlock {
+    let mut broken = vec![BrokenBlock {
         position,
         block: block.id,
         contents,
         furnace,
         harvested,
-    }))
+    }];
+    // The torches it held fall with it: the one on top of it and those on its sides
+    for step in [IVec3::Y, IVec3::X, IVec3::NEG_X, IVec3::Z, IVec3::NEG_Z] {
+        let next = position + step;
+        let Some(held) = world_map.get_block(next).copied() else {
+            continue;
+        };
+        if held.support(next) == Some(position) {
+            world_map.remove_block(next);
+            broken.push(BrokenBlock {
+                position: next,
+                block: held.id,
+                contents: None,
+                furnace: None,
+                harvested: held.id.is_harvested_by(None),
+            });
+        }
+    }
+    Ok(broken)
 }
 
 /// Uses the aimed block, if a right click with the held item changes it: a door, a bush of ripe
@@ -893,9 +911,27 @@ fn place_block(
         block_id
     };
 
+    // A torch placed against the side of a block leans on it; else it stands on the block below
+    let block_id = if block_id == BlockId::Torch {
+        let holds = |cell| {
+            world_map
+                .get_block(cell)
+                .is_some_and(|block| matches!(block.get_hitbox(), BlockHitbox::FullBlock))
+        };
+        if BlockDirection::toward(-target.face.to_ivec3()).is_some() && holds(target.position) {
+            BlockId::WallTorch
+        } else if holds(position - IVec3::Y) {
+            BlockId::Torch
+        } else {
+            return refused(Refusal::NoSoil(block_id));
+        }
+    } else {
+        block_id
+    };
+
     // A vine is turned toward the block it is placed against, a furnace toward the player
     let direction = match block_id {
-        BlockId::Vine | BlockId::Ladder => {
+        BlockId::Vine | BlockId::Ladder | BlockId::WallTorch => {
             let Some(toward) = BlockDirection::toward(-target.face.to_ivec3()) else {
                 return refused(Refusal::NotASide);
             };
@@ -1730,6 +1766,99 @@ mod tests {
             );
             assert!(player.inventory.inner.is_empty(), "{side}");
         }
+    }
+
+    #[test]
+    fn a_torch_placed_against_a_side_leans_on_it_and_one_placed_on_top_stands() {
+        let stone = IVec3::new(0, 0, -3);
+        for (side, toward_the_stone) in [
+            (IVec3::Z, BlockDirection::Front),
+            (IVec3::NEG_Z, BlockDirection::Back),
+            (IVec3::X, BlockDirection::Left),
+            (IVec3::NEG_X, BlockDirection::Right),
+        ] {
+            let (world, player) = place_against(ItemId::Torch, stone, side);
+            assert_eq!(
+                world.get_block(stone + side).copied(),
+                Some(BlockData::new(BlockId::WallTorch, toward_the_stone)),
+                "{side}"
+            );
+            assert!(player.inventory.inner.is_empty(), "{side}");
+        }
+        let (world, _) = place_against(ItemId::Torch, stone, IVec3::Y);
+        assert_eq!(
+            world.get_block(stone + IVec3::Y).copied(),
+            Some(BlockData::new(BlockId::Torch, BlockDirection::Front))
+        );
+    }
+
+    #[test]
+    fn a_torch_with_nothing_to_hold_it_is_refused_and_kept() {
+        let stone = IVec3::new(0, 0, -3);
+        // under a block, with air below
+        let (world, player) = place_against(ItemId::Torch, stone, IVec3::NEG_Y);
+        assert_eq!(world.get_block(stone - IVec3::Y), None);
+        assert_eq!(player.inventory.inner[&0].nb, 1);
+        // against the side of a block that is not whole
+        let lantern = IVec3::new(0, 0, -3);
+        let mut world = ChunkMap::with_loaded_region(IVec3::splat(-16), IVec3::splat(15));
+        world.set_block(
+            lantern,
+            BlockData::new(BlockId::Lantern, BlockDirection::Front),
+        );
+        let position = lantern.as_vec3() + Vec3::new(0.5, 0.3, 3.5);
+        let camera = Transform::from_translation(position)
+            .looking_at(lantern.as_vec3() + Vec3::new(0.5, 0.3, 0.5), Vec3::Y);
+        let mut player = Player::new(1, "tester".to_string(), position, camera);
+        player.inventory.inner.insert(0, stack(ItemId::Torch, 1));
+        let input = PlayerFrameInput {
+            inputs: [NetworkAction::RightClick].into(),
+            camera,
+            ..Default::default()
+        };
+        simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
+        assert_eq!(world.get_block(lantern + IVec3::Z), None);
+        assert_eq!(player.inventory.inner[&0].nb, 1);
+    }
+
+    #[test]
+    fn the_torches_a_broken_block_held_fall_with_it_and_drop() {
+        let (mut player, mut world, input) = left_click_on(BlockId::Dirt);
+        let torch = |id, direction| BlockData::new(id, direction);
+        // on top of it, on two of its sides, and one beside it held by another block
+        let on_top = TARGET + IVec3::Y;
+        let east = TARGET + IVec3::X;
+        let west = TARGET + IVec3::NEG_X;
+        let elsewhere = TARGET + IVec3::NEG_Z;
+        world.set_block(on_top, torch(BlockId::Torch, BlockDirection::Front));
+        world.set_block(east, torch(BlockId::WallTorch, BlockDirection::Left));
+        world.set_block(west, torch(BlockId::WallTorch, BlockDirection::Right));
+        world.set_block(elsewhere, torch(BlockId::WallTorch, BlockDirection::Front));
+        let mut broken = Vec::new();
+        for _ in 0..BlockId::Dirt.get_break_time().unwrap() {
+            let done = simulate_player_block_interactions(
+                &mut player,
+                &mut world,
+                &input,
+                CallerType::Server,
+            );
+            broken.extend(done.broken);
+        }
+        let mut fallen: Vec<_> = broken.iter().map(|b| (b.position, b.block)).collect();
+        fallen.sort_by_key(|(position, _)| position.to_array());
+        let mut expected = vec![
+            (TARGET, BlockId::Dirt),
+            (on_top, BlockId::Torch),
+            (east, BlockId::WallTorch),
+            (west, BlockId::WallTorch),
+        ];
+        expected.sort_by_key(|(position, _)| position.to_array());
+        assert_eq!(fallen, expected);
+        assert!(broken.iter().all(|b| b.harvested));
+        for cell in [on_top, east, west] {
+            assert_eq!(world.get_block(cell), None, "{cell}");
+        }
+        assert_eq!(world.get_block(elsewhere).unwrap().id, BlockId::WallTorch);
     }
 
     #[test]

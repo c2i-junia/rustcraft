@@ -366,6 +366,7 @@ impl VoxelShape {
                 shape
             }
             BlockId::Torch => Self::torch(block),
+            BlockId::WallTorch => Self::wall_torch(block),
             BlockId::Lantern => Self::boxed(block, LANTERN),
             // Its flames, unlike the plants, are not stirred by the wind
             BlockId::Fire => Self::flora(block),
@@ -638,6 +639,29 @@ impl VoxelShape {
                 }
             }
             face.direction = FaceDirection::Inset;
+        }
+        shape
+    }
+
+    /// The torch held on the front of its cell, toward -Z, as Minecraft's model of the wall
+    /// torch: its foot in the block that holds it, 3.5 sixteenths up, the stick leaning out of
+    /// it by 22.5°.
+    pub fn wall_torch(block: &BlockData) -> VoxelShape {
+        const FOOT: f32 = 3.5 / 16.;
+        let (sin, cos) = 22.5_f32.to_radians().sin_cos();
+        // about the X axis, the top toward +Z
+        let lean = |y: f32, z: f32| [y * cos - z * sin, z * cos + y * sin];
+        let mut shape = Self::torch(block);
+        for face in shape.faces.iter_mut() {
+            face.texture = "Torch".into();
+            for vertex in face.vertices.iter_mut() {
+                let [y, z] = lean(vertex[1], vertex[2] - 0.5);
+                vertex[1] = y + FOOT;
+                vertex[2] = z;
+            }
+            for normal in face.normals.iter_mut() {
+                [normal[1], normal[2]] = lean(normal[1], normal[2]);
+            }
         }
         shape
     }
@@ -982,6 +1006,30 @@ mod tests {
             .uvs
             .iter()
             .all(|uv| (7. / 16. ..=9. / 16.).contains(&uv[0])));
+    }
+
+    #[test]
+    fn a_wall_torch_leans_out_of_the_block_holding_it_on_its_front() {
+        let torch = shape_of(BlockId::WallTorch);
+        assert!(torch.faces.iter().all(|face| face.texture == "Torch"));
+        let middle = |face: &Face| {
+            face.vertices.iter().map(|v| Vec3::from(*v)).sum::<Vec3>() / face.vertices.len() as f32
+        };
+        // the bottom of the stick is in the face of the block that holds it, toward -Z
+        let foot = middle(&torch.faces[BOTTOM]);
+        assert!(
+            foot.z.abs() < 1e-5 && (foot.y - 3.5 / 16.).abs() < 1e-5,
+            "{foot}"
+        );
+        // its top stands out of it, in the cell, leaning toward +Z
+        let top = middle(&torch.faces[TOP]);
+        assert!(
+            (0.2..0.3).contains(&top.z) && (0.75..0.85).contains(&top.y),
+            "{top}"
+        );
+        assert_eq!(foot.x, 0.5);
+        let cap = torch.faces[TOP].normals[0];
+        assert!(cap[1] > 0.9 && cap[2] > 0.3, "{cap:?}");
     }
 
     #[test]

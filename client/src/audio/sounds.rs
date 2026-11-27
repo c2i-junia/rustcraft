@@ -130,6 +130,7 @@ impl SoundMaterial {
             | BlockId::CraftingTable
             | BlockId::Chest
             | BlockId::Torch
+            | BlockId::WallTorch
             | BlockId::Cocoa
             | BlockId::WillowLog
             | BlockId::WillowPlanks

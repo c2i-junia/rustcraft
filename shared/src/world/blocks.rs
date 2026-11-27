@@ -466,6 +466,9 @@ pub enum BlockId {
     HangingBlackLantern,
     /// Distils the potions: it holds a `Furnace`, which it ticks by `alchemy::distilled`.
     Alembic,
+    /// A torch held on the side of a block: its direction names the side of its cell the block
+    /// holding it lies on, as a vine's. `Torch` is the one standing on the block below.
+    WallTorch,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -612,6 +615,16 @@ impl BlockData {
         }
     }
 
+    /// The cell of the block that holds this one up, which it falls with: a torch stands on the
+    /// block below, a wall torch is held on the side its direction names. `None` for the others.
+    pub fn support(&self, at: IVec3) -> Option<IVec3> {
+        match self.id {
+            BlockId::Torch => Some(at - IVec3::Y),
+            BlockId::WallTorch => Some(at + self.direction.offset()),
+            _ => None,
+        }
+    }
+
     /// The box rays hit, as `BlockId::get_ray_hitbox`, but turned to the direction of the
     /// block, as it is drawn: for a vine, a slab around its plate, on the side of the block
     /// holding it.
@@ -689,7 +702,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 399] = [
+    pub const ALL: [BlockId; 400] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -1089,6 +1102,7 @@ impl BlockId {
         BlockId::HangingRedLantern,
         BlockId::HangingBlackLantern,
         BlockId::Alembic,
+        BlockId::WallTorch,
     ];
 
     pub fn is_stairs(&self) -> bool {
@@ -1210,6 +1224,7 @@ impl BlockId {
             | Self::Poppy
             | Self::Dandelion
             | Self::Torch
+            | Self::WallTorch
             | Self::Vine
             | Self::Reed
             | Self::Heather
@@ -1319,6 +1334,11 @@ impl BlockId {
                 Vec3A::new(0.5, 0.3, 0.5),
                 Vec3A::new(0.15, 0.3, 0.15),
             )),
+            // The stick leaning out of the block that holds it on its front
+            Self::WallTorch => BlockHitbox::Aabb(Aabb3d::new(
+                Vec3A::new(0.5, 0.525, 0.2),
+                Vec3A::new(0.15, 0.325, 0.2),
+            )),
             // a slab around the plate of a vine held on its front
             Self::Vine => BlockHitbox::Aabb(Aabb3d::new(
                 Vec3A::new(0.5, 0.5, VINE_GAP),
@@ -1376,7 +1396,7 @@ impl BlockId {
             Self::IronOre => 15,
             Self::GoldOre | Self::DiamondOre => 15,
             Self::Gravel => 6,
-            Self::Torch => 1,
+            Self::Torch | Self::WallTorch => 1,
             Self::JungleLog => 10,
             Self::JunglePlanks => 10,
             Self::JungleLeaves => 2,
@@ -1715,7 +1735,7 @@ impl BlockId {
             BlockId::GoldBlock => vec![(1, ItemId::GoldBlock, 1)],
             BlockId::DiamondBlock => vec![(1, ItemId::DiamondBlock, 1)],
             BlockId::Gravel => vec![(9, ItemId::Gravel, 1), (1, ItemId::Flint, 1)],
-            BlockId::Torch => vec![(1, ItemId::Torch, 1)],
+            BlockId::Torch | BlockId::WallTorch => vec![(1, ItemId::Torch, 1)],
             BlockId::JungleLog => vec![(1, ItemId::JungleLog, 1)],
             BlockId::JunglePlanks => vec![(1, ItemId::JunglePlanks, 1)],
             BlockId::Cocoa => vec![(1, ItemId::CocoaBeans, 2)],
@@ -1884,6 +1904,7 @@ impl BlockId {
             | Self::TallGrass
             | Self::Fern
             | Self::Torch
+            | Self::WallTorch
             | Self::Vine
             | Self::Cocoa
             | Self::Reed
@@ -1959,7 +1980,7 @@ impl BlockId {
     pub fn light_emission(&self) -> u8 {
         match *self {
             Self::Fire | Self::Lava => 15,
-            Self::Torch => 14,
+            Self::Torch | Self::WallTorch => 14,
             Self::EmberHeart => 12,
             Self::Lantern | Self::HangingLantern => 15,
             crate::new_decor_blocks!()
@@ -1996,7 +2017,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 399] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 400] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 3] = [BlockId::Bedrock, BlockId::Water, BlockId::Lava];
@@ -2033,6 +2054,7 @@ mod tests {
             | BlockId::GoldOre
             | BlockId::Gravel
             | BlockId::Torch
+            | BlockId::WallTorch
             | BlockId::JungleLog
             | BlockId::JunglePlanks
             | BlockId::JungleLeaves
@@ -2590,6 +2612,7 @@ mod tests {
                 BlockId::HangingRedLantern => 396,
                 BlockId::HangingBlackLantern => 397,
                 BlockId::Alembic => 398,
+                BlockId::WallTorch => 399,
             };
             assert_eq!(encoded(&id), varint(expected), "{id:?}: {ENCODING_WARNING}");
         }

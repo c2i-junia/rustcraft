@@ -145,6 +145,7 @@ fn lit(chunks: &ChunkMap, feet: IVec3) -> bool {
                         matches!(
                             block.id,
                             BlockId::Torch
+                                | BlockId::WallTorch
                                 | BlockId::Lantern
                                 | BlockId::HangingLantern
                                 | BlockId::Campfire
