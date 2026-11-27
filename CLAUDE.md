@@ -68,7 +68,8 @@ headless, as `scripts/headless.sh 240 just hot --interactive=false`.
 (240 by default) with the Bevy Remote Protocol, a JSON-RPC server on http://127.0.0.1:15702
 (the `brp` feature, `client/src/brp.rs`). It plays in `appdata/client-1`; for a world of your
 own, run `scripts/headless.sh 240 cargo run -p client --features brp -- --game-folder-path
-<scratch folder> --assets-folder-path $PWD/data --player-name PlayerOne` instead. Then:
+<scratch folder> --assets-folder-path $PWD/data --player-name PlayerOne` instead.
+`RUSTCRAFT_BRP_PORT=15703` (default 15702) moves the server, for two games at once. Then:
 
 ```sh
 brp() { curl -s --max-time 10 http://127.0.0.1:15702 -H 'content-type: application/json' \
