@@ -15,7 +15,7 @@ use crate::ui::hud::fps_counter::{
     show_fps_counter, spawn_fps_counter, FrameTimes,
 };
 use crate::ui::hud::hotbar::{
-    select_hotbar_slot_with_keys, select_hotbar_slot_with_wheel, show_selected_item_name,
+    select_hotbar_slot_with_keys, select_hotbar_slot_with_wheel, show_selected_item_name, Hotbar,
 };
 use crate::ui::hud::minimap::{minimap_plugin, spawn_minimap};
 use crate::ui::hud::reticle::spawn_reticle;
@@ -345,11 +345,14 @@ pub fn spawn_hud(world: &mut World) {
 }
 
 /// Spawns the HUD again, without leaving the world: despawns the roots it was spawned with and
-/// runs `SpawnHud` again, so that the code of its setup systems runs anew. What lives only in its
+/// runs `SpawnHud` again, so that the code of its setup systems runs anew. The slot selected in
+/// the hotbar is kept, which the server knows as the item held; what else lives only in its
 /// entities goes back to how it starts: the inventory closed, the zoom of the minimap. The chat,
 /// which is not part of it, keeps its lines. Used by the hot patching (`client/src/hot.rs`).
 #[cfg_attr(not(feature = "hot"), allow(dead_code))]
 pub fn respawn_hud(world: &mut World) {
+    let mut hotbars = world.query::<&mut Hotbar>();
+    let selected = hotbars.single(world).ok().map(|hotbar| hotbar.selected);
     let roots = std::mem::take(&mut world.resource_mut::<SpawnedHud>().0);
     for root in roots {
         if let Ok(root) = world.get_entity_mut(root) {
@@ -357,4 +360,7 @@ pub fn respawn_hud(world: &mut World) {
         }
     }
     spawn_hud(world);
+    if let (Some(selected), Ok(mut hotbar)) = (selected, hotbars.single_mut(world)) {
+        hotbar.selected = selected;
+    }
 }

@@ -64,11 +64,13 @@ fn number_keys_the_trackpad_and_the_item_name_drive_the_hotbar() {
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
-fn the_hud_spawned_again_shows_what_it_showed_and_the_chat_keeps_its_lines() {
+fn the_hud_spawned_again_shows_what_it_showed_keeps_the_slot_and_the_chat_keeps_its_lines() {
     let mut h = enter_world(GameFolder::new().with_world("Again"), "Again");
     // A new player is in survival: its hearts and drumsticks show once they are drawn
     h.wait_for(&L::marker::<HealthBar>(), SCREEN);
     h.wait_for(&L::marker::<FoodBar>(), SCREEN);
+    h.press(KeyCode::Digit4);
+    assert_eq!(selected(&mut h), 3);
     let chat = the::<ChatRoot>(&mut h);
     let bottom = the::<HudBottom>(&mut h);
 
@@ -77,7 +79,8 @@ fn the_hud_spawned_again_shows_what_it_showed_and_the_chat_keeps_its_lines() {
 
     // One HUD, a new one, drawn by the systems that draw only what changed
     assert_ne!(the::<HudBottom>(&mut h), bottom);
-    the::<Hotbar>(&mut h);
+    // The slot held stays selected
+    assert_eq!(selected(&mut h), 3);
     the::<MinimapRoot>(&mut h);
     assert!(h.is_visible(&L::marker::<HealthBar>()));
     assert!(h.is_visible(&L::marker::<FoodBar>()));
