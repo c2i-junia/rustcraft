@@ -652,7 +652,12 @@ fn spawn_distilling_card(
     commands.spawn((card_arrow(font), ChildOf(body)));
     slot(commands, output);
     commands.spawn((
-        label(&distilling_note(ingredient), font, theme::font_s(), theme::muted()),
+        label(
+            &distilling_note(ingredient),
+            font,
+            theme::font_s(),
+            theme::muted(),
+        ),
         ChildOf(card),
     ));
 }
