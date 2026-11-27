@@ -18,7 +18,11 @@ pub const CRAFTABLE_NOTE: &str = "browser.craftable_note";
 /// The keys of the tooltip of an item of the browser; A removes a bookmarked item from the
 /// bookmarks.
 pub fn item_keys_hint(bookmarked: bool) -> String {
-    let bookmark = if bookmarked { tr("browser.unbookmark") } else { tr("browser.bookmark") };
+    let bookmark = if bookmarked {
+        tr("browser.unbookmark")
+    } else {
+        tr("browser.bookmark")
+    };
     trf("browser.item_keys", &[("bookmark", &bookmark)])
 }
 
@@ -206,20 +210,31 @@ pub fn cards_of(view: ItemView) -> Vec<BrowserCard> {
 /// The accessible name of a card.
 pub fn card_label(card: &BrowserCard) -> String {
     match card {
-        BrowserCard::Crafting(recipe) => trf("browser.recipe_of", &[("item", &item_name(recipe.output.item_id))]),
-        BrowserCard::Smelting { output, .. } => trf("browser.smelting_of", &[("item", &item_name(*output))]),
+        BrowserCard::Crafting(recipe) => trf(
+            "browser.recipe_of",
+            &[("item", &item_name(recipe.output.item_id))],
+        ),
+        BrowserCard::Smelting { output, .. } => {
+            trf("browser.smelting_of", &[("item", &item_name(*output))])
+        }
         BrowserCard::Fuel { item, .. } => trf("browser.as_fuel", &[("item", &item_name(*item))]),
     }
 }
 
 /// Under a smelting card: where it is made, and how long it takes.
 pub fn smelting_note() -> String {
-    trf("browser.furnace_time", &[("s", &(u64::from(COOK_TICKS) / TICKS_PER_SECOND))])
+    trf(
+        "browser.furnace_time",
+        &[("s", &(u64::from(COOK_TICKS) / TICKS_PER_SECOND))],
+    )
 }
 
 /// Under a fuel card: how long one of it burns, `ticks`.
 pub fn fuel_note(ticks: u16) -> String {
-    trf("browser.fuel_time", &[("s", &(u64::from(ticks) / TICKS_PER_SECOND))])
+    trf(
+        "browser.fuel_time",
+        &[("s", &(u64::from(ticks) / TICKS_PER_SECOND))],
+    )
 }
 
 /// Beside the fuel of a fuel card: how many items one of it smelts, burning `ticks` long.
@@ -426,10 +441,10 @@ mod tests {
         // slab, stairs, door, trapdoor and fence gate), then its burning
         for species in ItemTag::Planks.members() {
             let uses = cards(*species, RecipeTab::Uses);
-            assert_eq!(uses.len(), 12 + 5 + 1, "{species:?}");
-            assert_eq!(uses[..12], cards(ItemId::OakPlanks, RecipeTab::Uses)[..12]);
+            assert_eq!(uses.len(), 14 + 5 + 1, "{species:?}");
+            assert_eq!(uses[..14], cards(ItemId::OakPlanks, RecipeTab::Uses)[..14]);
             assert_eq!(
-                uses[17],
+                uses[19],
                 BrowserCard::Fuel {
                     item: *species,
                     ticks: 300
@@ -478,13 +493,16 @@ mod tests {
                 },
             ]
         );
-        // charcoal makes torches and black dye, then burns
+        // charcoal makes torches, black dye and empty maps, then burns
         let charcoal = cards(ItemId::Charcoal, RecipeTab::Uses);
         assert!(
             matches!(charcoal[1], BrowserCard::Crafting(recipe) if recipe.output.item_id == ItemId::BlackDye)
         );
+        assert!(
+            matches!(charcoal[2], BrowserCard::Crafting(recipe) if recipe.output.item_id == ItemId::EmptyMap)
+        );
         assert_eq!(
-            charcoal[2..],
+            charcoal[3..],
             [BrowserCard::Fuel {
                 item: ItemId::Charcoal,
                 ticks: 1600

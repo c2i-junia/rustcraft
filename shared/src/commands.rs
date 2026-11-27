@@ -472,9 +472,9 @@ mod tests {
                 "saddle",
                 "sand",
                 "sheep_spawn_egg",
+                "shield",
                 "sign",
-                "slate",
-                "slate_low_wall"
+                "slate"
             ]
         );
         // `stone` is a value, the stone tools start with it, and `cobblestone` contains it

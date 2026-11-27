@@ -510,7 +510,7 @@ def build_crossbow_shot(rng):
     snap = band(white(rng, d), 1500, 9000) * env(d, 0.0003, 0.01)
     knock = thump(rng, d, 260, 90, 0.03)
     hiss = whoosh(rng, d, 1800, 8000, 0.008, 0.05)
-    return finish(outdoors(rng, click * 0.4 + string * 0.6 + snap * 0.5 + knock * 0.6 + hiss * 0.3), -17)
+    return finish(outdoors(rng, click * 0.4 + string * 0.6 + snap * 0.5 + knock * 0.6 + hiss * 0.3), -18)
 
 
 # --- mounts -----------------------------------------------------------------
