@@ -4,6 +4,7 @@
 	import Slot from '#lib/components/Slot.svelte';
 	import Recipe from '#lib/components/Recipe.svelte';
 	import ItemLink from '#lib/components/ItemLink.svelte';
+	import Blocks from '#lib/components/markup/Blocks.svelte';
 	import { duration, percent, range, TIER_LEVEL } from '#lib/format.ts';
 	import type { PageProps } from './$types';
 
@@ -129,8 +130,7 @@
 	</Infobox>
 
 	{#if data.notes}
-		<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-		<div class="notes">{@html data.notes}</div>
+		<div class="notes"><Blocks blocks={data.notes} /></div>
 	{/if}
 
 	{#if data.spawns}

@@ -1,6 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { biomeName, biomeSlug, creatures, game, lootOf, slugOf, withRefs } from '#lib/server/game.ts';
-import { CREATURES } from '#lib/content/creatures.ts';
+import { biomeName, biomeSlug, creatures, factsOf, game, lootOf, slugOf, withRefs } from '#lib/server/game.ts';
 import type { EntryGenerator } from './$types';
 
 const bySlug = new Map(creatures.map((m) => [slugOf(m.id), m]));
@@ -18,7 +17,7 @@ export function load({ params }) {
 	return withRefs(
 		{
 			mob,
-			facts: CREATURES[mob.id] ?? null,
+			facts: factsOf(mob),
 			loot: lootOf(mob.id),
 			habitats
 		},

@@ -2,7 +2,7 @@
 // tables that the pages show: what makes an item, what it goes into, where it drops. Server-only:
 // a page receives what it shows from its load, never the whole file.
 import raw from '#lib/data/game.json';
-import { LOOT, type LootEntry } from './loot.ts';
+import { plain, type Block as TextBlock, type Line } from '#lib/markup.ts';
 import type { Ref } from '#lib/refs.ts';
 
 export type Text = { en: string | null; fr: string | null };
@@ -31,6 +31,8 @@ export type Item = {
 	potionColor: [number, number, number] | null;
 	repair: string | null;
 	enchantments: string[];
+	/// What the Codex says of it, in markup (`codex.item.*` of `data/lang`).
+	note: TextBlock[] | null;
 };
 
 export type Block = {
@@ -80,6 +82,14 @@ export type Mob = {
 	eats: string[];
 	egg: string | null;
 	trades: Trade[];
+	/// What the Codex says of it (`codex.mob.*` of `data/lang`).
+	codex: { summary: Line | null; spawns: Line | null; behaviour: Line | null; speed: Line | null };
+	loot: { item: string; count: { min: number; max: number } | { chance: number }; when: 'Always' | 'NotSheared' | 'Saddled' | 'Otherwise' }[];
+	damage: number | null;
+	effect: { effect: string; level: number; seconds: number } | null;
+	xp: number;
+	sight: { sight: number; forget: number; speed: number } | null;
+	walk: number;
 };
 
 type Span = { min: number; max: number };
@@ -121,6 +131,7 @@ export type Game = {
 	alchemy: { vial: string; ingredient: string; result: string }[];
 	mobs: Mob[];
 	biomes: Biome[];
+	biomeNotes: Record<string, Line | null>;
 	enchantments: { id: string; name: string; levels: string[]; items: string[] }[];
 	effects: { id: string; name: Text; beneficial: boolean; instant: boolean }[];
 	achievements: { id: string; title: Text; goal: Text }[];
@@ -238,13 +249,51 @@ export function blockSources(id: string) {
 /// The item a block is placed from, if one is.
 export const itemFor = (block: string) => game.items.find((i) => i.block === block)?.id ?? null;
 
-export function mobSources(id: string) {
-	return Object.entries(LOOT).flatMap(([mob, loot]) =>
-		loot.filter((l) => l.item === id).map((l) => ({ mob, ...l }))
-	);
+/// A line of the loot of a creature, as the pages show it.
+export type LootEntry = { item: string; min: number; max: number; chance?: number; note?: string };
+
+/// What a creature drops (`MobKind::loot`), and what it may wear.
+export function lootOf(id: string): LootEntry[] {
+	const mob = mobs.get(id);
+	if (!mob) return [];
+	const lines: LootEntry[] = mob.loot.map((l, i) => {
+		const entry: LootEntry =
+			'min' in l.count ? { item: l.item, min: l.count.min, max: l.count.max } : { item: l.item, min: 1, max: 1, chance: l.count.chance };
+		if (l.when === 'NotSheared') entry.note = 'unless sheared';
+		if (l.when === 'Saddled') entry.note = 'if saddled';
+		// The line before failed: its chance's complement
+		const before = mob.loot[i - 1]?.count;
+		if (l.when === 'Otherwise' && before && 'chance' in before) entry.chance = 1 - before.chance;
+		return entry;
+	});
+	if (mob.carriesChest) lines.push({ item: 'Chest', min: 1, max: 1, note: 'if it carries one' });
+	return lines;
 }
 
-export const lootOf = (mob: string): LootEntry[] => LOOT[mob] ?? [];
+export function mobSources(id: string) {
+	return creatures.flatMap((m) => lootOf(m.id).filter((l) => l.item === id).map((l) => ({ mob: m.id, ...l })));
+}
+
+const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V'];
+
+/// What the creature pages say of a creature, its texts in markup.
+export function factsOf(mob: Mob) {
+	const effect = mob.effect;
+	const effectName = effect ? (game.effects.find((e) => e.id === effect.effect)?.name.en ?? effect.effect) : null;
+	return {
+		summary: plain(mob.codex.summary),
+		spawns: mob.codex.spawns,
+		behaviour: mob.codex.behaviour,
+		speed: plain(mob.codex.speed),
+		damage: mob.damage,
+		effect: effect ? `${effectName} ${ROMAN[effect.level] ?? effect.level} for ${effect.seconds} s` : null,
+		xp: mob.xp,
+		sight: mob.sight ? (mob.sight.sight === mob.sight.forget ? `${mob.sight.sight}` : `${mob.sight.sight} / ${mob.sight.forget}`) : null
+	};
+}
+
+/// A biome's few words.
+export const biomeNote = (key: string) => plain(game.biomeNotes[key.replace(/^rustcraft:/, '')]);
 
 export function tradesWith(id: string) {
 	return creatures.flatMap((m) =>

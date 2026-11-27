@@ -1,5 +1,4 @@
-import { biomeName, biomeSlug, game, withRefs } from '#lib/server/game.ts';
-import { BIOME_NOTES } from '#lib/content/biomes.ts';
+import { biomeName, biomeNote, biomeSlug, game, withRefs } from '#lib/server/game.ts';
 
 export function load() {
 	return withRefs({
@@ -7,7 +6,7 @@ export function load() {
 			name: biomeName(b),
 			href: `/biomes/${biomeSlug(b.key)}`,
 			colour: `rgb(${b.look.map_colour.join(' ')})`,
-			note: BIOME_NOTES[b.key.replace('rustcraft:', '')] ?? '',
+			note: biomeNote(b.key),
 			surface: b.ground.surface,
 			herds: [...new Set(b.herds.map((h) => h.kind))]
 		}))

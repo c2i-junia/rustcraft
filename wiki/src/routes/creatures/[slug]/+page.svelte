@@ -3,6 +3,7 @@
 	import Infobox from '#lib/components/Infobox.svelte';
 	import Slot from '#lib/components/Slot.svelte';
 	import ItemLink from '#lib/components/ItemLink.svelte';
+	import Line from '#lib/components/markup/Line.svelte';
 	import { num, percent, range } from '#lib/format.ts';
 	import type { PageProps } from './$types';
 
@@ -26,8 +27,8 @@
 
 <Page
 	title={name}
-	description="{name} in Rustcraft: {facts?.summary ?? ''} Health, where it lives, what it drops."
-	kicker={facts?.summary}
+	description="{name} in Rustcraft: {facts.summary} Health, where it lives, what it drops."
+	kicker={facts.summary || undefined}
 >
 	{#snippet icon()}<Slot id="mob:{mob.id}" big link={false} />{/snippet}
 
@@ -37,11 +38,11 @@
 		<dd>{kind}</dd>
 		<dt>Health</dt>
 		<dd>{mob.health} ({mob.health / 2} hearts)</dd>
-		{#if facts?.damage}<dt>Damage</dt><dd>{facts.damage}</dd>{/if}
-		{#if facts?.effect}<dt>Its blow</dt><dd>{facts.effect}</dd>{/if}
-		{#if facts?.xp}<dt>Experience</dt><dd>{facts.xp}</dd>{/if}
-		{#if facts?.speed}<dt>Speed</dt><dd>{facts.speed}</dd>{/if}
-		{#if facts?.sight}<dt>Sees you from</dt><dd>{facts.sight} blocks</dd>{/if}
+		{#if facts.damage}<dt>Damage</dt><dd>{facts.damage}</dd>{/if}
+		{#if facts.effect}<dt>Its blow</dt><dd>{facts.effect}</dd>{/if}
+		{#if facts.xp}<dt>Experience</dt><dd>{facts.xp}</dd>{/if}
+		{#if facts.speed}<dt>Speed</dt><dd>{facts.speed}</dd>{/if}
+		{#if facts.sight}<dt>Sees you from</dt><dd>{facts.sight} blocks</dd>{/if}
 		<dt>Size</dt>
 		<dd>{num(mob.size[0], 1)} × {num(mob.size[1], 1)} blocks</dd>
 		{#if mob.tameable}<dt>Tameable</dt><dd>Yes, 1 in 3 per feeding</dd>{/if}
@@ -51,9 +52,9 @@
 		{#if mob.name.fr && mob.name.fr !== name}<dt>In French</dt><dd>{mob.name.fr}</dd>{/if}
 	</Infobox>
 
-	{#if facts}
+	{#if facts.spawns}
 		<h2>Where it lives</h2>
-		<p>{facts.spawns}</p>
+		<p><Line line={facts.spawns} /></p>
 	{/if}
 	{#if data.habitats.length}
 		<table>
@@ -70,10 +71,9 @@
 		</table>
 	{/if}
 
-	{#if facts}
+	{#if facts.behaviour}
 		<h2>Behaviour</h2>
-		<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-		<p>{@html facts.behaviour}</p>
+		<p><Line line={facts.behaviour} /></p>
 	{/if}
 
 	{#if mob.id === 'Horse'}

@@ -10,12 +10,14 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde_json::{json, Value};
+use shared::codex::markup;
 use shared::players::effects::EffectKind;
 use shared::world::alchemy;
 use shared::world::trade::{offers, Goods};
 use shared::world::{
-    fuel_ticks, recipes, repair_material, smelting_result, BlockId, Biomes, Enchantment, Ingredient,
-    ItemCategory, ItemId, ItemType, MobKind, ToolKind, COOK_TICKS, MAX_ENCHANTMENT_LEVEL,
+    fuel_ticks, recipes, repair_material, smelting_result, Biomes, BlockId, Enchantment,
+    Ingredient, ItemCategory, ItemId, ItemType, LootCount, MobKind, ToolKind, COOK_TICKS,
+    MAX_ENCHANTMENT_LEVEL,
 };
 use shared::TICKS_PER_SECOND;
 
@@ -36,10 +38,19 @@ fn main() {
     let fr = lang(&root.join("data/lang/fr.ron"));
     let textures = root.join("data/graphics/base_textures");
     let has = |folder: &str, name: &str| textures.join(format!("{folder}/{name}.png")).is_file();
-    let tr = |key: String| -> Value {
-        json!({ "en": en.get(&key), "fr": fr.get(&key) })
-    };
+    let tr = |key: String| -> Value { json!({ "en": en.get(&key), "fr": fr.get(&key) }) };
     let seconds = |ticks: u32| ticks as f64 / TICKS_PER_SECOND as f64;
+    // The texts of the Codex, in markup: a note of blocks, a line of runs
+    let note = |key: String| -> Value {
+        en.get(&key).map_or(Value::Null, |text| {
+            json!(markup::parse(text).unwrap_or_else(|e| panic!("{key}: {e}")))
+        })
+    };
+    let line = |key: String| -> Value {
+        en.get(&key).map_or(Value::Null, |text| {
+            json!(markup::inline(text).unwrap_or_else(|e| panic!("{key}: {e}")))
+        })
+    };
 
     let items: Vec<Value> = ItemId::ALL
         .iter()
@@ -99,6 +110,7 @@ fn main() {
                 "potionColor": id.potion_color(),
                 "repair": repair_material(id).map(ingredient),
                 "enchantments": Enchantment::ALL.iter().filter(|e| e.fits(id)).map(|e| format!("{e:?}")).collect::<Vec<_>>(),
+                "note": note(format!("codex.item.{key}")),
             })
         })
         .collect();
@@ -186,6 +198,26 @@ fn main() {
                 "size": [size.x, size.y, size.z],
                 "eats": ItemId::ALL.iter().filter(|i| kind.eats(**i)).map(|i| format!("{i:?}")).collect::<Vec<_>>(),
                 "egg": ItemId::ALL.iter().find(|i| i.spawned_mob() == Some(kind)).map(|i| format!("{i:?}")),
+                "codex": {
+                    "summary": line(format!("codex.mob.{key}.summary")),
+                    "spawns": line(format!("codex.mob.{key}.spawns")),
+                    "behaviour": line(format!("codex.mob.{key}.behaviour")),
+                    "speed": line(format!("codex.mob.{key}.speed")),
+                },
+                "loot": kind.loot().iter().map(|l| json!({
+                    "item": format!("{:?}", l.item),
+                    "count": match l.count {
+                        LootCount::Range(min, max) => json!({ "min": min, "max": max }),
+                        LootCount::Odds(n, d) => json!({ "chance": n as f64 / d as f64 }),
+                        LootCount::Chance(p) => json!({ "chance": p }),
+                    },
+                    "when": format!("{:?}", l.when),
+                })).collect::<Vec<_>>(),
+                "damage": kind.strike().map(|s| s.damage),
+                "effect": kind.inflicted_effect().map(|(effect, level, seconds)| json!({ "effect": format!("{effect:?}"), "level": level, "seconds": seconds })),
+                "xp": kind.experience(),
+                "sight": kind.hunt().map(|h| json!({ "sight": tenths(h.sight), "forget": tenths(h.forget), "speed": tenths(h.speed) })),
+                "walk": tenths(kind.walk_speed()),
                 "trades": offers(kind).iter().map(|o| json!({
                     "cost": { "item": format!("{:?}", o.cost.0), "count": o.cost.1 },
                     "goods": match o.goods {
@@ -202,6 +234,16 @@ fn main() {
         .defs()
         .iter()
         .map(|def| serde_json::to_value(def).expect("a biome serializes"))
+        .collect();
+
+    let biome_notes: BTreeMap<String, Value> = Biomes::vanilla()
+        .defs()
+        .iter()
+        .map(|def| {
+            let key = def.key.trim_start_matches("rustcraft:").to_string();
+            let text = line(format!("codex.biome.{key}"));
+            (key, text)
+        })
         .collect();
 
     let enchantments: Vec<Value> = Enchantment::ALL
@@ -254,6 +296,7 @@ fn main() {
         "alchemy": alchemy,
         "mobs": mobs,
         "biomes": biomes,
+        "biomeNotes": biome_notes,
         "enchantments": enchantments,
         "effects": effects,
         "achievements": achievements,
@@ -261,6 +304,12 @@ fn main() {
     std::fs::write(&out, serde_json::to_string_pretty(&game).unwrap() + "\n")
         .unwrap_or_else(|e| panic!("cannot write {out}: {e}"));
     println!("wrote {out}");
+}
+
+/// A speed or a distance of the game, an `f32`, as it is written in its code: `2.8`, not
+/// `2.799999952316284`.
+fn tenths(v: f32) -> f64 {
+    (f64::from(v) * 100.0).round() / 100.0
 }
 
 fn ingredient(ingredient: Ingredient) -> String {

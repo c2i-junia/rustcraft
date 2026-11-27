@@ -16,7 +16,6 @@ import {
 } from '#lib/server/game.ts';
 import { FISHING } from '#lib/server/fishing.ts';
 
-import { ITEM_NOTES } from '#lib/content/items.ts';
 import type { EntryGenerator } from './$types';
 
 const bySlug = new Map(game.items.map((i) => [slugOf(i.id), i]));
@@ -57,7 +56,7 @@ export function load({ params }) {
 		enchantments,
 		spawns: item.spawns,
 		placedBlockDrops: block?.drops ?? [],
-		notes: ITEM_NOTES[item.id] ?? null,
+		notes: item.note,
 		cookSeconds: game.cookSeconds,
 		distillSeconds: game.distillSeconds,
 		breakSeconds: block?.breakTime != null ? block.breakTime * 0.05 : null,

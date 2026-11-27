@@ -291,6 +291,98 @@
   ],
   "alchemyLonger": "Moss",
   "alchemyStronger": "CrystalShard",
+  "biomeNotes": {
+    "deep_ocean": [
+      {
+        "text": "The deepest sea, its floor 28 blocks below the surface. Shipwrecks lie on the sea floor."
+      }
+    ],
+    "desert": [
+      {
+        "text": "Sand over sand in the hot, dry lands, with cacti. It never rains here."
+      }
+    ],
+    "flower_forest": [
+      {
+        "text": "A rare forest thick with flowers."
+      }
+    ],
+    "flower_plains": [
+      {
+        "text": "Plains carpeted with flowers, sharing their climate."
+      }
+    ],
+    "forest": [
+      {
+        "text": "Oak woods of the temperate lands, and of the hot lands far inland. Clearings open in it."
+      }
+    ],
+    "forest_clearing": [
+      {
+        "text": "A sunny gap inside a forest, where herds graze."
+      }
+    ],
+    "grove": [
+      {
+        "text": "A patch of oaks inside the plains, home of foxes, wolves and cats."
+      }
+    ],
+    "high_mountain_grass": [
+      {
+        "text": "The heights above 100: bare stone from about 104, snow from about 122. Gust Owls hunt here at night."
+      }
+    ],
+    "ice_plain": [
+      {
+        "text": "Snow over ice in the cold, wet lands: its water freezes at the surface."
+      }
+    ],
+    "ice_spikes": [
+      {
+        "text": "A rare cold land of towering spikes of ice, 4 to 10 blocks tall."
+      }
+    ],
+    "jungle": [
+      {
+        "text": "The hot, wet lands near the coast: dense jungle trees, bushes, ferns, cocoa and giant trees deep inside."
+      }
+    ],
+    "jungle_edge": [
+      {
+        "text": "The thinner band where the jungle meets other lands."
+      }
+    ],
+    "medium_mountain": [
+      {
+        "text": "Every land climbs into it above height 84: grass, scattered oaks, sheep and goats."
+      }
+    ],
+    "ocean": [
+      {
+        "text": "The open sea, with kelp in its deeper water."
+      }
+    ],
+    "plains": [
+      {
+        "text": "Open grassland of the cold and temperate dry lands, full of herds. Groves of trees take patches of it."
+      }
+    ],
+    "river": [
+      {
+        "text": "Rivers wind through the land, their beds 4 blocks below the sea."
+      }
+    ],
+    "savanna": [
+      {
+        "text": "Hot grassland with lone acacias, cattle, horses and goats. It never rains here."
+      }
+    ],
+    "shallow_ocean": [
+      {
+        "text": "The sea near the coast: reefs, seagrass and shoals of fish."
+      }
+    ]
+  },
   "biomes": [
     {
       "altitude_variants": [
@@ -9810,6 +9902,7 @@
         "en": "Dirt",
         "fr": "Terre"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -9838,6 +9931,7 @@
         "en": "Grass",
         "fr": "Herbe"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -9866,6 +9960,7 @@
         "en": "Stone",
         "fr": "Pierre"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -9894,6 +9989,7 @@
         "en": "Oak Log",
         "fr": "Bûche de chêne"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -9922,6 +10018,7 @@
         "en": "Oak Planks",
         "fr": "Planches de chêne"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -9950,6 +10047,7 @@
         "en": "Oak Leaves",
         "fr": "Feuilles de chêne"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -9978,6 +10076,7 @@
         "en": "Sand",
         "fr": "Sable"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10006,6 +10105,7 @@
         "en": "Cactus",
         "fr": "Cactus"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10034,6 +10134,7 @@
         "en": "Ice",
         "fr": "Glace"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10062,6 +10163,7 @@
         "en": "Glass",
         "fr": "Verre"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10090,6 +10192,7 @@
         "en": "Bedrock",
         "fr": "Roche-mère"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10118,6 +10221,7 @@
         "en": "Dandelion",
         "fr": "Pissenlit"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10146,6 +10250,26 @@
         "en": "Tall Grass",
         "fr": "Hautes herbes"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Breaking it may give fibre, rye, a carrot or a potato: the start of every farm. See "
+            },
+            {
+              "link": {
+                "id": "farming",
+                "kind": "guide"
+              },
+              "text": "farming"
+            },
+            {
+              "text": "."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10174,6 +10298,7 @@
         "en": "Poppy",
         "fr": "Coquelicot"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10202,6 +10327,7 @@
         "en": "Cobblestone",
         "fr": "Pierre brute"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10230,6 +10356,7 @@
         "en": "Snow",
         "fr": "Neige"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10258,6 +10385,7 @@
         "en": "Snowball",
         "fr": "Boule de neige"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10286,6 +10414,7 @@
         "en": "Spruce Log",
         "fr": "Bûche de sapin"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10314,6 +10443,7 @@
         "en": "Stick",
         "fr": "Bâton"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10342,6 +10472,33 @@
         "en": "Crafting Table",
         "fr": "Établi"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Place it and use it for the 3 × 3 grid, which most recipes need; your inventory only has a 2 × 2 one. Having one earns "
+            },
+            {
+              "em": true,
+              "text": "Room to Work"
+            },
+            {
+              "text": ". See "
+            },
+            {
+              "link": {
+                "id": "crafting",
+                "kind": "page"
+              },
+              "text": "crafting"
+            },
+            {
+              "text": "."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10370,6 +10527,7 @@
         "en": "Spruce Planks",
         "fr": "Planches de sapin"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10398,6 +10556,26 @@
         "en": "Furnace",
         "fr": "Four"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Smelts ores into ingots, cooks food and bakes sand into glass, one item every 10 seconds. It keeps working while you are away, as long as its chunk is loaded. Breaking it drops what is inside. See "
+            },
+            {
+              "link": {
+                "id": "smelting",
+                "kind": "page"
+              },
+              "text": "smelting"
+            },
+            {
+              "text": "."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10426,6 +10604,16 @@
         "en": "Chest",
         "fr": "Coffre"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Holds 27 slots. Breaking it drops what is inside. Put one on a tamed donkey or mule to make it a pack animal."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10457,6 +10645,7 @@
         "en": "Wooden Pickaxe",
         "fr": "Pioche en bois"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "#Planks",
@@ -10494,6 +10683,7 @@
         "en": "Wooden Axe",
         "fr": "Hache en bois"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "#Planks",
@@ -10530,6 +10720,7 @@
         "en": "Wooden Shovel",
         "fr": "Pelle en bois"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "#Planks",
@@ -10566,6 +10757,7 @@
         "en": "Wooden Hoe",
         "fr": "Houe en bois"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "#Planks",
@@ -10602,6 +10794,7 @@
         "en": "Wooden Sword",
         "fr": "Épée en bois"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "#Planks",
@@ -10635,6 +10828,7 @@
         "en": "Coal",
         "fr": "Charbon"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10663,6 +10857,7 @@
         "en": "Coal Ore",
         "fr": "Minerai de charbon"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10691,6 +10886,7 @@
         "en": "Iron Ore",
         "fr": "Minerai de fer"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10719,6 +10915,7 @@
         "en": "Gold Ore",
         "fr": "Minerai d’or"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10747,6 +10944,16 @@
         "en": "Gravel",
         "fr": "Gravier"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Breaking it gives flint one time in ten."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10775,6 +10982,7 @@
         "en": "Fox Spawn Egg",
         "fr": "Œuf d’apparition de renard"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10803,6 +11011,7 @@
         "en": "Sheep Spawn Egg",
         "fr": "Œuf d’apparition de mouton"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10831,6 +11040,16 @@
         "en": "Torch",
         "fr": "Torche"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "The first defence against the night: hostiles never spawn within 8 blocks of a light. Light your base and your mine."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10859,6 +11078,7 @@
         "en": "Jungle Log",
         "fr": "Bûche d’acajou"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10887,6 +11107,7 @@
         "en": "Jungle Planks",
         "fr": "Planches d’acajou"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10915,6 +11136,7 @@
         "en": "Jungle Leaves",
         "fr": "Feuilles d’acajou"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10943,6 +11165,7 @@
         "en": "Fern",
         "fr": "Fougère"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10971,6 +11194,7 @@
         "en": "Vine",
         "fr": "Liane"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -10999,6 +11223,7 @@
         "en": "Cocoa Beans",
         "fr": "Fèves de cacao"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -11027,6 +11252,23 @@
         "en": "Iron Ingot",
         "fr": "Lingot de fer"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Smelt iron ore for it; iron ore lies from y −24 to 72 in a new world and needs a stone or bronze pickaxe. Getting one earns "
+            },
+            {
+              "em": true,
+              "text": "Worth the Climb Down"
+            },
+            {
+              "text": "."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -11055,6 +11297,7 @@
         "en": "Gold Ingot",
         "fr": "Lingot d’or"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -11083,6 +11326,26 @@
         "en": "Diamond",
         "fr": "Diamant"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Found deep down: diamond ore lies from y −58 to 16 in a new world, most of it below −42. Mine it with an iron pickaxe or better. See "
+            },
+            {
+              "link": {
+                "id": "ores",
+                "kind": "guide"
+              },
+              "text": "ores"
+            },
+            {
+              "text": "."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -11111,6 +11374,7 @@
         "en": "Charcoal",
         "fr": "Charbon de bois"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -11139,6 +11403,7 @@
         "en": "Diamond Ore",
         "fr": "Minerai de diamant"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -11167,6 +11432,7 @@
         "en": "Iron Block",
         "fr": "Bloc de fer"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -11195,6 +11461,7 @@
         "en": "Gold Block",
         "fr": "Bloc d’or"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -11223,6 +11490,7 @@
         "en": "Diamond Block",
         "fr": "Bloc de diamant"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -11254,6 +11522,7 @@
         "en": "Stone Pickaxe",
         "fr": "Pioche en pierre"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "#Cobble",
@@ -11291,6 +11560,7 @@
         "en": "Stone Axe",
         "fr": "Hache en pierre"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "#Cobble",
@@ -11327,6 +11597,7 @@
         "en": "Stone Shovel",
         "fr": "Pelle en pierre"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "#Cobble",
@@ -11363,6 +11634,7 @@
         "en": "Stone Hoe",
         "fr": "Houe en pierre"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "#Cobble",
@@ -11399,6 +11671,7 @@
         "en": "Stone Sword",
         "fr": "Épée en pierre"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "#Cobble",
@@ -11435,6 +11708,7 @@
         "en": "Iron Pickaxe",
         "fr": "Pioche en fer"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "IronIngot",
@@ -11472,6 +11746,7 @@
         "en": "Iron Axe",
         "fr": "Hache en fer"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "IronIngot",
@@ -11508,6 +11783,7 @@
         "en": "Iron Shovel",
         "fr": "Pelle en fer"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "IronIngot",
@@ -11544,6 +11820,7 @@
         "en": "Iron Hoe",
         "fr": "Houe en fer"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "IronIngot",
@@ -11580,6 +11857,7 @@
         "en": "Iron Sword",
         "fr": "Épée en fer"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "IronIngot",
@@ -11616,6 +11894,7 @@
         "en": "Golden Pickaxe",
         "fr": "Pioche en or"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "GoldIngot",
@@ -11653,6 +11932,7 @@
         "en": "Golden Axe",
         "fr": "Hache en or"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "GoldIngot",
@@ -11689,6 +11969,7 @@
         "en": "Golden Shovel",
         "fr": "Pelle en or"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "GoldIngot",
@@ -11725,6 +12006,7 @@
         "en": "Golden Hoe",
         "fr": "Houe en or"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "GoldIngot",
@@ -11761,6 +12043,7 @@
         "en": "Golden Sword",
         "fr": "Épée en or"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "GoldIngot",
@@ -11797,6 +12080,7 @@
         "en": "Diamond Pickaxe",
         "fr": "Pioche en diamant"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "Diamond",
@@ -11834,6 +12118,7 @@
         "en": "Diamond Axe",
         "fr": "Hache en diamant"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "Diamond",
@@ -11870,6 +12155,7 @@
         "en": "Diamond Shovel",
         "fr": "Pelle en diamant"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "Diamond",
@@ -11906,6 +12192,7 @@
         "en": "Diamond Hoe",
         "fr": "Houe en diamant"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "Diamond",
@@ -11942,6 +12229,7 @@
         "en": "Diamond Sword",
         "fr": "Épée en diamant"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "Diamond",
@@ -11975,6 +12263,16 @@
         "en": "Bucket",
         "fr": "Seau"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Picks up a source of water or lava, and milks a cow. Only source blocks can be picked up: water that flows cannot."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12003,6 +12301,7 @@
         "en": "Water Bucket",
         "fr": "Seau d’eau"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12031,6 +12330,7 @@
         "en": "Cow Spawn Egg",
         "fr": "Œuf d’apparition de vache"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12059,6 +12359,7 @@
         "en": "Pig Spawn Egg",
         "fr": "Œuf d’apparition de cochon"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12087,6 +12388,7 @@
         "en": "Chicken Spawn Egg",
         "fr": "Œuf d’apparition de poule"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12115,6 +12417,7 @@
         "en": "Rabbit Spawn Egg",
         "fr": "Œuf d’apparition de lapin"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12143,6 +12446,7 @@
         "en": "Wolf Spawn Egg",
         "fr": "Œuf d’apparition de loup"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12171,6 +12475,7 @@
         "en": "Horse Spawn Egg",
         "fr": "Œuf d’apparition de cheval"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12199,6 +12504,7 @@
         "en": "Goat Spawn Egg",
         "fr": "Œuf d’apparition de chèvre"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12227,6 +12533,7 @@
         "en": "Cat Spawn Egg",
         "fr": "Œuf d’apparition de chat"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12255,6 +12562,7 @@
         "en": "Spruce Leaves",
         "fr": "Feuilles de sapin"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12283,6 +12591,7 @@
         "en": "Hewn Stone",
         "fr": "Pierre taillée"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12311,6 +12620,7 @@
         "en": "Limestone",
         "fr": "Calcaire"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12339,6 +12649,7 @@
         "en": "Slate",
         "fr": "Ardoise"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12367,6 +12678,7 @@
         "en": "Clay",
         "fr": "Argile"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12395,6 +12707,7 @@
         "en": "Bricks",
         "fr": "Briques"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12423,6 +12736,7 @@
         "en": "Rammed Earth",
         "fr": "Pisé"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12451,6 +12765,7 @@
         "en": "Thatch",
         "fr": "Chaume"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12479,6 +12794,7 @@
         "en": "Coal Block",
         "fr": "Bloc de charbon"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12507,6 +12823,7 @@
         "en": "Copper Ore",
         "fr": "Minerai de cuivre"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12535,6 +12852,7 @@
         "en": "Tin Ore",
         "fr": "Minerai d’étain"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12563,6 +12881,7 @@
         "en": "Copper Block",
         "fr": "Bloc de cuivre"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12591,6 +12910,7 @@
         "en": "Tin Block",
         "fr": "Bloc d’étain"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12619,6 +12939,7 @@
         "en": "Bronze Block",
         "fr": "Bloc de bronze"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12647,6 +12968,7 @@
         "en": "Willow Log",
         "fr": "Bûche de saule"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12675,6 +12997,7 @@
         "en": "Willow Planks",
         "fr": "Planches de saule"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12703,6 +13026,7 @@
         "en": "Willow Leaves",
         "fr": "Feuilles de saule"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12731,6 +13055,7 @@
         "en": "Acacia Log",
         "fr": "Bûche d’acacia"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12759,6 +13084,7 @@
         "en": "Acacia Planks",
         "fr": "Planches d’acacia"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12787,6 +13113,7 @@
         "en": "Acacia Leaves",
         "fr": "Feuilles d’acacia"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12815,6 +13142,7 @@
         "en": "Reed",
         "fr": "Roseau"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12843,6 +13171,7 @@
         "en": "Heather",
         "fr": "Bruyère"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12871,6 +13200,7 @@
         "en": "Mushroom",
         "fr": "Champignon"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12899,6 +13229,7 @@
         "en": "Oak Slab",
         "fr": "Dalle en chêne"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12927,6 +13258,7 @@
         "en": "Hewn Stone Slab",
         "fr": "Dalle en pierre taillée"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12955,6 +13287,7 @@
         "en": "Brick Slab",
         "fr": "Dalle en briques"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -12983,6 +13316,7 @@
         "en": "Lantern",
         "fr": "Lanterne"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13011,6 +13345,7 @@
         "en": "Fired Brick",
         "fr": "Brique cuite"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13039,6 +13374,7 @@
         "en": "Fiber",
         "fr": "Fibre"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13067,6 +13403,7 @@
         "en": "Rope",
         "fr": "Corde"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13095,6 +13432,7 @@
         "en": "Flint",
         "fr": "Silex"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13123,6 +13461,7 @@
         "en": "Copper Ingot",
         "fr": "Lingot de cuivre"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13151,6 +13490,7 @@
         "en": "Tin Ingot",
         "fr": "Lingot d’étain"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13179,6 +13519,16 @@
         "en": "Bronze Ingot",
         "fr": "Lingot de bronze"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Made from copper and tin. Bronze tools sit between stone and iron, and bronze armour between leather and iron: a good step before you find iron."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13210,6 +13560,7 @@
         "en": "Roast Mushroom",
         "fr": "Champignon grillé"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13241,6 +13592,7 @@
         "en": "Bronze Pickaxe",
         "fr": "Pioche en bronze"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "BronzeIngot",
@@ -13278,6 +13630,7 @@
         "en": "Bronze Axe",
         "fr": "Hache en bronze"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "BronzeIngot",
@@ -13314,6 +13667,7 @@
         "en": "Bronze Shovel",
         "fr": "Pelle en bronze"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "BronzeIngot",
@@ -13350,6 +13704,7 @@
         "en": "Bronze Hoe",
         "fr": "Houe en bronze"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "BronzeIngot",
@@ -13386,6 +13741,7 @@
         "en": "Bronze Sword",
         "fr": "Épée en bronze"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "BronzeIngot",
@@ -13419,6 +13775,7 @@
         "en": "Oak Stairs",
         "fr": "Escalier en chêne"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13447,6 +13804,7 @@
         "en": "Hewn Stone Stairs",
         "fr": "Escalier en pierre taillée"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13475,6 +13833,7 @@
         "en": "Brick Stairs",
         "fr": "Escalier en briques"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13503,6 +13862,7 @@
         "en": "Oak Door",
         "fr": "Porte en chêne"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13531,6 +13891,7 @@
         "en": "Ladder",
         "fr": "Échelle"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13559,6 +13920,7 @@
         "en": "Fence",
         "fr": "Barrière"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13587,6 +13949,7 @@
         "en": "Glass Pane",
         "fr": "Vitre"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13615,6 +13978,7 @@
         "en": "Oak Sapling",
         "fr": "Pousse de chêne"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13643,6 +14007,7 @@
         "en": "Spruce Sapling",
         "fr": "Pousse de sapin"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13671,6 +14036,7 @@
         "en": "Jungle Sapling",
         "fr": "Pousse d’acajou"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13699,6 +14065,7 @@
         "en": "Willow Sapling",
         "fr": "Pousse de saule"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13727,6 +14094,7 @@
         "en": "Acacia Sapling",
         "fr": "Pousse d’acacia"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13755,6 +14123,7 @@
         "en": "White Wool",
         "fr": "Laine blanche"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13783,6 +14152,7 @@
         "en": "Berry Bush",
         "fr": "Buisson à baies"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13811,6 +14181,23 @@
         "en": "Bedroll",
         "fr": "Couchage"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Use it to set your respawn point. At night, when every player online lies down, the night is skipped. If your bedroll is broken, you come back at the world spawn. Using one earns "
+            },
+            {
+              "em": true,
+              "text": "Somewhere to Come Back To"
+            },
+            {
+              "text": "."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13839,6 +14226,16 @@
         "en": "Barrel",
         "fr": "Tonneau"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Holds 27 slots, like a chest."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13867,6 +14264,16 @@
         "en": "Rain Cistern",
         "fr": "Citerne"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Fills in the rain. Empty it with a bucket for a water bucket."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13895,6 +14302,16 @@
         "en": "Campfire",
         "fr": "Feu de camp"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "A light that keeps hostiles away and that rain puts out. Relight it with a torch, flint, or flint and steel."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13923,6 +14340,7 @@
         "en": "Sign",
         "fr": "Panneau"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13951,6 +14369,7 @@
         "en": "Rye",
         "fr": "Seigle"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -13982,6 +14401,7 @@
         "en": "Rye Bread",
         "fr": "Pain de seigle"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14013,6 +14433,7 @@
         "en": "Raw Mutton",
         "fr": "Mouton cru"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14044,6 +14465,7 @@
         "en": "Roast Mutton",
         "fr": "Mouton rôti"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14075,6 +14497,7 @@
         "en": "Berries",
         "fr": "Baies"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14105,6 +14528,7 @@
         "en": "Spear",
         "fr": "Lance"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14133,6 +14557,16 @@
         "en": "Portal Gun",
         "fr": "Pistolet à portails"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "The attack button opens your blue portal, the use button your orange one, on the face of a block up to 32 blocks away. A portal is 2 blocks wide and 3 high: its 6 wall cells must be solid full blocks (not glass or leaves) and nothing solid in the 6 in front of it. Walk into one and you come out of the other; you can see through them. A portal closes if its wall changes."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14163,6 +14597,7 @@
         "en": "Flint And Steel",
         "fr": "Briquet"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "IronIngot",
@@ -14191,6 +14626,16 @@
         "en": "Obsidian",
         "fr": "Obsidienne"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Made where a lava source meets water. Only a diamond pickaxe harvests it."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14219,6 +14664,16 @@
         "en": "Lava Bucket",
         "fr": "Seau de lave"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "The best fuel of all: one burns for 1000 seconds, 100 items, and leaves its bucket."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14250,6 +14705,7 @@
         "en": "Raw Pork",
         "fr": "Porc cru"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14281,6 +14737,7 @@
         "en": "Roast Pork",
         "fr": "Porc rôti"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14312,6 +14769,7 @@
         "en": "Raw Beef",
         "fr": "Bœuf cru"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14343,6 +14801,7 @@
         "en": "Roast Beef",
         "fr": "Bœuf rôti"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14374,6 +14833,7 @@
         "en": "Raw Chicken",
         "fr": "Poulet cru"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14405,6 +14865,7 @@
         "en": "Roast Chicken",
         "fr": "Poulet rôti"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14436,6 +14897,7 @@
         "en": "Raw Rabbit",
         "fr": "Lapin cru"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14467,6 +14929,7 @@
         "en": "Roast Rabbit",
         "fr": "Lapin rôti"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14495,6 +14958,7 @@
         "en": "Leather",
         "fr": "Cuir"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14523,6 +14987,7 @@
         "en": "Feather",
         "fr": "Plume"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14554,6 +15019,7 @@
         "en": "Carrot",
         "fr": "Carotte"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14585,6 +15051,7 @@
         "en": "Potato",
         "fr": "Pomme de terre"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14616,6 +15083,7 @@
         "en": "Baked Potato",
         "fr": "Pomme de terre cuite"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14644,6 +15112,7 @@
         "en": "Gnawer Spawn Egg",
         "fr": "Œuf d’apparition de rongeur"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14672,6 +15141,7 @@
         "en": "Bramble Spawn Egg",
         "fr": "Œuf d’apparition de ronce"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14700,6 +15170,7 @@
         "en": "Roller Spawn Egg",
         "fr": "Œuf d’apparition de rouleur"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14728,6 +15199,7 @@
         "en": "Stumpling Spawn Egg",
         "fr": "Œuf d’apparition de souchon"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14756,6 +15228,7 @@
         "en": "Drowner Spawn Egg",
         "fr": "Œuf d’apparition de noyeur"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14784,6 +15257,7 @@
         "en": "Cinderling Spawn Egg",
         "fr": "Œuf d’apparition d’escarbille"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14812,6 +15286,7 @@
         "en": "Gust Owl Spawn Egg",
         "fr": "Œuf d’apparition de hibou des rafales"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -14848,6 +15323,7 @@
         "en": "Leather Helmet",
         "fr": "Casque en cuir"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "Leather",
@@ -14884,6 +15360,7 @@
         "en": "Leather Chestplate",
         "fr": "Plastron en cuir"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "Leather",
@@ -14920,6 +15397,7 @@
         "en": "Leather Leggings",
         "fr": "Jambières en cuir"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "Leather",
@@ -14956,6 +15434,7 @@
         "en": "Leather Boots",
         "fr": "Bottes en cuir"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "Leather",
@@ -14992,6 +15471,7 @@
         "en": "Bronze Helmet",
         "fr": "Casque en bronze"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "BronzeIngot",
@@ -15028,6 +15508,7 @@
         "en": "Bronze Chestplate",
         "fr": "Plastron en bronze"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "BronzeIngot",
@@ -15064,6 +15545,7 @@
         "en": "Bronze Leggings",
         "fr": "Jambières en bronze"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "BronzeIngot",
@@ -15100,6 +15582,7 @@
         "en": "Bronze Boots",
         "fr": "Bottes en bronze"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "BronzeIngot",
@@ -15136,6 +15619,7 @@
         "en": "Iron Helmet",
         "fr": "Casque en fer"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "IronIngot",
@@ -15172,6 +15656,7 @@
         "en": "Iron Chestplate",
         "fr": "Plastron en fer"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "IronIngot",
@@ -15208,6 +15693,7 @@
         "en": "Iron Leggings",
         "fr": "Jambières en fer"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "IronIngot",
@@ -15244,6 +15730,7 @@
         "en": "Iron Boots",
         "fr": "Bottes en fer"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "IronIngot",
@@ -15280,6 +15767,7 @@
         "en": "Diamond Helmet",
         "fr": "Casque en diamant"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "Diamond",
@@ -15316,6 +15804,7 @@
         "en": "Diamond Chestplate",
         "fr": "Plastron en diamant"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "Diamond",
@@ -15352,6 +15841,7 @@
         "en": "Diamond Leggings",
         "fr": "Jambières en diamant"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "Diamond",
@@ -15388,6 +15878,7 @@
         "en": "Diamond Boots",
         "fr": "Bottes en diamant"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "Diamond",
@@ -15419,6 +15910,7 @@
         "en": "Bow",
         "fr": "Arc"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": "Rope",
@@ -15447,6 +15939,7 @@
         "en": "Arrow",
         "fr": "Flèche"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -15475,6 +15968,26 @@
         "en": "Coin",
         "fr": "Pièce"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "The money of the villagers: sell them crops, coal, iron, fibre, feathers or leather for coins, and buy food, tools, armour and torches with them. See "
+            },
+            {
+              "link": {
+                "id": "trading",
+                "kind": "guide"
+              },
+              "text": "trading"
+            },
+            {
+              "text": "."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -15503,6 +16016,7 @@
         "en": "Farmer Spawn Egg",
         "fr": "Œuf d’apparition de fermier"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -15531,6 +16045,7 @@
         "en": "Smith Spawn Egg",
         "fr": "Œuf d’apparition de forgeron"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -15559,6 +16074,7 @@
         "en": "Cartographer Spawn Egg",
         "fr": "Œuf d’apparition de cartographe"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -15587,6 +16103,33 @@
         "en": "Depths Compass",
         "fr": "Boussole des profondeurs"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Its needle points to the lair of the Ember Mother, at the bottom of the world. It spins in a world without one, and when you stand at the heart of the lair. Getting one earns "
+            },
+            {
+              "em": true,
+              "text": "It Points Down"
+            },
+            {
+              "text": ". See "
+            },
+            {
+              "link": {
+                "id": "ember-mother",
+                "kind": "guide"
+              },
+              "text": "the Ember Mother"
+            },
+            {
+              "text": "."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -15615,6 +16158,16 @@
         "en": "Ember Heart",
         "fr": "Cœur de braise"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "What the Ember Mother leaves when she falls: a block that glows with a light of 12. Only one is ever dropped per world."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -15643,6 +16196,7 @@
         "en": "Engraving Table",
         "fr": "Table de gravure"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -15671,6 +16225,7 @@
         "en": "Gloomrock",
         "fr": "Sombreroche"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -15699,6 +16254,7 @@
         "en": "Cobbled Gloomrock",
         "fr": "Sombreroche brute"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -15727,6 +16283,7 @@
         "en": "Anvil",
         "fr": "Enclume"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -15755,6 +16312,26 @@
         "en": "Saddle",
         "fr": "Selle"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Put it on a horse, donkey or mule you tamed, then use the animal to ride it. See "
+            },
+            {
+              "link": {
+                "id": "animals",
+                "kind": "guide"
+              },
+              "text": "riding"
+            },
+            {
+              "text": "."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -15783,6 +16360,16 @@
         "en": "Boat",
         "fr": "Bateau"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Put it on water and use it: 8 blocks a second on water, 1 on land, with a seat for a passenger in front."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -15811,6 +16398,7 @@
         "en": "Spruce Slab",
         "fr": "Dalle en sapin"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -15839,6 +16427,7 @@
         "en": "Jungle Slab",
         "fr": "Dalle en acajou"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -15867,6 +16456,7 @@
         "en": "Willow Slab",
         "fr": "Dalle en saule"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -15895,6 +16485,7 @@
         "en": "Acacia Slab",
         "fr": "Dalle en acacia"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -15923,6 +16514,7 @@
         "en": "Spruce Stairs",
         "fr": "Escalier en sapin"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -15951,6 +16543,7 @@
         "en": "Jungle Stairs",
         "fr": "Escalier en acajou"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -15979,6 +16572,7 @@
         "en": "Willow Stairs",
         "fr": "Escalier en saule"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16007,6 +16601,7 @@
         "en": "Acacia Stairs",
         "fr": "Escalier en acacia"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16035,6 +16630,7 @@
         "en": "Spruce Door",
         "fr": "Porte en sapin"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16063,6 +16659,7 @@
         "en": "Jungle Door",
         "fr": "Porte en acajou"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16091,6 +16688,7 @@
         "en": "Willow Door",
         "fr": "Porte en saule"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16119,6 +16717,7 @@
         "en": "Acacia Door",
         "fr": "Porte en acacia"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16147,6 +16746,7 @@
         "en": "Oak Trapdoor",
         "fr": "Trappe en chêne"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16175,6 +16775,7 @@
         "en": "Spruce Trapdoor",
         "fr": "Trappe en sapin"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16203,6 +16804,7 @@
         "en": "Jungle Trapdoor",
         "fr": "Trappe en acajou"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16231,6 +16833,7 @@
         "en": "Willow Trapdoor",
         "fr": "Trappe en saule"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16259,6 +16862,7 @@
         "en": "Acacia Trapdoor",
         "fr": "Trappe en acacia"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16287,6 +16891,7 @@
         "en": "Oak Fence Gate",
         "fr": "Portillon en chêne"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16315,6 +16920,7 @@
         "en": "Spruce Fence Gate",
         "fr": "Portillon en sapin"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16343,6 +16949,7 @@
         "en": "Jungle Fence Gate",
         "fr": "Portillon en acajou"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16371,6 +16978,7 @@
         "en": "Willow Fence Gate",
         "fr": "Portillon en saule"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16399,6 +17007,7 @@
         "en": "Acacia Fence Gate",
         "fr": "Portillon en acacia"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16427,6 +17036,7 @@
         "en": "Stone Slab",
         "fr": "Dalle en pierre"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16455,6 +17065,7 @@
         "en": "Cobblestone Slab",
         "fr": "Dalle en pierre brute"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16483,6 +17094,7 @@
         "en": "Limestone Slab",
         "fr": "Dalle en calcaire"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16511,6 +17123,7 @@
         "en": "Slate Slab",
         "fr": "Dalle en ardoise"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16539,6 +17152,7 @@
         "en": "Gloomrock Slab",
         "fr": "Dalle en sombreroche"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16567,6 +17181,7 @@
         "en": "Cobbled Gloomrock Slab",
         "fr": "Dalle en sombreroche brute"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16595,6 +17210,7 @@
         "en": "Stone Stairs",
         "fr": "Escalier en pierre"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16623,6 +17239,7 @@
         "en": "Cobblestone Stairs",
         "fr": "Escalier en pierre brute"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16651,6 +17268,7 @@
         "en": "Limestone Stairs",
         "fr": "Escalier en calcaire"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16679,6 +17297,7 @@
         "en": "Slate Stairs",
         "fr": "Escalier en ardoise"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16707,6 +17326,7 @@
         "en": "Gloomrock Stairs",
         "fr": "Escalier en sombreroche"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16735,6 +17355,7 @@
         "en": "Cobbled Gloomrock Stairs",
         "fr": "Escalier en sombreroche brute"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16763,6 +17384,7 @@
         "en": "Stone Wall",
         "fr": "Muret en pierre"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16791,6 +17413,7 @@
         "en": "Cobblestone Wall",
         "fr": "Muret en pierre brute"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16819,6 +17442,7 @@
         "en": "Hewn Stone Wall",
         "fr": "Muret en pierre taillée"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16847,6 +17471,7 @@
         "en": "Limestone Wall",
         "fr": "Muret en calcaire"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16875,6 +17500,7 @@
         "en": "Slate Wall",
         "fr": "Muret en ardoise"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16903,6 +17529,7 @@
         "en": "Brick Wall",
         "fr": "Muret en briques"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16931,6 +17558,7 @@
         "en": "Gloomrock Wall",
         "fr": "Muret en sombreroche"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16959,6 +17587,7 @@
         "en": "Cobbled Gloomrock Wall",
         "fr": "Muret en sombreroche brute"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -16987,6 +17616,7 @@
         "en": "Polished Stone",
         "fr": "Pierre polie"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17015,6 +17645,7 @@
         "en": "Polished Limestone",
         "fr": "Calcaire poli"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17043,6 +17674,7 @@
         "en": "Polished Slate",
         "fr": "Ardoise polie"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17071,6 +17703,7 @@
         "en": "Polished Gloomrock",
         "fr": "Sombreroche polie"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17099,6 +17732,7 @@
         "en": "Chiseled Stone",
         "fr": "Pierre sculptée"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17127,6 +17761,7 @@
         "en": "Chiseled Limestone",
         "fr": "Calcaire sculpté"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17155,6 +17790,7 @@
         "en": "Chiseled Slate",
         "fr": "Ardoise sculptée"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17183,6 +17819,7 @@
         "en": "Chiseled Gloomrock",
         "fr": "Sombreroche sculptée"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17211,6 +17848,7 @@
         "en": "Orange Wool",
         "fr": "Laine orange"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17239,6 +17877,7 @@
         "en": "Magenta Wool",
         "fr": "Laine magenta"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17267,6 +17906,7 @@
         "en": "Light Blue Wool",
         "fr": "Laine bleu clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17295,6 +17935,7 @@
         "en": "Yellow Wool",
         "fr": "Laine jaune"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17323,6 +17964,7 @@
         "en": "Lime Wool",
         "fr": "Laine vert clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17351,6 +17993,7 @@
         "en": "Pink Wool",
         "fr": "Laine rose"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17379,6 +18022,7 @@
         "en": "Gray Wool",
         "fr": "Laine grise"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17407,6 +18051,7 @@
         "en": "Light Gray Wool",
         "fr": "Laine gris clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17435,6 +18080,7 @@
         "en": "Cyan Wool",
         "fr": "Laine cyan"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17463,6 +18109,7 @@
         "en": "Purple Wool",
         "fr": "Laine violette"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17491,6 +18138,7 @@
         "en": "Blue Wool",
         "fr": "Laine bleue"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17519,6 +18167,7 @@
         "en": "Brown Wool",
         "fr": "Laine marron"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17547,6 +18196,7 @@
         "en": "Green Wool",
         "fr": "Laine verte"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17575,6 +18225,7 @@
         "en": "Red Wool",
         "fr": "Laine rouge"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17603,6 +18254,7 @@
         "en": "Black Wool",
         "fr": "Laine noire"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17631,6 +18283,7 @@
         "en": "White Stained Glass",
         "fr": "Verre teinté blanc"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17659,6 +18312,7 @@
         "en": "Orange Stained Glass",
         "fr": "Verre teinté orange"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17687,6 +18341,7 @@
         "en": "Magenta Stained Glass",
         "fr": "Verre teinté magenta"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17715,6 +18370,7 @@
         "en": "Light Blue Stained Glass",
         "fr": "Verre teinté bleu clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17743,6 +18399,7 @@
         "en": "Yellow Stained Glass",
         "fr": "Verre teinté jaune"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17771,6 +18428,7 @@
         "en": "Lime Stained Glass",
         "fr": "Verre teinté vert clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17799,6 +18457,7 @@
         "en": "Pink Stained Glass",
         "fr": "Verre teinté rose"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17827,6 +18486,7 @@
         "en": "Gray Stained Glass",
         "fr": "Verre teinté gris"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17855,6 +18515,7 @@
         "en": "Light Gray Stained Glass",
         "fr": "Verre teinté gris clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17883,6 +18544,7 @@
         "en": "Cyan Stained Glass",
         "fr": "Verre teinté cyan"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17911,6 +18573,7 @@
         "en": "Purple Stained Glass",
         "fr": "Verre teinté violet"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17939,6 +18602,7 @@
         "en": "Blue Stained Glass",
         "fr": "Verre teinté bleu"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17967,6 +18631,7 @@
         "en": "Brown Stained Glass",
         "fr": "Verre teinté marron"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -17995,6 +18660,7 @@
         "en": "Green Stained Glass",
         "fr": "Verre teinté vert"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18023,6 +18689,7 @@
         "en": "Red Stained Glass",
         "fr": "Verre teinté rouge"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18051,6 +18718,7 @@
         "en": "Black Stained Glass",
         "fr": "Verre teinté noir"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18079,6 +18747,7 @@
         "en": "White Stained Glass Pane",
         "fr": "Vitre teintée blanche"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18107,6 +18776,7 @@
         "en": "Orange Stained Glass Pane",
         "fr": "Vitre teintée orange"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18135,6 +18805,7 @@
         "en": "Magenta Stained Glass Pane",
         "fr": "Vitre teintée magenta"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18163,6 +18834,7 @@
         "en": "Light Blue Stained Glass Pane",
         "fr": "Vitre teintée bleu clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18191,6 +18863,7 @@
         "en": "Yellow Stained Glass Pane",
         "fr": "Vitre teintée jaune"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18219,6 +18892,7 @@
         "en": "Lime Stained Glass Pane",
         "fr": "Vitre teintée vert clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18247,6 +18921,7 @@
         "en": "Pink Stained Glass Pane",
         "fr": "Vitre teintée rose"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18275,6 +18950,7 @@
         "en": "Gray Stained Glass Pane",
         "fr": "Vitre teintée grise"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18303,6 +18979,7 @@
         "en": "Light Gray Stained Glass Pane",
         "fr": "Vitre teintée gris clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18331,6 +19008,7 @@
         "en": "Cyan Stained Glass Pane",
         "fr": "Vitre teintée cyan"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18359,6 +19037,7 @@
         "en": "Purple Stained Glass Pane",
         "fr": "Vitre teintée violette"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18387,6 +19066,7 @@
         "en": "Blue Stained Glass Pane",
         "fr": "Vitre teintée bleue"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18415,6 +19095,7 @@
         "en": "Brown Stained Glass Pane",
         "fr": "Vitre teintée marron"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18443,6 +19124,7 @@
         "en": "Green Stained Glass Pane",
         "fr": "Vitre teintée verte"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18471,6 +19153,7 @@
         "en": "Red Stained Glass Pane",
         "fr": "Vitre teintée rouge"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18499,6 +19182,7 @@
         "en": "Black Stained Glass Pane",
         "fr": "Vitre teintée noire"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18527,6 +19211,7 @@
         "en": "Terracotta",
         "fr": "Terre cuite"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18555,6 +19240,7 @@
         "en": "White Terracotta",
         "fr": "Terre cuite blanche"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18583,6 +19269,7 @@
         "en": "Orange Terracotta",
         "fr": "Terre cuite orange"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18611,6 +19298,7 @@
         "en": "Magenta Terracotta",
         "fr": "Terre cuite magenta"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18639,6 +19327,7 @@
         "en": "Light Blue Terracotta",
         "fr": "Terre cuite bleu clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18667,6 +19356,7 @@
         "en": "Yellow Terracotta",
         "fr": "Terre cuite jaune"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18695,6 +19385,7 @@
         "en": "Lime Terracotta",
         "fr": "Terre cuite vert clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18723,6 +19414,7 @@
         "en": "Pink Terracotta",
         "fr": "Terre cuite rose"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18751,6 +19443,7 @@
         "en": "Gray Terracotta",
         "fr": "Terre cuite grise"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18779,6 +19472,7 @@
         "en": "Light Gray Terracotta",
         "fr": "Terre cuite gris clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18807,6 +19501,7 @@
         "en": "Cyan Terracotta",
         "fr": "Terre cuite cyan"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18835,6 +19530,7 @@
         "en": "Purple Terracotta",
         "fr": "Terre cuite violette"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18863,6 +19559,7 @@
         "en": "Blue Terracotta",
         "fr": "Terre cuite bleue"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18891,6 +19588,7 @@
         "en": "Brown Terracotta",
         "fr": "Terre cuite marron"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18919,6 +19617,7 @@
         "en": "Green Terracotta",
         "fr": "Terre cuite verte"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18947,6 +19646,7 @@
         "en": "Red Terracotta",
         "fr": "Terre cuite rouge"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -18975,6 +19675,7 @@
         "en": "Black Terracotta",
         "fr": "Terre cuite noire"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19003,6 +19704,7 @@
         "en": "White Concrete",
         "fr": "Béton blanc"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19031,6 +19733,7 @@
         "en": "Orange Concrete",
         "fr": "Béton orange"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19059,6 +19762,7 @@
         "en": "Magenta Concrete",
         "fr": "Béton magenta"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19087,6 +19791,7 @@
         "en": "Light Blue Concrete",
         "fr": "Béton bleu clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19115,6 +19820,7 @@
         "en": "Yellow Concrete",
         "fr": "Béton jaune"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19143,6 +19849,7 @@
         "en": "Lime Concrete",
         "fr": "Béton vert clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19171,6 +19878,7 @@
         "en": "Pink Concrete",
         "fr": "Béton rose"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19199,6 +19907,7 @@
         "en": "Gray Concrete",
         "fr": "Béton gris"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19227,6 +19936,7 @@
         "en": "Light Gray Concrete",
         "fr": "Béton gris clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19255,6 +19965,7 @@
         "en": "Cyan Concrete",
         "fr": "Béton cyan"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19283,6 +19994,7 @@
         "en": "Purple Concrete",
         "fr": "Béton violet"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19311,6 +20023,7 @@
         "en": "Blue Concrete",
         "fr": "Béton bleu"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19339,6 +20052,7 @@
         "en": "Brown Concrete",
         "fr": "Béton marron"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19367,6 +20081,7 @@
         "en": "Green Concrete",
         "fr": "Béton vert"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19395,6 +20110,7 @@
         "en": "Red Concrete",
         "fr": "Béton rouge"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19423,6 +20139,7 @@
         "en": "Black Concrete",
         "fr": "Béton noir"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19451,6 +20168,7 @@
         "en": "White Concrete Powder",
         "fr": "Poudre de béton blanche"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19479,6 +20197,7 @@
         "en": "Orange Concrete Powder",
         "fr": "Poudre de béton orange"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19507,6 +20226,7 @@
         "en": "Magenta Concrete Powder",
         "fr": "Poudre de béton magenta"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19535,6 +20255,7 @@
         "en": "Light Blue Concrete Powder",
         "fr": "Poudre de béton bleu clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19563,6 +20284,7 @@
         "en": "Yellow Concrete Powder",
         "fr": "Poudre de béton jaune"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19591,6 +20313,7 @@
         "en": "Lime Concrete Powder",
         "fr": "Poudre de béton vert clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19619,6 +20342,7 @@
         "en": "Pink Concrete Powder",
         "fr": "Poudre de béton rose"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19647,6 +20371,7 @@
         "en": "Gray Concrete Powder",
         "fr": "Poudre de béton grise"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19675,6 +20400,7 @@
         "en": "Light Gray Concrete Powder",
         "fr": "Poudre de béton gris clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19703,6 +20429,7 @@
         "en": "Cyan Concrete Powder",
         "fr": "Poudre de béton cyan"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19731,6 +20458,7 @@
         "en": "Purple Concrete Powder",
         "fr": "Poudre de béton violette"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19759,6 +20487,7 @@
         "en": "Blue Concrete Powder",
         "fr": "Poudre de béton bleue"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19787,6 +20516,7 @@
         "en": "Brown Concrete Powder",
         "fr": "Poudre de béton marron"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19815,6 +20545,7 @@
         "en": "Green Concrete Powder",
         "fr": "Poudre de béton verte"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19843,6 +20574,7 @@
         "en": "Red Concrete Powder",
         "fr": "Poudre de béton rouge"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19871,6 +20603,7 @@
         "en": "Black Concrete Powder",
         "fr": "Poudre de béton noire"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19899,6 +20632,7 @@
         "en": "White Dye",
         "fr": "Teinture blanche"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19927,6 +20661,7 @@
         "en": "Orange Dye",
         "fr": "Teinture orange"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19955,6 +20690,7 @@
         "en": "Magenta Dye",
         "fr": "Teinture magenta"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -19983,6 +20719,7 @@
         "en": "Light Blue Dye",
         "fr": "Teinture bleu clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20011,6 +20748,7 @@
         "en": "Yellow Dye",
         "fr": "Teinture jaune"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20039,6 +20777,7 @@
         "en": "Lime Dye",
         "fr": "Teinture vert clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20067,6 +20806,7 @@
         "en": "Pink Dye",
         "fr": "Teinture rose"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20095,6 +20835,7 @@
         "en": "Gray Dye",
         "fr": "Teinture grise"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20123,6 +20864,7 @@
         "en": "Light Gray Dye",
         "fr": "Teinture gris clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20151,6 +20893,7 @@
         "en": "Cyan Dye",
         "fr": "Teinture cyan"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20179,6 +20922,7 @@
         "en": "Purple Dye",
         "fr": "Teinture violette"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20207,6 +20951,7 @@
         "en": "Blue Dye",
         "fr": "Teinture bleue"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20235,6 +20980,7 @@
         "en": "Brown Dye",
         "fr": "Teinture marron"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20263,6 +21009,7 @@
         "en": "Green Dye",
         "fr": "Teinture verte"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20291,6 +21038,7 @@
         "en": "Red Dye",
         "fr": "Teinture rouge"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20319,6 +21067,7 @@
         "en": "Black Dye",
         "fr": "Teinture noire"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20349,6 +21098,26 @@
         "en": "Shield",
         "fr": "Bouclier"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Hold the use button to raise it: it stops the blows and arrows that come from the front, and you walk at half speed. A Roller’s charge or the Ember Mother’s blow knocks it down for five seconds. It works from any hotbar slot while your hand holds a melee weapon or nothing. See "
+            },
+            {
+              "link": {
+                "id": "combat",
+                "kind": "guide"
+              },
+              "text": "combat"
+            },
+            {
+              "text": "."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20379,6 +21148,7 @@
         "en": "Crossbow",
         "fr": "Arbalète"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20407,6 +21177,7 @@
         "en": "Bolt",
         "fr": "Carreau"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20435,6 +21206,7 @@
         "en": "Throwing Axe",
         "fr": "Hache de jet"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20465,6 +21237,7 @@
         "en": "Mace",
         "fr": "Masse"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20493,6 +21266,16 @@
         "en": "Milk Bucket",
         "fr": "Seau de lait"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Drink it to clear every status effect; the bucket is left. Get it by using a bucket on a cow."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20521,6 +21304,7 @@
         "en": "Paper",
         "fr": "Papier"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20549,6 +21333,16 @@
         "en": "Empty Map",
         "fr": "Carte vierge"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Use it to start a map of the 128 × 128 blocks around you; it fills in as you walk, within 40 blocks of you. Copy a map by crafting it with an empty one."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20577,6 +21371,16 @@
         "en": "Map",
         "fr": "Carte"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Shows 128 × 128 blocks, a pixel each, and fills in within 40 blocks of whoever holds it. Hang it in a map frame, or copy it with an empty map."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20605,6 +21409,16 @@
         "en": "Compass",
         "fr": "Boussole"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Its needle points home: to your bedroll, or to the world spawn if you have none."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20633,6 +21447,7 @@
         "en": "Map Frame",
         "fr": "Cadre de carte"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20663,6 +21478,7 @@
         "en": "Fishing Rod",
         "fr": "Canne à pêche"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20694,6 +21510,7 @@
         "en": "Raw Roach",
         "fr": "Gardon cru"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20725,6 +21542,7 @@
         "en": "Grilled Roach",
         "fr": "Gardon grillé"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20756,6 +21574,7 @@
         "en": "Raw Perch",
         "fr": "Perche crue"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20787,6 +21606,7 @@
         "en": "Grilled Perch",
         "fr": "Perche grillée"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20818,6 +21638,7 @@
         "en": "Raw Pike",
         "fr": "Brochet cru"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20849,6 +21670,7 @@
         "en": "Grilled Pike",
         "fr": "Brochet grillé"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20880,6 +21702,7 @@
         "en": "Raw Eel",
         "fr": "Anguille crue"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20911,6 +21734,7 @@
         "en": "Grilled Eel",
         "fr": "Anguille grillée"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20942,6 +21766,7 @@
         "en": "Raw Glowfin",
         "fr": "Luisant cru"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -20977,6 +21802,7 @@
         "en": "Grilled Glowfin",
         "fr": "Luisant grillé"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21005,6 +21831,7 @@
         "en": "Egg",
         "fr": "Œuf"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21036,6 +21863,7 @@
         "en": "Fried Egg",
         "fr": "Œuf au plat"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21067,6 +21895,7 @@
         "en": "Apple",
         "fr": "Pomme"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21095,6 +21924,7 @@
         "en": "Apple Sapling",
         "fr": "Pousse de pommier"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21123,6 +21953,7 @@
         "en": "Apple Leaves",
         "fr": "Feuilles de pommier"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21151,6 +21982,7 @@
         "en": "Bowl",
         "fr": "Bol"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21182,6 +22014,7 @@
         "en": "Mushroom Soup",
         "fr": "Soupe de champignons"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21213,6 +22046,7 @@
         "en": "Stew",
         "fr": "Ragoût"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21244,6 +22078,7 @@
         "en": "Berry Salad",
         "fr": "Salade de baies"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21279,6 +22114,7 @@
         "en": "Fish Chowder",
         "fr": "Chaudrée de poisson"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21307,6 +22143,7 @@
         "en": "Cake Batter",
         "fr": "Pâte à gâteau"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21338,6 +22175,7 @@
         "en": "Cocoa Cake",
         "fr": "Gâteau au cacao"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21366,6 +22204,7 @@
         "en": "Unbaked Pie",
         "fr": "Tourte crue"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21397,6 +22236,7 @@
         "en": "Apple Pie",
         "fr": "Tourte aux pommes"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21425,6 +22265,26 @@
         "en": "Compost",
         "fr": "Compost"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Use it on a crop to grow it a stage, on a berry bush to ripen it, or on a sapling for a one in two chance to grow it into a tree at once. See "
+            },
+            {
+              "link": {
+                "id": "farming",
+                "kind": "guide"
+              },
+              "text": "farming"
+            },
+            {
+              "text": "."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21453,6 +22313,7 @@
         "en": "Kelp",
         "fr": "Varech"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21481,6 +22342,7 @@
         "en": "Seagrass",
         "fr": "Herbier marin"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21509,6 +22371,7 @@
         "en": "Azure Reef",
         "fr": "Récif azur"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21537,6 +22400,7 @@
         "en": "Rose Reef",
         "fr": "Récif rose"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21565,6 +22429,7 @@
         "en": "Amber Reef",
         "fr": "Récif ambré"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21593,6 +22458,7 @@
         "en": "Moss",
         "fr": "Mousse"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21621,6 +22487,7 @@
         "en": "Cave Vine",
         "fr": "Liane des grottes"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21649,6 +22516,7 @@
         "en": "Glowcrystal",
         "fr": "Cristal lumineux"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21677,6 +22545,7 @@
         "en": "Crystal Cluster",
         "fr": "Amas de cristaux"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21705,6 +22574,7 @@
         "en": "Geodestone",
         "fr": "Pierre de géode"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21733,6 +22603,7 @@
         "en": "Basalt",
         "fr": "Basalte"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21761,6 +22632,7 @@
         "en": "Polished Basalt",
         "fr": "Basalte poli"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21789,6 +22661,7 @@
         "en": "Magma",
         "fr": "Magma"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21817,6 +22690,7 @@
         "en": "Crystal Shard",
         "fr": "Éclat de cristal"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21845,6 +22719,26 @@
         "en": "Treasure Map",
         "fr": "Carte au trésor"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Found in the chests of shipwrecks. While you hold it, your maps mark the spot of a buried chest with a red X, 24 to 72 blocks from the wreck. Dig 2 blocks down there. See "
+            },
+            {
+              "link": {
+                "id": "structures",
+                "kind": "guide"
+              },
+              "text": "structures"
+            },
+            {
+              "text": "."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21873,6 +22767,7 @@
         "en": "Glintfin Spawn Egg",
         "fr": "Œuf d’apparition de lueurine"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21901,6 +22796,7 @@
         "en": "Shoalback Spawn Egg",
         "fr": "Œuf d’apparition de dos-d’argent"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21929,6 +22825,7 @@
         "en": "Mossback Spawn Egg",
         "fr": "Œuf d’apparition de moussecaille"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21957,6 +22854,7 @@
         "en": "Shardling Spawn Egg",
         "fr": "Œuf d’apparition d’éclatin"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -21985,6 +22883,7 @@
         "en": "Slagcrawler Spawn Egg",
         "fr": "Œuf d’apparition de rampe-scorie"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22013,6 +22912,7 @@
         "en": "Leather Horse Armour",
         "fr": "Armure de cheval en cuir"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22041,6 +22941,7 @@
         "en": "Iron Horse Armour",
         "fr": "Armure de cheval en fer"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22069,6 +22970,7 @@
         "en": "Gold Horse Armour",
         "fr": "Armure de cheval en or"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22097,6 +22999,7 @@
         "en": "Diamond Horse Armour",
         "fr": "Armure de cheval en diamant"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22125,6 +23028,16 @@
         "en": "Lead",
         "fr": "Laisse"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Use it on a land animal to lead it. The lead has 4 blocks of slack and snaps beyond 12; use it on a fence post to tie the animal there."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22153,6 +23066,7 @@
         "en": "Donkey Spawn Egg",
         "fr": "Œuf d’apparition d’âne"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22181,6 +23095,7 @@
         "en": "Mule Spawn Egg",
         "fr": "Œuf d’apparition de mulet"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22209,6 +23124,7 @@
         "en": "White Bedroll",
         "fr": "Couchage blanc"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22237,6 +23153,7 @@
         "en": "Orange Bedroll",
         "fr": "Couchage orange"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22265,6 +23182,7 @@
         "en": "Magenta Bedroll",
         "fr": "Couchage magenta"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22293,6 +23211,7 @@
         "en": "Light Blue Bedroll",
         "fr": "Couchage bleu clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22321,6 +23240,7 @@
         "en": "Yellow Bedroll",
         "fr": "Couchage jaune"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22349,6 +23269,7 @@
         "en": "Lime Bedroll",
         "fr": "Couchage vert clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22377,6 +23298,7 @@
         "en": "Pink Bedroll",
         "fr": "Couchage rose"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22405,6 +23327,7 @@
         "en": "Gray Bedroll",
         "fr": "Couchage gris"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22433,6 +23356,7 @@
         "en": "Light Gray Bedroll",
         "fr": "Couchage gris clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22461,6 +23385,7 @@
         "en": "Cyan Bedroll",
         "fr": "Couchage cyan"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22489,6 +23414,7 @@
         "en": "Purple Bedroll",
         "fr": "Couchage violet"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22517,6 +23443,7 @@
         "en": "Blue Bedroll",
         "fr": "Couchage bleu"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22545,6 +23472,7 @@
         "en": "Brown Bedroll",
         "fr": "Couchage marron"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22573,6 +23501,7 @@
         "en": "Green Bedroll",
         "fr": "Couchage vert"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22601,6 +23530,7 @@
         "en": "Black Bedroll",
         "fr": "Couchage noir"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22629,6 +23559,7 @@
         "en": "Oak Table",
         "fr": "Table en chêne"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22657,6 +23588,7 @@
         "en": "Spruce Table",
         "fr": "Table en sapin"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22685,6 +23617,7 @@
         "en": "Jungle Table",
         "fr": "Table en acajou"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22713,6 +23646,7 @@
         "en": "Willow Table",
         "fr": "Table en saule"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22741,6 +23675,7 @@
         "en": "Acacia Table",
         "fr": "Table en acacia"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22769,6 +23704,7 @@
         "en": "Oak Chair",
         "fr": "Chaise en chêne"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22797,6 +23733,7 @@
         "en": "Spruce Chair",
         "fr": "Chaise en sapin"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22825,6 +23762,7 @@
         "en": "Jungle Chair",
         "fr": "Chaise en acajou"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22853,6 +23791,7 @@
         "en": "Willow Chair",
         "fr": "Chaise en saule"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22881,6 +23820,7 @@
         "en": "Acacia Chair",
         "fr": "Chaise en acacia"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22909,6 +23849,7 @@
         "en": "Book",
         "fr": "Livre"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22937,6 +23878,7 @@
         "en": "Bookshelf",
         "fr": "Bibliothèque"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22965,6 +23907,7 @@
         "en": "White Carpet",
         "fr": "Tapis blanc"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -22993,6 +23936,7 @@
         "en": "Orange Carpet",
         "fr": "Tapis orange"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23021,6 +23965,7 @@
         "en": "Magenta Carpet",
         "fr": "Tapis magenta"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23049,6 +23994,7 @@
         "en": "Light Blue Carpet",
         "fr": "Tapis bleu clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23077,6 +24023,7 @@
         "en": "Yellow Carpet",
         "fr": "Tapis jaune"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23105,6 +24052,7 @@
         "en": "Lime Carpet",
         "fr": "Tapis vert clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23133,6 +24081,7 @@
         "en": "Pink Carpet",
         "fr": "Tapis rose"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23161,6 +24110,7 @@
         "en": "Gray Carpet",
         "fr": "Tapis gris"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23189,6 +24139,7 @@
         "en": "Light Gray Carpet",
         "fr": "Tapis gris clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23217,6 +24168,7 @@
         "en": "Cyan Carpet",
         "fr": "Tapis cyan"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23245,6 +24197,7 @@
         "en": "Purple Carpet",
         "fr": "Tapis violet"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23273,6 +24226,7 @@
         "en": "Blue Carpet",
         "fr": "Tapis bleu"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23301,6 +24255,7 @@
         "en": "Brown Carpet",
         "fr": "Tapis marron"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23329,6 +24284,7 @@
         "en": "Green Carpet",
         "fr": "Tapis vert"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23357,6 +24313,7 @@
         "en": "Red Carpet",
         "fr": "Tapis rouge"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23385,6 +24342,7 @@
         "en": "Black Carpet",
         "fr": "Tapis noir"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23413,6 +24371,7 @@
         "en": "Flower Pot",
         "fr": "Pot de fleurs"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23441,6 +24400,7 @@
         "en": "Item Frame",
         "fr": "Cadre"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23469,6 +24429,7 @@
         "en": "Painting",
         "fr": "Tableau"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23497,6 +24458,7 @@
         "en": "Wide Painting",
         "fr": "Grand tableau"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23525,6 +24487,7 @@
         "en": "White Banner",
         "fr": "Bannière blanche"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23553,6 +24516,7 @@
         "en": "Orange Banner",
         "fr": "Bannière orange"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23581,6 +24545,7 @@
         "en": "Magenta Banner",
         "fr": "Bannière magenta"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23609,6 +24574,7 @@
         "en": "Light Blue Banner",
         "fr": "Bannière bleu clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23637,6 +24603,7 @@
         "en": "Yellow Banner",
         "fr": "Bannière jaune"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23665,6 +24632,7 @@
         "en": "Lime Banner",
         "fr": "Bannière vert clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23693,6 +24661,7 @@
         "en": "Pink Banner",
         "fr": "Bannière rose"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23721,6 +24690,7 @@
         "en": "Gray Banner",
         "fr": "Bannière grise"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23749,6 +24719,7 @@
         "en": "Light Gray Banner",
         "fr": "Bannière gris clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23777,6 +24748,7 @@
         "en": "Cyan Banner",
         "fr": "Bannière cyan"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23805,6 +24777,7 @@
         "en": "Purple Banner",
         "fr": "Bannière violette"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23833,6 +24806,7 @@
         "en": "Blue Banner",
         "fr": "Bannière bleue"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23861,6 +24835,7 @@
         "en": "Brown Banner",
         "fr": "Bannière marron"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23889,6 +24864,7 @@
         "en": "Green Banner",
         "fr": "Bannière verte"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23917,6 +24893,7 @@
         "en": "Red Banner",
         "fr": "Bannière rouge"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23945,6 +24922,7 @@
         "en": "Black Banner",
         "fr": "Bannière noire"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -23973,6 +24951,7 @@
         "en": "White Lantern",
         "fr": "Lanterne blanche"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -24001,6 +24980,7 @@
         "en": "Orange Lantern",
         "fr": "Lanterne orange"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -24029,6 +25009,7 @@
         "en": "Magenta Lantern",
         "fr": "Lanterne magenta"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -24057,6 +25038,7 @@
         "en": "Light Blue Lantern",
         "fr": "Lanterne bleu clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -24085,6 +25067,7 @@
         "en": "Yellow Lantern",
         "fr": "Lanterne jaune"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -24113,6 +25096,7 @@
         "en": "Lime Lantern",
         "fr": "Lanterne vert clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -24141,6 +25125,7 @@
         "en": "Pink Lantern",
         "fr": "Lanterne rose"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -24169,6 +25154,7 @@
         "en": "Gray Lantern",
         "fr": "Lanterne grise"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -24197,6 +25183,7 @@
         "en": "Light Gray Lantern",
         "fr": "Lanterne gris clair"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -24225,6 +25212,7 @@
         "en": "Cyan Lantern",
         "fr": "Lanterne cyan"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -24253,6 +25241,7 @@
         "en": "Purple Lantern",
         "fr": "Lanterne violette"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -24281,6 +25270,7 @@
         "en": "Blue Lantern",
         "fr": "Lanterne bleue"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -24309,6 +25299,7 @@
         "en": "Brown Lantern",
         "fr": "Lanterne marron"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -24337,6 +25328,7 @@
         "en": "Green Lantern",
         "fr": "Lanterne verte"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -24365,6 +25357,7 @@
         "en": "Red Lantern",
         "fr": "Lanterne rouge"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -24393,6 +25386,7 @@
         "en": "Black Lantern",
         "fr": "Lanterne noire"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -24421,6 +25415,7 @@
         "en": "Alembic",
         "fr": "Alambic"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -24449,6 +25444,26 @@
         "en": "Glass Vial",
         "fr": "Fiole vide"
       },
+      "note": [
+        {
+          "text": [
+            {
+              "text": "Fill it at a water source for a water vial, the start of every potion. See "
+            },
+            {
+              "link": {
+                "id": "alchemy",
+                "kind": "page"
+              },
+              "text": "alchemy"
+            },
+            {
+              "text": "."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -24477,6 +25492,7 @@
         "en": "Water Vial",
         "fr": "Fiole d’eau"
       },
+      "note": null,
       "potion": null,
       "potionColor": [
         56,
@@ -24509,6 +25525,7 @@
         "en": "Neutral Base",
         "fr": "Base neutre"
       },
+      "note": null,
       "potion": null,
       "potionColor": [
         150,
@@ -24541,6 +25558,7 @@
         "en": "Potion of Healing",
         "fr": "Potion de soin"
       },
+      "note": null,
       "potion": {
         "effect": "Healing",
         "longer": false,
@@ -24579,6 +25597,7 @@
         "en": "Potion of Night Vision",
         "fr": "Potion de vision nocturne"
       },
+      "note": null,
       "potion": {
         "effect": "NightVision",
         "longer": true,
@@ -24617,6 +25636,7 @@
         "en": "Potion of Water Breathing",
         "fr": "Potion de respiration aquatique"
       },
+      "note": null,
       "potion": {
         "effect": "WaterBreathing",
         "longer": true,
@@ -24655,6 +25675,7 @@
         "en": "Potion of Fire Resistance",
         "fr": "Potion de résistance au feu"
       },
+      "note": null,
       "potion": {
         "effect": "FireResistance",
         "longer": true,
@@ -24693,6 +25714,7 @@
         "en": "Potion of Swiftness",
         "fr": "Potion de vitesse"
       },
+      "note": null,
       "potion": {
         "effect": "Swiftness",
         "longer": true,
@@ -24731,6 +25753,7 @@
         "en": "Potion of Strength",
         "fr": "Potion de force"
       },
+      "note": null,
       "potion": {
         "effect": "Strength",
         "longer": true,
@@ -24769,6 +25792,7 @@
         "en": "Potion of Regeneration",
         "fr": "Potion de régénération"
       },
+      "note": null,
       "potion": {
         "effect": "Regeneration",
         "longer": true,
@@ -24807,6 +25831,7 @@
         "en": "Splash Potion of Poison",
         "fr": "Potion jetable de poison"
       },
+      "note": null,
       "potion": {
         "effect": "Poison",
         "longer": true,
@@ -24845,6 +25870,7 @@
         "en": "Splash Potion of Slowness",
         "fr": "Potion jetable de lenteur"
       },
+      "note": null,
       "potion": {
         "effect": "Slowness",
         "longer": true,
@@ -24883,6 +25909,7 @@
         "en": "Splash Potion of Weakness",
         "fr": "Potion jetable de faiblesse"
       },
+      "note": null,
       "potion": {
         "effect": "Weakness",
         "longer": true,
@@ -24921,6 +25948,7 @@
         "en": "Gnawer Fang",
         "fr": "Croc de rongeur"
       },
+      "note": null,
       "potion": null,
       "potionColor": null,
       "repair": null,
@@ -24936,19 +25964,45 @@
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "It runs from players. It eats berries, but cannot be tamed."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "In herds of 1 to 2 in forests, groves and flower forests, and in the ice plains."
+          }
+        ],
+        "speed": [
+          {
+            "text": "1.6 walking, 4 fleeing"
+          }
+        ],
+        "summary": [
+          {
+            "text": "A quick, shy animal of the woods and the snow."
+          }
+        ]
+      },
+      "damage": null,
       "eats": [
         "Berries"
       ],
+      "effect": null,
       "egg": "FoxSpawnEgg",
       "health": 10,
       "hostile": false,
       "id": "Fox",
       "leashable": true,
+      "loot": [],
       "mount": false,
       "name": {
         "en": "Fox",
         "fr": "Renard"
       },
+      "sight": null,
       "size": [
         0.699999988079071,
         0.699999988079071,
@@ -24958,26 +26012,71 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 1.6,
+      "weakToAxes": false,
+      "xp": 0
     },
     {
       "animal": true,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "Use almost any item on an adult to shear it for 1 to 2 wool; the wool grows back once it has grazed. It eats rye."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "In herds of 2 to 4 in the plains, groves, mountains and forests, and in the pens of plains and snowy villages."
+          }
+        ],
+        "speed": [
+          {
+            "text": "1 walking, 2 fleeing"
+          }
+        ],
+        "summary": [
+          {
+            "text": "The source of wool and mutton."
+          }
+        ]
+      },
+      "damage": null,
       "eats": [
         "Rye"
       ],
+      "effect": null,
       "egg": "SheepSpawnEgg",
       "health": 8,
       "hostile": false,
       "id": "Sheep",
       "leashable": true,
+      "loot": [
+        {
+          "count": {
+            "max": 2,
+            "min": 1
+          },
+          "item": "RawMutton",
+          "when": "Always"
+        },
+        {
+          "count": {
+            "max": 1,
+            "min": 1
+          },
+          "item": "Wool",
+          "when": "NotSheared"
+        }
+      ],
       "mount": false,
       "name": {
         "en": "Sheep",
         "fr": "Mouton"
       },
+      "sight": null,
       "size": [
         0.8999999761581421,
         1.25,
@@ -24987,26 +26086,81 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 1.0,
+      "weakToAxes": false,
+      "xp": 0
     },
     {
       "animal": true,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "Use a "
+          },
+          {
+            "link": {
+              "id": "Bucket",
+              "kind": "item"
+            },
+            "text": "bucket"
+          },
+          {
+            "text": " on an adult for a milk bucket, which clears every status effect. It eats rye."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "In herds of 2 to 4 in the plains, the savanna, groves and forest clearings, and in village pens."
+          }
+        ],
+        "speed": [
+          {
+            "text": "1 walking, 2 fleeing"
+          }
+        ],
+        "summary": [
+          {
+            "text": "Beef, leather and milk."
+          }
+        ]
+      },
+      "damage": null,
       "eats": [
         "Rye"
       ],
+      "effect": null,
       "egg": "CowSpawnEgg",
       "health": 12,
       "hostile": false,
       "id": "Cow",
       "leashable": true,
+      "loot": [
+        {
+          "count": {
+            "max": 3,
+            "min": 1
+          },
+          "item": "RawBeef",
+          "when": "Always"
+        },
+        {
+          "count": {
+            "max": 2,
+            "min": 0
+          },
+          "item": "Leather",
+          "when": "Always"
+        }
+      ],
       "mount": false,
       "name": {
         "en": "Cow",
         "fr": "Vache"
       },
+      "sight": null,
       "size": [
         0.8999999761581421,
         1.399999976158142,
@@ -25016,27 +26170,64 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 1.0,
+      "weakToAxes": false,
+      "xp": 0
     },
     {
       "animal": true,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "It eats carrots and potatoes."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "In herds of 2 to 4 in the plains and forests, and in plains village pens."
+          }
+        ],
+        "speed": [
+          {
+            "text": "1 walking, 2 fleeing"
+          }
+        ],
+        "summary": [
+          {
+            "text": "An easy source of pork."
+          }
+        ]
+      },
+      "damage": null,
       "eats": [
         "Carrot",
         "Potato"
       ],
+      "effect": null,
       "egg": "PigSpawnEgg",
       "health": 10,
       "hostile": false,
       "id": "Pig",
       "leashable": true,
+      "loot": [
+        {
+          "count": {
+            "max": 3,
+            "min": 1
+          },
+          "item": "RawPork",
+          "when": "Always"
+        }
+      ],
       "mount": false,
       "name": {
         "en": "Pig",
         "fr": "Cochon"
       },
+      "sight": null,
       "size": [
         0.8999999761581421,
         0.8999999761581421,
@@ -25046,26 +26237,81 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 1.0,
+      "weakToAxes": false,
+      "xp": 0
     },
     {
       "animal": true,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "An adult hen lays an "
+          },
+          {
+            "link": {
+              "id": "Egg",
+              "kind": "item"
+            },
+            "text": "egg"
+          },
+          {
+            "text": " about every five minutes. It eats rye."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "In herds of 2 to 4 in the plains and forests, and in most village pens."
+          }
+        ],
+        "speed": [
+          {
+            "text": "1 walking, 2 fleeing"
+          }
+        ],
+        "summary": [
+          {
+            "text": "Feathers, chicken, and eggs."
+          }
+        ]
+      },
+      "damage": null,
       "eats": [
         "Rye"
       ],
+      "effect": null,
       "egg": "ChickenSpawnEgg",
       "health": 4,
       "hostile": false,
       "id": "Chicken",
       "leashable": true,
+      "loot": [
+        {
+          "count": {
+            "max": 1,
+            "min": 1
+          },
+          "item": "RawChicken",
+          "when": "Always"
+        },
+        {
+          "count": {
+            "max": 2,
+            "min": 0
+          },
+          "item": "Feather",
+          "when": "Always"
+        }
+      ],
       "mount": false,
       "name": {
         "en": "Chicken",
         "fr": "Poule"
       },
+      "sight": null,
       "size": [
         0.5,
         0.800000011920929,
@@ -25075,26 +26321,63 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 1.0,
+      "weakToAxes": false,
+      "xp": 0
     },
     {
       "animal": true,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "It runs from players. It eats carrots."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "In groups of 1 to 3 in the plains, flower plains, forest clearings and ice plains."
+          }
+        ],
+        "speed": [
+          {
+            "text": "1.6 walking, 4 fleeing"
+          }
+        ],
+        "summary": [
+          {
+            "text": "A small, fast animal of the open land."
+          }
+        ]
+      },
+      "damage": null,
       "eats": [
         "Carrot"
       ],
+      "effect": null,
       "egg": "RabbitSpawnEgg",
       "health": 4,
       "hostile": false,
       "id": "Rabbit",
       "leashable": true,
+      "loot": [
+        {
+          "count": {
+            "max": 1,
+            "min": 1
+          },
+          "item": "RawRabbit",
+          "when": "Always"
+        }
+      ],
       "mount": false,
       "name": {
         "en": "Rabbit",
         "fr": "Lapin"
       },
+      "sight": null,
       "size": [
         0.4000000059604645,
         0.6000000238418579,
@@ -25104,13 +26387,48 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 1.6,
+      "weakToAxes": false,
+      "xp": 0
     },
     {
       "animal": true,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "Feed it meat, raw or roast: each time there is a one in three chance it becomes yours. A tamed wolf follows you, bites for 4 every second at what you hit and at the hostiles that go after you, and can be told to sit. See "
+          },
+          {
+            "link": {
+              "id": "animals",
+              "kind": "guide"
+            },
+            "text": "taming"
+          },
+          {
+            "text": "."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "In packs of 2 to 4 in forests, groves and the ice plains."
+          }
+        ],
+        "speed": [
+          {
+            "text": "1.6 walking, 4 fleeing, 4.5 hunting when tamed"
+          }
+        ],
+        "summary": [
+          {
+            "text": "Tame one, and it fights at your side."
+          }
+        ]
+      },
+      "damage": null,
       "eats": [
         "RawMutton",
         "RoastMutton",
@@ -25123,16 +26441,19 @@
         "RawRabbit",
         "RoastRabbit"
       ],
+      "effect": null,
       "egg": "WolfSpawnEgg",
       "health": 16,
       "hostile": false,
       "id": "Wolf",
       "leashable": true,
+      "loot": [],
       "mount": false,
       "name": {
         "en": "Wolf",
         "fr": "Loup"
       },
+      "sight": null,
       "size": [
         0.699999988079071,
         0.949999988079071,
@@ -25142,28 +26463,83 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 1.6,
+      "weakToAxes": false,
+      "xp": 0
     },
     {
       "animal": true,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "Feed it carrots, rye or apples to tame it, put a saddle on it and ride. Each horse has its own speed, jump and endurance, read from its coat. See "
+          },
+          {
+            "link": {
+              "id": "animals",
+              "kind": "guide"
+            },
+            "text": "riding"
+          },
+          {
+            "text": "."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "In herds of 2 to 4 in the plains, flower plains and the savanna."
+          }
+        ],
+        "speed": [
+          {
+            "text": "1.5 walking; 6 to 12 ridden"
+          }
+        ],
+        "summary": [
+          {
+            "text": "The fastest way across the land."
+          }
+        ]
+      },
+      "damage": null,
       "eats": [
         "Rye",
         "Carrot",
         "Apple"
       ],
+      "effect": null,
       "egg": "HorseSpawnEgg",
       "health": 16,
       "hostile": false,
       "id": "Horse",
       "leashable": true,
+      "loot": [
+        {
+          "count": {
+            "max": 2,
+            "min": 0
+          },
+          "item": "Leather",
+          "when": "Always"
+        },
+        {
+          "count": {
+            "max": 1,
+            "min": 1
+          },
+          "item": "Saddle",
+          "when": "Saddled"
+        }
+      ],
       "mount": true,
       "name": {
         "en": "Horse",
         "fr": "Cheval"
       },
+      "sight": null,
       "size": [
         1.2000000476837158,
         1.7000000476837158,
@@ -25173,26 +26549,54 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 1.5,
+      "weakToAxes": false,
+      "xp": 0
     },
     {
       "animal": true,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "It eats rye."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "In herds of 2 to 4 in the mountains and the savanna, and in savanna and desert village pens."
+          }
+        ],
+        "speed": [
+          {
+            "text": "1.2 walking, 3 fleeing"
+          }
+        ],
+        "summary": [
+          {
+            "text": "A hardy grazer of the heights and dry lands."
+          }
+        ]
+      },
+      "damage": null,
       "eats": [
         "Rye"
       ],
+      "effect": null,
       "egg": "GoatSpawnEgg",
       "health": 10,
       "hostile": false,
       "id": "Goat",
       "leashable": true,
+      "loot": [],
       "mount": false,
       "name": {
         "en": "Goat",
         "fr": "Chèvre"
       },
+      "sight": null,
       "size": [
         0.8999999761581421,
         1.2999999523162842,
@@ -25202,27 +26606,55 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 1.2,
+      "weakToAxes": false,
+      "xp": 0
     },
     {
       "animal": true,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "Tame it with raw chicken or rabbit. A tamed cat follows you, and Gnawers and Gust Owls keep 8 blocks away from it."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "In groups of 1 to 2 in forests, groves and forest clearings."
+          }
+        ],
+        "speed": [
+          {
+            "text": "1.6 walking, 4 fleeing"
+          }
+        ],
+        "summary": [
+          {
+            "text": "Keeps the vermin away."
+          }
+        ]
+      },
+      "damage": null,
       "eats": [
         "RawChicken",
         "RawRabbit"
       ],
+      "effect": null,
       "egg": "CatSpawnEgg",
       "health": 10,
       "hostile": false,
       "id": "Cat",
       "leashable": true,
+      "loot": [],
       "mount": false,
       "name": {
         "en": "Cat",
         "fr": "Chat"
       },
+      "sight": null,
       "size": [
         0.6000000238418579,
         0.699999988079071,
@@ -25232,23 +26664,67 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 1.6,
+      "weakToAxes": false,
+      "xp": 0
     },
     {
       "animal": false,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "It is weak alone but quick and comes in numbers. Its bite weakens you. It keeps away from a tamed cat. Its fang is the ingredient of the potion of strength."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "In the dark underground below y 50, often in packs of 2 to 4, and as a guard of ruins and crypts."
+          }
+        ],
+        "speed": [
+          {
+            "text": "2.8 hunting"
+          }
+        ],
+        "summary": [
+          {
+            "text": "A cave rat that hunts in packs."
+          }
+        ]
+      },
+      "damage": 2,
       "eats": [],
+      "effect": {
+        "effect": "Weakness",
+        "level": 1,
+        "seconds": 10
+      },
       "egg": "GnawerSpawnEgg",
       "health": 6,
       "hostile": true,
       "id": "Gnawer",
       "leashable": false,
+      "loot": [
+        {
+          "count": {
+            "chance": 0.5
+          },
+          "item": "GnawerFang",
+          "when": "Always"
+        }
+      ],
       "mount": false,
       "name": {
         "en": "Gnawer",
         "fr": "Rongeur"
+      },
+      "sight": {
+        "forget": 24.0,
+        "sight": 16.0,
+        "speed": 2.8
       },
       "size": [
         0.6000000238418579,
@@ -25259,23 +26735,68 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 1.4,
+      "weakToAxes": false,
+      "xp": 3
     },
     {
       "animal": false,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "It never moves: it waits for you to come within 2.5 blocks, then strikes and poisons you. Poison never kills, but leaves you at one point of health."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "At night on grass in the woods, where it is one of two (with the Stumpling); as a guard of ruins."
+          }
+        ],
+        "speed": [
+          {
+            "text": "Never moves"
+          }
+        ],
+        "summary": [
+          {
+            "text": "A bush that bites whoever comes close at night."
+          }
+        ]
+      },
+      "damage": 3,
       "eats": [],
+      "effect": {
+        "effect": "Poison",
+        "level": 1,
+        "seconds": 6
+      },
       "egg": "BrambleSpawnEgg",
       "health": 12,
       "hostile": true,
       "id": "Bramble",
       "leashable": false,
+      "loot": [
+        {
+          "count": {
+            "max": 3,
+            "min": 1
+          },
+          "item": "Stick",
+          "when": "Always"
+        }
+      ],
       "mount": false,
       "name": {
         "en": "Bramble",
         "fr": "Ronce"
+      },
+      "sight": {
+        "forget": 2.5,
+        "sight": 2.5,
+        "speed": 0.0
       },
       "size": [
         1.0,
@@ -25286,23 +26807,71 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 0.0,
+      "weakToAxes": false,
+      "xp": 4
     },
     {
       "animal": false,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "It winds up for a second, then rolls at you at 7 blocks a second for up to three seconds, knocking you far back. If it hits a block, it is stunned for two seconds: that is the moment to strike. Its charge knocks a shield down."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "Above y 100 in the mountains, and in the dark caves; as a guard of sanctuaries."
+          }
+        ],
+        "speed": [
+          {
+            "text": "7 rolling"
+          }
+        ],
+        "summary": [
+          {
+            "text": "A boulder that winds up and rolls at its prey."
+          }
+        ]
+      },
+      "damage": 4,
       "eats": [],
+      "effect": null,
       "egg": "RollerSpawnEgg",
       "health": 16,
       "hostile": true,
       "id": "Roller",
       "leashable": false,
+      "loot": [
+        {
+          "count": {
+            "max": 2,
+            "min": 1
+          },
+          "item": "Cobblestone",
+          "when": "Always"
+        },
+        {
+          "count": {
+            "chance": 0.2
+          },
+          "item": "Flint",
+          "when": "Always"
+        }
+      ],
       "mount": false,
       "name": {
         "en": "Roller",
         "fr": "Rouleur"
+      },
+      "sight": {
+        "forget": 24.0,
+        "sight": 12.0,
+        "speed": 7.0
       },
       "size": [
         0.75,
@@ -25313,23 +26882,71 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 0.0,
+      "weakToAxes": false,
+      "xp": 5
     },
     {
       "animal": false,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "Its bark turns away blows from the front: an axe knocks its guard down for four seconds, and axes deal half again their damage to it. It flees fire and lava within 6 blocks, and it is the only hostile that opens doors."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "At night on grass. It sinks back into the ground at dawn."
+          }
+        ],
+        "speed": [
+          {
+            "text": "1.2 hunting"
+          }
+        ],
+        "summary": [
+          {
+            "text": "A walking stump that comes out of the grass at night."
+          }
+        ]
+      },
+      "damage": 3,
       "eats": [],
+      "effect": null,
       "egg": "StumplingSpawnEgg",
       "health": 24,
       "hostile": true,
       "id": "Stumpling",
       "leashable": false,
+      "loot": [
+        {
+          "count": {
+            "max": 4,
+            "min": 2
+          },
+          "item": "Stick",
+          "when": "Always"
+        },
+        {
+          "count": {
+            "chance": 0.3
+          },
+          "item": "Charcoal",
+          "when": "Always"
+        }
+      ],
       "mount": false,
       "name": {
         "en": "Stumpling",
         "fr": "Souchon"
+      },
+      "sight": {
+        "forget": 24.0,
+        "sight": 16.0,
+        "speed": 1.2
       },
       "size": [
         0.8999999761581421,
@@ -25340,23 +26957,59 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": true
+      "walk": 0.8,
+      "weakToAxes": true,
+      "xp": 5
     },
     {
       "animal": false,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "It swims fast at you and grabs you: you are slowed and pulled down for two seconds, unable to swim up. On land it is slow and goes back to the water."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "In water at least 3 blocks deep, at any hour: one time in four by day, one in two at night."
+          }
+        ],
+        "speed": [
+          {
+            "text": "3 in water, 0.8 on land"
+          }
+        ],
+        "summary": [
+          {
+            "text": "A drowned thing that drags swimmers down."
+          }
+        ]
+      },
+      "damage": 2,
       "eats": [],
+      "effect": {
+        "effect": "Slowness",
+        "level": 2,
+        "seconds": 6
+      },
       "egg": "DrownerSpawnEgg",
       "health": 18,
       "hostile": true,
       "id": "Drowner",
       "leashable": false,
+      "loot": [],
       "mount": false,
       "name": {
         "en": "Drowner",
         "fr": "Noyeur"
+      },
+      "sight": {
+        "forget": 24.0,
+        "sight": 16.0,
+        "speed": 3.0
       },
       "size": [
         0.800000011920929,
@@ -25367,23 +27020,71 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 0.8,
+      "weakToAxes": false,
+      "xp": 6
     },
     {
       "animal": false,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "It floats 2 blocks up, keeps 6 blocks away from you and throws embers in arcs from up to 16 blocks. Embers set you burning and light what they land on. Water kills it, and so does rain on one under the sky: then it drops nothing."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "In the dark of the Depths and below; summoned by the Ember Mother; as a guard of sanctuaries."
+          }
+        ],
+        "speed": [
+          {
+            "text": "2"
+          }
+        ],
+        "summary": [
+          {
+            "text": "A burning rock that hovers in the deep and throws embers."
+          }
+        ]
+      },
+      "damage": 1,
       "eats": [],
+      "effect": null,
       "egg": "CinderlingSpawnEgg",
       "health": 10,
       "hostile": true,
       "id": "Cinderling",
       "leashable": false,
+      "loot": [
+        {
+          "count": {
+            "max": 2,
+            "min": 1
+          },
+          "item": "Coal",
+          "when": "Always"
+        },
+        {
+          "count": {
+            "chance": 0.1
+          },
+          "item": "Flint",
+          "when": "Always"
+        }
+      ],
       "mount": false,
       "name": {
         "en": "Cinderling",
         "fr": "Escarbille"
+      },
+      "sight": {
+        "forget": 24.0,
+        "sight": 16.0,
+        "speed": 2.0
       },
       "size": [
         0.699999988079071,
@@ -25394,23 +27095,64 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 0.0,
+      "weakToAxes": false,
+      "xp": 6
     },
     {
       "animal": false,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "It circles 8 blocks above you, then dives from 6 to 10 blocks up at 10 blocks a second and knocks you back: dangerous on a cliff. It keeps away from a tamed cat."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "At night under the open sky above y 110."
+          }
+        ],
+        "speed": [
+          {
+            "text": "4 circling, 10 diving"
+          }
+        ],
+        "summary": [
+          {
+            "text": "An owl of the peaks that circles over its prey at night and dives."
+          }
+        ]
+      },
+      "damage": 2,
       "eats": [],
+      "effect": null,
       "egg": "GustOwlSpawnEgg",
       "health": 14,
       "hostile": true,
       "id": "GustOwl",
       "leashable": false,
+      "loot": [
+        {
+          "count": {
+            "max": 3,
+            "min": 1
+          },
+          "item": "Feather",
+          "when": "Always"
+        }
+      ],
       "mount": false,
       "name": {
         "en": "Gust Owl",
         "fr": "Hibou des rafales"
+      },
+      "sight": {
+        "forget": 32.0,
+        "sight": 24.0,
+        "speed": 4.0
       },
       "size": [
         0.699999988079071,
@@ -25421,24 +27163,62 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 0.0,
+      "weakToAxes": false,
+      "xp": 6
     },
     {
       "animal": false,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "Villagers walk around their home by day and go in at night. Nothing hurts them and hostiles ignore them. Use one to trade. See "
+          },
+          {
+            "link": {
+              "id": "trading",
+              "kind": "guide"
+            },
+            "text": "trading"
+          },
+          {
+            "text": "."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "In villages: each house gets one villager, the professions in turn."
+          }
+        ],
+        "speed": [
+          {
+            "text": "1.5"
+          }
+        ],
+        "summary": [
+          {
+            "text": "A villager who buys crops and sells food."
+          }
+        ]
+      },
+      "damage": null,
       "eats": [],
+      "effect": null,
       "egg": "FarmerSpawnEgg",
       "health": 20,
       "hostile": false,
       "id": "Farmer",
       "leashable": false,
+      "loot": [],
       "mount": false,
       "name": {
         "en": "Farmer",
         "fr": "Fermier"
       },
+      "sight": null,
       "size": [
         0.699999988079071,
         1.600000023841858,
@@ -25515,24 +27295,62 @@
       ],
       "vehicle": false,
       "villager": true,
-      "weakToAxes": false
+      "walk": 1.5,
+      "weakToAxes": false,
+      "xp": 0
     },
     {
       "animal": false,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "Villagers walk around their home by day and go in at night. Nothing hurts them and hostiles ignore them. Use one to trade. See "
+          },
+          {
+            "link": {
+              "id": "trading",
+              "kind": "guide"
+            },
+            "text": "trading"
+          },
+          {
+            "text": "."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "In villages: each house gets one villager, the professions in turn."
+          }
+        ],
+        "speed": [
+          {
+            "text": "1.5"
+          }
+        ],
+        "summary": [
+          {
+            "text": "A villager who buys coal and iron and sells tools and armour."
+          }
+        ]
+      },
+      "damage": null,
       "eats": [],
+      "effect": null,
       "egg": "SmithSpawnEgg",
       "health": 20,
       "hostile": false,
       "id": "Smith",
       "leashable": false,
+      "loot": [],
       "mount": false,
       "name": {
         "en": "Smith",
         "fr": "Forgeron"
       },
+      "sight": null,
       "size": [
         0.699999988079071,
         1.600000023841858,
@@ -25609,24 +27427,62 @@
       ],
       "vehicle": false,
       "villager": true,
-      "weakToAxes": false
+      "walk": 1.5,
+      "weakToAxes": false,
+      "xp": 0
     },
     {
       "animal": false,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "Villagers walk around their home by day and go in at night. Nothing hurts them and hostiles ignore them. Use one to trade. See "
+          },
+          {
+            "link": {
+              "id": "trading",
+              "kind": "guide"
+            },
+            "text": "trading"
+          },
+          {
+            "text": "."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "In villages: each house gets one villager, the professions in turn."
+          }
+        ],
+        "speed": [
+          {
+            "text": "1.5"
+          }
+        ],
+        "summary": [
+          {
+            "text": "A villager who sells torches, and tells where the nearest dungeon is."
+          }
+        ]
+      },
+      "damage": null,
       "eats": [],
+      "effect": null,
       "egg": "CartographerSpawnEgg",
       "health": 20,
       "hostile": false,
       "id": "Cartographer",
       "leashable": false,
+      "loot": [],
       "mount": false,
       "name": {
         "en": "Cartographer",
         "fr": "Cartographe"
       },
+      "sight": null,
       "size": [
         0.699999988079071,
         1.600000023841858,
@@ -25702,23 +27558,74 @@
       ],
       "vehicle": false,
       "villager": true,
-      "weakToAxes": false
+      "walk": 1.5,
+      "weakToAxes": false,
+      "xp": 0
     },
     {
       "animal": false,
       "aquatic": false,
       "boss": true,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "She throws volleys of embers and calls Cinderlings out of the lava; below half her health she charges, strikes hard and sets the floor on fire. She has 80 more health for each player after the first. See "
+          },
+          {
+            "link": {
+              "id": "ember-mother",
+              "kind": "guide"
+            },
+            "text": "the boss guide"
+          },
+          {
+            "text": "."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "Once per world, in her lair by the lava. She wakes when a player in survival enters it."
+          }
+        ],
+        "speed": [
+          {
+            "text": "3, 3.8 in fury"
+          }
+        ],
+        "summary": [
+          {
+            "text": "The mother of the Cinderlings, asleep in her lair at the bottom of the world."
+          }
+        ]
+      },
+      "damage": 7,
       "eats": [],
+      "effect": null,
       "egg": null,
       "health": 200,
       "hostile": true,
       "id": "EmberMother",
       "leashable": false,
+      "loot": [
+        {
+          "count": {
+            "max": 1,
+            "min": 1
+          },
+          "item": "EmberHeart",
+          "when": "Always"
+        }
+      ],
       "mount": false,
       "name": {
         "en": "Ember Mother",
         "fr": "Mère des Braises"
+      },
+      "sight": {
+        "forget": 36.0,
+        "sight": 36.0,
+        "speed": 3.0
       },
       "size": [
         1.899999976158142,
@@ -25729,24 +27636,45 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 0.0,
+      "weakToAxes": false,
+      "xp": 500
     },
     {
       "animal": false,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": null,
+        "spawns": null,
+        "speed": null,
+        "summary": null
+      },
+      "damage": null,
       "eats": [],
+      "effect": null,
       "egg": "Boat",
       "health": 4,
       "hostile": false,
       "id": "Boat",
       "leashable": false,
+      "loot": [
+        {
+          "count": {
+            "max": 1,
+            "min": 1
+          },
+          "item": "Boat",
+          "when": "Always"
+        }
+      ],
       "mount": true,
       "name": {
         "en": "Boat",
         "fr": "Bateau"
       },
+      "sight": null,
       "size": [
         1.399999976158142,
         0.6000000238418579,
@@ -25756,24 +27684,68 @@
       "trades": [],
       "vehicle": true,
       "villager": false,
-      "weakToAxes": false
+      "walk": 0.0,
+      "weakToAxes": false,
+      "xp": 0
     },
     {
       "animal": true,
       "aquatic": true,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "It darts away when hurt."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "In shoals of 3 to 6 over reefs and in water less than 10 deep."
+          }
+        ],
+        "speed": [
+          {
+            "text": "1.6 swimming, 4.5 darting"
+          }
+        ],
+        "summary": [
+          {
+            "text": "Small bright fish of the reefs, in shoals."
+          }
+        ]
+      },
+      "damage": null,
       "eats": [],
+      "effect": null,
       "egg": "GlintfinSpawnEgg",
       "health": 3,
       "hostile": false,
       "id": "Glintfin",
       "leashable": false,
+      "loot": [
+        {
+          "count": {
+            "chance": 0.25
+          },
+          "item": "RawGlowfin",
+          "when": "Always"
+        },
+        {
+          "count": {
+            "max": 1,
+            "min": 1
+          },
+          "item": "RawRoach",
+          "when": "Otherwise"
+        }
+      ],
       "mount": false,
       "name": {
         "en": "Glintfin",
         "fr": "Lueurine"
       },
+      "sight": null,
       "size": [
         0.4000000059604645,
         0.3499999940395355,
@@ -25783,24 +27755,61 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 0.0,
+      "weakToAxes": false,
+      "xp": 1
     },
     {
       "animal": true,
       "aquatic": true,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "It darts away when hurt."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "In shoals of 3 to 6 in the open sea."
+          }
+        ],
+        "speed": [
+          {
+            "text": "1.6 swimming, 4.5 darting"
+          }
+        ],
+        "summary": [
+          {
+            "text": "Silver fish of the open sea, in shoals."
+          }
+        ]
+      },
+      "damage": null,
       "eats": [],
+      "effect": null,
       "egg": "ShoalbackSpawnEgg",
       "health": 3,
       "hostile": false,
       "id": "Shoalback",
       "leashable": false,
+      "loot": [
+        {
+          "count": {
+            "max": 1,
+            "min": 1
+          },
+          "item": "RawPerch",
+          "when": "Always"
+        }
+      ],
       "mount": false,
       "name": {
         "en": "Shoalback",
         "fr": "Dos-d’argent"
       },
+      "sight": null,
       "size": [
         0.5,
         0.3499999940395355,
@@ -25810,24 +27819,68 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 0.0,
+      "weakToAxes": false,
+      "xp": 1
     },
     {
       "animal": true,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "It never attacks. Its moss makes potions last longer at the alembic."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "In the lush caves of the deep, with its chunk."
+          }
+        ],
+        "speed": [
+          {
+            "text": "0.7 walking, 1.2 fleeing"
+          }
+        ],
+        "summary": [
+          {
+            "text": "A slow shelled grazer of the damp caves, its back grown with moss."
+          }
+        ]
+      },
+      "damage": null,
       "eats": [],
+      "effect": null,
       "egg": "MossbackSpawnEgg",
       "health": 14,
       "hostile": false,
       "id": "Mossback",
       "leashable": true,
+      "loot": [
+        {
+          "count": {
+            "max": 2,
+            "min": 1
+          },
+          "item": "Moss",
+          "when": "Always"
+        },
+        {
+          "count": {
+            "chance": 0.3333333333333333
+          },
+          "item": "Leather",
+          "when": "Always"
+        }
+      ],
       "mount": false,
       "name": {
         "en": "Mossback",
         "fr": "Moussecaille"
       },
+      "sight": null,
       "size": [
         0.8999999761581421,
         0.699999988079071,
@@ -25837,23 +27890,64 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 0.7,
+      "weakToAxes": false,
+      "xp": 2
     },
     {
       "animal": false,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "It pinches and knocks you back. Its shards make potions stronger at the alembic."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "In the crystal caves of the deep, with its chunk, and in the dark on geodestone."
+          }
+        ],
+        "speed": [
+          {
+            "text": "2.2 hunting"
+          }
+        ],
+        "summary": [
+          {
+            "text": "A crab of crystal that guards the crystal caverns."
+          }
+        ]
+      },
+      "damage": 3,
       "eats": [],
+      "effect": null,
       "egg": "ShardlingSpawnEgg",
       "health": 12,
       "hostile": true,
       "id": "Shardling",
       "leashable": false,
+      "loot": [
+        {
+          "count": {
+            "max": 3,
+            "min": 1
+          },
+          "item": "CrystalShard",
+          "when": "Always"
+        }
+      ],
       "mount": false,
       "name": {
         "en": "Shardling",
         "fr": "Éclatin"
+      },
+      "sight": {
+        "forget": 20.0,
+        "sight": 12.0,
+        "speed": 2.2
       },
       "size": [
         0.800000011920929,
@@ -25864,23 +27958,75 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 1.4,
+      "weakToAxes": false,
+      "xp": 5
     },
     {
       "animal": false,
       "aquatic": false,
       "boss": false,
       "carriesChest": false,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "Its bite sets you burning. Fire resistance spares you the burn, not the bite."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "In the dark on basalt or magma, in the basalt galleries of the deep."
+          }
+        ],
+        "speed": [
+          {
+            "text": "2.4 hunting"
+          }
+        ],
+        "summary": [
+          {
+            "text": "A crawler of slag from the basalt galleries."
+          }
+        ]
+      },
+      "damage": 2,
       "eats": [],
+      "effect": {
+        "effect": "Burn",
+        "level": 1,
+        "seconds": 4
+      },
       "egg": "SlagcrawlerSpawnEgg",
       "health": 14,
       "hostile": true,
       "id": "Slagcrawler",
       "leashable": false,
+      "loot": [
+        {
+          "count": {
+            "max": 2,
+            "min": 0
+          },
+          "item": "Coal",
+          "when": "Always"
+        },
+        {
+          "count": {
+            "chance": 0.25
+          },
+          "item": "Magma",
+          "when": "Always"
+        }
+      ],
       "mount": false,
       "name": {
         "en": "Slagcrawler",
         "fr": "Rampe-scorie"
+      },
+      "sight": {
+        "forget": 22.0,
+        "sight": 14.0,
+        "speed": 2.4
       },
       "size": [
         0.8999999761581421,
@@ -25891,28 +28037,73 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 1.4,
+      "weakToAxes": false,
+      "xp": 6
     },
     {
       "animal": true,
       "aquatic": false,
       "boss": false,
       "carriesChest": true,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "Tame it like a horse. It is slower but lasts longer at a gallop, and with a chest on its back it carries 27 slots. With a horse, it breeds a mule."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "In groups of 1 to 3 in the plains."
+          }
+        ],
+        "speed": [
+          {
+            "text": "1.3 walking; 6 to 7 ridden"
+          }
+        ],
+        "summary": [
+          {
+            "text": "A steady steed that carries a chest."
+          }
+        ]
+      },
+      "damage": null,
       "eats": [
         "Rye",
         "Carrot",
         "Apple"
       ],
+      "effect": null,
       "egg": "DonkeySpawnEgg",
       "health": 15,
       "hostile": false,
       "id": "Donkey",
       "leashable": true,
+      "loot": [
+        {
+          "count": {
+            "max": 2,
+            "min": 0
+          },
+          "item": "Leather",
+          "when": "Always"
+        },
+        {
+          "count": {
+            "max": 1,
+            "min": 1
+          },
+          "item": "Saddle",
+          "when": "Saddled"
+        }
+      ],
       "mount": true,
       "name": {
         "en": "Donkey",
         "fr": "Âne"
       },
+      "sight": null,
       "size": [
         1.0,
         1.399999976158142,
@@ -25922,28 +28113,73 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 1.3,
+      "weakToAxes": false,
+      "xp": 0
     },
     {
       "animal": true,
       "aquatic": false,
       "boss": false,
       "carriesChest": true,
+      "codex": {
+        "behaviour": [
+          {
+            "text": "It carries a chest like the donkey, and never breeds."
+          }
+        ],
+        "spawns": [
+          {
+            "text": "Never in the wild: breed a horse with a donkey."
+          }
+        ],
+        "speed": [
+          {
+            "text": "1.3 walking"
+          }
+        ],
+        "summary": [
+          {
+            "text": "Born of a horse and a donkey."
+          }
+        ]
+      },
+      "damage": null,
       "eats": [
         "Rye",
         "Carrot",
         "Apple"
       ],
+      "effect": null,
       "egg": "MuleSpawnEgg",
       "health": 18,
       "hostile": false,
       "id": "Mule",
       "leashable": true,
+      "loot": [
+        {
+          "count": {
+            "max": 2,
+            "min": 0
+          },
+          "item": "Leather",
+          "when": "Always"
+        },
+        {
+          "count": {
+            "max": 1,
+            "min": 1
+          },
+          "item": "Saddle",
+          "when": "Saddled"
+        }
+      ],
       "mount": true,
       "name": {
         "en": "Mule",
         "fr": "Mulet"
       },
+      "sight": null,
       "size": [
         1.100000023841858,
         1.5499999523162842,
@@ -25953,7 +28189,9 @@
       "trades": [],
       "vehicle": false,
       "villager": false,
-      "weakToAxes": false
+      "walk": 1.3,
+      "weakToAxes": false,
+      "xp": 0
     }
   ],
   "recipes": [

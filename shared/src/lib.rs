@@ -9,6 +9,7 @@ use bevy_ecs::resource::Resource;
 
 pub mod channels;
 pub mod codec;
+pub mod codex;
 pub mod commands;
 pub mod constants;
 pub mod messages;

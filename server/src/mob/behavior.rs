@@ -62,32 +62,9 @@ const PUSH_SLACK: f32 = 0.01;
 /// the width of any of them.
 const PUSH_CELL: f32 = 2.0;
 
-/// Speed of a walking mob, in blocks per second: of a hostile that wanders, 0 for one that
-/// stays where it is.
+/// Speed of a walking mob (`MobKind::walk_speed`).
 pub(super) fn walk_speed(kind: MobKind) -> f32 {
-    match kind {
-        MobKind::Gnawer | MobKind::Shardling | MobKind::Slagcrawler => 1.4,
-        MobKind::Stumpling | MobKind::Drowner => 0.8,
-        MobKind::Mossback => 0.7,
-        // They swim (`swim::act`)
-        MobKind::Glintfin | MobKind::Shoalback => 0.0,
-        MobKind::Bramble
-        | MobKind::Roller
-        | MobKind::Cinderling
-        | MobKind::GustOwl
-        | MobKind::EmberMother
-        | MobKind::Ember
-        | MobKind::Arrow
-        | MobKind::Boat
-        | MobKind::Bobber
-        | MobKind::ThrownPotion => 0.0,
-        MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => 1.5,
-        MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 1.6,
-        MobKind::Horse => 1.5,
-        MobKind::Donkey | MobKind::Mule => 1.3,
-        MobKind::Goat => 1.2,
-        MobKind::Sheep | MobKind::Cow | MobKind::Pig | MobKind::Chicken => 1.0,
-    }
+    kind.walk_speed()
 }
 
 /// Speed of a fleeing mob, in blocks per second; of a hostile, how fast it goes by itself

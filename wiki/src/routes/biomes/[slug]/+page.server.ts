@@ -1,6 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { biomeByKey, biomeName, biomeSlug, game, withRefs } from '#lib/server/game.ts';
-import { BIOME_NOTES } from '#lib/content/biomes.ts';
+import { biomeByKey, biomeName, biomeNote, biomeSlug, game, withRefs } from '#lib/server/game.ts';
 import type { EntryGenerator } from './$types';
 
 const bySlug = new Map(game.biomes.map((b) => [biomeSlug(b.key), b]));
@@ -31,7 +30,7 @@ export function load({ params }) {
 		{
 			biome: b,
 			name: biomeName(b),
-			note: BIOME_NOTES[b.key.replace('rustcraft:', '')] ?? '',
+			note: biomeNote(b.key),
 			colour: `rgb(${b.look.map_colour.join(' ')})`,
 			trees: b.flora.trees.map(([tree, chance]) => ({ tree, sapling: TREE_SAPLING[tree] ?? null, chance })),
 			subBiomes: b.sub_biomes.map(([k, share]) => ({ ...link(k), share })),

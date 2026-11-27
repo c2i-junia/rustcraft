@@ -18,9 +18,13 @@ bun run data       # reads the game's tables again into src/lib/data/game.json (
   achievements, and the English and French names. Run `bun run data` after changing the game.
 - The textures are copied from `data/graphics/base_textures` into `static/textures` by
   `scripts/textures.ts`, before `dev` and `build`. They are not committed twice.
+- The words of the item, creature and biome pages are the game's own, those its Codex shows:
+  the `codex.*` keys of `data/lang/en.ron`, written in the Codex's markup
+  (`shared/src/codex/markup.rs`), exported as blocks and lines that `src/lib/components/markup/`
+  draws. Edit them there, in English and in French, and run `bun run data`.
 - What the game rolls in code rather than in a table is written again in `src/lib/server/`:
-  creature loot (`loot.ts`) and fishing (`fishing.ts`). The guides in `src/routes/guides/` are
-  written by hand from the code. Keep them with the game when it changes.
+  fishing (`fishing.ts`). The guides in `src/routes/guides/` are written by hand from the code.
+  Keep them with the game when it changes.
 
 ## Writing a page
 

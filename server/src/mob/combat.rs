@@ -20,7 +20,7 @@ use shared::{
 use std::collections::{HashMap, HashSet};
 
 use bevy::math::bounding::Aabb3d;
-use shared::world::ChunkMap;
+use shared::world::{roll_loot, ChunkMap, LootState};
 
 use super::villager::Trades;
 use crate::world::dropped_items::DroppedItems;
@@ -520,79 +520,16 @@ pub fn tier_times(tier: DepthTier, rng: &mut impl Rng) -> u32 {
     strength / 100 + u32::from(rng.gen_range(0..100) < strength % 100)
 }
 
-/// What a mob of the kind of `mob` drops: its meat, and its wool, leather or feathers. Counts of zero
-/// are left out.
+/// What a mob of the kind of `mob` drops (`MobKind::loot`): nothing when it is young.
 fn kind_loot(mob: &ServerMob, rng: &mut impl Rng) -> Vec<(ItemId, u32)> {
-    // A young animal leaves nothing
     if mob.is_young() {
         return vec![];
     }
-    let mut drops = match mob.kind {
-        MobKind::Sheep => vec![
-            (ItemId::RawMutton, rng.gen_range(1..=2)),
-            (ItemId::Wool, u32::from(!mob.sheared)),
-        ],
-        MobKind::Pig => vec![(ItemId::RawPork, rng.gen_range(1..=3))],
-        MobKind::Cow => vec![
-            (ItemId::RawBeef, rng.gen_range(1..=3)),
-            (ItemId::Leather, rng.gen_range(0..=2)),
-        ],
-        MobKind::Chicken => vec![
-            (ItemId::RawChicken, 1),
-            (ItemId::Feather, rng.gen_range(0..=2)),
-        ],
-        MobKind::Rabbit => vec![(ItemId::RawRabbit, 1)],
-        MobKind::Bramble => vec![(ItemId::Stick, rng.gen_range(1..=3))],
-        MobKind::Stumpling => vec![
-            (ItemId::Stick, rng.gen_range(2..=4)),
-            (ItemId::Charcoal, u32::from(rng.gen_bool(0.3))),
-        ],
-        MobKind::Roller => vec![
-            (ItemId::Cobblestone, rng.gen_range(1..=2)),
-            (ItemId::Flint, u32::from(rng.gen_ratio(1, 5))),
-        ],
-        MobKind::GustOwl => vec![(ItemId::Feather, rng.gen_range(1..=3))],
-        MobKind::Cinderling => vec![
-            (ItemId::Coal, rng.gen_range(1..=2)),
-            (ItemId::Flint, u32::from(rng.gen_ratio(1, 10))),
-        ],
-        MobKind::EmberMother => vec![(ItemId::EmberHeart, 1)],
-        // The fish of the seas give those of the rods (`world::fishing`)
-        MobKind::Glintfin if rng.gen_ratio(1, 4) => vec![(ItemId::RawGlowfin, 1)],
-        MobKind::Glintfin => vec![(ItemId::RawRoach, 1)],
-        MobKind::Shoalback => vec![(ItemId::RawPerch, 1)],
-        MobKind::Mossback => vec![
-            (ItemId::Moss, rng.gen_range(1..=2)),
-            (ItemId::Leather, u32::from(rng.gen_ratio(1, 3))),
-        ],
-        MobKind::Shardling => vec![(ItemId::CrystalShard, rng.gen_range(1..=3))],
-        MobKind::Slagcrawler => vec![
-            (ItemId::Coal, rng.gen_range(0..=2)),
-            (ItemId::Magma, u32::from(rng.gen_ratio(1, 4))),
-        ],
-        // It breaks into the item it was put down from
-        MobKind::Boat => vec![(ItemId::Boat, 1)],
-        MobKind::Horse | MobKind::Donkey | MobKind::Mule => vec![
-            (ItemId::Leather, rng.gen_range(0..=2)),
-            (ItemId::Saddle, u32::from(mob.saddled)),
-        ],
-        // A part of the creature, which distils into strength (`alchemy`)
-        MobKind::Gnawer => vec![(ItemId::GnawerFang, u32::from(rng.gen_ratio(1, 2)))],
-        MobKind::Fox
-        | MobKind::Wolf
-        | MobKind::Goat
-        | MobKind::Cat
-        | MobKind::Drowner
-        | MobKind::ThrownPotion
-        | MobKind::Ember
-        | MobKind::Arrow
-        | MobKind::Bobber
-        | MobKind::Farmer
-        | MobKind::Smith
-        | MobKind::Cartographer => vec![],
+    let state = LootState {
+        sheared: mob.sheared,
+        saddled: mob.saddled,
     };
-    drops.retain(|&(_, nb)| nb > 0);
-    drops
+    roll_loot(mob.kind.loot(), state, rng)
 }
 
 /// The nearest mob the player aims at, within its reach and before any block.

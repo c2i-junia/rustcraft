@@ -5,6 +5,7 @@ use bevy::math::{IVec3, Vec3};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
+use crate::players::effects::EffectKind;
 use crate::players::Player;
 pub use crate::world::depths::CAVE_HEIGHT;
 use crate::world::depths::{DepthTier, Underground};
@@ -150,6 +151,47 @@ impl MobKind {
                 forget: 36.0,
                 speed: 3.0,
             }),
+            _ => None,
+        }
+    }
+
+    /// Speed of a walking mob, in blocks per second: of a hostile that wanders, 0 for one that
+    /// stays where it is.
+    pub fn walk_speed(self) -> f32 {
+        match self {
+            MobKind::Gnawer | MobKind::Shardling | MobKind::Slagcrawler => 1.4,
+            MobKind::Stumpling | MobKind::Drowner => 0.8,
+            MobKind::Mossback => 0.7,
+            // They swim (`swim::act`)
+            MobKind::Glintfin | MobKind::Shoalback => 0.0,
+            MobKind::Bramble
+            | MobKind::Roller
+            | MobKind::Cinderling
+            | MobKind::GustOwl
+            | MobKind::EmberMother
+            | MobKind::Ember
+            | MobKind::Arrow
+            | MobKind::Boat
+            | MobKind::Bobber
+            | MobKind::ThrownPotion => 0.0,
+            MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => 1.5,
+            MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 1.6,
+            MobKind::Horse => 1.5,
+            MobKind::Donkey | MobKind::Mule => 1.3,
+            MobKind::Goat => 1.2,
+            MobKind::Sheep | MobKind::Cow | MobKind::Pig | MobKind::Chicken => 1.0,
+        }
+    }
+
+    /// The status effect the blow of a hostile of `kind` leaves, its level and its seconds: the
+    /// Drowner's cold grip slows, the Bramble's thorns poison, the Gnawer's bite weakens, the
+    /// Slagcrawler's sets burning.
+    pub fn inflicted_effect(self) -> Option<(EffectKind, u8, u32)> {
+        match self {
+            MobKind::Drowner => Some((EffectKind::Slowness, 2, 6)),
+            MobKind::Bramble => Some((EffectKind::Poison, 1, 6)),
+            MobKind::Gnawer => Some((EffectKind::Weakness, 1, 10)),
+            MobKind::Slagcrawler => Some((EffectKind::Burn, 1, 4)),
             _ => None,
         }
     }
