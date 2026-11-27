@@ -770,7 +770,12 @@ mod tests {
                     .map(|sound| (sound, vec![Handle::default()]))
                     .collect(),
             ))
-            .add_plugins((lightning_plugin, precipitation_plugin, weather_sound_plugin));
+            .add_plugins((lightning_plugin, precipitation_plugin, weather_sound_plugin))
+            // A frame of a steady length: one of the real clock may be longer, under load, than
+            // the 0.07 s the thunder of the strike takes to come, which it would have rolled
+            .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+                std::time::Duration::from_millis(16),
+            ));
         app.world_mut().spawn((
             Camera3d::default(),
             PrecipitationView,
