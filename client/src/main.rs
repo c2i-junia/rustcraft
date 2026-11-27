@@ -116,6 +116,12 @@ fn main() {
         game_folder_paths.assets_folder_path.display()
     );
 
+    let content_folder = shared::content::folder(&game_folder_paths.assets_folder_path);
+    if let Err(err) = shared::content::start(&content_folder) {
+        error!("The content files cannot be read: {err}");
+        return;
+    }
+
     #[cfg(debug_assertions)]
     add_debug_inspector(&mut app);
     app::add_client(

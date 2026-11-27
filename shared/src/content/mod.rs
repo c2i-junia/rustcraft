@@ -1,5 +1,6 @@
 //! The properties of the blocks and the items, held in one table that every reader shares: the
-//! getters of `BlockId` and `ItemId` read it, on any thread, with nothing passed to them.
+//! getters of `BlockId` and `ItemId` read it, on any thread, with nothing passed to them. The
+//! table is read from the content files (`files`), `data/content/rustcraft/*.ron`.
 //!
 //! The table of the process is a snapshot that is never changed in place: `install` puts a new
 //! one in its stead, and the old one is leaked, so that a reference taken from `content()` stays
@@ -18,6 +19,7 @@ pub use files::ContentError;
 pub use items::ItemProps;
 
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 use std::ptr;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::{Mutex, PoisonError};
@@ -28,8 +30,8 @@ use crate::world::{BlockId, ItemId};
 /// its clients (`ServerToClientMessage::Content`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Content {
-    /// Which install of the process this is: 0 for the built-in content the process starts
-    /// with, one more at each `install`. What the caches built from the content watch.
+    /// Which install of the process this is: 0 for the content the process starts with, one
+    /// more at each `install`. What the caches built from the content watch.
     pub generation: u32,
     /// By `BlockId`, in the order of `BlockId::ALL`.
     pub blocks: Vec<BlockProps>,
@@ -39,7 +41,7 @@ pub struct Content {
 
 impl Content {
     /// The content written in the code: what the `builtin_*` functions of `BlockId` and
-    /// `ItemId` say of each block and item.
+    /// `ItemId` say of each block and item, which the content files were dumped from.
     pub fn builtin() -> Self {
         Self {
             generation: 0,
@@ -61,46 +63,92 @@ impl Content {
     }
 }
 
-/// The content of the process: null until the first read installs the built-in content, then
-/// always a pointer leaked by `Box::leak` or `Box::into_raw`, never freed.
+/// The content of the process: null until it starts (`start`, or the first read), then always a
+/// pointer leaked by `Box::leak` or `Box::into_raw`, never freed.
 static CONTENT: AtomicPtr<Content> = AtomicPtr::new(ptr::null_mut());
 
 /// Held by `install`, so that two installs at once still count their generations one by one.
 static INSTALLING: Mutex<()> = Mutex::new(());
 
-/// The content of the process: the built-in content until an `install`. On x86-64 a read is a
-/// plain load of the pointer, then of the entry.
+/// The folder of the content files of the base game in the assets folder `assets`.
+pub fn folder(assets: &Path) -> PathBuf {
+    assets.join("content").join("rustcraft")
+}
+
+/// The content files of the source tree: those a process reads that was not started on others,
+/// such as the tests.
+fn source_folder() -> PathBuf {
+    folder(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../data"))
+}
+
+/// The content of the process: the content it started with until an `install`. On x86-64 a
+/// read is a plain load of the pointer, then of the entry.
 #[inline]
 pub fn content() -> &'static Content {
     let current = CONTENT.load(Ordering::Acquire);
     if current.is_null() {
-        return install_builtin();
+        return start_from_source();
     }
     // SAFETY: `CONTENT` only ever holds null or a leaked pointer, which nothing frees.
     unsafe { &*current }
 }
 
-/// Installs the built-in content, on the first read of the process, unless another thread did
-/// so in the meantime.
+/// Starts the process on the content files of the source tree, on its first read, as a process
+/// that `start` was not called in.
+///
+/// # Panics
+///
+/// If they cannot be read: nothing can go on without content.
 #[cold]
 #[inline(never)]
-fn install_builtin() -> &'static Content {
-    let builtin = Box::into_raw(Box::new(Content::builtin()));
-    match CONTENT.compare_exchange(
-        ptr::null_mut(),
-        builtin,
-        Ordering::AcqRel,
-        Ordering::Acquire,
-    ) {
-        // SAFETY: `builtin` comes from `Box::into_raw`, and is now never freed.
-        Ok(_) => unsafe { &*builtin },
+fn start_from_source() -> &'static Content {
+    let folder = source_folder();
+    let loaded = Content::load(&folder).unwrap_or_else(|err| {
+        panic!("the game has no content: {err} (start it with --assets-folder-path)")
+    });
+    start_with(loaded)
+}
+
+/// Makes `start` the content the process starts with, unless another thread started it in the
+/// meantime. Returns the content of the process.
+fn start_with(start: Content) -> &'static Content {
+    let start = Box::into_raw(Box::new(start));
+    match CONTENT.compare_exchange(ptr::null_mut(), start, Ordering::AcqRel, Ordering::Acquire) {
+        // SAFETY: `start` comes from `Box::into_raw`, and is now never freed.
+        Ok(_) => unsafe { &*start },
         Err(current) => {
-            // SAFETY: `builtin` was never shared: it is freed once, here.
-            drop(unsafe { Box::from_raw(builtin) });
+            // SAFETY: `start` was never shared: it is freed once, here.
+            drop(unsafe { Box::from_raw(start) });
             // SAFETY: as in `content`.
             unsafe { &*current }
         }
     }
+}
+
+/// Starts the process on the content files of `folder`, what a game does before anything reads
+/// its content: those of the source tree if `folder` does not exist, as under `cargo run`
+/// without the assets of a release. If the process already has content, the content of the
+/// files is installed over it, unless it is the same.
+pub fn start(folder: &Path) -> Result<&'static Content, ContentError> {
+    let source = source_folder();
+    let folder = match folder.is_dir() {
+        true => folder,
+        false if source.is_dir() => &source,
+        false => {
+            return Err(ContentError {
+                file: folder.to_path_buf(),
+                reason: "no such folder of content files".to_string(),
+            })
+        }
+    };
+    let loaded = Content::load(folder)?;
+    if CONTENT.load(Ordering::Acquire).is_null() {
+        return Ok(start_with(loaded));
+    }
+    Ok(match loaded.same_properties(content()) {
+        true => content(),
+        false => install(loaded),
+    })
 }
 
 /// Makes `new` the content of the process, as the generation after the current one, and
@@ -139,8 +187,20 @@ mod tests {
         }
     }
 
-    /// The only test that installs: it installs content equal to the built-in one, so that the
-    /// tests running beside it read the same properties before and after.
+    /// The only test that installs: it installs content equal to that of the process, so that
+    /// the tests running beside it read the same properties before and after.
+    #[test]
+    fn the_process_starts_on_the_content_files_of_the_source_tree() {
+        assert!(content().same_properties(&Content::load(&source_folder()).unwrap()));
+        // started already: the same files change nothing
+        let started = content();
+        assert!(start(&source_folder()).unwrap().same_properties(started));
+        assert!(
+            start(Path::new("/no/such/folder")).is_ok(),
+            "the source tree's instead"
+        );
+    }
+
     #[test]
     fn an_install_is_the_next_generation_and_what_the_getters_read() {
         let before = content();

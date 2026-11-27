@@ -57,6 +57,11 @@ generate-release-folder-server:
     mkdir -p release
     mkdir -p release release/bin
 
+    # the content files, which define the blocks and items: run the server with
+    # `--assets-folder-path data` from the release folder
+    mkdir -p release/data
+    cp -r data/content release/data/
+
     # add other files 
     cp CHANGELOG.txt release/
     cp LICENSE.txt release/

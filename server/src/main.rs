@@ -241,6 +241,11 @@ fn main() -> ExitCode {
     };
 
     let game_folder_paths = get_game_folder_paths(args.game_folder_path, args.assets_folder_path);
+    let content_folder = shared::content::folder(&game_folder_paths.assets_folder_path);
+    if let Err(err) = shared::content::start(&content_folder) {
+        error!("The content files cannot be read: {err}");
+        return ExitCode::FAILURE;
+    }
     let auth = match args.auth {
         AuthFlag::Offline => ServerAuth::Offline,
         AuthFlag::Hub if args.public_addresses.is_empty() => {

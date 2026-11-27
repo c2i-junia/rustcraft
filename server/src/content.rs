@@ -25,7 +25,7 @@ const SETTLE: Duration = Duration::from_millis(200);
 
 /// The folder of the content files of the base game, in the assets.
 pub fn content_folder(paths: &GameFolderPaths) -> PathBuf {
-    paths.assets_folder_path.join("content").join("rustcraft")
+    shared::content::folder(&paths.assets_folder_path)
 }
 
 /// The content files of a server that reads them (`ContentSource::Files`, `WatchedFiles`).
@@ -45,19 +45,27 @@ pub struct ContentFiles {
 
 impl ContentFiles {
     /// Reads the files of `source` and installs them, then watches them if `source` says so.
-    /// `None` for the built-in content, which reads no file.
+    /// `None` for the content of the process (`ContentSource::Initial`), which reads no file.
+    /// Without a folder of files, the server keeps the content of the process.
     pub fn start(paths: &GameFolderPaths, source: ContentSource) -> Option<Self> {
-        if source == ContentSource::Builtin {
+        if source == ContentSource::Initial {
             return None;
         }
         let folder = content_folder(paths);
-        match Content::load(&folder) {
-            Ok(new) => {
-                if install_if_new(new) {
-                    info!("Content files of {} installed", folder.display());
+        if !folder.is_dir() {
+            info!(
+                "No content files at {}: the content of the process is kept",
+                folder.display()
+            );
+        } else {
+            match Content::load(&folder) {
+                Ok(new) => {
+                    if install_if_new(new) {
+                        info!("Content files of {} installed", folder.display());
+                    }
                 }
+                Err(err) => error!("The content files are not used: {err}"),
             }
-            Err(err) => error!("The content files are not used: {err}"),
         }
         let mut files = Self::new(folder);
         if source == ContentSource::WatchedFiles {
@@ -229,11 +237,11 @@ mod tests {
     }
 
     #[test]
-    fn a_server_of_the_builtin_content_reads_no_file() {
+    fn a_server_of_the_content_of_the_process_reads_no_file() {
         let paths = GameFolderPaths {
             game_folder_path: PathBuf::from("/nowhere"),
             assets_folder_path: PathBuf::from("/nowhere"),
         };
-        assert!(ContentFiles::start(&paths, ContentSource::Builtin).is_none());
+        assert!(ContentFiles::start(&paths, ContentSource::Initial).is_none());
     }
 }

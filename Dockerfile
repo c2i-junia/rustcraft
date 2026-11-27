@@ -53,6 +53,8 @@ RUN useradd --uid 10001 --no-create-home --home-dir /data --shell /usr/sbin/nolo
     && mkdir /data && chown rustcraft /data
 
 COPY --from=builder /rustcraft-server /usr/local/bin/rustcraft-server
+# The content files, which define the blocks and items: the server cannot start without them
+COPY data/content /usr/local/share/rustcraft/content
 
 USER rustcraft
 ENV HOME=/data
@@ -62,5 +64,6 @@ VOLUME /data
 # The game port and the status port, which is the game port + 1
 EXPOSE 8000/udp 8001/udp
 
-ENTRYPOINT ["rustcraft-server", "--game-folder-path", "/data"]
+ENTRYPOINT ["rustcraft-server", "--game-folder-path", "/data", \
+            "--assets-folder-path", "/usr/local/share/rustcraft"]
 CMD ["--world", "world", "--port", "8000"]

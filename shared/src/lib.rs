@@ -73,19 +73,20 @@ pub struct GameServerConfig {
     /// Who may join: anyone by the name it gives, or the accounts of a hub. A solo world is
     /// always `Offline`.
     pub auth: ServerAuth,
-    /// Whether the content files override the built-in properties of the blocks and items.
+    /// Whether the server reads the content files of its assets, or keeps the content of its
+    /// process.
     pub content: ContentSource,
 }
 
 /// Where a server takes the properties of its blocks and items from. The content is shared by
 /// every server and client of the process (`content::install`), so the tests, which run many
-/// of them at once, keep the built-in one.
+/// of them at once, keep the one the process started with.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ContentSource {
-    /// The built-in content alone; `/reload` is refused.
+    /// The content the process started with (`content::start`); `/reload` is refused.
     #[default]
-    Builtin,
-    /// The override files of `<assets>/content/rustcraft/`, read at start and on `/reload`.
+    Initial,
+    /// The content files of `<assets>/content/rustcraft/`, read at start and on `/reload`.
     Files,
     /// The same, read again too whenever one of them is saved.
     WatchedFiles,

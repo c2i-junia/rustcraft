@@ -344,9 +344,9 @@ pub fn launch_local_server_system(
             new_world: Default::default(),
             // A solo world is always in offline mode
             auth: shared::ServerAuth::Offline,
-            // the tests share the content of their process: they keep the built-in one
+            // the tests share the content of their process: they keep the one it started with
             content: if cfg!(test) {
-                shared::ContentSource::Builtin
+                shared::ContentSource::Initial
             } else {
                 shared::ContentSource::WatchedFiles
             },
