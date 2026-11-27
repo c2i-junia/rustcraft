@@ -989,7 +989,11 @@ fn the_portal_gun_places_both_portals_and_a_blocked_one_goes() {
         .front_cells()
         .chain(orange.front_cells())
         .all(|cell| blocks.get_block(cell).is_none()));
-    assert_eq!(slot(h.world(), 0), Some((ItemId::PortalGun, 1)));
+    // The gun is kept. Waited for: under the load of the full suite, the client's inventory
+    // was once seen without it, a case not reproduced since: a gun really lost still fails
+    h.wait_until("the gun kept", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::PortalGun, 1))
+    });
 
     // A block put in front of the blue portal by the server takes it away, which closes the
     // orange one
