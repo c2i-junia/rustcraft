@@ -492,8 +492,8 @@ impl FaceLayers {
         }
     }
 
-    /// Lays the face `face_index` of the block at `local`, which looks like `look` as all the
-    /// faces of `block_id` that are at that index, that `height` and that light do.
+    /// Lays the face `face_index` of `CUBE` of the block at `local`, which looks like `look` as
+    /// all the faces of `block_id` that are at that index, that `height` and that light do.
     fn add(&mut self, face_index: usize, local: IVec3, block_id: BlockId, look: FaceLook) {
         let next_id = self.looks.len() as u32 + 1;
         let id = *self
@@ -774,7 +774,8 @@ fn chunk_faces(
                 // Below the surface of a liquid, a side is shorter than a block
                 _ => (mergeable && level_top == Some(1.), 1.),
             };
-            if merges && lit_alike {
+            // The face of the cube it is: the faces of a shape need not come in its order
+            if let Some(cube_face) = cube_face(&face.direction).filter(|_| merges && lit_alike) {
                 let look = FaceLook {
                     tile,
                     colouring: Colouring::of(face, *overlay),
@@ -782,7 +783,7 @@ fn chunk_faces(
                     height: face_height,
                     light: lights[0],
                 };
-                layers.add(face_index, local_block_pos, block.id, look);
+                layers.add(cube_face, local_block_pos, block.id, look);
                 continue;
             }
             mesh_creator.push_face(face, tile, *overlay, origin, &block.direction, &lights);
@@ -829,6 +830,20 @@ fn light_bytes(light: [u32; 2], count: u32, occlusion: u8) -> [u8; 4] {
 fn turn(step: IVec3, direction: &BlockDirection) -> IVec3 {
     let [x, z] = direction.turn([step.x as f32, step.z as f32]);
     IVec3::new(x as i32, step.y, z as i32)
+}
+
+/// The face of `CUBE` that a face lying on the side `direction` of its block covers, in the
+/// order of `VoxelShape::full_cube`: `None` for a face inside the block.
+fn cube_face(direction: &FaceDirection) -> Option<usize> {
+    Some(match direction {
+        FaceDirection::Top => 0,
+        FaceDirection::Bottom => 1,
+        FaceDirection::Front => 2,
+        FaceDirection::Back => 3,
+        FaceDirection::Left => 4,
+        FaceDirection::Right => 5,
+        FaceDirection::Inset => return None,
+    })
 }
 
 /// The side of a block a face of it lies on, `None` for a face inside it.
@@ -1602,6 +1617,45 @@ mod tests {
             }
         }
         assert!(water > 0, "the shore has water");
+    }
+
+    #[test]
+    fn each_face_of_the_cube_is_the_cube_face_of_its_side() {
+        for (index, face) in CUBE.faces.iter().enumerate() {
+            assert_eq!(cube_face(&face.direction), Some(index));
+        }
+    }
+
+    /// The water around a plant of the sea comes after the plant in its shape: its faces are
+    /// still merged as the faces of the cube they are.
+    #[test]
+    fn a_plant_of_the_sea_out_of_the_water_draws_its_six_faces_of_water_merged_or_not() {
+        for plant in [BlockId::Kelp, BlockId::Seagrass] {
+            let mut chunk = Chunk::new();
+            chunk.set(IVec3::ONE, BlockData::new(plant, BlockDirection::Front));
+            let mut world = ChunkMap::default();
+            world.insert_chunk(IVec3::ZERO, chunk.clone());
+            let tiles = HashMap::from([("_Default".to_string(), 0)]);
+            let lighting = Lighting {
+                volume: &LightVolume::open_sky(),
+                smooth: true,
+            };
+            let mesh = |merge| {
+                let looks = BlockLooks::new(&tiles);
+                mesh_chunk(&world, &chunk, &IVec3::ZERO, &looks, lighting, merge)
+            };
+            let (merged, squares) = (mesh(true), mesh(false));
+
+            let water = drawn_cells(&merged.liquid_mesh);
+            assert_eq!(water.values().sum::<usize>(), 6, "{plant:?}");
+            assert_eq!(water, drawn_cells(&squares.liquid_mesh), "{plant:?}");
+            assert_eq!(
+                vertices(&merged.solid_mesh),
+                vertices(&squares.solid_mesh),
+                "{plant:?}: the plant"
+            );
+            assert!(vertices(&merged.solid_mesh) > 0, "{plant:?}");
+        }
     }
 
     #[test]
