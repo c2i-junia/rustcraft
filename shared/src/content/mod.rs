@@ -67,7 +67,7 @@ impl Content {
     /// (`BlockId::ENGINE`) are not the first of the content, by the same names. `None` when it
     /// can, whatever the content holds after them.
     pub fn engine_mismatch(&self) -> Option<String> {
-        let ours = BlockId::ENGINE.into_iter().map(|id| files::engine_name(id));
+        let ours = BlockId::ENGINE.into_iter().map(files::engine_name);
         for (number, ours) in ours.enumerate() {
             match self.block_names.get(number) {
                 Some(theirs) if *theirs == ours => {}
