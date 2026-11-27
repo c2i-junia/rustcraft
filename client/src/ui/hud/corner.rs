@@ -1,5 +1,6 @@
-//! The top-right corner of the game: one column holding the minimap, then the FPS counter, so
-//! that they never overlap, with the toasts below them.
+//! The top corners of the game, each one column so that what they hold never overlaps: at the
+//! right the minimap, then the FPS counter, with the toasts below them; at the left the debug
+//! overlay (F3), then the status effects, then the hint of the first steps.
 
 use bevy::prelude::*;
 
@@ -26,6 +27,30 @@ pub fn spawn_top_right_column(mut commands: Commands) {
             top: Val::Percent(1.),
             flex_direction: FlexDirection::Column,
             align_items: AlignItems::FlexEnd,
+            row_gap: px(SPACE_S),
+            ..default()
+        },
+    ));
+}
+
+/// The column at the top-left of the game.
+#[derive(Component)]
+pub struct TopLeftColumn;
+
+/// Spawns the column, which the debug overlay, the effects and the first-step hint go into.
+pub fn spawn_top_left_column(mut commands: Commands) {
+    commands.spawn((
+        TopLeftColumn,
+        DespawnOnExit(GameState::Game),
+        // under the panels, like the column at the right
+        GlobalZIndex(-1),
+        Pickable::IGNORE,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Percent(1.),
+            top: Val::Percent(1.),
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::FlexStart,
             row_gap: px(SPACE_S),
             ..default()
         },

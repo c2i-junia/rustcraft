@@ -6,6 +6,7 @@ use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_just_pressed;
 use crate::state::{GameState, KeyMap};
 use crate::ui::assets::MONO_FONT_PATH;
+use crate::ui::hud::corner::TopLeftColumn;
 use crate::ui::hud::UIMode;
 use crate::ui::theme::{FONT_S, PANEL, SPACE_XS, TEXT};
 use bevy::prelude::*;
@@ -29,7 +30,11 @@ pub(crate) fn debug_line(text: &str, color: Color, font: TextFont) -> impl Bundl
 
 /// The debug overlay in the top-left corner: FPS, coordinates, biome, loaded chunks, targeted
 /// block, world time and weather, each updated by its own system.
-pub fn setup_hud(mut commands: Commands, assets: Res<AssetServer>) {
+pub fn setup_hud(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    column: Single<Entity, With<TopLeftColumn>>,
+) {
     let font = debug_font(&assets);
     let root = commands
         .spawn((
@@ -40,13 +45,11 @@ pub fn setup_hud(mut commands: Commands, assets: Res<AssetServer>) {
             // (5) and the chat
             Visibility::Hidden,
             GlobalZIndex(-1),
+            // First in the column, above the effects and the first-step hint
+            ChildOf(*column),
             Node {
-                position_type: PositionType::Absolute,
-                left: Val::Percent(1.),
-                top: Val::Percent(1.),
-                // Sized by the text
-                bottom: Val::Auto,
-                right: Val::Auto,
+                // Out of the layout while hidden, so the rest of the column moves up
+                display: Display::None,
                 padding: UiRect::all(px(SPACE_XS)),
                 flex_direction: FlexDirection::Column,
                 ..default()
@@ -118,6 +121,19 @@ pub fn toggle_hud_system(
         *vis = match *vis {
             Visibility::Hidden => Visibility::Visible,
             _ => Visibility::Hidden,
+        };
+    }
+}
+
+/// Takes the hidden overlay out of the layout, so that it leaves no gap at the top of its
+/// column, and puts it back once shown.
+pub fn lay_out_debug_overlay(
+    mut overlay: Query<(&Visibility, &mut Node), (With<HudRoot>, Changed<Visibility>)>,
+) {
+    for (visibility, mut node) in &mut overlay {
+        node.display = match visibility {
+            Visibility::Hidden => Display::None,
+            _ => Display::Flex,
         };
     }
 }

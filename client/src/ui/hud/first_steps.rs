@@ -10,6 +10,7 @@ use shared::players::game_mode::GameMode;
 use shared::players::progress::{Achievement, FirstStep, Progress};
 use shared::players::Player;
 
+use super::corner::TopLeftColumn;
 use super::progress::PlayerProgress;
 use super::{InventoryRoot, UIMode};
 use crate::camera::CameraController;
@@ -21,7 +22,7 @@ use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::menus::pause::PauseMenu;
 use crate::ui::menus::settings::controls::key_label;
 use crate::ui::settings::{HintsChoice, InterfaceSettings};
-use crate::ui::theme::{FONT_S, PANEL, SPACE_L, SPACE_S, SPACE_XS, TEXT};
+use crate::ui::theme::{FONT_S, PANEL, SPACE_S, SPACE_XS, TEXT};
 use crate::ui::widgets::hints::key_cap;
 
 const FADE_SECONDS: f32 = 0.6;
@@ -183,6 +184,7 @@ fn show_step(
     ui_mode: Res<UIMode>,
     key_map: Res<KeyMap>,
     assets: Res<AssetServer>,
+    corner: Single<Entity, With<TopLeftColumn>>,
     mut commands: Commands,
 ) {
     if key_map.is_changed() {
@@ -201,10 +203,9 @@ fn show_step(
         .spawn((
             FirstStepHint { step, opacity: 0.0 },
             Name::new(tr("hint.first.label")),
+            // Last in the top-left column, under the debug overlay and the effects
+            ChildOf(*corner),
             Node {
-                position_type: PositionType::Absolute,
-                left: px(SPACE_L),
-                top: px(SPACE_L),
                 width: px(WIDTH),
                 padding: UiRect::all(px(SPACE_S)),
                 flex_direction: FlexDirection::Column,

@@ -16,6 +16,8 @@ use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::network::SendGameMessageExtension;
 use crate::ui::credits::CreditsDue;
+use crate::ui::hud::debug::HudRoot;
+use crate::ui::hud::effects::EffectsColumn;
 use crate::ui::hud::first_steps::FirstStepHint;
 use crate::ui::hud::progress::PlayerProgress;
 use crate::ui::menus::pause::PauseMenu;
@@ -124,4 +126,48 @@ fn a_new_player_is_shown_the_first_steps_one_after_the_other() {
         let progress = w.resource::<PlayerProgress>().0.as_ref();
         progress.is_some_and(|progress| progress.steps == steps)
     });
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_debug_overlay_the_effects_and_the_first_step_hint_never_overlap() {
+    let folder = GameFolder::new()
+        .with_file("interface.ron", "()")
+        .with_world("Corner");
+    let mut h = enter_world_with(folder, "Corner", Options::default());
+    let hint = L::marker::<FirstStepHint>();
+    h.wait_for(&L::text("W").within(L::marker::<FirstStepHint>()), SERVER);
+    // A row as tall as an effect, in place of one the server would give
+    let column = h
+        .world_mut()
+        .query_filtered::<Entity, With<EffectsColumn>>()
+        .single(h.world())
+        .unwrap();
+    h.world_mut().spawn((
+        Node {
+            width: px(36.),
+            height: px(36.),
+            ..default()
+        },
+        ChildOf(column),
+    ));
+    h.frames(2);
+    let hidden = h.rect_of(&hint);
+
+    h.press(KeyCode::F3);
+    h.frames(2);
+    let overlay = h.rect_of(&L::marker::<HudRoot>());
+    let effects = h.rect_of(&L::marker::<EffectsColumn>());
+    let shown = h.rect_of(&hint);
+    assert!(
+        overlay.max.y <= effects.min.y,
+        "{overlay:?} over {effects:?}"
+    );
+    assert!(effects.max.y <= shown.min.y, "{effects:?} over {shown:?}");
+    assert!(overlay.max.y <= shown.min.y, "{overlay:?} over {shown:?}");
+
+    // Hidden again, the overlay leaves no gap above the effects and the hint
+    h.press(KeyCode::F3);
+    h.frames(2);
+    assert_eq!(h.rect_of(&hint), hidden);
 }

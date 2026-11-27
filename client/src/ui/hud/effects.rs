@@ -10,7 +10,8 @@ use crate::i18n::{effect_kind_name, tr, trf};
 use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
 use crate::ui::assets::FONT_PATH;
-use crate::ui::theme::{ACCENT, BEVEL_LO, FONT_S, OK, PANEL, SPACE_S, SPACE_XS, TEXT};
+use crate::ui::hud::corner::TopLeftColumn;
+use crate::ui::theme::{ACCENT, BEVEL_LO, FONT_S, OK, PANEL, SPACE_XS, TEXT};
 
 /// The side of an icon on screen, in logical px: twice its texture.
 const ICON_SIZE: f32 = 36.0;
@@ -55,15 +56,14 @@ pub fn effect_label(effect: &Effect) -> String {
     )
 }
 
-pub fn spawn_effects_column(mut commands: Commands) {
+/// Spawns the column of the effects in the top-left one, under the debug overlay.
+pub fn spawn_effects_column(mut commands: Commands, corner: Single<Entity, With<TopLeftColumn>>) {
     commands.spawn((
         EffectsColumn,
         Name::new(tr("hud.effects")),
         DespawnOnExit(GameState::Game),
+        ChildOf(*corner),
         Node {
-            position_type: PositionType::Absolute,
-            left: px(SPACE_S),
-            top: px(SPACE_S),
             flex_direction: FlexDirection::Column,
             row_gap: px(SPACE_XS),
             ..default()

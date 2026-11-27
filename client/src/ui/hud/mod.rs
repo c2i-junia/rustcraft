@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use crate::state::{GameSet, GameState};
 use crate::ui::hud::chat::*;
 use crate::ui::hud::chat_completion::chat_completion_plugin;
-use crate::ui::hud::corner::spawn_top_right_column;
+use crate::ui::hud::corner::{spawn_top_left_column, spawn_top_right_column};
 use crate::ui::hud::debug::targeted_block::block_text_update_system;
 use crate::ui::hud::debug::*;
 use crate::ui::hud::fps_counter::{
@@ -80,7 +80,10 @@ pub fn hud_plugin(app: &mut App) {
             (
                 spawn_reticle,
                 recharge::spawn_recharge_gauge,
+                // The column first, then what it holds, in order from the top
+                spawn_top_left_column,
                 setup_hud,
+                effects::spawn_effects_column,
                 setup_chat,
             )
                 .chain(),
@@ -119,7 +122,6 @@ pub fn hud_plugin(app: &mut App) {
         .add_systems(OnEnter(GameState::Game), setup_chunk_ghost)
         .add_systems(OnEnter(GameState::Game), burning::spawn_burning_flames)
         .add_systems(OnEnter(GameState::Game), mount::spawn_mount_line)
-        .add_systems(OnEnter(GameState::Game), effects::spawn_effects_column)
         .add_systems(
             Update,
             effects::update_effects_column
@@ -248,6 +250,12 @@ pub fn hud_plugin(app: &mut App) {
             )
                 .after(GameSet::UiMode)
                 .run_if(in_state(GameState::Game).and_then(in_gameplay)),
+        )
+        .add_systems(
+            PostUpdate,
+            lay_out_debug_overlay
+                .before(UiSystems::Layout)
+                .run_if(in_state(GameState::Game)),
         );
     app.add_systems(
         Update,
