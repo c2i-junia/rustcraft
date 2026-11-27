@@ -678,7 +678,7 @@ impl BlockData {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum BlockTransparency {
     Transparent,
     Liquid,
@@ -687,14 +687,14 @@ pub enum BlockTransparency {
 }
 
 /// The tool a block must be broken with to drop its items, see `BlockId::get_required_tool`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RequiredTool {
     pub kind: ToolKind,
     /// The lowest `ToolTier::mining_level` that harvests the block.
     pub level: u8,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum BlockHitbox {
     FullBlock,
     Aabb(Aabb3d),
@@ -1178,7 +1178,7 @@ impl BlockId {
     /// The blocks this one may be planted on, if it only stands on some.
     #[inline]
     pub fn soil(&self) -> Option<&'static [BlockId]> {
-        self.props().soil
+        self.props().soil.as_deref()
     }
 
     /// `soil` as the code writes it, which `Content::builtin` fills the table with.

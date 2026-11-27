@@ -1,11 +1,13 @@
 //! The properties of an item, as the table of `Content` holds them.
 
+use serde::{Deserialize, Serialize};
+
 use super::content;
 use crate::players::effects::EffectKind;
 use crate::world::{ItemCategory, ItemId, ItemType, MobKind, Tool};
 
 /// What an item is and does, as the getters of `ItemId` read it: see each getter.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ItemProps {
     /// `ItemId::get_max_stack`.
     pub max_stack: u32,

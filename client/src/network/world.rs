@@ -224,6 +224,9 @@ pub fn update_world_from_network(
                     world.resource_mut::<Cartography>().set_frames(frames);
                 });
             }
+            ServerToClientMessage::Content(content) => {
+                commands.insert_resource(crate::world::content::ReceivedContent(content));
+            }
             // The levels ease towards it
             ServerToClientMessage::WeatherSet(kind) => {
                 weather.kind = kind;

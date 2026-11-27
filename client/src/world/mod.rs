@@ -12,6 +12,7 @@ use weather::{ease_weather_system, ClientWeather};
 
 pub mod celestial;
 pub mod clouds;
+pub mod content;
 pub mod data;
 pub mod decor;
 pub mod lightning;
@@ -62,6 +63,8 @@ pub fn world_plugin(app: &mut App) {
         .init_resource::<GraphicsSettings>()
         .insert_resource(AtlasHandles::<BlockId>::default())
         .insert_resource(AtlasHandles::<ItemId>::default())
+        .init_resource::<content::AppliedContent>()
+        .init_resource::<content::ContentGeneration>()
         // loaded from the game folder by `add_client`
         .init_resource::<RenderDistance>()
         .init_resource::<clouds::mesh::CloudStyle>()
@@ -89,6 +92,8 @@ pub fn world_plugin(app: &mut App) {
                 update_climate_map_system,
                 (apply_graphics_settings_system, night_vision_system).chain(),
                 reload_modified_textures_system.run_if(on_message::<AssetEvent<Image>>),
+                content::apply_received_content_system
+                    .run_if(resource_exists::<content::ReceivedContent>),
             ),
         )
         .add_systems(

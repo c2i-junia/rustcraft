@@ -344,6 +344,12 @@ pub fn launch_local_server_system(
             new_world: Default::default(),
             // A solo world is always in offline mode
             auth: shared::ServerAuth::Offline,
+            // the tests share the content of their process: they keep the built-in one
+            content: if cfg!(test) {
+                shared::ContentSource::Builtin
+            } else {
+                shared::ContentSource::WatchedFiles
+            },
         };
         let result = server::init(socket, config, paths);
         if let Err(err) = &result {

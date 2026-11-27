@@ -1,3 +1,4 @@
+use crate::content::ContentFiles;
 use crate::init::{ServerLobby, ServerTime};
 use crate::mob::behavior::mob_behavior_system;
 use crate::mods::Mods;
@@ -127,6 +128,8 @@ pub fn register_systems(app: &mut App) {
             handle_connection_events_system,
             handle_client_messages_system,
             finish_lookups_system,
+            // after `/reload`
+            crate::content::reload_content_system,
         )
             .chain()
             .in_set(ServerSet::Receive),
@@ -316,6 +319,7 @@ fn handle_client_messages_system(
         ResMut<ProfileLookups>,
     ),
     (challenges, server_key): (Res<Challenges>, Res<ServerKey>),
+    mut content_files: Option<ResMut<ContentFiles>>,
 ) {
     // the base game's, for the apps of the tests that set up no world
     let default_generation = WorldGeneration::default();
@@ -409,6 +413,7 @@ fn handle_client_messages_system(
                             auth: &config.auth,
                             lookups: &mut lookups,
                         },
+                        content_files.as_deref_mut(),
                     );
                 }
                 ClientToServerMessage::Exit => {
@@ -549,6 +554,7 @@ mod tests {
                 max_players: shared::MAX_PLAYERS,
                 new_world: Default::default(),
                 auth: Default::default(),
+                content: Default::default(),
             })
             .insert_resource(GameFolderPaths {
                 game_folder_path: folder.join("game"),

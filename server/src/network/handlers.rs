@@ -17,6 +17,7 @@ use uuid::Uuid;
 
 use shared::{GameFolderPaths, GameServerConfig, ServerAuth};
 
+use crate::content::ContentFiles;
 use crate::init::{LobbyPlayer, ServerLobby, ServerTime};
 use crate::mods::Mods;
 use crate::network::broadcast_chat::record_chat_message;
@@ -244,6 +245,10 @@ pub(super) fn auth_register_request(
         weather: weather.kind,
     };
     server.send_game_message(client_id, auth_res.into());
+    server.send_game_message(
+        client_id,
+        ServerToClientMessage::Content(shared::content::content().clone()),
+    );
 
     for message in &chat_conversation.messages {
         server.send_game_message(
@@ -285,6 +290,7 @@ pub(super) fn chat_message(
     mods: &Mods,
     (seed, generation, locator): (WorldSeed, &WorldGeneration, &Locator),
     access: Access,
+    content_files: Option<&mut ContentFiles>,
 ) {
     let Clients { server, lobby } = clients;
     let Some(current_author) = lobby.players.get(&client_id) else {
@@ -318,6 +324,14 @@ pub(super) fn chat_message(
             Ok(Command::List) => {
                 list_players(lobby.players.values().map(|p| p.name.as_str()).collect())
             }
+            // the outcome is told to every player once the files are read
+            Ok(Command::Reload) => match content_files {
+                Some(files) => {
+                    files.ask_reload();
+                    String::new()
+                }
+                None => "This server reads no content files".to_string(),
+            },
             Ok(Command::Admin(admin)) if access.permissions.refuses(&admin) => {
                 HOSTED_REFUSAL.to_string()
             }

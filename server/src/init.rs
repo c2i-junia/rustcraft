@@ -1,4 +1,5 @@
 use crate::{
+    content::ContentFiles,
     hub::RealmWatch,
     mods::Mods,
     network::{
@@ -203,6 +204,7 @@ fn run(
     let max_players = config.max_players;
     let new_world = config.new_world.clone();
     let config_auth = config.auth.clone();
+    let content_source = config.content;
 
     app.insert_resource(config);
 
@@ -251,6 +253,11 @@ fn run(
     let mods = Mods::new().map_err(|err| format!("Could not start the mods: {err}"))?;
     mods.load_folder(&game_folder_paths.game_folder_path.join("mods"));
     app.insert_resource(mods);
+
+    // Before the first player joins, who is sent the content
+    if let Some(files) = ContentFiles::start(&game_folder_paths, content_source) {
+        app.insert_resource(files);
+    }
 
     // Create save folder if does not already exist
     let players_dir = world_dir.join("players");
@@ -424,6 +431,7 @@ mod tests {
                 max_players: shared::MAX_PLAYERS,
                 new_world: Default::default(),
                 auth: Default::default(),
+                content: Default::default(),
             },
             GameFolderPaths {
                 game_folder_path: tmp.path().into(),

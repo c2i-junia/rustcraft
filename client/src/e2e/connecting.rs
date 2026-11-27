@@ -60,6 +60,7 @@ pub(super) fn spawn_test_server(world: &str) -> (SocketAddr, JoinHandle<Result<(
         max_players: shared::MAX_PLAYERS,
         new_world: Default::default(),
         auth: Default::default(),
+        content: Default::default(),
     };
     let server = std::thread::spawn(move || {
         let _folder = folder;
@@ -91,6 +92,7 @@ pub(super) fn spawn_dedicated_server(world: &str, lists: &[(&str, &str)]) -> Soc
         max_players: shared::MAX_PLAYERS,
         new_world: Default::default(),
         auth: Default::default(),
+        content: Default::default(),
     };
     std::thread::spawn(move || {
         let _folder = folder;

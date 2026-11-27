@@ -2070,7 +2070,7 @@ impl ItemId {
 impl GameElementId for ItemId {}
 
 /// The categories of the item browser, which files every item under one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ItemCategory {
     Blocks,
     Wood,
@@ -2112,7 +2112,7 @@ impl ItemCategory {
 
 /// What a tool is made of, which sets how fast it mines, how long it lasts and the blocks it
 /// harvests, like Minecraft's tiers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ToolTier {
     Wood,
     Stone,
@@ -2161,7 +2161,7 @@ impl ToolTier {
 }
 
 /// The kinds of tools: each one breaks some blocks faster, see `BlockId::get_tool_kind`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ToolKind {
     Pickaxe,
     Axe,
@@ -2182,7 +2182,7 @@ impl ToolKind {
 }
 
 /// What a tool item does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tool {
     pub kind: ToolKind,
     pub tier: ToolTier,
@@ -2248,6 +2248,24 @@ impl Default for ItemType {
 mod tests {
     use super::*;
     use bincode::Options;
+
+    /// `ToolKind::ALL` is written by hand: it must hold every kind, each at the place of its
+    /// number (`content::tool_bit` shifts by it).
+    #[test]
+    fn tool_kind_all_holds_every_kind_in_order() {
+        // A new kind does not compile here until it is counted
+        let kinds = |kind: ToolKind| match kind {
+            ToolKind::Pickaxe
+            | ToolKind::Axe
+            | ToolKind::Shovel
+            | ToolKind::Hoe
+            | ToolKind::Sword => 5,
+        };
+        assert_eq!(ToolKind::ALL.len(), kinds(ToolKind::Pickaxe));
+        for (place, kind) in ToolKind::ALL.into_iter().enumerate() {
+            assert_eq!(kind as usize, place, "{kind:?}");
+        }
+    }
 
     /// The bytes of `value` as bincode's variable length encoding writes it: one byte below 251,
     /// else the marker 251 and two bytes.

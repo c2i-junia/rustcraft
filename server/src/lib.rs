@@ -1,3 +1,4 @@
+mod content;
 pub mod hub;
 mod init;
 mod mob;

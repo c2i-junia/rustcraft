@@ -69,6 +69,12 @@ pub fn dropped_items_plugin(app: &mut App) {
         .init_resource::<DroppedItemEntities>()
         .init_resource::<UpdatesWhileLoading>()
         .init_resource::<mesh::ItemLooks>()
+        // made from the looks of the blocks and the properties of the items
+        .add_systems(
+            Update,
+            mesh::forget_item_looks
+                .run_if(resource_exists_and_changed::<crate::world::content::ContentGeneration>),
+        )
         .init_resource::<mesh::OrbLook>()
         .init_resource::<glint::Glints>()
         .add_systems(

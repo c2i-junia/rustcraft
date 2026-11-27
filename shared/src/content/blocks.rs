@@ -1,12 +1,14 @@
 //! The properties of a block, as the table of `Content` holds them.
 
+use serde::{Deserialize, Serialize};
+
 use super::content;
 use crate::world::{
     BlockHitbox, BlockId, BlockTransparency, ItemId, Palette, RequiredTool, ToolKind,
 };
 
 /// What a block is and does, as the getters of `BlockId` read it: see each getter.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockProps {
     /// `BlockId::palette`.
     pub palette: Option<Palette>,
@@ -41,7 +43,7 @@ pub struct BlockProps {
     /// `BlockId::sapling`.
     pub sapling: Option<ItemId>,
     /// `BlockId::soil`.
-    pub soil: Option<&'static [BlockId]>,
+    pub soil: Option<Vec<BlockId>>,
 }
 
 impl BlockProps {
@@ -67,7 +69,7 @@ impl BlockProps {
             glass: id.builtin_is_glass(),
             container: id.builtin_is_container(),
             sapling: id.builtin_sapling(),
-            soil: id.builtin_soil(),
+            soil: id.builtin_soil().map(<[BlockId]>::to_vec),
         }
     }
 }

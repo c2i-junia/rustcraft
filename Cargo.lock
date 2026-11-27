@@ -5974,6 +5974,7 @@ dependencies = [
  "libc",
  "mlua",
  "noise",
+ "notify",
  "rand 0.8.5",
  "ron 0.6.6",
  "rustcraft-protocol",
@@ -6037,6 +6038,7 @@ dependencies = [
  "serde",
  "serde_json",
  "socket2",
+ "tempfile",
  "uuid",
 ]
 

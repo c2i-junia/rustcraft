@@ -4,6 +4,7 @@ pub mod mob;
 pub mod player;
 mod world;
 
+use crate::content::Content;
 use crate::players::progress::{Achievement, FirstStep, Progress};
 use crate::world::cartography::{MapId, PaperMap, WaypointsView};
 use crate::world::{
@@ -145,6 +146,10 @@ pub enum ServerToClientMessage {
     /// What every item frame and flower pot of the world shows, and the patterns of its banners
     /// (`decor`), sent when they change.
     Decorations(crate::world::Decorations),
+    /// The properties of every block and item of the server: sent to a player when it joins,
+    /// and to everyone once the server read its content files again. A client of a remote
+    /// server installs it (`content::install`).
+    Content(Content),
 }
 
 /// What the bar of a boss shows.
@@ -381,6 +386,7 @@ mod tests {
             ),
             (ServerToClientMessage::FramedMaps(vec![]), 25),
             (ServerToClientMessage::Decorations(Default::default()), 26),
+            (ServerToClientMessage::Content(Content::builtin()), 27),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");
         }

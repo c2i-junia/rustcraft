@@ -62,6 +62,11 @@ struct Args {
     #[arg(short, long)]
     game_folder_path: Option<String>,
 
+    /// The data folder, whose `content/rustcraft/*.ron` override the properties of the blocks
+    /// and items, read again once saved
+    #[arg(long)]
+    assets_folder_path: Option<String>,
+
     /// The largest render distance a player may ask for, in chunks
     #[arg(long, default_value_t = DEFAULT_MAX_RENDER_DISTANCE)]
     max_render_distance: u32,
@@ -235,7 +240,7 @@ fn main() -> ExitCode {
         }
     };
 
-    let game_folder_paths = get_game_folder_paths(args.game_folder_path, None);
+    let game_folder_paths = get_game_folder_paths(args.game_folder_path, args.assets_folder_path);
     let auth = match args.auth {
         AuthFlag::Offline => ServerAuth::Offline,
         AuthFlag::Hub if args.public_addresses.is_empty() => {
@@ -295,6 +300,7 @@ fn main() -> ExitCode {
         max_players: args.max_players as usize,
         new_world,
         auth,
+        content: shared::ContentSource::WatchedFiles,
     };
     if !args.ops.is_empty() {
         let folder = &game_folder_paths.game_folder_path;

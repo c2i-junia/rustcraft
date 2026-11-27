@@ -377,6 +377,7 @@ mod tests {
                 max_players: shared::MAX_PLAYERS,
                 new_world: Default::default(),
                 auth: Default::default(),
+                content: Default::default(),
             };
             let server = std::thread::spawn(move || server::init(socket, config, paths));
 

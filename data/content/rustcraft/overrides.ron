@@ -1,0 +1,18 @@
+// Overrides of the properties of the blocks and the items of the base game. Every `*.ron` of this
+// folder is read, at start and again once one is saved (or on `/reload`), by the server, which
+// sends them to its players. A file with an error changes nothing: the error goes to the log and
+// to the chat.
+//
+// Blocks and items are named as the commands name them (`oak_log`). A field is written as the
+// property it replaces (`shared/src/content/files.rs` lists them):
+//
+// (
+//     blocks: {
+//         "torch": (light_emission: 10),
+//         "stone": (break_time: Some(20), drops: [(1, Gravel, 1)]),
+//     },
+//     items: {
+//         "apple": (max_stack: 16),
+//     },
+// )
+()

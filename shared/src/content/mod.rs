@@ -7,20 +7,24 @@
 //! `content()` once, so that it never reads some from one install and some from the next.
 
 mod blocks;
+mod files;
 mod items;
 
 pub(crate) use blocks::tool_bit;
 pub use blocks::BlockProps;
+pub use files::ContentError;
 pub use items::ItemProps;
 
+use serde::{Deserialize, Serialize};
 use std::ptr;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 use crate::world::{BlockId, ItemId};
 
-/// The properties of every block and every item, by their number.
-#[derive(Debug, Clone, PartialEq)]
+/// The properties of every block and every item, by their number. The server sends it whole to
+/// its clients (`ServerToClientMessage::Content`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Content {
     /// Which install of the process this is: 0 for the built-in content the process starts
     /// with, one more at each `install`. What the caches built from the content watch.
@@ -104,6 +108,8 @@ fn install_builtin() -> &'static Content {
 ///
 /// If `new` does not have one entry per block and per item, which every read would trip on.
 pub fn install(mut new: Content) -> &'static Content {
+    // Lot 4 of `docs/design/content-registry.md` numbers the blocks at load: the table then has
+    // as many entries as the content defines, and this check goes
     assert_eq!(new.blocks.len(), BlockId::ALL.len(), "one entry per block");
     assert_eq!(new.items.len(), ItemId::ALL.len(), "one entry per item");
     let _installing = INSTALLING.lock().unwrap_or_else(PoisonError::into_inner);

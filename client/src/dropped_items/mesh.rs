@@ -114,6 +114,11 @@ impl ItemLooks {
     }
 }
 
+/// Forgets the looks made so far: the items shown next are drawn anew.
+pub(crate) fn forget_item_looks(mut looks: ResMut<ItemLooks>) {
+    looks.0.clear();
+}
+
 fn cube_look(
     item: ItemId,
     materials: &MaterialResource,

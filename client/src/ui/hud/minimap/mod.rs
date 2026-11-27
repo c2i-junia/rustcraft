@@ -85,6 +85,14 @@ pub fn minimap_plugin(app: &mut App) {
             start_world_map,
         ),
     )
+    // the colours follow the visibility of the blocks
+    .add_systems(
+        Update,
+        compute_minimap_colors.run_if(
+            in_state(GameState::Game)
+                .and_then(resource_exists_and_changed::<crate::world::content::ContentGeneration>),
+        ),
+    )
     .add_systems(
         Update,
         zoom_minimap

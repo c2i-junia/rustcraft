@@ -30,6 +30,7 @@ const BAN_USAGE: &str = "Usage: /ban <player> [reason]";
 const PARDON_USAGE: &str = "Usage: /pardon <player>";
 const WHITELIST_USAGE: &str = "Usage: /whitelist <on|off|add|remove|list> <player>";
 const LIST_USAGE: &str = "Usage: /list";
+const RELOAD_USAGE: &str = "Usage: /reload";
 
 /// The commands every player may run on a dedicated server; the others are the operators'.
 /// `sign` is not typed by the player: the client sends it when a sign is written.
@@ -62,6 +63,8 @@ pub enum Command {
     List,
     /// A command on who may do what (`permissions::Permissions::apply`).
     Admin(Admin),
+    /// `/reload`: the content files are read again.
+    Reload,
 }
 
 /// The answer to a player who may not run the command `name`, or `None` when the player may.
@@ -195,6 +198,8 @@ pub fn parse_command(line: &str) -> Result<Command, String> {
         ["difficulty", ..] => Err(DIFFICULTY_USAGE.to_string()),
         ["list"] => Ok(Command::List),
         ["list", ..] => Err(LIST_USAGE.to_string()),
+        ["reload"] => Ok(Command::Reload),
+        ["reload", ..] => Err(RELOAD_USAGE.to_string()),
         ["op", ..] => only_player(after_words(line, 1))
             .map(|name| Command::Admin(Admin::Op(name)))
             .ok_or_else(|| OP_USAGE.to_string()),
@@ -290,7 +295,7 @@ pub fn run_command(
             format!("Difficulty set to {}", new.name())
         }
         // run by the handler
-        Command::List | Command::Admin(_) => String::new(),
+        Command::List | Command::Admin(_) | Command::Reload => String::new(),
     }
 }
 
@@ -392,7 +397,7 @@ mod tests {
                 .unwrap();
             format!("Usage: {}", command.usage())
         };
-        assert_eq!(shared::commands::COMMANDS.len(), 13);
+        assert_eq!(shared::commands::COMMANDS.len(), 14);
         assert_eq!(OP_USAGE, usage("op"));
         assert_eq!(DEOP_USAGE, usage("deop"));
         assert_eq!(KICK_USAGE, usage("kick"));
@@ -400,6 +405,7 @@ mod tests {
         assert_eq!(PARDON_USAGE, usage("pardon"));
         assert_eq!(WHITELIST_USAGE, usage("whitelist"));
         assert_eq!(LIST_USAGE, usage("list"));
+        assert_eq!(RELOAD_USAGE, usage("reload"));
         assert_eq!(DIFFICULTY_USAGE, usage("difficulty"));
         assert_eq!(LOCATE_USAGE, usage("locate"));
         assert_eq!(TIME_USAGE, usage("time"));
@@ -706,6 +712,16 @@ mod tests {
                 "{wrong}"
             );
         }
+    }
+
+    #[test]
+    fn reload_takes_no_argument() {
+        assert_eq!(parse_command("reload"), Ok(Command::Reload));
+        assert_eq!(parse_command("reload now"), Err(RELOAD_USAGE.to_string()));
+        assert_eq!(
+            refusal("reload", true, false),
+            Some("You must be an operator to use /reload".to_string())
+        );
     }
 
     #[test]

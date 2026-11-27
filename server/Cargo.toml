@@ -14,6 +14,7 @@ serde = { version = "1.0.210", features = ["derive"] }
 rand = "0.8.5"
 noise = "0.9.0"
 ron = "0.6"
+notify = "8"
 clap = { version = "4.5.19", features = ["derive"] }
 ulid = "1.1.4"
 ctrlc = { version = "3.4", features = ["termination"] }

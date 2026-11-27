@@ -209,6 +209,7 @@ impl TestServer {
             max_players,
             new_world: Default::default(),
             auth,
+            content: Default::default(),
         };
         let handle = thread::spawn(move || match (realm, status) {
             (Some(realm), status) => {
@@ -912,6 +913,7 @@ fn corrupt_world_file_stops_the_server_without_touching_it() {
         max_players: shared::MAX_PLAYERS,
         new_world: Default::default(),
         auth: Default::default(),
+        content: Default::default(),
     };
 
     let err = server::init(socket, config, paths).unwrap_err();

@@ -6,11 +6,12 @@
 //! sounds and burns like, and whose texture a slab, a stair or a low wall shows.
 
 use bevy::math::IVec3;
+use serde::{Deserialize, Serialize};
 
 use super::{BlockId, ItemId};
 
 /// The shape of a block of the palette.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Form {
     /// The lower half of its cell.
     Slab,
@@ -49,7 +50,7 @@ impl Form {
 }
 
 /// What a block of the palette is: its form, the plain block it is made of, and its item.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Palette {
     pub form: Form,
     pub base: BlockId,

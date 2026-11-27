@@ -361,6 +361,7 @@ fn the_keyboard_alone_adds_a_server_sees_it_online_and_joins() {
         max_players: shared::MAX_PLAYERS,
         new_world: Default::default(),
         auth: Default::default(),
+        content: Default::default(),
     };
     let (stopped, server_error) = std::sync::mpsc::channel();
     std::thread::spawn(move || {

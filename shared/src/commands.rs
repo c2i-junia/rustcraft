@@ -163,6 +163,10 @@ pub const COMMANDS: &[CommandSyntax] = &[
         args: &[Arg::Player],
     },
     CommandSyntax {
+        name: "reload",
+        args: &[],
+    },
+    CommandSyntax {
         name: "time",
         args: &[Arg::Word(&["set"]), Arg::Word(&["day", "night"])],
     },
@@ -358,6 +362,7 @@ mod tests {
                 "locate",
                 "op",
                 "pardon",
+                "reload",
                 "time",
                 "weather",
                 "whitelist"
