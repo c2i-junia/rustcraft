@@ -1193,7 +1193,9 @@ impl BlockId {
                 Form::Door { open: false, .. } | Form::Trapdoor { open: true } => {
                     BlockHitbox::Aabb(DOOR)
                 }
-                Form::Door { open: true, .. } => BlockHitbox::Aabb(OPEN_DOOR),
+                // Folded against the side of the doorway, it would leave the player barely
+                // wider room than its body: it is walked through, as an open gate is
+                Form::Door { open: true, .. } => BlockHitbox::None,
                 Form::Trapdoor { open: false } => BlockHitbox::Aabb(TRAPDOOR),
                 Form::FenceGate { open: false } => BlockHitbox::Aabb(FENCE_GATE),
                 Form::FenceGate { open: true } => BlockHitbox::None,
@@ -1248,7 +1250,8 @@ impl BlockId {
             | Self::Campfire
             | Self::UnlitCampfire => BlockHitbox::Aabb(self.low_box()),
             Self::Door | Self::DoorTop => BlockHitbox::Aabb(DOOR),
-            Self::OpenDoor | Self::OpenDoorTop => BlockHitbox::Aabb(OPEN_DOOR),
+            // see `Form::Door` above
+            Self::OpenDoor | Self::OpenDoorTop => BlockHitbox::None,
             Self::HangingLantern => BlockHitbox::Aabb(HANGING_LANTERN),
             // Its arms are too high to be jumped over
             Self::Fence => BlockHitbox::Aabb(FENCE),
@@ -1268,6 +1271,8 @@ impl BlockId {
                     ..FENCE_GATE
                 }),
                 Form::Stairs | Form::LowWall | Form::Pane => BlockHitbox::FullBlock,
+                // walked through, but still aimed at to be shut
+                Form::Door { open: true, .. } => BlockHitbox::Aabb(OPEN_DOOR),
                 Form::Cube => palette.base.get_ray_hitbox(),
                 _ => self.get_hitbox(),
             };
@@ -2826,6 +2831,27 @@ mod tests {
         assert_eq!(fern.get_drops(1), HashMap::from([(ItemId::Fern, 1)]));
         assert_eq!(ItemId::Fern.get_default_type(), ItemType::Block(fern));
         assert_eq!(ItemId::Fern.category(), ItemId::TallGrass.category());
+    }
+
+    #[test]
+    fn an_open_door_of_any_wood_is_walked_through_and_still_aimed_at() {
+        for door in [
+            BlockId::OpenDoor,
+            BlockId::OpenSpruceDoorTop,
+            BlockId::OpenAcaciaDoor,
+        ] {
+            assert!(matches!(door.get_hitbox(), BlockHitbox::None), "{door:?}");
+            assert!(
+                matches!(door.get_ray_hitbox(), BlockHitbox::Aabb(b) if b == OPEN_DOOR),
+                "{door:?}"
+            );
+        }
+        for door in [BlockId::Door, BlockId::SpruceDoor] {
+            assert!(
+                matches!(door.get_hitbox(), BlockHitbox::Aabb(b) if b == DOOR),
+                "{door:?}"
+            );
+        }
     }
 
     #[test]

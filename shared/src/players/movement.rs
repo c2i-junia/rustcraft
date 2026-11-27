@@ -2684,6 +2684,39 @@ mod tests {
     }
 
     #[test]
+    fn a_player_walks_through_an_open_door_without_lining_up_with_it() {
+        use crate::world::{BlockData, BlockDirection};
+        let mut world = flat_world();
+        // A wall across the way at z = -3, but for a doorway at x = 0
+        world.fill_box(
+            IVec3::new(-5, 64, -3),
+            IVec3::new(5, 66, -3),
+            BlockId::OakPlanks,
+        );
+        for (y, id) in [(64, BlockId::OpenDoor), (65, BlockId::OpenDoorTop)] {
+            world.set_block(
+                IVec3::new(0, y, -3),
+                BlockData::new(id, BlockDirection::Back),
+            );
+        }
+        world.set_block(
+            IVec3::new(0, 66, -3),
+            BlockData::new(BlockId::OakPlanks, BlockDirection::Front),
+        );
+        // Off the middle of the doorway, to either side
+        for x in [0.42, 0.58] {
+            let mut player = standing_player();
+            player.position.x = x;
+            walk_forward(&mut player, &world, Vec3::NEG_Z, 120);
+            assert!(
+                player.position.z < -4.0,
+                "from x = {x}: {}",
+                player.position
+            );
+        }
+    }
+
+    #[test]
     fn an_ordinary_fall_speeds_up_as_before_the_terminal_speed() {
         let world = open_air();
         let mut player = faller(Vec3::new(0.5, 126.0, 0.5), Vec3::NEG_Z);
