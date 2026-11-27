@@ -84,7 +84,9 @@ fn a_bow_is_drawn_seen_drawn_and_its_arrow_flies_sticks_and_is_picked_up() {
     h.wait_until("the player on the ground", SERVER, |w| player(w).on_ground);
     h.set_time("day");
     h.wait_until("the arrows", SERVER, |w| quiver(w) == 5);
-    aim(&mut h, 0.0);
+    // A little up: shot level, the arrow is down in under half a second, which a client under
+    // load may not draw a frame in, and then never sees it fly
+    aim(&mut h, -0.2);
     h.frames(40);
     h.snapshot("at_rest");
 
