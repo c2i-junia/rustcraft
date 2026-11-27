@@ -397,8 +397,12 @@ impl BlockLooks {
         Self { looks, cracks }
     }
 
+    /// The look of `id`, or that of `BlockId::Debug` for a block these looks were not made with:
+    /// a mesh may be made with looks older than the content of its chunk.
     fn get(&self, id: BlockId) -> &BlockLook {
-        &self.looks[id as usize]
+        self.looks
+            .get(id as usize)
+            .unwrap_or(&self.looks[BlockId::Debug as usize])
     }
 
     /// The shape of `id`, with the names of the textures of its faces.
@@ -1617,6 +1621,20 @@ mod tests {
             }
         }
         assert!(water > 0, "the shore has water");
+    }
+
+    #[test]
+    fn a_block_the_looks_were_not_made_with_looks_like_debug() {
+        let mut looks = BlockLooks::new(&HashMap::from([("_Default".to_string(), 0)]));
+        looks.looks.truncate(BlockId::Stone as usize);
+        assert!(std::ptr::eq(
+            looks.get(BlockId::Magma),
+            looks.get(BlockId::Debug)
+        ));
+        assert!(!std::ptr::eq(
+            looks.get(BlockId::Dirt),
+            looks.get(BlockId::Debug)
+        ));
     }
 
     #[test]

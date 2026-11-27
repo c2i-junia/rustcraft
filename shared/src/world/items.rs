@@ -1154,7 +1154,13 @@ impl ItemId {
         })
     }
 
+    #[inline]
     pub fn get_max_stack(&self) -> u32 {
+        self.props().max_stack
+    }
+
+    /// `get_max_stack` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_max_stack(&self) -> u32 {
         match *self {
             Self::Bucket => 16,
             Self::WaterBucket
@@ -1181,19 +1187,25 @@ impl ItemId {
             _ if self.banner_color().is_some() => 1,
             // A potion is one, so that its `ItemType::Brewed` never mixes with another's
             item if item.is_vial_filled() => 1,
-            _ if self.durability().is_some() => 1,
+            _ if self.builtin_durability().is_some() => 1,
             _ => 64,
         }
     }
 
     /// The points of health a blow with the item takes from a mob.
+    #[inline]
     pub fn attack_damage(&self) -> u32 {
+        self.props().attack_damage
+    }
+
+    /// `attack_damage` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_attack_damage(&self) -> u32 {
         match *self {
             Self::Spear | Self::ThrowingAxe => return 5,
             Self::Mace => return 10,
             _ => {}
         }
-        let Some(tool) = self.tool() else {
+        let Some(tool) = self.builtin_tool() else {
             return 1;
         };
         let tier = match tool.tier {
@@ -1225,7 +1237,13 @@ impl ItemId {
 
     /// The food points and the saturation eating the item gives, if it is eaten: Minecraft's
     /// where Minecraft has the food, the saturation twice the food by its modifier.
+    #[inline]
     pub fn food_value(&self) -> Option<(u8, f32)> {
+        self.props().food_value
+    }
+
+    /// `food_value` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_food_value(&self) -> Option<(u8, f32)> {
         match *self {
             Self::Berries => Some((2, 0.4)),
             Self::RoastMushroom => Some((4, 4.8)),
@@ -1261,7 +1279,15 @@ impl ItemId {
 
     /// The status effect eating the item gives, if any: its kind, its level and its ticks. The
     /// healing foods may be eaten with all the food a player can have.
+    #[inline]
     pub fn food_effect(&self) -> Option<(crate::players::effects::EffectKind, u8, u32)> {
+        self.props().food_effect
+    }
+
+    /// `food_effect` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_food_effect(
+        &self,
+    ) -> Option<(crate::players::effects::EffectKind, u8, u32)> {
         use crate::players::effects::EffectKind::Regeneration;
         let seconds = |s: u32| s * crate::TICKS_PER_SECOND as u32;
         match *self {
@@ -1272,7 +1298,13 @@ impl ItemId {
     }
 
     /// What is left in the hand once the item is eaten or drunk: the bowl of a soup.
+    #[inline]
     pub fn eaten_remains(&self) -> Option<ItemId> {
+        self.props().eaten_remains
+    }
+
+    /// `eaten_remains` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_eaten_remains(&self) -> Option<ItemId> {
         match *self {
             Self::MushroomSoup | Self::Stew | Self::BerrySalad | Self::FishChowder => {
                 Some(Self::Bowl)
@@ -1283,7 +1315,13 @@ impl ItemId {
 
     /// What is left in its cell of the crafting grid once the item is used by a craft: the
     /// bucket of a bucket of milk.
+    #[inline]
     pub fn crafting_remains(&self) -> Option<ItemId> {
+        self.props().crafting_remains
+    }
+
+    /// `crafting_remains` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_crafting_remains(&self) -> Option<ItemId> {
         match *self {
             Self::MilkBucket | Self::WaterBucket => Some(Self::Bucket),
             _ => None,
@@ -1291,7 +1329,13 @@ impl ItemId {
     }
 
     /// The points of protection of a horse armour (`mobs::armoured_damage`): Minecraft's.
+    #[inline]
     pub fn horse_armour(&self) -> Option<u32> {
+        self.props().horse_armour
+    }
+
+    /// `horse_armour` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_horse_armour(&self) -> Option<u32> {
         match *self {
             Self::LeatherHorseArmour => Some(3),
             Self::IronHorseArmour => Some(5),
@@ -1302,7 +1346,13 @@ impl ItemId {
     }
 
     /// The mob a spawn egg makes appear, used on a block.
+    #[inline]
     pub fn spawned_mob(&self) -> Option<MobKind> {
+        self.props().spawned_mob
+    }
+
+    /// `spawned_mob` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_spawned_mob(&self) -> Option<MobKind> {
         match *self {
             Self::FoxSpawnEgg => Some(MobKind::Fox),
             Self::SheepSpawnEgg => Some(MobKind::Sheep),
@@ -1338,7 +1388,13 @@ impl ItemId {
     }
 
     /// What the item does as a tool, if it is one.
+    #[inline]
     pub fn tool(&self) -> Option<Tool> {
+        self.props().tool
+    }
+
+    /// `tool` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_tool(&self) -> Option<Tool> {
         use ToolKind::*;
         use ToolTier::*;
         let (tier, kind) = match *self {
@@ -1387,7 +1443,13 @@ impl ItemId {
     /// The wear at which the item breaks, for the items that wear out: the tools, the
     /// armour, which wears by the hits it absorbs, the flint and steel, which wears by the fires
     /// it lights, and the bow, by its shots.
+    #[inline]
     pub fn durability(&self) -> Option<u32> {
+        self.props().durability
+    }
+
+    /// `durability` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_durability(&self) -> Option<u32> {
         match *self {
             Self::FlintAndSteel => Some(64),
             Self::Bow => Some(320),
@@ -1397,13 +1459,19 @@ impl ItemId {
             Self::FishingRod => Some(64),
             _ => match self.armour() {
                 Some(armour) => Some(armour.durability()),
-                None => self.tool().map(|tool| tool.durability),
+                None => self.builtin_tool().map(|tool| tool.durability),
             },
         }
     }
 
     /// The category the item browser files the item under.
+    #[inline]
     pub fn category(self) -> ItemCategory {
+        self.props().category
+    }
+
+    /// `category` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_category(self) -> ItemCategory {
         // No wildcard: a new item does not compile until it has a category
         match self {
             Self::Book => ItemCategory::Materials,
@@ -1697,7 +1765,13 @@ impl ItemId {
         }
     }
 
+    #[inline]
     pub fn get_default_type(&self) -> ItemType {
+        self.props().default_type
+    }
+
+    /// `get_default_type` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_default_type(&self) -> ItemType {
         match *self {
             Self::Dirt => ItemType::Block(BlockId::Dirt),
             Self::Bedrock => ItemType::Block(BlockId::Bedrock),
@@ -2094,6 +2168,17 @@ pub enum ToolKind {
     Shovel,
     Hoe,
     Sword,
+}
+
+impl ToolKind {
+    /// Every kind of tool.
+    pub const ALL: [ToolKind; 5] = [
+        Self::Pickaxe,
+        Self::Axe,
+        Self::Shovel,
+        Self::Hoe,
+        Self::Sword,
+    ];
 }
 
 /// What a tool item does.

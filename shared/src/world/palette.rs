@@ -453,7 +453,13 @@ pub const WOOLS: [ItemId; 16] = [
 
 impl BlockId {
     /// What the block is, if it is one of the palette.
+    #[inline]
     pub fn palette(self) -> Option<Palette> {
+        self.props().palette
+    }
+
+    /// `palette` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_palette(self) -> Option<Palette> {
         let (form, base, item) = match self {
             Self::OakSlab => (Form::Slab, Self::OakPlanks, ItemId::OakSlab),
             Self::HewnStoneSlab => (Form::Slab, Self::HewnStone, ItemId::HewnStoneSlab),

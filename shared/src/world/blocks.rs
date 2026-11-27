@@ -694,6 +694,7 @@ pub struct RequiredTool {
     pub level: u8,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BlockHitbox {
     FullBlock,
     Aabb(Aabb3d),
@@ -1116,29 +1117,53 @@ impl BlockId {
 
     /// Whether the cell below reaches into the lowest cells, as a fence does: see
     /// `ChunkMap::check_collision_box`.
+    #[inline]
     pub fn is_tall(&self) -> bool {
+        self.props().tall
+    }
+
+    /// `is_tall` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_is_tall(&self) -> bool {
         *self == Self::Fence
             || matches!(
-                self.form(),
+                self.builtin_palette().map(|palette| palette.form),
                 Some(Form::LowWall | Form::FenceGate { open: false })
             )
     }
 
     /// Whether this is a glass, plain or stained, which a pane reaches out to.
+    #[inline]
     pub fn is_glass(&self) -> bool {
+        self.props().glass
+    }
+
+    /// `is_glass` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_is_glass(&self) -> bool {
         *self == Self::Glass
             || self
-                .palette()
+                .builtin_palette()
                 .is_some_and(|palette| palette.form == Form::Cube && palette.base == Self::Glass)
     }
 
     /// Whether this block holds a `Container`.
+    #[inline]
     pub fn is_container(&self) -> bool {
+        self.props().container
+    }
+
+    /// `is_container` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_is_container(&self) -> bool {
         matches!(*self, Self::Chest | Self::Barrel)
     }
 
     /// The sapling the leaves sometimes drop.
+    #[inline]
     pub fn sapling(&self) -> Option<ItemId> {
+        self.props().sapling
+    }
+
+    /// `sapling` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_sapling(&self) -> Option<ItemId> {
         match *self {
             Self::OakLeaves => Some(ItemId::OakSapling),
             Self::SpruceLeaves => Some(ItemId::SpruceSapling),
@@ -1151,7 +1176,13 @@ impl BlockId {
     }
 
     /// The blocks this one may be planted on, if it only stands on some.
+    #[inline]
     pub fn soil(&self) -> Option<&'static [BlockId]> {
+        self.props().soil
+    }
+
+    /// `soil` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_soil(&self) -> Option<&'static [BlockId]> {
         match *self {
             Self::RyeSprout | Self::CarrotSprout | Self::PotatoSprout => Some(&[Self::TilledSoil]),
             Self::OakSapling
@@ -1196,11 +1227,17 @@ impl BlockId {
         }
     }
 
+    #[inline]
     pub fn get_hitbox(&self) -> BlockHitbox {
+        self.props().hitbox
+    }
+
+    /// `get_hitbox` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_hitbox(&self) -> BlockHitbox {
         if let Some(decor) = self.decor() {
             return decor.kind.hitbox();
         }
-        if let Some(palette) = self.palette() {
+        if let Some(palette) = self.builtin_palette() {
             return match palette.form {
                 Form::Slab | Form::Stairs => BlockHitbox::Aabb(SLAB),
                 Form::LowWall => BlockHitbox::Aabb(FENCE),
@@ -1213,7 +1250,7 @@ impl BlockId {
                 Form::Trapdoor { open: false } => BlockHitbox::Aabb(TRAPDOOR),
                 Form::FenceGate { open: false } => BlockHitbox::Aabb(FENCE_GATE),
                 Form::FenceGate { open: true } => BlockHitbox::None,
-                Form::Pane | Form::Cube => palette.base.get_hitbox(),
+                Form::Pane | Form::Cube => palette.base.builtin_hitbox(),
             };
         }
         match *self {
@@ -1274,11 +1311,17 @@ impl BlockId {
         }
     }
 
+    #[inline]
     pub fn get_ray_hitbox(&self) -> BlockHitbox {
+        self.props().ray_hitbox
+    }
+
+    /// `get_ray_hitbox` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_ray_hitbox(&self) -> BlockHitbox {
         if let Some(decor) = self.decor() {
             return decor.kind.ray_hitbox();
         }
-        if let Some(palette) = self.palette() {
+        if let Some(palette) = self.builtin_palette() {
             return match palette.form {
                 // a gate is aimed at open or shut, below the height it blocks
                 Form::FenceGate { .. } => BlockHitbox::Aabb(Aabb3d {
@@ -1288,8 +1331,8 @@ impl BlockId {
                 Form::Stairs | Form::LowWall | Form::Pane => BlockHitbox::FullBlock,
                 // walked through, but still aimed at to be shut
                 Form::Door { open: true, .. } => BlockHitbox::Aabb(OPEN_DOOR),
-                Form::Cube => palette.base.get_ray_hitbox(),
-                _ => self.get_hitbox(),
+                Form::Cube => palette.base.builtin_ray_hitbox(),
+                _ => self.builtin_hitbox(),
             };
         }
         match *self {
@@ -1366,7 +1409,13 @@ impl BlockId {
 
     /// Number of mining hits needed to break the block by hand, one every `HIT_MS` the button
     /// is held: a block takes `steps / 10` seconds. `None` if it cannot be broken.
+    #[inline]
     pub fn get_break_time(&self) -> Option<u8> {
+        self.props().break_time
+    }
+
+    /// `get_break_time` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_break_time(&self) -> Option<u8> {
         let steps: u8 = match *self {
             Self::Dirt => 5,
             Self::Debug => 7,
@@ -1490,23 +1539,31 @@ impl BlockId {
             // as the block they are made of
             crate::new_palette_blocks!() => {
                 return self
-                    .palette()
-                    .and_then(|palette| palette.base.get_break_time())
+                    .builtin_palette()
+                    .and_then(|palette| palette.base.builtin_break_time())
             }
             crate::new_decor_blocks!() => {
-                return self.decor().and_then(|decor| decor.base.get_break_time())
+                return self
+                    .decor()
+                    .and_then(|decor| decor.base.builtin_break_time())
             }
         };
         Some(2 * steps)
     }
 
     /// Whether a tool of `kind` breaks this block faster than a hand, at its speed.
+    #[inline]
     pub fn is_mined_faster_by(&self, kind: ToolKind) -> bool {
-        if let Some(palette) = self.palette() {
-            return palette.base.is_mined_faster_by(kind);
+        self.props().faster_tools & crate::content::tool_bit(kind) != 0
+    }
+
+    /// `is_mined_faster_by` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_is_mined_faster_by(&self, kind: ToolKind) -> bool {
+        if let Some(palette) = self.builtin_palette() {
+            return palette.base.builtin_is_mined_faster_by(kind);
         }
         if let Some(decor) = self.decor() {
-            return decor.base.is_mined_faster_by(kind);
+            return decor.base.builtin_is_mined_faster_by(kind);
         }
         match kind {
             ToolKind::Pickaxe => matches!(
@@ -1620,7 +1677,13 @@ impl BlockId {
     /// The tool this block must be broken with to drop anything, like stone and a pickaxe, and
     /// the mining level its tier must reach, like iron ore and a stone pickaxe. Broken otherwise,
     /// it still goes, but drops nothing.
+    #[inline]
     pub fn get_required_tool(&self) -> Option<RequiredTool> {
+        self.props().required_tool
+    }
+
+    /// `get_required_tool` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_required_tool(&self) -> Option<RequiredTool> {
         let level = match *self {
             Self::Stone
             | Self::Cobblestone
@@ -1653,9 +1716,9 @@ impl BlockId {
             Self::GoldOre | Self::DiamondOre | Self::GoldBlock | Self::DiamondBlock => 2,
             Self::Obsidian => 3,
             _ => {
-                return match (self.palette(), self.decor()) {
-                    (Some(palette), _) => palette.base.get_required_tool(),
-                    (_, Some(decor)) => decor.base.get_required_tool(),
+                return match (self.builtin_palette(), self.decor()) {
+                    (Some(palette), _) => palette.base.builtin_required_tool(),
+                    (_, Some(decor)) => decor.base.builtin_required_tool(),
                     _ => None,
                 }
             }
@@ -1697,7 +1760,13 @@ impl BlockId {
 
     /// Specifies the drop table of a given block
     /// Drops are specified this way : `(relative_chance, corresponding_item, base_number)`
+    #[inline]
     pub fn get_drop_table(&self) -> Vec<(u32, ItemId, u32)> {
+        self.props().drops.clone()
+    }
+
+    /// `get_drop_table` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_drop_table(&self) -> Vec<(u32, ItemId, u32)> {
         match *self {
             BlockId::Dirt | BlockId::Grass => vec![(1, ItemId::Dirt, 1)],
             BlockId::Stone => vec![(1, ItemId::Cobblestone, 1)],
@@ -1830,7 +1899,7 @@ impl BlockId {
             },
             BlockId::Alembic => vec![(1, ItemId::Alembic, 1)],
             // The other blocks of the palette drop their item, but glass, which breaks
-            _ => match self.palette() {
+            _ => match self.builtin_palette() {
                 Some(palette) if palette.base != BlockId::Glass => vec![(1, palette.item, 1)],
                 _ => vec![],
             },
@@ -1839,7 +1908,13 @@ impl BlockId {
 
     /// Whether a right click on this block uses it, like a crafting table or a chest, instead of
     /// placing a block against it. Sneaking places the block.
+    #[inline]
     pub fn is_usable(&self) -> bool {
+        self.props().usable
+    }
+
+    /// `is_usable` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_is_usable(&self) -> bool {
         matches!(
             *self,
             Self::CraftingTable
@@ -1852,7 +1927,10 @@ impl BlockId {
                 | Self::MapFrame
                 | Self::Bedroll
                 | Self::RipeBerryBush
-        ) || self.form().is_some_and(Form::opens)
+        ) || self
+            .builtin_palette()
+            .map(|palette| palette.form)
+            .is_some_and(Form::opens)
             || self.decor_kind().is_some_and(DecorKind::is_usable)
             || self.is_furnace()
     }
@@ -1868,7 +1946,13 @@ impl BlockId {
     }
 
     /// Whether a block placed in the cell of this one takes its place.
+    #[inline]
     pub fn is_replaceable(&self) -> bool {
+        self.props().replaceable
+    }
+
+    /// `is_replaceable` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_is_replaceable(&self) -> bool {
         matches!(*self, Self::Water | Self::Lava | Self::Fire)
     }
 
@@ -1888,13 +1972,19 @@ impl BlockId {
         *self == Self::CaveVine
     }
 
+    #[inline]
     pub fn get_visibility(&self) -> BlockTransparency {
+        self.props().visibility
+    }
+
+    /// `get_visibility` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_visibility(&self) -> BlockTransparency {
         if let Some(decor) = self.decor() {
             return decor.kind.visibility();
         }
-        if let Some(palette) = self.palette() {
+        if let Some(palette) = self.builtin_palette() {
             return match palette.form {
-                Form::Cube => palette.base.get_visibility(),
+                Form::Cube => palette.base.builtin_visibility(),
                 _ => BlockTransparency::Decoration,
             };
         }
@@ -1967,17 +2057,29 @@ impl BlockId {
     /// How much the block dims the light that goes through it, as Minecraft's light opacity:
     /// `None` for a block no light goes through. Light loses a level from one cell to the next,
     /// or this much if more, but the light of the sky that goes straight down loses only this.
+    #[inline]
     pub fn light_opacity(&self) -> Option<u8> {
-        match self.get_visibility() {
+        self.props().light_opacity
+    }
+
+    /// `light_opacity` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_light_opacity(&self) -> Option<u8> {
+        match self.builtin_visibility() {
             BlockTransparency::Solid => None,
             BlockTransparency::Decoration => Some(0),
-            BlockTransparency::Transparent if self.is_glass() => Some(0),
+            BlockTransparency::Transparent if self.builtin_is_glass() => Some(0),
             BlockTransparency::Transparent | BlockTransparency::Liquid => Some(1),
         }
     }
 
     /// The light the block gives, from 0 for none to 15, as Minecraft's light levels.
+    #[inline]
     pub fn light_emission(&self) -> u8 {
+        self.props().light_emission
+    }
+
+    /// `light_emission` as the code writes it, which `Content::builtin` fills the table with.
+    pub(crate) fn builtin_light_emission(&self) -> u8 {
         match *self {
             Self::Fire | Self::Lava => 15,
             Self::Torch | Self::WallTorch => 14,

@@ -12,6 +12,7 @@ pub mod codec;
 pub mod codex;
 pub mod commands;
 pub mod constants;
+pub mod content;
 pub mod messages;
 pub mod paths;
 pub mod players;
