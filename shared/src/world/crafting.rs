@@ -172,18 +172,42 @@ pub fn match_recipe(grid: &CraftingGrid) -> Option<ItemStack> {
 }
 
 /// Whether the items `filled` in a grid are the ingredients of the shapeless `recipe`, one for
-/// each, in any order.
+/// each, in any order. An ingredient may take an item that another one takes too (a family and
+/// one of its members), so this is a bipartite matching, found by augmenting paths: at most
+/// nine ingredients and nine items.
 fn matches_shapeless(recipe: &Recipe, filled: &[ItemId]) -> bool {
     let ingredients: Vec<Ingredient> = recipe.cells.iter().flatten().copied().collect();
     if ingredients.len() != filled.len() {
         return false;
     }
-    let mut used = vec![false; filled.len()];
-    // An ingredient takes the first item left it matches: the recipes have no family that
-    // another ingredient of theirs is in, so no other choice could match where this fails
-    ingredients.iter().all(|ingredient| {
-        let found = (0..filled.len()).find(|&i| !used[i] && ingredient.matches(filled[i]));
-        found.inspect(|&i| used[i] = true).is_some()
+    /// Gives `ingredient` an item, moving the ingredients that hold the one it wants if need be.
+    fn assign(
+        ingredient: usize,
+        ingredients: &[Ingredient],
+        filled: &[ItemId],
+        holder: &mut [Option<usize>],
+        seen: &mut [bool],
+    ) -> bool {
+        for item in 0..filled.len() {
+            if seen[item] || !ingredients[ingredient].matches(filled[item]) {
+                continue;
+            }
+            seen[item] = true;
+            let free = match holder[item] {
+                None => true,
+                Some(other) => assign(other, ingredients, filled, holder, seen),
+            };
+            if free {
+                holder[item] = Some(ingredient);
+                return true;
+            }
+        }
+        false
+    }
+    let mut holder = vec![None; filled.len()];
+    (0..ingredients.len()).all(|ingredient| {
+        let mut seen = vec![false; filled.len()];
+        assign(ingredient, &ingredients, filled, &mut holder, &mut seen)
     })
 }
 
@@ -445,6 +469,40 @@ mod tests {
             item_type: item_id.get_default_type(),
             nb,
         })
+    }
+
+    /// A recipe whose family has a member that another ingredient names crafts in either order.
+    #[test]
+    fn a_shapeless_recipe_with_a_family_and_one_of_its_members_matches_in_any_order() {
+        let planks = Ingredient::Tag(ItemTag::Planks);
+        for ingredients in [
+            [planks, Ingredient::Item(ItemId::OakPlanks)],
+            [Ingredient::Item(ItemId::OakPlanks), planks],
+        ] {
+            let recipe = Recipe {
+                width: 2,
+                cells: ingredients.iter().copied().map(Some).collect(),
+                output: ItemId::Stick,
+                nb: 1,
+                shapeless: true,
+            };
+            assert!(matches_shapeless(
+                &recipe,
+                &[ItemId::OakPlanks, ItemId::SprucePlanks]
+            ));
+            assert!(matches_shapeless(
+                &recipe,
+                &[ItemId::SprucePlanks, ItemId::OakPlanks]
+            ));
+            assert!(!matches_shapeless(
+                &recipe,
+                &[ItemId::SprucePlanks, ItemId::SprucePlanks]
+            ));
+            assert!(!matches_shapeless(
+                &recipe,
+                &[ItemId::OakPlanks, ItemId::Coal]
+            ));
+        }
     }
 
     #[test]
