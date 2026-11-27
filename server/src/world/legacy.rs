@@ -112,6 +112,7 @@ impl From<LegacyWorldData> for WorldData {
             game_mode: Default::default(),
             boss_defeated: false,
             block_names: None,
+            item_names: None,
         }
     }
 }

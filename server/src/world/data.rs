@@ -6,7 +6,7 @@ use bevy::math::{IVec3, Vec3};
 use bevy_ecs::resource::Resource;
 use uuid::Uuid;
 
-use super::block_numbers::SavedBlocks;
+use super::block_numbers::SavedNumbers;
 use super::cartography::PaperMaps;
 use super::dropped_items::DroppedItems;
 use super::home::{HomeEvents, Places};
@@ -50,8 +50,8 @@ pub struct ServerWorldMap {
     /// The folder of the world, whose files hold the saved chunks not loaded yet: a chunk is
     /// read from there when a player first needs it. `None` generates every chunk.
     pub saved: Option<PathBuf>,
-    /// The numbers the world saves its blocks as, shared with the writer.
-    pub blocks: Arc<SavedBlocks>,
+    /// The numbers the world saves its blocks and its items as, shared with the writer.
+    pub numbers: Arc<SavedNumbers>,
     /// Where a new player appears, and a dead one comes back (`generation::spawn_position`).
     pub spawn: Vec3,
     pub places: Places,

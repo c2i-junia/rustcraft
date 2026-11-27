@@ -789,12 +789,14 @@ mod tests {
     /// `tests/fixtures/worlds/v5`, a world saved by the game of format version 5 (6fd126a4):
     /// a chunk of a few blocks, one with a chest, and one of stone below it.
     #[test]
-    fn a_world_of_format_version_5_loads_and_is_saved_in_version_6() {
-        use crate::world::block_numbers::SavedBlocks;
+    fn a_world_of_format_version_5_loads_and_is_saved_in_version_7() {
+        use crate::world::block_numbers::{SavedBlocks, SavedNumbers};
         use crate::world::chunk_files::read_chunk;
         use crate::world::container_files::read_chunk_contents;
         use crate::world::writer::{write_job, SaveJob};
-        use shared::world::{BlockData, BlockDirection, BlockId, Chunk, LEGACY_BLOCK_NAMES};
+        use shared::world::{
+            BlockData, BlockDirection, BlockId, Chunk, LEGACY_BLOCK_NAMES, LEGACY_ITEM_NAMES,
+        };
         use std::sync::Arc;
 
         let tmp = tempfile::tempdir().unwrap();
@@ -806,14 +808,18 @@ mod tests {
         let world = open_world(WORLD, &paths, &NewWorldSettings::default()).unwrap();
         assert_eq!((world.seed.0, world.time), (12345, 1000));
         assert_eq!(world.block_names, None, "version 5 lists no block");
+        assert_eq!(world.item_names, None, "nor any item");
         assert_eq!(
             world.dropped_items[0].stack.item_type,
             shared::world::ItemType::Block(BlockId::Torch)
         );
-        let blocks = Arc::new(SavedBlocks::open(world.block_names.clone()));
+        let numbers = Arc::new(SavedNumbers::open(
+            world.block_names.clone(),
+            world.item_names.clone(),
+        ));
         let chunks_dir = dir.join(CHUNKS_DIR);
         let read = |blocks: &SavedBlocks, pos| blocks.read(read_chunk(&chunks_dir, pos).unwrap());
-        let chunk = read(&blocks, IVec3::new(0, 4, 0));
+        let chunk = read(&numbers.blocks, IVec3::new(0, 4, 0));
         let block = |x, y, z| *chunk.get(IVec3::new(x, y, z)).unwrap();
         let expected = [
             ((0, 0, 0), BlockId::Stone, BlockDirection::Front),
@@ -833,20 +839,20 @@ mod tests {
         }
         assert_eq!(chunk.iter().count(), expected.len());
         let stone = Chunk::filled(BlockData::new(BlockId::Stone, BlockDirection::Front));
-        assert_eq!(read(&blocks, IVec3::new(0, 3, 0)), stone);
-        let contents = read_chunk_contents(&dir, IVec3::new(0, 4, 0));
+        assert_eq!(read(&numbers.blocks, IVec3::new(0, 3, 0)), stone);
+        let contents = numbers.read_contents(read_chunk_contents(&dir, IVec3::new(0, 4, 0)));
         let held = contents.chests[0].1.slots[0].as_ref().unwrap();
         assert_eq!(
             (contents.chests[0].0, held.item_id, held.nb),
             (IVec3::ONE, ItemId::Cobblestone, 12)
         );
 
-        // saved again: version 6, which lists the names its chunks were read with
+        // saved again: version 7, which lists the names its chunks and chests were read with
         let job = SaveJob {
             meta: WorldMeta::from(&world),
             players: Vec::new(),
-            chunks: vec![(IVec3::new(0, 4, 0), chunk.clone(), contents)],
-            blocks,
+            chunks: vec![(IVec3::new(0, 4, 0), chunk.clone(), contents.clone())],
+            numbers,
         };
         assert!(write_job(&dir, job).is_complete());
         let again = open_world(WORLD, &paths, &NewWorldSettings::default()).unwrap();
@@ -855,10 +861,14 @@ mod tests {
             .clone()
             .expect("version 6 lists the blocks");
         assert_eq!(names, LEGACY_BLOCK_NAMES);
+        let items = again.item_names.clone().expect("version 7 lists the items");
+        assert_eq!(items, LEGACY_ITEM_NAMES);
         let text = fs::read_to_string(dir.join(WORLD_FILE)).unwrap();
-        assert!(text.contains("format_version: 6"), "{text}");
-        let blocks = SavedBlocks::open(again.block_names);
-        assert_eq!(read(&blocks, IVec3::new(0, 4, 0)), chunk);
+        assert!(text.contains("format_version: 7"), "{text}");
+        let numbers = SavedNumbers::open(again.block_names, again.item_names);
+        assert_eq!(read(&numbers.blocks, IVec3::new(0, 4, 0)), chunk);
+        let read_again = numbers.read_contents(read_chunk_contents(&dir, IVec3::new(0, 4, 0)));
+        assert_eq!(read_again, contents);
     }
 
     #[test]
@@ -1030,13 +1040,13 @@ mod tests {
     fn a_world_in_a_newer_format_version_is_refused_and_left_alone() {
         let tmp = tempfile::tempdir().unwrap();
         let text =
-            r#"(format_version: 7, name: "world", seed: (1), time: 0, mobs: {}, biomes: [])"#;
+            r#"(format_version: 8, name: "world", seed: (1), time: 0, mobs: {}, biomes: [])"#;
         let paths = write_world_file(&tmp, text);
 
         let err = load_world_data(WORLD, &paths).err().unwrap().to_string();
 
         assert!(err.contains("world.ron"), "{err}");
-        assert!(err.contains("version 7"), "{err}");
+        assert!(err.contains("version 8"), "{err}");
         assert_eq!(
             fs::read_to_string(world_dir_of(&tmp).join("world.ron")).unwrap(),
             text

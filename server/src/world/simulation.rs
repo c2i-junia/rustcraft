@@ -32,7 +32,7 @@ use crate::{
     },
     network::extensions::SendGameMessageExtension,
     world::{
-        block_numbers::SavedBlocks,
+        block_numbers::SavedNumbers,
         chunk_files::{read_chunk, CHUNKS_DIR},
         container_files::{insert_with_contents, read_chunk_contents, ChunkContents},
         data::ServerWorldMap,
@@ -66,15 +66,18 @@ enum Made {
     Generated(Chunk, Vec<ServerMob>, ChunkContents),
 }
 
-/// The folder of a saved world, and the numbers its blocks are saved as; `None` generates every
-/// chunk.
-pub(super) type Saved<'a> = Option<(&'a Path, &'a Arc<SavedBlocks>)>;
+/// The folder of a saved world, and the numbers its blocks and its items are saved as; `None`
+/// generates every chunk.
+pub(super) type Saved<'a> = Option<(&'a Path, &'a Arc<SavedNumbers>)>;
 
 /// The chunk at `chunk_pos`: from its file in the folder of the world `saved`, else generated.
 fn make_chunk(chunk_pos: IVec3, saved: Saved<'_>, generator: &WorldGenerator) -> Made {
-    if let Some((dir, blocks)) = saved {
+    if let Some((dir, numbers)) = saved {
         if let Some(chunk) = read_chunk(&dir.join(CHUNKS_DIR), chunk_pos) {
-            return Made::Read(blocks.read(chunk), read_chunk_contents(dir, chunk_pos));
+            return Made::Read(
+                numbers.blocks.read(chunk),
+                numbers.read_contents(read_chunk_contents(dir, chunk_pos)),
+            );
         }
     }
     Made::Generated(
@@ -317,7 +320,7 @@ pub fn handle_player_inputs_system(
     let saved = world_map
         .saved
         .as_deref()
-        .map(|dir| (dir, &world_map.blocks));
+        .map(|dir| (dir, &world_map.numbers));
     let spawn = world_map.spawn;
     let portal_shots = &mut world_map.portal_shots;
     // The animals born with the chunks generated, and those hatched from spawn eggs
@@ -1137,7 +1140,7 @@ mod tests {
             &mut chunks,
             &mut dirty,
             &mut Vec::new(),
-            Some((dir.path(), &Arc::new(SavedBlocks::default()))),
+            Some((dir.path(), &Arc::new(SavedNumbers::default()))),
             &WorldGenerator::new(1),
         );
 

@@ -17,7 +17,7 @@ use bevy::{
 use shared::world::Chunk;
 use shared::SaveCounter;
 
-use super::block_numbers::SavedBlocks;
+use super::block_numbers::SavedNumbers;
 use super::chunk_files::{
     chunk_file_name, region_file_name, region_of, remove_interrupted_writes, write_region_pending,
     CHUNKS_DIR,
@@ -39,9 +39,9 @@ pub struct SaveJob {
     pub meta: WorldMeta,
     pub players: Vec<(String, String)>,
     pub chunks: Vec<(IVec3, Chunk, ChunkContents)>,
-    /// The numbers the world saves its blocks as: the chunks are written in them, and the
-    /// metadata lists them.
-    pub blocks: Arc<SavedBlocks>,
+    /// The numbers the world saves its blocks and its items as: the chunks and what their
+    /// blocks hold are written in them, and the metadata lists them.
+    pub numbers: Arc<SavedNumbers>,
 }
 
 /// What writing one job did.
@@ -84,10 +84,14 @@ enum Owner {
 /// at once and put in place, the metadata first, so that the seed of a new world is on disk
 /// before any of its chunks, then the players. Every failure is logged with its path.
 pub fn write_job(world_dir: &std::path::Path, mut job: SaveJob) -> JobOutcome {
-    // every block written has its number before the metadata lists them
-    job.blocks
+    // every block and item written has its number before the metadata lists them
+    job.numbers
+        .blocks
         .number_new_blocks(job.chunks.iter().map(|(_, chunk, _)| chunk));
-    job.meta.block_names = Some(job.blocks.names());
+    job.numbers
+        .number_new_in(job.chunks.iter().map(|(_, _, contents)| contents));
+    job.meta.block_names = Some(job.numbers.blocks.names());
+    job.meta.item_names = Some(job.numbers.items.names());
     let mut head = Vec::new();
     match write_meta_pending(world_dir, &job.meta) {
         Ok(meta) => head.push((Owner::Meta, meta)),
@@ -141,11 +145,11 @@ pub fn write_job(world_dir: &std::path::Path, mut job: SaveJob) -> JobOutcome {
             .chunks(per_thread)
             .map(|part| {
                 let chunks_dir = &chunks_dir;
-                let blocks = &*job.blocks;
+                let numbers = &*job.numbers;
                 scope.spawn(move || {
                     part.iter()
                         .map(|(region, chunks)| {
-                            write_region_files(world_dir, chunks_dir, *region, chunks, blocks)
+                            write_region_files(world_dir, chunks_dir, *region, chunks, numbers)
                         })
                         .collect::<Vec<_>>()
                 })
@@ -238,7 +242,7 @@ fn write_region_files(
     chunks_dir: &std::path::Path,
     region: IVec3,
     chunks: &[&(IVec3, Chunk, ChunkContents)],
-    blocks: &SavedBlocks,
+    numbers: &SavedNumbers,
 ) -> (Option<RegionFiles>, Vec<IVec3>) {
     let mut files = Vec::new();
     let mut failed = Vec::new();
@@ -246,6 +250,7 @@ fn write_region_files(
     let mut in_region = Vec::new();
     for (chunk_pos, chunk, contents) in chunks.iter().copied() {
         let before = files.len();
+        let contents = numbers.write_contents(contents);
         let written = write_held(world_dir, *chunk_pos, &contents.chests, &mut files)
             .and_then(|()| write_held(world_dir, *chunk_pos, &contents.furnaces, &mut files));
         if let Err(err) = written {
@@ -261,7 +266,7 @@ fn write_region_files(
         if contents.furnaces.is_empty() {
             without_containers.push((FURNACES_DIR, *chunk_pos));
         }
-        in_region.push((*chunk_pos, blocks.write(chunk)));
+        in_region.push((*chunk_pos, numbers.blocks.write(chunk)));
     }
     let positions: Vec<IVec3> = in_region.iter().map(|(pos, _)| *pos).collect();
     match write_region_pending(
@@ -460,7 +465,7 @@ mod tests {
                 .iter()
                 .map(|&p| (p, stone_chunk(), ChunkContents::default()))
                 .collect(),
-            blocks: Default::default(),
+            numbers: Default::default(),
         }
     }
 
@@ -520,7 +525,7 @@ mod tests {
                     ..Default::default()
                 },
             )],
-            blocks: Default::default(),
+            numbers: Default::default(),
         };
         let outcome = write_job(tmp.path(), with_chest);
         assert!(outcome.is_complete());
@@ -562,7 +567,7 @@ mod tests {
                     ..Default::default()
                 },
             )],
-            blocks: Default::default(),
+            numbers: Default::default(),
         };
         assert!(write_job(tmp.path(), with_furnace).is_complete());
         assert_eq!(
@@ -598,7 +603,7 @@ mod tests {
                     furnaces: vec![(IVec3::ONE, Furnace::default())],
                 },
             )],
-            blocks: Default::default(),
+            numbers: Default::default(),
         };
 
         let outcome = write_job(tmp.path(), with_both);
@@ -647,7 +652,7 @@ mod tests {
             meta: meta(1),
             players: Vec::new(),
             chunks: vec![(IVec3::ZERO, Chunk::new(), ChunkContents::default())],
-            blocks: Default::default(),
+            numbers: Default::default(),
         };
         assert!(writer.submit(old).is_ok());
         assert!(writer.submit(job(&[IVec3::ZERO])).is_ok());

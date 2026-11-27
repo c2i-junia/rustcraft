@@ -146,7 +146,7 @@ fn queue_save(
         },
         players: std::mem::take(&mut world_map.players_to_save),
         chunks,
-        blocks: Arc::clone(&world_map.blocks),
+        numbers: Arc::clone(&world_map.numbers),
     };
 
     if let Err(job) = writer.submit(job) {

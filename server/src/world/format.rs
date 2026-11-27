@@ -32,8 +32,11 @@ pub const WORLD_FILE: &str = "world.ron";
 /// previous version on load. Version 6 lists the names of the blocks of the world in
 /// `world.ron` (`WorldMeta::block_names`), by the numbers its chunk files hold them as: an older
 /// game would misread a world holding blocks only the content files define. A world without
-/// the list reads as one of `LEGACY_BLOCK_NAMES`. Adding a block needs no bump.
-pub const FORMAT_VERSION: u32 = 6;
+/// the list reads as one of `LEGACY_BLOCK_NAMES`. Version 7 lists the names of its items as
+/// well (`WorldMeta::item_names`), by the numbers its chest and furnace files hold them as, for
+/// the same reason; a world without that list reads as one of `LEGACY_ITEM_NAMES`. Adding a
+/// block or an item needs no bump.
+pub const FORMAT_VERSION: u32 = 7;
 
 /// The weather of a world as `world.ron` holds it: its kind and the ticks it has left.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -76,6 +79,11 @@ pub struct WorldMeta {
     /// converted from an older format, which read as `LEGACY_BLOCK_NAMES`.
     #[serde(default)]
     pub block_names: Option<Vec<String>>,
+    /// The name of each item of the world, by the number its chest and furnace files hold it
+    /// as (`block_numbers`). Missing from the worlds saved before version 7, and from those
+    /// converted from an older format, which read as `LEGACY_ITEM_NAMES`.
+    #[serde(default)]
+    pub item_names: Option<Vec<String>>,
 }
 
 impl WorldMeta {
@@ -93,6 +101,7 @@ impl WorldMeta {
             game_mode: GameMode::default(),
             boss_defeated: false,
             block_names: None,
+            item_names: None,
         }
     }
 }
@@ -130,6 +139,9 @@ pub struct WorldData {
     /// The single-file formats had none: their blocks are those of `LEGACY_BLOCK_NAMES`.
     #[serde(default)]
     pub block_names: Option<Vec<String>>,
+    /// The single-file formats had none: their items are those of `LEGACY_ITEM_NAMES`.
+    #[serde(default)]
+    pub item_names: Option<Vec<String>>,
 }
 
 impl From<&WorldData> for WorldMeta {
@@ -142,6 +154,7 @@ impl From<&WorldData> for WorldMeta {
             game_mode: world.game_mode,
             boss_defeated: world.boss_defeated,
             block_names: world.block_names.clone(),
+            item_names: world.item_names.clone(),
             ..Self::new(
                 world.name.clone(),
                 world.seed,
@@ -167,6 +180,7 @@ impl From<WorldMeta> for WorldData {
             game_mode: meta.game_mode,
             boss_defeated: meta.boss_defeated,
             block_names: meta.block_names,
+            item_names: meta.item_names,
             ..Self::default()
         }
     }

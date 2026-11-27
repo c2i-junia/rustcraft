@@ -11,7 +11,7 @@ use crate::{
         status::{publish_player_count, spawn_status_responder, StatusCounter},
     },
     world::{
-        block_numbers::SavedBlocks,
+        block_numbers::SavedNumbers,
         container_files::insert_with_contents,
         data::{world_dir, ServerWorldMap},
         dropped_items::DroppedItems,
@@ -347,7 +347,10 @@ fn load_world(
         players_to_save: Vec::new(),
         accounts: HashMap::new(),
         saved: Some(world_dir(game_folder_paths, world_name)?),
-        blocks: Arc::new(SavedBlocks::open(world_data.block_names)),
+        numbers: Arc::new(SavedNumbers::open(
+            world_data.block_names,
+            world_data.item_names,
+        )),
         spawn: spawn_position(world_data.seed.0, &generation),
         places: crate::world::home::Places::load(&world_dir(game_folder_paths, world_name)?),
         home: Default::default(),

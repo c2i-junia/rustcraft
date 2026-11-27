@@ -85,7 +85,7 @@ impl Stored for Furnace {
 pub type ChunkContainers<T = Container> = Vec<(IVec3, T)>;
 
 /// What the blocks of a chunk hold, by kind.
-#[derive(Default, Debug, PartialEq)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct ChunkContents {
     pub chests: ChunkContainers,
     pub furnaces: ChunkContainers<Furnace>,

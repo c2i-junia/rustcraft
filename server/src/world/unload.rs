@@ -270,7 +270,7 @@ mod tests {
                 ),
                 players: Vec::new(),
                 chunks: Vec::new(),
-                blocks: Default::default(),
+                numbers: Default::default(),
             })
             .is_ok());
         app.insert_resource(writer);
