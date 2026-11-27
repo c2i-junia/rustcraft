@@ -30,8 +30,7 @@ use std::path::{Path, PathBuf};
 use bevy::math::bounding::Aabb3d;
 use bevy::math::Vec3A;
 use serde::de::{self, Deserializer, MapAccess, Visitor};
-use serde::ser::Serializer;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use super::{
     tool_bit, Behaviour, BlockFlags, BlockProps, Content, ItemProps, Look, Shape, Sway, Tint,
@@ -177,12 +176,12 @@ impl Content {
 }
 
 /// The name of a block in the files: `oak_log` for `BlockId::OakLog`.
-pub(super) fn block_name(id: BlockId) -> String {
+fn block_name(id: BlockId) -> String {
     snake_case(&format!("{id:?}"))
 }
 
 /// The blocks and items by their names in the files.
-pub(super) struct Names {
+struct Names {
     pub blocks: HashMap<String, BlockId>,
     pub items: HashMap<String, ItemId>,
 }
@@ -254,9 +253,9 @@ fn check_item(props: &ItemProps) -> Result<(), String> {
 }
 
 /// One content file.
-#[derive(Deserialize, Serialize, Default)]
+#[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
-pub(super) struct ContentFile {
+struct ContentFile {
     #[serde(default)]
     pub blocks: Named<BlockDef>,
     #[serde(default)]
@@ -264,275 +263,114 @@ pub(super) struct ContentFile {
 }
 
 /// What a block of the palette is (`Palette`), its base and its item named as in the files.
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+#[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
-pub(super) struct PaletteDef {
+struct PaletteDef {
     pub form: Form,
     pub base: String,
     pub item: String,
 }
 
 /// The definition of a block in a file: each field the file leaves out takes its default.
-#[derive(Deserialize, Serialize, Default, Debug, Clone, PartialEq)]
+#[derive(Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
-pub(super) struct BlockDef {
+struct BlockDef {
     /// `palette`: what the block is, if it is one of the palette. None by default.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub palette: Option<PaletteDef>,
     /// `visibility`: `Solid` (the default), `Transparent`, `Liquid` or `Decoration`.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub look: Option<BlockTransparency>,
     /// `light_emission`, 0 by default.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub light: Option<u8>,
     /// `light_opacity`. By default, from `look`: none goes through a solid block, a decoration
     /// and a glass take 0, and the other blocks 1.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub opacity: Option<u8>,
     /// `break_time`: the hits a hand breaks the block in. A block without it cannot be broken.
     #[serde(default, rename = "break", deserialize_with = "present")]
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "inner")]
     pub break_hits: Option<u8>,
     /// `faster_tools`: the tools that mine the block faster. None by default.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub tools: Option<Vec<ToolKind>>,
     /// `required_tool`: `(kind: Pickaxe, level: 1)`. None by default.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub needs_tool: Option<RequiredTool>,
     /// `drops`: `(chance, "item", count)`, the item named as the commands name it. By default
     /// the item of the block's name, if there is one.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub drops: Option<Vec<(u32, String, u32)>>,
     /// `hitbox`: `FullBlock` (the default), `None` or `Aabb((min: .., max: ..))`.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub collision: Option<BlockHitbox>,
     /// `ray_hitbox`, the box aimed at; `collision` by default.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub outline: Option<BlockHitbox>,
     /// `usable`, false by default, as the four below.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub usable: Option<bool>,
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub replaceable: Option<bool>,
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub tall: Option<bool>,
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub glass: Option<bool>,
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub container: Option<bool>,
     /// `submerged`: the block grows under water, which fills the rest of its cell.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub submerged: Option<bool>,
     /// `hangs`: the block hangs from the one above it.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub hangs: Option<bool>,
     /// `behaviour`: `None` (the default) or `Furnace(lit: false)`.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub behaviour: Option<Behaviour>,
     /// `sapling`: the item the leaves sometimes drop. None by default.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub sapling: Option<String>,
     /// `soil`: the blocks this one may be planted on, if it only stands on some.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub soil: Option<Vec<String>>,
     /// The `shape` of `look`: `Cube` by default.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub shape: Option<Shape>,
     /// The textures of the faces: by default, the texture of the block's name (`OakLog` for
     /// `oak_log`) on every face.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub faces: Option<FacesDef>,
     /// The texture drawn over the sides, see `Look::overlay`.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub overlay: Option<String>,
     /// `None` (the default), `Grass`, `Foliage`, `Green` or `Water`.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub tint: Option<Tint>,
     /// `None` (the default), `Whole` or `Top`.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub sway: Option<Sway>,
 }
 
 /// The textures of the faces of a block, each by its name in the textures: `all` for every
 /// face, `sides` for the four around, then each face for itself.
-#[derive(Deserialize, Serialize, Default, Debug, Clone, PartialEq)]
+#[derive(Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
-pub(super) struct FacesDef {
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+struct FacesDef {
+    #[serde(default, deserialize_with = "present")]
     pub all: Option<String>,
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub sides: Option<String>,
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub top: Option<String>,
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub bottom: Option<String>,
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub front: Option<String>,
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub back: Option<String>,
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub left: Option<String>,
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub right: Option<String>,
 }
 
@@ -684,109 +522,44 @@ impl BlockDef {
 }
 
 /// The definition of an item in a file: each field the file leaves out takes its default.
-#[derive(Deserialize, Serialize, Default, Debug, Clone, PartialEq)]
+#[derive(Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
-pub(super) struct ItemDef {
+struct ItemDef {
     /// `max_stack`, 64 by default.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub stack: Option<u32>,
     /// 1 by default.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub attack_damage: Option<u32>,
     /// `(hunger, saturation)`.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub food_value: Option<(u8, f32)>,
     /// `(effect, level, ticks)`.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub food_effect: Option<(EffectKind, u8, u32)>,
     /// The item left in the hand once this one is eaten.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub eaten_remains: Option<String>,
     /// The item left in the crafting grid once this one is used.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub crafting_remains: Option<String>,
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub horse_armour: Option<u32>,
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub spawned_mob: Option<MobKind>,
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub tool: Option<Tool>,
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub durability: Option<u32>,
     /// `Blocks` by default.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub category: Option<ItemCategory>,
     /// The block the item places: by default the block of its name, if there is one.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub places: Option<String>,
     /// `default_type`, for an item that places no block: `Generic` by default, `Tool(wear:
     /// 0)` for one that wears out.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[serde(serialize_with = "inner")]
+    #[serde(default, deserialize_with = "present")]
     pub default_type: Option<ItemType>,
 }
 
@@ -856,17 +629,8 @@ fn present<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
     T::deserialize(deserializer).map(Some)
 }
 
-/// Writes a field the definition gives as its value, `light: 10`, the way `present` reads it.
-/// Only called on `Some`: the fields that are `None` are skipped.
-fn inner<S: Serializer, T: Serialize>(value: &Option<T>, serializer: S) -> Result<S::Ok, S::Error> {
-    match value {
-        Some(value) => value.serialize(serializer),
-        None => serializer.serialize_none(),
-    }
-}
-
 /// What a kind of definition is called in the errors.
-pub(super) trait Kind {
+trait Kind {
     const KIND: &'static str;
 }
 
@@ -880,17 +644,11 @@ impl Kind for ItemDef {
 
 /// The definitions of a file by name, in the order of the file. An error in one names it, and
 /// so does a name written twice.
-pub(super) struct Named<T>(pub Vec<(String, T)>);
+struct Named<T>(pub Vec<(String, T)>);
 
 impl<T> Default for Named<T> {
     fn default() -> Self {
         Self(Vec::new())
-    }
-}
-
-impl<T: Serialize> Serialize for Named<T> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_map(self.0.iter().map(|(name, def)| (name, def)))
     }
 }
 
@@ -928,7 +686,7 @@ impl<'de, T: Deserialize<'de> + Kind> Deserialize<'de> for Named<T> {
 }
 
 #[cfg(test)]
-pub(super) mod tests {
+mod tests {
     use super::*;
 
     /// The content files of the game, in the source tree.
