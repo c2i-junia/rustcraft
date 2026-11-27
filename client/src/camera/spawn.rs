@@ -21,6 +21,12 @@ pub struct CameraController {
 
 const DEFAULT_DISTANCE: f32 = 10.0;
 
+/// How far from the camera its near plane is. The eye is only 0.1 below the top of the
+/// player's box (`EYE_HEIGHT`), against a ceiling when the head touches it: Bevy's 0.1 would put
+/// the corners of the plane up to 0.2 above the eye, into the block above, and everything behind
+/// that block would be cut away, the world seen through.
+const NEAR: f32 = 0.04;
+
 impl Default for CameraController {
     fn default() -> Self {
         Self {
@@ -95,6 +101,8 @@ fn spawn_camera(mut commands: Commands, settings: Res<ViewSettings>) {
         },
         Projection::Perspective(PerspectiveProjection {
             fov: settings.fov_radians(),
+            near: NEAR,
+            near_clip_plane: Vec4::new(0.0, 0.0, -1.0, -NEAR),
             ..default()
         }),
         // The world, the view through the portals and what the player holds
@@ -164,6 +172,56 @@ mod tests {
         go_to(&mut app, GameState::PreGameLoading);
         go_to(&mut app, GameState::Game);
         assert_eq!(cameras(&mut app), 1);
+    }
+
+    #[test]
+    fn the_near_plane_of_the_eye_stays_within_the_box_of_the_player() {
+        use crate::camera::MAX_FOV_DEGREES;
+        use crate::player::SPRINT_FOV_SCALE;
+        use shared::players::constants::EYE_HEIGHT;
+        use shared::players::{PLAYER_HEIGHT, PLAYER_WIDTH};
+
+        let mut app = app();
+        go_to(&mut app, GameState::PreGameLoading);
+        let Projection::Perspective(projection) = app
+            .world_mut()
+            .query_filtered::<&Projection, With<CameraController>>()
+            .single(app.world())
+            .unwrap()
+            .clone()
+        else {
+            panic!("a perspective");
+        };
+        assert_eq!(
+            projection.near_clip_plane,
+            Vec4::new(0.0, 0.0, -1.0, -projection.near)
+        );
+        // Nothing solid is ever in the box of the player: the near plane of its eye, at the widest
+        // field of view while sprinting and on a 32:9 screen, looking anywhere, must stay in it,
+        // or it cuts the block above a head against a ceiling and the world is seen through
+        let half_height =
+            projection.near * (MAX_FOV_DEGREES.to_radians() * SPRINT_FOV_SCALE / 2.0).tan();
+        let half_width = half_height * 32.0 / 9.0;
+        let (room_above, room_below) = (
+            PLAYER_HEIGHT / 2.0 - EYE_HEIGHT,
+            PLAYER_HEIGHT / 2.0 + EYE_HEIGHT,
+        );
+        for pitch in -89..=89 {
+            for yaw in (0..360).step_by(15) {
+                let eye = Quat::from_rotation_y((yaw as f32).to_radians())
+                    * Quat::from_rotation_x((pitch as f32).to_radians());
+                for (x, y) in [(-1.0, -1.0), (-1.0, 1.0), (1.0, -1.0), (1.0, 1.0)] {
+                    let corner = eye * Vec3::new(x * half_width, y * half_height, -projection.near);
+                    assert!(
+                        corner.y < room_above
+                            && -corner.y < room_below
+                            && corner.x.abs() < PLAYER_WIDTH / 2.0
+                            && corner.z.abs() < PLAYER_WIDTH / 2.0,
+                        "pitch {pitch}, yaw {yaw}: corner {corner} out of the box"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

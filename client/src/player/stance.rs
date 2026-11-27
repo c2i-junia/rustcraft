@@ -16,7 +16,7 @@ pub struct PlayerBody;
 pub use shared::players::constants::SNEAK_BODY_SCALE;
 
 /// Field of view of a sprinting player, relative to the one the player set.
-const SPRINT_FOV_SCALE: f32 = 1.1;
+pub(crate) const SPRINT_FOV_SCALE: f32 = 1.1;
 
 /// How fast the body and the field of view follow the stance: the share of the way left that
 /// is covered in a second, as an exponential decay rate.
