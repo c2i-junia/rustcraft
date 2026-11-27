@@ -9504,6 +9504,23 @@
       },
       "texture": "blocks/Alembic.png",
       "usable": true
+    },
+    {
+      "breakTime": 2,
+      "container": false,
+      "drops": [
+        {
+          "chance": 1,
+          "count": 1,
+          "item": "Torch"
+        }
+      ],
+      "fasterWith": [],
+      "id": "WallTorch",
+      "light": 14,
+      "requiredTool": null,
+      "texture": null,
+      "usable": false
     }
   ],
   "cookSeconds": 10.0,
