@@ -610,7 +610,9 @@ impl<'de> Deserialize<'de> for BlockId {
             fn visit_enum<A: EnumAccess<'de>>(self, data: A) -> Result<BlockId, A::Error> {
                 let (Ident(ident), variant) = data.variant()?;
                 variant.unit_variant()?;
+                // a block of content that is gone holds its place
                 BlockId::of_ident(&ident)
+                    .or_else(|| crate::content::hold_block_place(&ident))
                     .ok_or_else(|| de::Error::custom(format!("no block is named {ident}")))
             }
         }

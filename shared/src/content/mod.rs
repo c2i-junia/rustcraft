@@ -284,15 +284,86 @@ pub fn tell_new_names(new: &[NewName]) {
 /// # Panics
 ///
 /// If `new` is not whole (`Content::flaw`), which every read would trip on.
-pub fn install(mut new: Content) -> &'static Content {
+pub fn install(new: Content) -> &'static Content {
     if let Some(flaw) = new.flaw() {
         panic!("{flaw}");
     }
     let _installing = INSTALLING.lock().unwrap_or_else(PoisonError::into_inner);
+    store(new)
+}
+
+/// Makes `new` the content of the process, as `install` does, under its lock.
+fn store(mut new: Content) -> &'static Content {
     new.generation = content().generation + 1;
     let new = Box::leak(Box::new(new));
     CONTENT.store(new, Ordering::Release);
     new
+}
+
+thread_local! {
+    /// Whether a name the content lacks, read on this thread, is given a placeholder
+    /// (`HoldingPlaces`).
+    static HOLDING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// While it lives, a block or an item that a file read on this thread names but the content
+/// lacks is given a placeholder (`hold_block_place`): what the server reads the files of a world
+/// under, `world.ron` and the files of its players, which may hold content that is gone.
+/// Elsewhere such a name is an error, as in a file of the client.
+pub struct HoldingPlaces(bool);
+
+impl HoldingPlaces {
+    pub fn begin() -> Self {
+        Self(HOLDING.replace(true))
+    }
+}
+
+impl Drop for HoldingPlaces {
+    fn drop(&mut self) {
+        HOLDING.set(self.0);
+    }
+}
+
+/// The block a file reads by the Rust name `ident` that the content of the process does not
+/// define, as a world or a player file holds one of content that is gone, while this thread is
+/// `HoldingPlaces`: a placeholder is installed in its place (`Content::hold_places`), so that
+/// the file reads and the block is saved back under its name. `None` when `ident` cannot name a
+/// block, or when the thread holds no places.
+pub fn hold_block_place(ident: &str) -> Option<BlockId> {
+    hold_place("block", ident, Content::block_named, |content, name| {
+        content.hold_places([name]);
+    })
+}
+
+/// The item a file reads by the Rust name `ident` that the content of the process does not
+/// define, given a placeholder as `hold_block_place` gives a block one.
+pub fn hold_item_place(ident: &str) -> Option<ItemId> {
+    hold_place("item", ident, Content::item_named, |content, name| {
+        content.hold_item_places([name]);
+    })
+}
+
+/// `hold_block_place` or `hold_item_place`: the `kind` of `ident` that `find` finds in the
+/// content, once `hold` gave it a place if it had none.
+fn hold_place<Id>(
+    kind: &str,
+    ident: &str,
+    find: impl Fn(&Content, &str) -> Option<Id>,
+    hold: impl Fn(&mut Content, String),
+) -> Option<Id> {
+    let name = crate::utils::snake_case(ident);
+    if !HOLDING.get() || !files::is_content_name(&name) || crate::utils::pascal_case(&name) != ident
+    {
+        return None;
+    }
+    let _installing = INSTALLING.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(id) = find(content(), &name) {
+        return Some(id);
+    }
+    bevy_log::warn!("The content defines no {kind} named {name}: it is kept as a placeholder");
+    let mut held = content().clone();
+    hold(&mut held, name.clone());
+    find(store(held), &name)
 }
 
 #[cfg(test)]
@@ -384,6 +455,27 @@ mod tests {
         broken.item_idents.pop();
         let reason = broken.engine_mismatch().unwrap();
         assert!(reason.contains("not one name per item"), "{reason}");
+    }
+
+    /// What the files of a world read by a Rust name: a known one installs nothing, and a word
+    /// no block or item could be named is not given a place. A placeholder installed is the
+    /// test `server/tests/removed_pack.rs`, in a process of its own.
+    #[test]
+    fn a_name_read_from_a_file_is_given_a_place_only_if_it_could_name_one() {
+        let before = content();
+        assert_eq!(
+            hold_item_place("NotAnItem"),
+            None,
+            "not while reading a world"
+        );
+        let _holding = HoldingPlaces::begin();
+        assert_eq!(hold_item_place("Stick"), Some(ItemId::Stick));
+        assert_eq!(hold_block_place("Stone"), Some(BlockId::Stone));
+        for ident in ["glow_moss", "Glow_Moss", "", "glowMoss"] {
+            assert_eq!(hold_item_place(ident), None, "{ident}");
+            assert_eq!(hold_block_place(ident), None, "{ident}");
+        }
+        assert!(std::ptr::eq(content(), before), "nothing was installed");
     }
 
     #[test]

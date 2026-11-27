@@ -363,7 +363,7 @@ impl NewName {
 
 /// Whether `name` may name a block or an item: words in lowercase and digits joined by `_`,
 /// which reads back from its Rust name (`pascal_case`), as `oak_log` from `OakLog`.
-fn is_content_name(name: &str) -> bool {
+pub(super) fn is_content_name(name: &str) -> bool {
     name.starts_with(|c: char| c.is_ascii_lowercase())
         && name
             .chars()

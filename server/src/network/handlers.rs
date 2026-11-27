@@ -186,6 +186,8 @@ pub(super) fn auth_register_request(
         return ControlFlow::Break(());
     }
 
+    // a player file holding content that is gone gives it placeholders
+    let generation_before = shared::content::content().generation;
     if !world_map.players.contains_key(&client_id) {
         let spawn = world_map.spawn;
         match load_player_data(
@@ -245,10 +247,15 @@ pub(super) fn auth_register_request(
         weather: weather.kind,
     };
     server.send_game_message(client_id, auth_res.into());
-    server.send_game_message(
-        client_id,
-        ServerToClientMessage::Content(shared::content::content().clone()),
-    );
+    let content = ServerToClientMessage::Content(shared::content::content().clone());
+    if shared::content::content().generation == generation_before {
+        server.send_game_message(client_id, content);
+    } else {
+        // the other players learn the placeholders too
+        for player in lobby.players.keys() {
+            server.send_game_message(*player, content.clone());
+        }
+    }
 
     for message in &chat_conversation.messages {
         server.send_game_message(

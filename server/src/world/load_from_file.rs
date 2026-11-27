@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use ron::de::from_str;
 use serde::Deserialize;
+use shared::content::HoldingPlaces;
 use shared::messages::PlayerId;
 use shared::players::{game_mode::GameMode, Player};
 use shared::world::data::WorldSeed;
@@ -145,6 +146,8 @@ fn parse_world_file(contents: &str) -> Result<WorldFile, String> {
         format_version: u32,
     }
 
+    // a block or an item of content that is gone holds its place
+    let _holding = HoldingPlaces::begin();
     let version = from_str::<VersionProbe>(contents)
         .map_err(|err| format!("not a world file ({err})"))?
         .format_version;
@@ -165,6 +168,7 @@ fn parse_world_file(contents: &str) -> Result<WorldFile, String> {
 /// Reads a `world.ron` written either by the version that stored chunks as sequences of cells
 /// or by the one before, that stored them as maps. Anything else is an error.
 fn parse_single_file_world(contents: &str) -> Result<WorldData, String> {
+    let _holding = HoldingPlaces::begin();
     from_str::<WorldData>(contents).or_else(|err| {
         from_str::<LegacyWorldData>(contents)
             .map(WorldData::from)
@@ -335,9 +339,12 @@ pub fn load_player_data(
         return Ok(player);
     }
 
+    // a block or an item of content that is gone holds its place
+    let holding = HoldingPlaces::begin();
     let saved = fs::read_to_string(path)
         .map_err(|err| err.to_string())
         .and_then(|contents| from_str::<Player>(&contents).map_err(|err| err.to_string()));
+    drop(holding);
     match saved {
         Ok(saved) => {
             info!("Found player data file from disk: {}", file_path.display());
