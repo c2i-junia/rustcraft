@@ -337,20 +337,19 @@ fn a_shift_double_click_moves_every_stack_of_its_item_into_the_chest() {
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn a_shift_drag_moves_every_stack_swept_into_the_chest() {
-    use ItemId::{Cobblestone, Dirt, Sand};
     let folder = GameFolder::new().with_world("Sweep").with_items(
         "Sweep",
         "Tester",
         &[
             (0, ItemId::Chest, 1),
-            (9, Dirt, 5),
-            (10, Sand, 4),
-            (12, Cobblestone, 7),
+            (9, ItemId::Dirt, 5),
+            (10, ItemId::Sand, 4),
+            (12, ItemId::Cobblestone, 7),
         ],
     );
     let mut h = enter_world(folder, "Sweep");
     h.wait_until("the saved inventory", SERVER, |w| {
-        slot(w, 12) == Some((Cobblestone, 7))
+        slot(w, 12) == Some((ItemId::Cobblestone, 7))
     });
     let chest = place_ahead(&mut h);
     hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 1);
@@ -385,9 +384,9 @@ fn a_shift_drag_moves_every_stack_swept_into_the_chest() {
         });
         shown
             == Some(vec![
-                Some((Dirt, 5)),
-                Some((Sand, 4)),
-                Some((Cobblestone, 7)),
+                Some((ItemId::Dirt, 5)),
+                Some((ItemId::Sand, 4)),
+                Some((ItemId::Cobblestone, 7)),
                 None,
             ])
             && [9, 10, 11, 12].iter().all(|&id| slot(w, id).is_none())

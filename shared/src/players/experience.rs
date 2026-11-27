@@ -173,7 +173,7 @@ mod tests {
 
     #[test]
     fn everything_smelted_gives_some_experience() {
-        for item in ItemId::ALL {
+        for item in ItemId::ENGINE {
             if let Some(result) = smelting_result(item) {
                 assert!(smelting_experience(result) > 0, "{item:?} -> {result:?}");
             }

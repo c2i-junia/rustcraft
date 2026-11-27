@@ -293,7 +293,7 @@ mod tests {
 
     #[test]
     fn every_potion_is_made_and_has_a_colour() {
-        for item in ItemId::ALL
+        for item in ItemId::ENGINE
             .into_iter()
             .filter(|item| item.potion().is_some())
         {

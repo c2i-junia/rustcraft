@@ -568,33 +568,34 @@ impl Serialize for BlockId {
     }
 }
 
-impl<'de> Deserialize<'de> for BlockId {
+/// The name of a variant, read as an identifier: `Stone`, not `"Stone"`, in RON. What a block
+/// and an item are read as in a human-readable format.
+pub(super) struct Ident(pub(super) String);
+
+impl<'de> Deserialize<'de> for Ident {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        if !deserializer.is_human_readable() {
-            return u16::deserialize(deserializer).map(Self);
-        }
-
-        /// The name of a variant, read as an identifier: `Stone`, not `"Stone"`, in RON.
-        struct Ident(String);
-
-        impl<'de> Deserialize<'de> for Ident {
-            fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-                deserializer.deserialize_identifier(IdentVisitor)
-            }
-        }
-
         struct IdentVisitor;
 
         impl<'de> Visitor<'de> for IdentVisitor {
             type Value = Ident;
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                f.write_str("the name of a block")
+                f.write_str("the name of a variant")
             }
 
             fn visit_str<E: de::Error>(self, ident: &str) -> Result<Ident, E> {
                 Ok(Ident(ident.to_string()))
             }
+        }
+
+        deserializer.deserialize_identifier(IdentVisitor)
+    }
+}
+
+impl<'de> Deserialize<'de> for BlockId {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        if !deserializer.is_human_readable() {
+            return u16::deserialize(deserializer).map(Self);
         }
 
         struct BlockVisitor;

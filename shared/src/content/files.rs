@@ -256,9 +256,9 @@ impl Content {
                 .into_iter()
                 .map(|block| block.map_or_else(|| debug.clone(), |(props, _)| props))
                 .collect(),
-            items: Vec::with_capacity(ItemId::ALL.len()),
+            items: Vec::with_capacity(ItemId::ENGINE.len()),
         };
-        for id in ItemId::ALL {
+        for id in ItemId::ENGINE {
             let name = id.name();
             let props = match items.remove(&id) {
                 Some((props, _)) => props,
@@ -329,7 +329,10 @@ impl Names {
                 .enumerate()
                 .map(|(index, name)| (name.clone(), BlockId::from_index(index as u16)))
                 .collect(),
-            items: ItemId::ALL.into_iter().map(|id| (id.name(), id)).collect(),
+            items: ItemId::ENGINE
+                .into_iter()
+                .map(|id| (id.name(), id))
+                .collect(),
         }
     }
 

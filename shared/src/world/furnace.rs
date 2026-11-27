@@ -91,11 +91,9 @@ pub fn smelting_result(item: ItemId) -> Option<ItemId> {
     }
 }
 
-/// What a furnace makes `result` of, in the order of `ItemId::ALL`: the item browser lists them.
+/// What a furnace makes `result` of, in the order of the items: the item browser lists them.
 pub fn smelting_inputs(result: ItemId) -> impl Iterator<Item = ItemId> {
-    ItemId::ALL
-        .into_iter()
-        .filter(move |&item| smelting_result(item) == Some(result))
+    ItemId::all().filter(move |&item| smelting_result(item) == Some(result))
 }
 
 /// How many ticks one `item` burns in a furnace, if it is a fuel: Minecraft's durations.
@@ -365,7 +363,7 @@ mod tests {
     #[test]
     fn charcoal_burns_as_coal_and_only_the_wooden_tools_burn() {
         assert_eq!(fuel_ticks(ItemId::Charcoal), Some(COAL_TICKS));
-        for item in ItemId::ALL {
+        for item in ItemId::ENGINE {
             if let Some(tool) = item.tool() {
                 let burns = tool.tier == crate::world::ToolTier::Wood;
                 assert_eq!(fuel_ticks(item).is_some(), burns, "{item:?}");

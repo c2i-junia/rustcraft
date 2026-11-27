@@ -552,7 +552,7 @@ mod tests {
 
     #[test]
     fn the_engine_items_are_numbered_as_the_legacy_names() {
-        for (place, id) in ItemId::ALL.into_iter().enumerate() {
+        for (place, id) in ItemId::ENGINE.into_iter().enumerate() {
             assert_eq!(LEGACY_ITEM_NAMES[place], id.name());
         }
     }

@@ -44,7 +44,7 @@ impl Arg {
     fn values(&self) -> Vec<String> {
         match self {
             Arg::Word(words) => words.iter().map(|word| word.to_string()).collect(),
-            Arg::Item => ItemId::ALL.iter().map(ItemId::name).collect(),
+            Arg::Item => ItemId::all().map(|item| item.name()).collect(),
             Arg::Count | Arg::Player | Arg::Reason => Vec::new(),
             Arg::Biome => Biomes::vanilla()
                 .defs()
@@ -527,7 +527,7 @@ mod tests {
         assert_eq!(complete("/give", &[]).unwrap().suggestions, []);
         assert_eq!(
             complete("/give ", &[]).unwrap().suggestions.len(),
-            ItemId::ALL.len()
+            ItemId::ENGINE.len()
         );
     }
 

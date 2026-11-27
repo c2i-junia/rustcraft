@@ -1009,7 +1009,7 @@ mod tests {
     fn every_item_has_an_icon_among_the_base_textures() {
         // Its own, or the texture of the block of the same name
         let textures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/graphics/base_textures");
-        for item in ItemId::ALL {
+        for item in ItemId::ENGINE {
             let has_icon = ["items", "blocks"]
                 .iter()
                 .any(|folder| textures.join(format!("{folder}/{item:?}.png")).is_file());

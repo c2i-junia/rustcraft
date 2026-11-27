@@ -36,6 +36,11 @@ pub struct ItemProps {
 }
 
 impl ItemId {
+    /// Every item of the content of the process, by number: those of the engine first.
+    pub fn all() -> impl Iterator<Item = ItemId> {
+        (0..content().items.len()).map(|index| ItemId::from_index(index as u16))
+    }
+
     /// The properties of the item in the content of the process.
     #[inline]
     pub fn props(self) -> &'static ItemProps {

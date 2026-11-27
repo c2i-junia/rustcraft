@@ -855,11 +855,11 @@ fn the_controls_match_their_golden() {
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn the_inventory_tweaks_switch_is_saved_and_honoured() {
-    use shared::world::ItemId::{Dirt, Sand};
+    use shared::world::ItemId;
     let folder = GameFolder::new().with_world("Tweaks").with_items(
         "Tweaks",
         "Tester",
-        &[(9, Dirt, 5), (10, Sand, 4)],
+        &[(9, ItemId::Dirt, 5), (10, ItemId::Sand, 4)],
     );
     let mut h = settings_with(folder.clone(), Options::default());
     let switch = || L::role(Role::RadioGroup, "Inventory tweaks");
@@ -876,7 +876,7 @@ fn the_inventory_tweaks_switch_is_saved_and_honoured() {
     // Off: a Shift+sweep moves the stack pressed alone, and the wheel moves nothing
     let mut h = enter_world(folder, "Tweaks");
     h.wait_until("the saved inventory", SERVER, |w| {
-        slot(w, 10) == Some((Sand, 4))
+        slot(w, 10) == Some((ItemId::Sand, 4))
     });
     h.press(KeyCode::KeyE);
     h.wait_for(&L::marker::<InventoryRoot>(), SCREEN);
@@ -886,12 +886,12 @@ fn the_inventory_tweaks_switch_is_saved_and_honoured() {
     h.mouse_up();
     h.key_up(KeyCode::ShiftLeft);
     h.wait_until("the dirt in the hotbar", SERVER, |w| {
-        slot(w, 0) == Some((Dirt, 5))
+        slot(w, 0) == Some((ItemId::Dirt, 5))
     });
     h.hover(&L::cell(10));
     h.scroll(-1.);
     h.frames(30);
-    assert_eq!(slot(h.world(), 10), Some((Sand, 4)));
+    assert_eq!(slot(h.world(), 10), Some((ItemId::Sand, 4)));
     assert_eq!(slot(h.world(), 1), None);
 }
 

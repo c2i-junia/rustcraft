@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn the_suits_absorb_more_and_more_but_none_all_of_a_hit() {
         let points = |suffix: &str| {
-            let suit = ItemId::ALL
+            let suit = ItemId::ENGINE
                 .into_iter()
                 .filter(|item| format!("{item:?}").starts_with(suffix))
                 .filter_map(|item| item.armour());
@@ -271,7 +271,7 @@ mod tests {
         let suits = ["Leather", "Bronze", "Iron", "Diamond"].map(points);
         assert_eq!(suits, [7, 11, 15, 19]);
         assert_eq!(
-            ItemId::ALL
+            ItemId::ENGINE
                 .iter()
                 .filter(|item| item.armour().is_some())
                 .count(),

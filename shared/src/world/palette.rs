@@ -1132,7 +1132,7 @@ mod tests {
 
     #[test]
     fn every_new_item_of_the_palette_places_its_block() {
-        for item in ItemId::ALL {
+        for item in ItemId::ENGINE {
             if let Some(block) = item.palette_block() {
                 assert_eq!(item.get_default_type(), ItemType::Block(block), "{item:?}");
                 assert_eq!(block.palette().map(|p| p.item), Some(item), "{item:?}");

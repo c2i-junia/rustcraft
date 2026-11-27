@@ -993,7 +993,7 @@ mod tests {
         assert_eq!(player.inventory.open_table, None);
         assert_eq!(player.inventory.open_engraver, None);
         let mut dropped: Vec<_> = items.items.values().map(|item| item.stack).collect();
-        dropped.sort_by_key(|stack| stack.item_id as u32);
+        dropped.sort_by_key(|stack| stack.item_id);
         let mut held = vec![
             stack(ItemId::IronSword, 1),
             stack(ItemId::Dirt, 40),
@@ -1002,7 +1002,7 @@ mod tests {
             stack(ItemId::IronPickaxe, 1),
             stack(ItemId::LeatherBoots, 1),
         ];
-        held.sort_by_key(|stack| stack.item_id as u32);
+        held.sort_by_key(|stack| stack.item_id);
         assert_eq!(dropped, held);
         for item in items.items.values() {
             assert_eq!(item.position, player.position);

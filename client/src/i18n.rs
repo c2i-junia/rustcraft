@@ -81,7 +81,7 @@ struct Table {
 #[derive(Clone, Copy)]
 struct Tables {
     languages: &'static [Table],
-    /// The names of the items in each language, in the order of `ItemId::ALL`.
+    /// The names of the engine items in each language, in the order of `ItemId::ENGINE`.
     item_names: &'static [Vec<&'static str>],
 }
 
@@ -103,7 +103,7 @@ fn read(folder: &Path) -> Result<Tables, String> {
     let item_names = Language::ALL
         .iter()
         .map(|&language| {
-            ItemId::ALL
+            ItemId::ENGINE
                 .iter()
                 .map(|item| {
                     lookup_in(languages, language, &format!("item.{item:?}")).unwrap_or("?")
@@ -271,8 +271,11 @@ pub fn fill(template: &str, args: &[(&str, &dyn Display)]) -> String {
 
 /// The name of `item` in the language of the game.
 pub fn item_name(item: ItemId) -> &'static str {
-    // `ItemId::ALL` is in the order of the variants
-    tables().item_names[language().index()][item as usize]
+    match tables().item_names[language().index()].get(item.index()) {
+        Some(name) => name,
+        // an item only the content files define
+        None => lookup(language(), &format!("item.{item:?}")).unwrap_or("?"),
+    }
 }
 
 /// The text of a key built at run time, such as `mob.Fox`: "?" when no language has it.
@@ -521,7 +524,7 @@ mod tests {
     #[test]
     fn every_item_has_a_name_in_every_language() {
         for language in Language::ALL {
-            for item in ItemId::ALL {
+            for item in ItemId::ENGINE {
                 assert!(
                     tables().languages[language.index()]
                         .texts

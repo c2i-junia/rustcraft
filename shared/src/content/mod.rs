@@ -41,7 +41,7 @@ pub struct Content {
     pub block_idents: Vec<String>,
     /// By `BlockId::index`: the blocks of `BlockId::ENGINE` first, in their order.
     pub blocks: Vec<BlockProps>,
-    /// By `ItemId`, in the order of `ItemId::ALL`.
+    /// By `ItemId::index`: the items of `ItemId::ENGINE` first, in their order.
     pub items: Vec<ItemProps>,
 }
 
@@ -80,7 +80,7 @@ impl Content {
                 self.block_idents.len()
             ));
         }
-        (self.items.len() != ItemId::ALL.len()).then(|| "not one entry per item".to_string())
+        (self.items.len() != ItemId::ENGINE.len()).then(|| "not one entry per item".to_string())
     }
 
     /// Why a game cannot play with this content, a server's: it is not whole (`flaw`), or the
@@ -120,7 +120,7 @@ impl Content {
     /// The properties of the item `id`.
     #[inline]
     pub fn item(&self, id: ItemId) -> &ItemProps {
-        &self.items[id as usize]
+        &self.items[id.index()]
     }
 }
 
@@ -251,7 +251,7 @@ mod tests {
         let loaded = Content::load(&source_folder()).unwrap();
         assert_eq!(loaded.generation, 0);
         assert_eq!(loaded.blocks.len(), BlockId::ENGINE.len());
-        assert_eq!(loaded.items.len(), ItemId::ALL.len());
+        assert_eq!(loaded.items.len(), ItemId::ENGINE.len());
     }
 
     #[test]

@@ -8,15 +8,11 @@ use crate::ui::hud::item_name;
 /// Under the message saying that nothing matches.
 pub const NO_MATCH_HINT: &str = "browser.no_match_hint";
 
-/// Every item, by category in the order of `ItemCategory::ALL`, then in the order of `ItemId::ALL`.
+/// Every item of the content, by category in the order of `ItemCategory::ALL`, then by number.
 pub fn catalog() -> Vec<ItemId> {
     ItemCategory::ALL
         .into_iter()
-        .flat_map(|category| {
-            ItemId::ALL
-                .into_iter()
-                .filter(move |item| item.category() == category)
-        })
+        .flat_map(|category| ItemId::all().filter(move |item| item.category() == category))
         .collect()
 }
 
@@ -100,8 +96,8 @@ mod tests {
     #[test]
     fn the_catalog_lists_every_item_once_by_category() {
         let items = catalog();
-        assert_eq!(items.len(), ItemId::ALL.len());
-        for item in ItemId::ALL {
+        assert_eq!(items.len(), ItemId::all().count());
+        for item in ItemId::ENGINE {
             assert_eq!(items.iter().filter(|&&i| i == item).count(), 1, "{item:?}");
         }
         let rank = |item: &ItemId| {
@@ -180,8 +176,8 @@ mod tests {
                 ItemId::TinOre
             ]
         );
-        assert_eq!(found("", None).len(), ItemId::ALL.len());
-        assert_eq!(found("  ", None).len(), ItemId::ALL.len());
+        assert_eq!(found("", None).len(), ItemId::all().count());
+        assert_eq!(found("  ", None).len(), ItemId::all().count());
         assert!(found("zzz", None).is_empty());
     }
 
@@ -192,7 +188,7 @@ mod tests {
             .iter()
             .all(|item| item.category() == Tools));
         assert_eq!(found("#wo", None), found("", Some(Wood)));
-        assert_eq!(found("#", None).len(), ItemId::ALL.len());
+        assert_eq!(found("#", None).len(), ItemId::all().count());
         assert_eq!(found("#ores coal", None), [ItemId::CoalOre]);
         assert!(found("#tools planks", None).is_empty());
     }

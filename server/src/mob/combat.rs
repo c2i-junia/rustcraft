@@ -943,23 +943,28 @@ mod tests {
             seen.sort();
             seen
         };
-        use ItemId::*;
-        assert_eq!(drops(MobKind::Pig), [(RawPork, (1, 3))]);
-        assert_eq!(drops(MobKind::Cow), [(RawBeef, (1, 3)), (Leather, (1, 2))]);
+        assert_eq!(drops(MobKind::Pig), [(ItemId::RawPork, (1, 3))]);
+        assert_eq!(
+            drops(MobKind::Cow),
+            [(ItemId::RawBeef, (1, 3)), (ItemId::Leather, (1, 2))]
+        );
         assert_eq!(
             drops(MobKind::Chicken),
-            [(RawChicken, (1, 1)), (Feather, (1, 2))]
+            [(ItemId::RawChicken, (1, 1)), (ItemId::Feather, (1, 2))]
         );
-        assert_eq!(drops(MobKind::Rabbit), [(RawRabbit, (1, 1))]);
-        assert_eq!(drops(MobKind::Sheep), [(Wool, (1, 1)), (RawMutton, (1, 2))]);
+        assert_eq!(drops(MobKind::Rabbit), [(ItemId::RawRabbit, (1, 1))]);
+        assert_eq!(
+            drops(MobKind::Sheep),
+            [(ItemId::Wool, (1, 1)), (ItemId::RawMutton, (1, 2))]
+        );
         // A horse leaves its hide, and its saddle when it wore one; a boat breaks into its item
-        assert_eq!(drops(MobKind::Horse), [(Leather, (1, 2))]);
-        assert_eq!(drops(MobKind::Boat), [(Boat, (1, 1))]);
+        assert_eq!(drops(MobKind::Horse), [(ItemId::Leather, (1, 2))]);
+        assert_eq!(drops(MobKind::Boat), [(ItemId::Boat, (1, 1))]);
         let saddled = ServerMob {
             saddled: true,
             ..ServerMob::new(MobKind::Horse, AHEAD)
         };
-        assert!(loot(&saddled, &mut StdRng::seed_from_u64(9)).contains(&(Saddle, 1)));
+        assert!(loot(&saddled, &mut StdRng::seed_from_u64(9)).contains(&(ItemId::Saddle, 1)));
         for kind in [
             MobKind::Fox,
             MobKind::Wolf,
@@ -971,30 +976,32 @@ mod tests {
             assert_eq!(drops(kind), [], "{kind:?}");
         }
         // Its fang, one time in two, for the potions of strength
-        assert_eq!(drops(MobKind::Gnawer), [(GnawerFang, (1, 1))]);
-        assert_eq!(drops(MobKind::Bramble), [(Stick, (1, 3))]);
+        assert_eq!(drops(MobKind::Gnawer), [(ItemId::GnawerFang, (1, 1))]);
+        assert_eq!(drops(MobKind::Bramble), [(ItemId::Stick, (1, 3))]);
         assert_eq!(
             drops(MobKind::Stumpling),
-            [(Stick, (2, 4)), (Charcoal, (1, 1))]
+            [(ItemId::Stick, (2, 4)), (ItemId::Charcoal, (1, 1))]
         );
         assert_eq!(
             drops(MobKind::Roller),
-            [(Cobblestone, (1, 2)), (Flint, (1, 1))]
+            [(ItemId::Cobblestone, (1, 2)), (ItemId::Flint, (1, 1))]
         );
-        assert_eq!(drops(MobKind::GustOwl), [(Feather, (1, 3))]);
+        assert_eq!(drops(MobKind::GustOwl), [(ItemId::Feather, (1, 3))]);
         assert_eq!(
             drops(MobKind::Cinderling),
-            [(Coal, (1, 2)), (Flint, (1, 1))]
+            [(ItemId::Coal, (1, 2)), (ItemId::Flint, (1, 1))]
         );
         let flints = (0..1000)
             .filter(|_| {
-                loot(&ServerMob::new(MobKind::Roller, AHEAD), &mut rng).contains(&(Flint, 1))
+                loot(&ServerMob::new(MobKind::Roller, AHEAD), &mut rng)
+                    .contains(&(ItemId::Flint, 1))
             })
             .count();
         assert!((150..250).contains(&flints), "{flints} flints in 1000");
         let cinder_flints = (0..1000)
             .filter(|_| {
-                loot(&ServerMob::new(MobKind::Cinderling, AHEAD), &mut rng).contains(&(Flint, 1))
+                loot(&ServerMob::new(MobKind::Cinderling, AHEAD), &mut rng)
+                    .contains(&(ItemId::Flint, 1))
             })
             .count();
         assert!(
@@ -1003,7 +1010,8 @@ mod tests {
         );
         let charcoals = (0..1000)
             .filter(|_| {
-                loot(&ServerMob::new(MobKind::Stumpling, AHEAD), &mut rng).contains(&(Charcoal, 1))
+                loot(&ServerMob::new(MobKind::Stumpling, AHEAD), &mut rng)
+                    .contains(&(ItemId::Charcoal, 1))
             })
             .count();
         assert!(
@@ -1016,7 +1024,7 @@ mod tests {
         };
         assert!(loot(&sheared, &mut rng)
             .iter()
-            .all(|&(item, _)| item == RawMutton));
+            .all(|&(item, _)| item == ItemId::RawMutton));
     }
 
     #[test]

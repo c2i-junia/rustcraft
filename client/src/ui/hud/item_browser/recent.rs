@@ -69,7 +69,7 @@ mod tests {
         recent.crafted(ItemId::Stick);
         assert_eq!(recent.items, [ItemId::Stick, ItemId::Torch]);
         // The oldest go beyond nine
-        let crafted = &ItemId::ALL[..12];
+        let crafted = &ItemId::ENGINE[..12];
         for &item in crafted {
             recent.crafted(item);
         }

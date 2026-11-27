@@ -37,7 +37,7 @@ pub enum ItemTag {
 }
 
 impl ItemTag {
-    /// The items of the family, in the order of `ItemId::ALL`. A new species of wood joins
+    /// The items of the family, in the order of `ItemId::ENGINE`. A new species of wood joins
     /// `Planks` by being listed here.
     pub fn members(self) -> &'static [ItemId] {
         match self {
@@ -1675,7 +1675,7 @@ mod tests {
 
     #[test]
     fn the_planks_tag_holds_every_planks_item() {
-        let planks: Vec<ItemId> = ItemId::ALL
+        let planks: Vec<ItemId> = ItemId::ENGINE
             .into_iter()
             .filter(|item| item.name().ends_with("_planks"))
             .collect();
