@@ -5,10 +5,12 @@ pub mod api;
 pub mod identity;
 pub mod status;
 
-/// Bump it whenever a network message or an enum sent in one (`BlockId`, `BlockDirection`,
-/// `ItemId`, ...) changes, so that a client and a server of different builds refuse to talk
-/// instead of misreading each other. The hub announces it in its well-known document.
-pub const PROTOCOL_ID: u64 = 62;
+/// Bump it whenever a network message or an enum sent in one (`BlockDirection`, `ItemId`, ...)
+/// changes, so that a client and a server of different builds refuse to talk instead of
+/// misreading each other. A new block needs no bump: a client takes the numbers of the blocks
+/// of its server, and refuses a server whose blocks of the engine are named otherwise
+/// (`Content::engine_mismatch`). The hub announces it in its well-known document.
+pub const PROTOCOL_ID: u64 = 63;
 
 /// The UDP port a server listens on when none is given, and that an address without one means.
 pub const DEFAULT_PORT: u16 = 8000;

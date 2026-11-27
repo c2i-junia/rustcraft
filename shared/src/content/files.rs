@@ -234,7 +234,7 @@ impl Content {
 }
 
 /// The name of a block of the engine in the files: `oak_log` for `BlockId::OakLog`.
-fn engine_name(id: BlockId) -> String {
+pub(super) fn engine_name(id: BlockId) -> String {
     snake_case(&format!("{id:?}"))
 }
 

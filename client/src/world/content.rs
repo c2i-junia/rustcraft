@@ -5,6 +5,7 @@
 use bevy::prelude::*;
 use shared::content::{content, install, Content};
 
+use crate::network::session::Dismissal;
 use crate::network::LocalServerHandle;
 use crate::world::{
     rebuild_textures, respawn_every_group, ClientWorldMap, TextureBuild,
@@ -43,6 +44,12 @@ pub fn apply_received_content_system(
     mut ev_render: MessageWriter<WorldRenderRequestUpdateEvent>,
 ) {
     commands.remove_resource::<ReceivedContent>();
+    if let Some(reason) = received.0.engine_mismatch() {
+        // the session ends with the reason (`end_dismissed_session`)
+        warn!("The content of the server is refused: {reason}");
+        commands.insert_resource(Dismissal(reason));
+        return;
+    }
     let solo = local_server.is_some_and(|handle| handle.0.is_some());
     let current = if solo || received.0.same_properties(content()) {
         content()
@@ -143,6 +150,25 @@ mod tests {
             world.resource::<ContentGeneration>().0,
             content().generation
         );
+    }
+
+    #[test]
+    fn content_whose_engine_blocks_are_named_otherwise_ends_the_session() {
+        let mut world = client(content().clone());
+        let mut other = content().clone();
+        other.block_names.swap(2, 3);
+        world.insert_resource(ReceivedContent(other));
+        world
+            .run_system_once(apply_received_content_system)
+            .unwrap();
+
+        let reason = &world.resource::<Dismissal>().0;
+        assert!(
+            reason.contains("block 2 is \"stone\" on the server"),
+            "{reason}"
+        );
+        assert!(!remeshed(&world));
+        assert_eq!(world.resource::<ContentGeneration>().0, u32::MAX);
     }
 
     #[test]

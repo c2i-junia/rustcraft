@@ -63,6 +63,32 @@ impl Content {
             .map(|index| BlockId::from_index(index as u16))
     }
 
+    /// Why a game cannot play with this content, a server's: the blocks its engine names
+    /// (`BlockId::ENGINE`) are not the first of the content, by the same names. `None` when it
+    /// can, whatever the content holds after them.
+    pub fn engine_mismatch(&self) -> Option<String> {
+        let ours = BlockId::ENGINE.into_iter().map(|id| files::engine_name(id));
+        for (number, ours) in ours.enumerate() {
+            match self.block_names.get(number) {
+                Some(theirs) if *theirs == ours => {}
+                Some(theirs) => {
+                    return Some(format!(
+                        "The server and this game do not have the same blocks: block {number} \
+                         is \"{theirs}\" on the server and \"{ours}\" in this game"
+                    ))
+                }
+                None => {
+                    return Some(format!(
+                        "The server and this game do not have the same blocks: the server has \
+                         {number}, this game names {}",
+                        BlockId::ENGINE.len()
+                    ))
+                }
+            }
+        }
+        None
+    }
+
     /// Gives each of `names` the content does not define a block of its own, after the others:
     /// a placeholder (`BlockProps::placeholder`), as for a block a world holds that the
     /// content no longer has.
@@ -232,6 +258,26 @@ mod tests {
         assert_eq!(content().items, before.items);
         // the old snapshot is still readable
         assert_eq!(before.block(BlockId::Torch).light_emission, 14);
+    }
+
+    #[test]
+    fn a_game_plays_with_content_whose_engine_blocks_are_its_own() {
+        let mut server = content().clone();
+        server.hold_places(["glow_moss".to_string()]);
+        assert_eq!(server.engine_mismatch(), None, "blocks after the engine's");
+
+        let mut renamed = content().clone();
+        renamed.block_names[3] = "granite".to_string();
+        let reason = renamed.engine_mismatch().unwrap();
+        assert!(
+            reason.contains("block 3 is \"granite\" on the server and \"stone\" in this game"),
+            "{reason}"
+        );
+
+        let mut older = content().clone();
+        older.block_names.truncate(10);
+        let reason = older.engine_mismatch().unwrap();
+        assert!(reason.contains("the server has 10"), "{reason}");
     }
 
     #[test]
