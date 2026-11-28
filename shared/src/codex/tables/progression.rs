@@ -59,8 +59,7 @@ pub fn table(t: &Table) -> Result<Vec<Block>, String> {
                     let mut points = 0;
                     for piece in ArmourPiece::ALL {
                         let armour = Armour { piece, material };
-                        let id = ItemId::ALL
-                            .into_iter()
+                        let id = ItemId::all()
                             .find(|id| id.armour() == Some(armour))
                             .ok_or_else(|| format!("no {material:?} {piece:?}"))?;
                         points += armour.points();
@@ -120,8 +119,7 @@ pub fn table(t: &Table) -> Result<Vec<Block>, String> {
 
 /// The tool of `kind` made of `tier`.
 fn tool(tier: ToolTier, kind: ToolKind) -> Result<ItemId, String> {
-    ItemId::ALL
-        .into_iter()
+    ItemId::all()
         .find(|id| {
             id.tool()
                 .is_some_and(|tool| tool.tier == tier && tool.kind == kind)

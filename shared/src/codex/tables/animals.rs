@@ -14,11 +14,7 @@ pub fn table(t: &Table) -> Result<Vec<Block>, String> {
                 .iter()
                 .filter(|kind| !kind.is_vehicle())
                 .filter_map(|&kind| {
-                    let foods: Vec<ItemId> = ItemId::ALL
-                        .iter()
-                        .copied()
-                        .filter(|&i| kind.eats(i))
-                        .collect();
+                    let foods: Vec<ItemId> = ItemId::all().filter(|&i| kind.eats(i)).collect();
                     (!foods.is_empty()).then(|| {
                         let mut cell = Vec::new();
                         for (n, food) in foods.into_iter().enumerate() {
@@ -59,9 +55,8 @@ pub fn table(t: &Table) -> Result<Vec<Block>, String> {
         }
         // `| Armour | Points | Damage taken off`
         "armour" => {
-            let rows = ItemId::ALL
-                .iter()
-                .filter_map(|&id| {
+            let rows = ItemId::all()
+                .filter_map(|id| {
                     let points = id.horse_armour()?;
                     let share = f64::from(points * ABSORBED_PER_POINT) / 100.0;
                     Some(vec![

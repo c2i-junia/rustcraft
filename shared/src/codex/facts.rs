@@ -15,9 +15,8 @@ pub struct BlockSource {
 /// The blocks whose breaking may give `item`, but for the block of the item itself, which drops
 /// itself and is no news.
 pub fn block_sources(item: ItemId) -> Vec<BlockSource> {
-    BlockId::ALL
-        .iter()
-        .filter_map(|&block| {
+    BlockId::all()
+        .filter_map(|block| {
             let table = block.get_drop_table();
             let total: u32 = table.iter().map(|(chance, _, _)| chance).sum();
             let &(chance, _, count) = table.iter().find(|(_, i, _)| *i == item)?;

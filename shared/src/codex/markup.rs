@@ -48,7 +48,7 @@ impl Target {
     /// The target `text` names, if it names one.
     pub fn parse(text: &str) -> Option<Target> {
         Some(match text.split_once(':') {
-            None => Target::Item(named(&ItemId::ALL, text)?),
+            None => Target::Item(ItemId::all().find(|v| format!("{v:?}") == text)?),
             Some(("mob", id)) => Target::Mob(named(&MobKind::ALL, id)?),
             Some(("effect", id)) => Target::Effect(named(&EffectKind::ALL, id)?),
             Some(("biome", key)) if !key.is_empty() => Target::Biome(key.into()),

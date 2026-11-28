@@ -131,12 +131,20 @@ pub fn spawn_blocks(
                 };
                 let heading = Look {
                     size,
-                    color: if *level == 3 { theme::accent_hi() } else { theme::text() },
+                    color: if *level == 3 {
+                        theme::accent_hi()
+                    } else {
+                        theme::text()
+                    },
                     ..look.clone()
                 };
                 let line = spawn_line(commands, parent, text, &heading);
                 commands.entity(line).insert(Node {
-                    margin: UiRect::top(px(if *level <= 2 { theme::space_m() } else { theme::space_s() })),
+                    margin: UiRect::top(px(if *level <= 2 {
+                        theme::space_m()
+                    } else {
+                        theme::space_s()
+                    })),
                     ..default()
                 });
             }

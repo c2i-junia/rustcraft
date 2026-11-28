@@ -514,7 +514,10 @@ pub fn show_codex_list(
             align_items: AlignItems::Center,
             ..default()
         });
-        commands.spawn((text(name, theme::font_s(), theme::text(), &font), ChildOf(card)));
+        commands.spawn((
+            text(name, theme::font_s(), theme::text(), &font),
+            ChildOf(card),
+        ));
     }
 }
 
@@ -571,7 +574,10 @@ pub fn show_codex_page(
     }
     let font: Handle<Font> = assets.load(FONT_PATH);
     let Some(page) = &state.page else {
-        commands.spawn((text(tr("codex.pick"), theme::font_s(), theme::muted(), &font), ChildOf(body)));
+        commands.spawn((
+            text(tr("codex.pick"), theme::font_s(), theme::muted(), &font),
+            ChildOf(body),
+        ));
         return;
     };
     let seen = seen_by(&progress);

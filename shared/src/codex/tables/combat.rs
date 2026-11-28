@@ -87,8 +87,7 @@ fn melee(t: &Table) -> Result<Vec<Block>, String> {
 
 /// The armour item of `material` for `piece`.
 fn piece(material: ArmourMaterial, piece: ArmourPiece) -> Result<ItemId, String> {
-    ItemId::ALL
-        .into_iter()
+    ItemId::all()
         .find(|id| id.armour() == Some(Armour { piece, material }))
         .ok_or_else(|| format!("no {material:?} {piece:?}"))
 }

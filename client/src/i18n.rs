@@ -216,7 +216,7 @@ fn lookup_in(languages: &'static [Table], language: Language, key: &str) -> Opti
 /// The keys of English starting with `prefix`, in order.
 #[cfg(test)]
 pub fn keys_with_prefix(prefix: &str) -> Vec<&'static str> {
-    let mut keys: Vec<&'static str> = tables()[Language::English.index()]
+    let mut keys: Vec<&'static str> = tables().languages[Language::English.index()]
         .texts
         .keys()
         .filter(|k| k.starts_with(prefix))

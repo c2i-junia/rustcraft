@@ -14,9 +14,8 @@ pub fn table(t: &Table) -> Result<Vec<Block>, String> {
         // `| Item | Command name`: the items `/give` names otherwise than their English name in
         // lower case with underscores.
         "renamed" => {
-            let rows = ItemId::ALL
-                .iter()
-                .filter_map(|&id| {
+            let rows = ItemId::all()
+                .filter_map(|id| {
                     let shown = english_name(id)?.to_lowercase().replace(' ', "_");
                     (id.name() != shown).then(|| vec![item(id, 1), words(id.name())])
                 })

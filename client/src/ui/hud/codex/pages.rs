@@ -70,7 +70,7 @@ pub fn biome_keys() -> Vec<String> {
 /// The pages of a section, in their order.
 pub fn entries(section: Section) -> Vec<CodexPage> {
     match section {
-        Section::Items => ItemId::ALL.into_iter().map(CodexPage::Item).collect(),
+        Section::Items => ItemId::all().map(CodexPage::Item).collect(),
         Section::Creatures => creatures().map(CodexPage::Mob).collect(),
         Section::Biomes => biome_keys().into_iter().map(CodexPage::Biome).collect(),
         Section::Effects => EffectKind::ALL.into_iter().map(CodexPage::Effect).collect(),
@@ -238,7 +238,12 @@ impl Facts {
                 TextColor(theme::muted()),
                 ChildOf(grid),
             ));
-            spawn_line(commands, grid, &value, &ctx.look(theme::font_s(), theme::text()));
+            spawn_line(
+                commands,
+                grid,
+                &value,
+                &ctx.look(theme::font_s(), theme::text()),
+            );
         }
     }
 }
@@ -262,7 +267,12 @@ fn heading(commands: &mut Commands, parent: Entity, key: &str, ctx: &PageContext
 
 fn lines(commands: &mut Commands, parent: Entity, lines: &[Line], ctx: &PageContext) {
     for line in lines {
-        spawn_line(commands, parent, line, &ctx.look(theme::font_s(), theme::text()));
+        spawn_line(
+            commands,
+            parent,
+            line,
+            &ctx.look(theme::font_s(), theme::text()),
+        );
     }
 }
 
@@ -634,9 +644,7 @@ fn spawn_item(
 
 /// The item a block is placed from, if one is.
 fn itemfor(block: shared::world::BlockId) -> Option<ItemId> {
-    ItemId::ALL
-        .into_iter()
-        .find(|i| i.get_default_type() == shared::world::ItemType::Block(block))
+    ItemId::all().find(|i| i.get_default_type() == shared::world::ItemType::Block(block))
 }
 
 fn effect_line(effect: EffectKind, level: u8, seconds: u32) -> Line {
@@ -789,8 +797,7 @@ fn spawn_mob(
         heading(commands, column, "codex.heading.behaviour", ctx);
         spawn_line(commands, column, &behaviour, &text_look);
     }
-    let eats: Vec<Line> = ItemId::ALL
-        .into_iter()
+    let eats: Vec<Line> = ItemId::all()
         .filter(|i| kind.eats(*i))
         .map(|i| vec![link(Target::Item(i))])
         .collect();
@@ -838,7 +845,12 @@ fn spawn_mob(
 fn spawn_biome(commands: &mut Commands, parent: Entity, key: &str, ctx: &PageContext) {
     header(commands, parent, &CodexPage::Biome(key.into()), None, ctx);
     if let Some(note) = line_of(&format!("codex.biome.{key}")) {
-        spawn_line(commands, parent, &note, &ctx.look(theme::font_s(), theme::text()));
+        spawn_line(
+            commands,
+            parent,
+            &note,
+            &ctx.look(theme::font_s(), theme::text()),
+        );
     }
     let biomes = Biomes::vanilla();
     let Some(def) = biomes
@@ -895,18 +907,22 @@ fn spawn_effect(commands: &mut Commands, parent: Entity, kind: EffectKind, ctx: 
         ctx,
     );
     if let Some(note) = line_of(&format!("codex.effect.{kind:?}")) {
-        spawn_line(commands, parent, &note, &ctx.look(theme::font_s(), theme::text()));
+        spawn_line(
+            commands,
+            parent,
+            &note,
+            &ctx.look(theme::font_s(), theme::text()),
+        );
     }
     let mut given = Vec::new();
-    let potions: Vec<Line> = ItemId::ALL
-        .into_iter()
+    let potions: Vec<Line> = ItemId::all()
         .filter(|i| i.potion().is_some_and(|p| p.effect == kind))
         .map(|i| vec![link(Target::Item(i))])
         .collect();
     if !potions.is_empty() {
         given.push(joined(potions));
     }
-    for item in ItemId::ALL {
+    for item in ItemId::all() {
         if let Some((effect, level, ticks)) = item.food_effect().filter(|f| f.0 == kind) {
             let mut line = vec![link(Target::Item(item)), text_span(": ")];
             line.extend(effect_line(effect, level, ticks / TICKS_PER_SECOND as u32));
