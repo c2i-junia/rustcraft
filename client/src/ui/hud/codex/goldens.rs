@@ -67,3 +67,12 @@ fn the_fishing_guide_at_1280x720() {
     open_codex((1280, 720), CodexPage::Guide("fishing".into()))
         .assert_matches("codex_guide_fishing_1280x720");
 }
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_combat_guide_in_french_at_1280x720() {
+    in_language(Language::French, || {
+        open_codex((1280, 720), CodexPage::Guide("combat".into()))
+            .assert_matches("codex_guide_combat_fr_1280x720");
+    });
+}
