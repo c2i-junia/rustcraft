@@ -292,7 +292,7 @@ fn members(each: &BTreeMap<String, Vec<String>>) -> Result<Vec<Member<'_>>, Stri
 mod tests {
     use crate::content::files::tests::game_folder_with;
     use crate::content::{Content, ContentError};
-    use crate::world::{Ingredient, ItemCategory, ItemId, ItemType};
+    use crate::world::{Form, Ingredient, ItemCategory, ItemId, ItemType};
 
     fn load(text: &str) -> Result<Content, ContentError> {
         Content::load(game_folder_with(text).path())
@@ -463,5 +463,116 @@ mod tests {
             assert_eq!(error.file.file_name().unwrap(), "extra.ron", "{text}");
             assert!(error.to_string().contains(expected), "{text}: {error}");
         }
+    }
+
+    #[test]
+    fn a_new_wood_is_a_word_in_the_list_of_the_woods() {
+        let folder = game_folder_with("()");
+        let palette = folder.path().join("palette.ron");
+        let woods = r#"["oak", "spruce", "jungle", "willow", "acacia"]"#;
+        let text = std::fs::read_to_string(&palette).unwrap();
+        assert_eq!(text.matches(woods).count(), 1);
+        let text = text.replace(
+            woods,
+            r#"["oak", "spruce", "jungle", "willow", "acacia", "cherry"]"#,
+        );
+        std::fs::write(&palette, text).unwrap();
+        let game = Content::load(&crate::content::files::tests::game_folder()).unwrap();
+        let content = Content::load(folder.path()).unwrap();
+
+        // every block and every item of the game keeps its number
+        assert_eq!(
+            content.block_names[..game.block_names.len()],
+            game.block_names[..]
+        );
+        assert_eq!(
+            content.item_names[..game.item_names.len()],
+            game.item_names[..]
+        );
+        let block = |name: &str| {
+            let id = content
+                .block_named(name)
+                .unwrap_or_else(|| panic!("{name}"));
+            (id, content.block(id))
+        };
+        let item = |name: &str| content.item_named(name).unwrap_or_else(|| panic!("{name}"));
+        // its log and planks, which break as the others
+        let (planks, planks_props) = block("cherry_planks");
+        assert_eq!(planks_props.break_time, Some(20));
+        assert_eq!(
+            content.item(item("cherry_planks")).category,
+            ItemCategory::Wood
+        );
+        assert_eq!(block("cherry_log").1.look.faces[0], "CherryLogTop");
+        // its slab, stairs, door, trapdoor and gate, made of the planks, shown with its textures
+        for (name, form) in [
+            ("cherry_slab", Form::Slab),
+            ("cherry_stairs", Form::Stairs),
+            ("cherry_trapdoor", Form::Trapdoor { open: false }),
+            ("cherry_fence_gate", Form::FenceGate { open: false }),
+        ] {
+            let palette = block(name).1.palette.unwrap();
+            assert_eq!((palette.form, palette.base), (form, planks), "{name}");
+            assert_eq!(palette.item, item(name));
+        }
+        assert_eq!(block("cherry_slab").1.look.faces[0], "CherryPlanks");
+        let (door, door_props) = block("cherry_door");
+        assert_eq!(door_props.look.faces[0], "CherryDoor");
+        assert_eq!(door_props.door_top, Some(block("cherry_door_top").0));
+        assert_eq!(door_props.toggled, Some(block("open_cherry_door").0));
+        assert_eq!(block("open_cherry_door").1.toggled, Some(door));
+        assert_eq!(
+            block("open_cherry_door_top").1.look.faces[0],
+            "CherryDoorTop"
+        );
+        assert_eq!(
+            block("open_cherry_trapdoor").1.look.faces[0],
+            "CherryTrapdoor"
+        );
+        assert_eq!(
+            content.item(item("cherry_door")).default_type,
+            ItemType::Block(door)
+        );
+        // its recipes, after those of the acacia
+        let made: Vec<(ItemId, u32)> = content
+            .crafting
+            .recipes
+            .iter()
+            .filter(|recipe| {
+                recipe
+                    .cells
+                    .contains(&Some(Ingredient::Item(item("cherry_planks"))))
+            })
+            .map(|recipe| (recipe.output, recipe.nb))
+            .collect();
+        assert_eq!(
+            made,
+            [
+                (item("cherry_slab"), 6),
+                (item("cherry_stairs"), 4),
+                (item("cherry_door"), 1),
+                (item("cherry_trapdoor"), 2),
+                (item("cherry_fence_gate"), 1),
+            ]
+        );
+        let acacia_gate = game
+            .crafting
+            .recipes
+            .iter()
+            .position(|recipe| recipe.output == ItemId::AcaciaFenceGate)
+            .unwrap();
+        assert_eq!(
+            content.crafting.recipes[acacia_gate + 1].output,
+            item("cherry_slab")
+        );
+        // its planks are planks, and it burns and smelts as the others
+        let planks_tag = &content.crafting.tags[crate::world::ItemTag::Planks.index()];
+        assert_eq!(planks_tag.members.last(), Some(&item("cherry_planks")));
+        assert_eq!(fuel_ticks_in(&content, item("cherry_slab")), Some(150));
+        assert_eq!(fuel_ticks_in(&content, item("cherry_log")), Some(300));
+        assert!(content
+            .crafting
+            .smelting
+            .contains(&(item("cherry_log"), ItemId::Charcoal)));
     }
 }

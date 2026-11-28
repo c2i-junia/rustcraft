@@ -293,5 +293,38 @@ fn a_block_added_to_the_files_of_a_running_server_is_given_and_placed_after_a_re
         );
         client.pump();
     }
+
+    // 3. A word added to the list of the woods, and /reload: the wood, its palette and its
+    // recipes reach the player
+    let palette = folder.join("palette.ron");
+    let text = std::fs::read_to_string(&palette).unwrap().replace(
+        r#"["oak", "spruce", "jungle", "willow", "acacia"]"#,
+        r#"["oak", "spruce", "jungle", "willow", "acacia", "cherry"]"#,
+    );
+    std::fs::write(&palette, text).unwrap();
+    client.chat("/reload");
+    assert_eq!(client.wait_for_chat(), "Content files reloaded");
+    let reloaded = client.wait_for_content();
+    for name in [
+        "cherry_planks",
+        "cherry_slab",
+        "cherry_stairs",
+        "cherry_door",
+    ] {
+        let block = reloaded.block_named(name).expect(name);
+        let item = reloaded.item_named(name).expect(name);
+        assert_eq!(reloaded.item(item).default_type, ItemType::Block(block));
+    }
+    let slab = reloaded.item_named("cherry_slab").unwrap();
+    assert!(reloaded
+        .crafting
+        .recipes
+        .iter()
+        .any(|recipe| recipe.output == slab && recipe.nb == 6));
+    assert_eq!(
+        reloaded.block_named("amber"),
+        Some(block),
+        "it keeps its number"
+    );
     client.exit(server);
 }
