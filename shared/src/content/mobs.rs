@@ -151,7 +151,7 @@ pub(super) fn build(
                 .iter()
                 .position(|known| *known == name)
                 .ok_or_else(|| in_mob("no kind of mob is named so".to_string()))?;
-            let props = build_mob(def, names, items).map_err(in_mob)?;
+            let props = build_mob(MobKind::ALL[index], def, names, items).map_err(in_mob)?;
             if let Some((_, other)) = mobs[index].replace((props, file)) {
                 return Err(fail(
                     file,
@@ -185,12 +185,51 @@ fn defined_item(
     Ok(item)
 }
 
-fn build_mob(def: MobDef, names: &Names, items: &[ItemProps]) -> Result<MobProps, String> {
+fn build_mob(
+    kind: MobKind,
+    def: MobDef,
+    names: &Names,
+    items: &[ItemProps],
+) -> Result<MobProps, String> {
     if def.health == 0 {
         return Err("health 0: a mob has 1 point at least".to_string());
     }
     if def.size.iter().any(|side| side.is_nan() || *side <= 0.0) {
         return Err(format!("size {:?}: each side is above 0", def.size));
+    }
+    let mut floats = vec![("walk_speed", def.walk_speed), ("lift", def.lift)];
+    if let Some(hunt) = def.hunt {
+        floats.extend([
+            ("hunt.sight", hunt.sight),
+            ("hunt.forget", hunt.forget),
+            ("hunt.speed", hunt.speed),
+        ]);
+    }
+    if let Some(strike) = def.strike {
+        floats.extend([
+            ("strike.reach", strike.reach),
+            ("strike.knock_back", strike.knock_back),
+        ]);
+    }
+    if let Some((field, value)) = floats
+        .into_iter()
+        .find(|(_, value)| value.is_nan() || *value < 0.0)
+    {
+        return Err(format!("{field} {value}: a number of 0 or more"));
+    }
+    // the AI of a hostile reads its hunt and its strike, and that of an animal neither
+    let hostile = kind.is_hostile();
+    for (field, present) in [
+        ("hunt", def.hunt.is_some()),
+        ("strike", def.strike.is_some()),
+    ] {
+        if present != hostile {
+            return Err(if hostile {
+                format!("{field}: a hostile kind has one")
+            } else {
+                format!("{field}: only a hostile kind has one")
+            });
+        }
     }
     if !def.model.ends_with(".glb") {
         return Err(format!("model \"{}\": a .glb file", def.model));
@@ -356,6 +395,32 @@ mod tests {
                 fox("sounds: \"fox\"", "sounds: \"Fox\""),
                 "mob \"fox\": sounds \"Fox\"",
             ),
+            (
+                fox("walk_speed: 1.6", "walk_speed: -1.0"),
+                "mob \"fox\": walk_speed -1: a number of 0 or more",
+            ),
+            (
+                fox("walk_speed: 1.6", "walk_speed: NaN"),
+                "mob \"fox\": walk_speed NaN",
+            ),
+            (
+                fox("walk_speed: 1.6", "walk_speed: 1.6, lift: -0.5"),
+                "mob \"fox\": lift -0.5",
+            ),
+            (
+                fox(
+                    "walk_speed: 1.6",
+                    "walk_speed: 1.6, hunt: (sight: 16.0, forget: 24.0, speed: 2.0)",
+                ),
+                "mob \"fox\": hunt: only a hostile kind has one",
+            ),
+            (
+                fox(
+                    "walk_speed: 1.6",
+                    "walk_speed: 1.6, strike: (damage: 1, reach: 1.0, cooldown: 20, knock_back: 0.0)",
+                ),
+                "mob \"fox\": strike: only a hostile kind has one",
+            ),
         ];
         for (to, expected) in cases {
             let folder = mobs_edited(FOX, &to);
@@ -364,6 +429,41 @@ mod tests {
                 err.file.ends_with("mobs.ron") || err.file == folder.path(),
                 "{err}"
             );
+            assert!(err.reason.contains(expected), "{expected}: {err}");
+        }
+        // a hostile: its floats, and its hunt and strike, which it must have
+        let gnawer_hunt = "hunt: (sight: 16.0, forget: 24.0, speed: 2.8),";
+        let gnawer_strike = "strike: (damage: 2, reach: 1.0, cooldown: 15, knock_back: 0.0),";
+        for (from, to, expected) in [
+            (
+                gnawer_hunt,
+                "hunt: (sight: 16.0, forget: NaN, speed: 2.8),",
+                "mob \"gnawer\": hunt.forget NaN",
+            ),
+            (
+                gnawer_hunt,
+                "hunt: (sight: -1.0, forget: 24.0, speed: 2.8),",
+                "mob \"gnawer\": hunt.sight -1",
+            ),
+            (
+                gnawer_strike,
+                "strike: (damage: 2, reach: 1.0, cooldown: 15, knock_back: -8.0),",
+                "mob \"gnawer\": strike.knock_back -8",
+            ),
+            (
+                gnawer_hunt,
+                "",
+                "mob \"gnawer\": hunt: a hostile kind has one",
+            ),
+            (
+                gnawer_strike,
+                "",
+                "mob \"gnawer\": strike: a hostile kind has one",
+            ),
+        ] {
+            let folder = mobs_edited(from, to);
+            let err = Content::load(folder.path()).unwrap_err();
+            assert!(err.file.ends_with("mobs.ron"), "{err}");
             assert!(err.reason.contains(expected), "{expected}: {err}");
         }
         // a kind defined in two files names both
