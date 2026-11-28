@@ -171,22 +171,22 @@ impl TestClient {
     }
 }
 
-/// Writes the content files of the game into `folder`, `recipes.ron` with each `(from, to)` of
-/// `edits` replaced once.
+/// Writes the content files of the game into `folder`, with each `(from, to)` of `edits`
+/// replaced in the one file that holds it once.
 fn write_content_files(folder: &Path, edits: &[(&str, &str)]) {
     std::fs::create_dir_all(folder).unwrap();
     let game = Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/content/rustcraft");
+    let mut replaced = vec![0; edits.len()];
     for entry in std::fs::read_dir(game).unwrap() {
         let path = entry.unwrap().path();
         let mut text = std::fs::read_to_string(&path).unwrap();
-        if path.ends_with("recipes.ron") {
-            for (from, to) in edits {
-                assert_eq!(text.matches(from).count(), 1, "{from}");
-                text = text.replace(from, to);
-            }
+        for ((from, to), replaced) in edits.iter().zip(&mut replaced) {
+            *replaced += text.matches(from).count();
+            text = text.replace(from, to);
         }
         std::fs::write(folder.join(path.file_name().unwrap()), text).unwrap();
     }
+    assert!(replaced.iter().all(|&count| count == 1), "{replaced:?}");
 }
 
 /// Starts a solo server in `paths`, which reads its content files.
@@ -245,7 +245,7 @@ fn a_recipe_and_a_smelting_edited_in_the_files_of_a_running_server_apply_after_a
     client.chat("/reload");
     let refusal = client.wait_for_chat();
     assert!(
-        refusal.contains("recipes.ron")
+        refusal.contains("crafting.ron")
             && refusal.contains("recipe 1 (out: \"oak_planks\"): count 0"),
         "{refusal}"
     );

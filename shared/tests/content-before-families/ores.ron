@@ -1,0 +1,23 @@
+// Blocks and items of the base game, named as the commands name them. Every `*.ron` of this
+// folder is read at start, and again once one is saved (or on `/reload`), by the server, which
+// sends the content to its players; a set of files with an error changes nothing, and the error
+// goes to the log and to the chat. The fields, and their defaults, are those of `BlockDef` and
+// `ItemDef` in `shared/src/content/files.rs`. A block or an item is defined in one file only.
+(
+    blocks: {
+        "coal_ore": (break: 24, tools: [Pickaxe], needs_tool: (kind: Pickaxe, level: 0), drops: [(1, "coal", 1)]),
+        "iron_ore": (break: 30, tools: [Pickaxe], needs_tool: (kind: Pickaxe, level: 1)),
+        "gold_ore": (break: 30, tools: [Pickaxe], needs_tool: (kind: Pickaxe, level: 2)),
+        "diamond_ore": (break: 30, tools: [Pickaxe], needs_tool: (kind: Pickaxe, level: 2), drops: [(1, "diamond", 1)]),
+        "copper_ore": (break: 26, tools: [Pickaxe], needs_tool: (kind: Pickaxe, level: 0)),
+        "tin_ore": (break: 28, tools: [Pickaxe], needs_tool: (kind: Pickaxe, level: 1)),
+    },
+    items: {
+        "coal_ore": (category: Ores),
+        "iron_ore": (category: Ores),
+        "gold_ore": (category: Ores),
+        "diamond_ore": (category: Ores),
+        "copper_ore": (category: Ores),
+        "tin_ore": (category: Ores),
+    },
+)

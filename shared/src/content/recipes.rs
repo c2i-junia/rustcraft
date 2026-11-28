@@ -483,9 +483,14 @@ mod tests {
         );
         let content = Content::load(folder.path()).unwrap();
         let crafting = &content.crafting;
-        // extra.ron is read before recipes.ron
+        // extra.ron is read after crafting.ron, before palette.ron
+        let at = std::fs::read_to_string(game_folder().join("crafting.ron"))
+            .unwrap()
+            .matches("(out: ")
+            .count();
         assert_eq!(crafting.recipes.len(), game.recipes.len() + 2);
-        assert_eq!(crafting.recipes[2..], game.recipes[..]);
+        assert_eq!(crafting.recipes[..at], game.recipes[..at]);
+        assert_eq!(crafting.recipes[at + 2..], game.recipes[at..]);
         let grains = ItemTag::from_index(ItemTag::ENGINE.len() as u16);
         assert_eq!(crafting.tags[grains.index()].name, "grains");
         assert_eq!(
@@ -498,7 +503,7 @@ mod tests {
             Some(Ingredient::Item(ItemId::Coal)),
         );
         assert_eq!(
-            crafting.recipes[0],
+            crafting.recipes[at],
             Recipe {
                 width: 3,
                 cells: vec![c, t, c, None, k, None],
@@ -507,7 +512,7 @@ mod tests {
                 shapeless: false,
             }
         );
-        let glass = &crafting.recipes[1];
+        let glass = &crafting.recipes[at + 1];
         assert!(glass.shapeless);
         // five ingredients: rows of three
         assert_eq!(glass.width, 3);
@@ -637,7 +642,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("tag \"planks\" is defined in no file"),
+                .contains("tag \"cobble\" is defined in no file"),
             "{error}"
         );
     }

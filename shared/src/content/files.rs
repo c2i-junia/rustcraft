@@ -559,6 +559,19 @@ fn check_block(props: &BlockProps) -> Result<(), String> {
     {
         return Err(format!("opacity is above {MAX_LIGHT}"));
     }
+    let form = props.palette.map(|palette| palette.form);
+    if props.toggled.is_some() && !form.is_some_and(Form::opens) {
+        return Err("toggled: only a door, a trapdoor or a gate opens and shuts".to_string());
+    }
+    if props.door_top.is_some()
+        && form
+            != Some(Form::Door {
+                top: false,
+                open: false,
+            })
+    {
+        return Err("top: only the lower half of a shut door has a top".to_string());
+    }
     if props.break_time == Some(0) {
         // the breaking stage divides by it
         return Err("break 0: the quickest break is 1".to_string());
@@ -691,6 +704,15 @@ pub(super) struct BlockDef {
     /// `soil`: the blocks this one may be planted on, if it only stands on some.
     #[serde(default, deserialize_with = "present")]
     pub soil: Option<Vec<String>>,
+    /// `toggled`: for a door, a trapdoor or a gate, the block it becomes once opened or shut.
+    #[serde(default, deserialize_with = "present")]
+    pub toggled: Option<String>,
+    /// `door_top`: for the lower half of a shut door, its top half, placed above it.
+    #[serde(default, deserialize_with = "present")]
+    pub top: Option<String>,
+    /// `hardens`: the block this one becomes where water touches it.
+    #[serde(default, deserialize_with = "present")]
+    pub hardens: Option<String>,
     /// The `shape` of `look`: `Cube` by default.
     #[serde(default, deserialize_with = "present")]
     pub shape: Option<Shape>,
@@ -805,6 +827,9 @@ impl BlockDef {
             behaviour,
             sapling,
             soil,
+            toggled,
+            top,
+            hardens,
             shape,
             faces,
             overlay,
@@ -872,6 +897,13 @@ impl BlockDef {
                 .map(|sapling| names.item("sapling", &sapling))
                 .transpose()?,
             soil,
+            toggled: toggled
+                .map(|block| names.block("toggled", &block))
+                .transpose()?,
+            door_top: top.map(|block| names.block("top", &block)).transpose()?,
+            hardens: hardens
+                .map(|block| names.block("hardens", &block))
+                .transpose()?,
             look: Look {
                 shape: shape.unwrap_or_default(),
                 faces: faces.unwrap_or_default().resolve(&own),
@@ -910,6 +942,9 @@ impl Texts for BlockDef {
             behaviour: _,
             sapling,
             soil,
+            toggled,
+            top,
+            hardens,
             shape: _,
             faces,
             overlay,
@@ -928,6 +963,9 @@ impl Texts for BlockDef {
         }
         sapling.texts(each);
         soil.texts(each);
+        toggled.texts(each);
+        top.texts(each);
+        hardens.texts(each);
         if let Some(FacesDef {
             all,
             sides,
@@ -975,6 +1013,9 @@ impl BlockDef {
             behaviour,
             sapling,
             soil,
+            toggled,
+            top,
+            hardens,
             shape,
             faces,
             overlay,
@@ -1005,6 +1046,9 @@ impl BlockDef {
             behaviour: behaviour.or(base.behaviour),
             sapling: sapling.or_else(|| base.sapling.clone()),
             soil: soil.or_else(|| base.soil.clone()),
+            toggled: toggled.or_else(|| base.toggled.clone()),
+            top: top.or_else(|| base.top.clone()),
+            hardens: hardens.or_else(|| base.hardens.clone()),
             shape: shape.or(base.shape),
             faces: faces.or_else(|| base.faces.clone()),
             overlay: overlay.or_else(|| base.overlay.clone()),
@@ -1364,11 +1408,26 @@ pub(super) mod tests {
         assert_eq!(apple.max_stack, 16);
         assert_eq!(apple.food_value, Some((2, 1.5)));
 
-        let untouched = |id: BlockId| content.block(id) == game.block(id);
-        assert!(BlockId::ENGINE
+        // and the blocks like the stone, which take what their files leave out from it
+        let touched: Vec<BlockId> = BlockId::ENGINE
             .into_iter()
-            .filter(|id| ![BlockId::Torch, BlockId::Stone].contains(id))
-            .all(untouched));
+            .filter(|&id| content.block(id) != game.block(id))
+            .collect();
+        assert_eq!(
+            touched,
+            [
+                BlockId::Stone,
+                BlockId::Torch,
+                BlockId::StoneSlab,
+                BlockId::StoneStairs,
+                BlockId::StoneLowWall,
+                BlockId::PolishedStone,
+                BlockId::ChiseledStone,
+            ]
+        );
+        let slab = content.block(BlockId::StoneSlab);
+        assert_eq!(slab.required_tool, stone.required_tool);
+        assert_eq!(slab.drops, game.block(BlockId::StoneSlab).drops);
         assert_eq!(content.items.len(), game.items.len());
         assert!(!content.same_properties(&game));
         assert!(!content.draws_like(&game), "the torch gives less light");
@@ -1530,6 +1589,18 @@ pub(super) mod tests {
             (
                 r#"(blocks: {"torch": (light: 1), "torch": (light: 2)})"#,
                 "\"torch\" is written twice",
+            ),
+            (
+                r#"(blocks: {"stone": (toggled: "dirt")})"#,
+                "block \"stone\": toggled: only a door, a trapdoor or a gate",
+            ),
+            (
+                r#"(blocks: {"stone": (top: "dirt")})"#,
+                "block \"stone\": top: only the lower half of a shut door",
+            ),
+            (
+                r#"(blocks: {"sand": (hardens: "sandstone")})"#,
+                "block \"sand\": hardens: no block is named \"sandstone\"",
             ),
         ];
         for (text, key) in cases {

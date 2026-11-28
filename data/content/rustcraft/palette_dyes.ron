@@ -1,0 +1,59 @@
+// Blocks and items of the base game, named as the commands name them. Every `*.ron` of this
+// folder is read at start, and again once one is saved (or on `/reload`), by the server, which
+// sends the content to its players; a set of files with an error changes nothing, and the error
+// goes to the log and to the chat. The fields, and their defaults, are those of `BlockDef` and
+// `ItemDef` in `shared/src/content/files.rs`. A block or an item is defined in one file only.
+//
+// The dyes, and the wool, glass, terracotta and concrete of each of their colours, a family
+// written once for its members (`shared/src/content/families.rs`). The white wool is `wool`,
+// whose alias `white_wool` the family meets. The recipes follow those of `palette.ron` and come
+// before those of `recipes.ron`, the dyes' first, in the order the item browser numbers them.
+(
+    blocks: {
+        "glass_pane": (palette: (form: Pane, base: "glass", item: "glass_pane"), look: Decoration, break: 6, drops: [], faces: (all: "Glass")),
+        "terracotta": (palette: (form: Cube, base: "stone", item: "terracotta"), break: 20, tools: [Pickaxe], needs_tool: (kind: Pickaxe, level: 0)),
+    },
+    recipes: [
+        // the dyes, from plants and minerals, and mixed
+        (out: "red_dye", count: 2, pattern: ["P"], key: {'P': "poppy"}),
+        (out: "red_dye", pattern: ["B"], key: {'B': "berries"}),
+        (out: "yellow_dye", count: 2, pattern: ["D"], key: {'D': "dandelion"}),
+        (out: "brown_dye", pattern: ["C"], key: {'C': "cocoa_beans"}),
+        (out: "magenta_dye", count: 2, pattern: ["H"], key: {'H': "heather"}),
+        (out: "black_dye", pattern: ["C"], key: {'C': "coal"}),
+        (out: "black_dye", pattern: ["C"], key: {'C': "charcoal"}),
+        (out: "white_dye", count: 2, pattern: ["L"], key: {'L': "limestone"}),
+        (out: "blue_dye", count: 2, pattern: ["C"], key: {'C': "copper_ore"}),
+        (out: "orange_dye", count: 2, shapeless: ["red_dye", "yellow_dye"]),
+        (out: "pink_dye", count: 2, shapeless: ["red_dye", "white_dye"]),
+        (out: "lime_dye", count: 2, shapeless: ["green_dye", "white_dye"]),
+        (out: "light_blue_dye", count: 2, shapeless: ["blue_dye", "white_dye"]),
+        (out: "cyan_dye", count: 2, shapeless: ["blue_dye", "green_dye"]),
+        (out: "purple_dye", count: 2, shapeless: ["red_dye", "blue_dye"]),
+        (out: "magenta_dye", count: 2, shapeless: ["purple_dye", "pink_dye"]),
+        (out: "gray_dye", count: 2, shapeless: ["black_dye", "white_dye"]),
+        (out: "light_gray_dye", count: 2, shapeless: ["gray_dye", "white_dye"]),
+    ],
+    families: [
+        (
+            each: {"c": ["white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray", "light_gray", "cyan", "purple", "blue", "brown", "green", "red", "black"]},
+            blocks: {
+                "{c}_wool": (palette: (form: Cube, base: "wool", item: "{c}_wool"), break: 8),
+                "{c}_stained_glass": (palette: (form: Cube, base: "glass", item: "{c}_stained_glass"), look: Transparent, break: 6, drops: [], glass: true),
+                "{c}_stained_glass_pane": (palette: (form: Pane, base: "glass", item: "{c}_stained_glass_pane"), look: Decoration, break: 6, drops: [], faces: (all: "{C}StainedGlass")),
+                "{c}_terracotta": (palette: (form: Cube, base: "stone", item: "{c}_terracotta"), break: 20, tools: [Pickaxe], needs_tool: (kind: Pickaxe, level: 0)),
+                "{c}_concrete": (palette: (form: Cube, base: "stone", item: "{c}_concrete"), break: 20, tools: [Pickaxe], needs_tool: (kind: Pickaxe, level: 0)),
+                // where water touches it, it hardens into the concrete
+                "{c}_concrete_powder": (palette: (form: Cube, base: "sand", item: "{c}_concrete_powder"), break: 10, tools: [Shovel], hardens: "{c}_concrete"),
+            },
+            tags: {"wool": ["{c}_wool"]},
+            recipes: [
+                (out: "{c}_wool", shapeless: ["{c}_dye", "#wool"]),
+                (out: "{c}_stained_glass", count: 8, pattern: ["GGG", "GDG", "GGG"], key: {'G': "glass", 'D': "{c}_dye"}),
+                (out: "{c}_stained_glass_pane", count: 8, pattern: ["SSS"], key: {'S': "{c}_stained_glass"}),
+                (out: "{c}_terracotta", count: 8, pattern: ["TTT", "TDT", "TTT"], key: {'T': "terracotta", 'D': "{c}_dye"}),
+                (out: "{c}_concrete_powder", count: 8, shapeless: ["{c}_dye", "sand", "sand", "sand", "sand", "gravel", "gravel", "gravel", "gravel"]),
+            ],
+        ),
+    ],
+)

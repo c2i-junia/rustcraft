@@ -39,6 +39,12 @@ pub struct BlockProps {
     pub sapling: Option<ItemId>,
     /// `BlockId::soil`.
     pub soil: Option<Vec<BlockId>>,
+    /// `BlockId::door` and `BlockId::toggled`.
+    pub toggled: Option<BlockId>,
+    /// `BlockId::door_top`.
+    pub door_top: Option<BlockId>,
+    /// `BlockId::hardened`.
+    pub hardens: Option<BlockId>,
     /// `BlockId::look`.
     pub look: Look,
 }

@@ -37,7 +37,7 @@
         "ladder": (look: Decoration, break: 8, tools: [Axe], collision: None, outline: Aabb((min: (0, 0, 0), max: (1, 1, 0.125))), shape: Plate),
         "fence": (look: Decoration, break: 16, tools: [Axe], collision: Aabb((min: (0, 0, 0), max: (1, 1.5, 1))), outline: FullBlock, tall: true, shape: Fence, faces: (all: "OakPlanks")),
         "hanging_lantern": (look: Decoration, light: 15, break: 8, tools: [Pickaxe], drops: [(1, "lantern", 1)], collision: Aabb((min: (0.3125, 0.375, 0.3125), max: (0.6875, 1, 0.6875))), shape: Box, faces: (all: "Lantern")),
-        "wool": (break: 8),
+        "wool": (break: 8, aliases: ["white_wool"]),
         "tilled_soil": (break: 10, tools: [Shovel], drops: [(1, "dirt", 1)], faces: (all: "Dirt", top: "TilledSoil")),
         "sign": (look: Decoration, break: 12, tools: [Axe], collision: None, outline: Aabb((min: (0.0625, 0.5, 0.4375), max: (0.9375, 0.9375, 0.5625))), usable: true, shape: Sign, faces: (all: "OakPlanks")),
         "fire": (look: Decoration, light: 15, break: 1, collision: None, outline: Aabb((min: (0, 0, 0), max: (1, 0.4, 1))), replaceable: true, shape: Flora),

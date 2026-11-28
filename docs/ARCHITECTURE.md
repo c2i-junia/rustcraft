@@ -302,8 +302,13 @@ throws it faster, out of the player's reach, and it cannot be picked up for 40 t
 not saved: a loaded item takes the shorter one.
 
 The recipes, the smelting, the fuels and the families of items are content: written in
-`data/content/rustcraft/recipes.ron`, read into `Content::crafting` (`shared/src/content/recipes.rs`)
+`data/content/rustcraft/` (`crafting.ron`, `palette.ron`, `palette_dyes.ron`, `recipes.ron`, tried
+in the order of the files), read into `Content::crafting` (`shared/src/content/recipes.rs`)
 and reloaded with the rest of the content, so a recipe edited there applies after `/reload`.
+The palette of the builder (the woods, the rocks, the colours) is written as families, once for
+each member of a list (`shared/src/content/families.rs`): a new wood is a word in the list of
+the woods, and its textures; a block the families make otherwise is written out, as the oak door
+`door`, whose aliases (`oak_door`) the family meets.
 A recipe cell is an `Ingredient` (`shared/src/world/crafting.rs`): an item, or a family,
 `ItemTag` (`#planks` in the files), whose members any one of fills it (`ItemTag::Planks`: every
 planks item), so that a recipe of planks is written once and its species mix in the grid. Every fill of the grid has a

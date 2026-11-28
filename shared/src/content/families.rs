@@ -464,4 +464,91 @@ mod tests {
             assert!(error.to_string().contains(expected), "{text}: {error}");
         }
     }
+
+    /// To be removed with the matches of `palette.rs`: the families written out as the files
+    /// were before them, and as the code pairs the doors, trapdoors, gates and powders.
+    #[test]
+    fn the_families_of_the_game_give_its_content_as_it_was_written_out_and_matched() {
+        use crate::content::BlockProps;
+        use crate::world::{BlockId, Form, Palette};
+        use bevy::math::IVec3;
+
+        let before = Content::load(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/content-before-families"),
+        )
+        .unwrap();
+        let after = Content::load(&crate::content::files::tests::game_folder()).unwrap();
+        assert_eq!(after.block_names, before.block_names);
+        assert_eq!(after.block_idents, before.block_idents);
+        assert_eq!(after.item_names, before.item_names);
+        assert_eq!(after.item_idents, before.item_idents);
+        for (name, (new, old)) in after
+            .block_names
+            .iter()
+            .zip(after.blocks.iter().zip(&before.blocks))
+        {
+            let new = BlockProps {
+                toggled: None,
+                door_top: None,
+                hardens: None,
+                ..new.clone()
+            };
+            assert_eq!(new, *old, "{name}");
+        }
+        assert_eq!(after.items, before.items);
+        assert_eq!(after.item_display, before.item_display);
+        assert_eq!(after.crafting.tags, before.crafting.tags);
+        assert_eq!(after.crafting.recipes, before.crafting.recipes);
+        // tried for the first that matches, of which there is one
+        let sorted = |mut list: Vec<(ItemId, ItemId)>| {
+            list.sort();
+            list
+        };
+        assert_eq!(
+            sorted(after.crafting.smelting.clone()),
+            sorted(before.crafting.smelting.clone())
+        );
+        let mut fuels = after.crafting.fuels.clone();
+        let mut fuels_before = before.crafting.fuels.clone();
+        fuels.sort();
+        fuels_before.sort();
+        assert_eq!(fuels, fuels_before);
+        // the pairs the code matched
+        for (index, name) in after.block_names.iter().enumerate() {
+            let id = BlockId::from_index(index as u16);
+            let props = after.block(id);
+            let door = match props.palette {
+                Some(Palette {
+                    form: Form::Door { top, .. },
+                    ..
+                }) => props
+                    .toggled
+                    .map(|turned| (turned, if top { IVec3::NEG_Y } else { IVec3::Y })),
+                _ => None,
+            };
+            assert_eq!(door, id.door(), "{name}");
+            assert_eq!(props.door_top, id.door_top(), "{name}");
+            let toggled = props.toggled.filter(|_| door.is_none());
+            assert_eq!(toggled, id.toggled(), "{name}");
+            assert_eq!(props.hardens, id.hardened(), "{name}");
+        }
+        let aliases: Vec<_> = after.block_aliases.keys().map(String::as_str).collect();
+        assert_eq!(
+            aliases,
+            [
+                "oak_door",
+                "oak_door_top",
+                "open_oak_door",
+                "open_oak_door_top",
+                "white_wool",
+                "wooden_slab",
+                "wooden_stairs"
+            ]
+        );
+        let aliases: Vec<_> = after.item_aliases.keys().map(String::as_str).collect();
+        assert_eq!(
+            aliases,
+            ["oak_door", "white_wool", "wooden_slab", "wooden_stairs"]
+        );
+    }
 }
