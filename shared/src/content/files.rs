@@ -22,7 +22,7 @@
 //!
 //! Each block and each item is defined in one file only; the file names carry no meaning.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
@@ -32,6 +32,7 @@ use bevy::math::Vec3A;
 use serde::de::{self, Deserializer, MapAccess, Visitor};
 use serde::Deserialize;
 
+use super::families::{FamilyDef, Texts};
 use super::recipes::{CraftingDefs, FuelDef, RecipeDef, TagDef};
 use super::{
     tool_bit, Behaviour, BlockFlags, BlockProps, Content, Crafting, DisplayName, ItemProps, Look,
@@ -165,6 +166,9 @@ impl Content {
                 ron::de::from_str(&text).map_err(|err| fail(err.to_string()))?;
             files.push((path, defs));
         }
+        // the families written out, then each definition `like` another completed from it
+        super::families::expand(&mut files)?;
+        complete_likes(&mut files)?;
 
         // the numbers of the blocks and the items, before any definition refers to one
         let block_defs = || {
@@ -198,7 +202,8 @@ impl Content {
                     .map(|(name, file)| NewName::near("item", name, file, &item_names)),
             )
             .collect();
-        let names = Names::new(&block_names, &item_names);
+        let mut names = Names::new(&block_names, &item_names);
+        let (block_aliases, item_aliases) = names.add_aliases(&files)?;
 
         let (paths, files): (Vec<PathBuf>, Vec<ContentFile>) = files.into_iter().unzip();
         let mut crafting_defs = Vec::with_capacity(files.len());
@@ -298,6 +303,8 @@ impl Content {
             item_names,
             items: item_props,
             item_display,
+            block_aliases,
+            item_aliases,
             crafting,
         };
         Ok((content, new_names))
@@ -310,6 +317,8 @@ impl Content {
             && self.item_names == other.item_names
             && self.items == other.items
             && self.item_display == other.item_display
+            && self.block_aliases == other.block_aliases
+            && self.item_aliases == other.item_aliases
             && self.crafting == other.crafting
     }
 
@@ -436,6 +445,104 @@ impl Names {
             .copied()
             .ok_or_else(|| format!("{field}: no item is named \"{name}\""))
     }
+
+    /// Makes the aliases of the definitions of `files` name what they are written on, an alias
+    /// of a block also the item of its name, and returns them: those of the blocks, then those
+    /// of the items. An alias is a name no block, or no item, has.
+    fn add_aliases(
+        &mut self,
+        files: &[(PathBuf, ContentFile)],
+    ) -> Result<(BTreeMap<String, BlockId>, BTreeMap<String, ItemId>), ContentError> {
+        let mut block_aliases = BTreeMap::new();
+        let mut item_aliases = BTreeMap::new();
+        for (path, file) in files {
+            let fail = |kind: &str, name: &str, reason: String| ContentError {
+                file: path.clone(),
+                reason: format!("{kind} \"{name}\": aliases: {reason}"),
+            };
+            for (name, def) in &file.blocks.0 {
+                for alias in def.aliases.iter().flatten() {
+                    let fail = |reason: String| fail("block", name, reason);
+                    let block = self.block("name", name).map_err(fail)?;
+                    if !is_content_name(alias) {
+                        return Err(fail(format!(
+                            "\"{alias}\" is not words in lowercase joined by _"
+                        )));
+                    }
+                    if self.blocks.insert(alias.clone(), block).is_some() {
+                        return Err(fail(format!("\"{alias}\" already names a block")));
+                    }
+                    block_aliases.insert(alias.clone(), block);
+                    if let Some(&item) = self.items.get(name) {
+                        if self.items.insert(alias.clone(), item).is_some() {
+                            return Err(fail(format!("\"{alias}\" already names an item")));
+                        }
+                        item_aliases.insert(alias.clone(), item);
+                    }
+                }
+            }
+            for (name, def) in &file.items.0 {
+                for alias in def.aliases.iter().flatten() {
+                    let fail = |reason: String| fail("item", name, reason);
+                    let item = self.item("name", name).map_err(fail)?;
+                    if !is_content_name(alias) {
+                        return Err(fail(format!(
+                            "\"{alias}\" is not words in lowercase joined by _"
+                        )));
+                    }
+                    if self.items.insert(alias.clone(), item).is_some() {
+                        return Err(fail(format!("\"{alias}\" already names an item")));
+                    }
+                    item_aliases.insert(alias.clone(), item);
+                }
+            }
+        }
+        Ok((block_aliases, item_aliases))
+    }
+}
+
+/// Completes each block definition `like` another from that one, itself completed first.
+fn complete_likes(files: &mut [(PathBuf, ContentFile)]) -> Result<(), ContentError> {
+    let defs: HashMap<String, BlockDef> = files
+        .iter()
+        .flat_map(|(_, file)| file.blocks.0.iter().cloned())
+        .collect();
+    for (path, file) in files.iter_mut() {
+        for (name, def) in &mut file.blocks.0 {
+            if def.like.is_some() {
+                *def = completed(std::mem::take(def), &defs, &mut vec![name.clone()]).map_err(
+                    |reason| ContentError {
+                        file: path.clone(),
+                        reason: format!("block \"{name}\": {reason}"),
+                    },
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `def` completed from the block it is `like`, of `defs`, `chain` the blocks met on the way.
+fn completed(
+    def: BlockDef,
+    defs: &HashMap<String, BlockDef>,
+    chain: &mut Vec<String>,
+) -> Result<BlockDef, String> {
+    let Some(like) = def.like.clone() else {
+        return Ok(def);
+    };
+    if chain.contains(&like) {
+        return Err(format!(
+            "like: {} is like {like} again",
+            chain.join(" is like ")
+        ));
+    }
+    let base = defs
+        .get(&like)
+        .ok_or_else(|| format!("like: no block is named \"{like}\""))?;
+    chain.push(like);
+    let base = completed(base.clone(), defs, chain)?;
+    Ok(def.or_like(&base))
 }
 
 /// What the game cannot run with in the properties of a block, named as the files name them.
@@ -481,7 +588,7 @@ fn check_item(props: &ItemProps) -> Result<(), String> {
 /// One content file.
 #[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
-struct ContentFile {
+pub(super) struct ContentFile {
     #[serde(default)]
     pub blocks: Named<BlockDef>,
     #[serde(default)]
@@ -497,24 +604,35 @@ struct ContentFile {
     /// How many ticks an item, or each item of a `#tag`, burns in a furnace.
     #[serde(default)]
     pub fuel: Named<FuelDef>,
+    /// Definitions written once for each member of a list (`families`).
+    #[serde(default)]
+    pub families: Vec<FamilyDef>,
 }
 
 /// What a block of the palette is (`Palette`), its base and its item named as in the files.
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
-struct PaletteDef {
+pub(super) struct PaletteDef {
     pub form: Form,
     pub base: String,
     pub item: String,
 }
 
 /// The definition of a block in a file: each field the file leaves out takes its default.
-#[derive(Deserialize, Default, Debug)]
+#[derive(Deserialize, Default, Debug, Clone)]
 #[serde(deny_unknown_fields)]
-struct BlockDef {
+pub(super) struct BlockDef {
     /// The name the block and its item are shown under, by language.
     #[serde(default, deserialize_with = "present")]
     pub name: Option<NameDef>,
+    /// The block whose definition this one takes each field it leaves out from, but its name
+    /// and its aliases.
+    #[serde(default, deserialize_with = "present")]
+    pub like: Option<String>,
+    /// The other names the block is found by, its former ones: those of a world's list, of a
+    /// RON file and of the commands. Its item, if it has one of its name, is found by them too.
+    #[serde(default, deserialize_with = "present")]
+    pub aliases: Option<Vec<String>>,
     /// `palette`: what the block is, if it is one of the palette. None by default.
     #[serde(default, deserialize_with = "present")]
     pub palette: Option<PaletteDef>,
@@ -593,9 +711,9 @@ struct BlockDef {
 
 /// The textures of the faces of a block, each by its name in the textures: `all` for every
 /// face, `sides` for the four around, then each face for itself.
-#[derive(Deserialize, Default, Debug)]
+#[derive(Deserialize, Default, Debug, Clone)]
 #[serde(deny_unknown_fields)]
-struct FacesDef {
+pub(super) struct FacesDef {
     #[serde(default, deserialize_with = "present")]
     pub all: Option<String>,
     #[serde(default, deserialize_with = "present")]
@@ -665,6 +783,8 @@ impl BlockDef {
     pub fn build(self, name: &str, names: &Names) -> Result<BlockProps, String> {
         let Self {
             name: _,
+            like: _,
+            aliases: _,
             palette,
             look,
             light,
@@ -763,11 +883,178 @@ impl BlockDef {
     }
 }
 
+impl Texts for BlockDef {
+    fn texts(&mut self, each: &mut dyn FnMut(&mut String)) {
+        // every field, so that a new one is not forgotten
+        let Self {
+            name,
+            like,
+            aliases,
+            palette,
+            look: _,
+            light: _,
+            opacity: _,
+            break_hits: _,
+            tools: _,
+            needs_tool: _,
+            drops,
+            collision: _,
+            outline: _,
+            usable: _,
+            replaceable: _,
+            tall: _,
+            glass: _,
+            container: _,
+            submerged: _,
+            hangs: _,
+            behaviour: _,
+            sapling,
+            soil,
+            shape: _,
+            faces,
+            overlay,
+            tint: _,
+            sway: _,
+        } = self;
+        name.texts(each);
+        like.texts(each);
+        aliases.texts(each);
+        if let Some(PaletteDef { base, item, .. }) = palette {
+            each(base);
+            each(item);
+        }
+        for (_, item, _) in drops.iter_mut().flatten() {
+            each(item);
+        }
+        sapling.texts(each);
+        soil.texts(each);
+        if let Some(FacesDef {
+            all,
+            sides,
+            top,
+            bottom,
+            front,
+            back,
+            left,
+            right,
+        }) = faces
+        {
+            for face in [all, sides, top, bottom, front, back, left, right] {
+                face.texts(each);
+            }
+        }
+        overlay.texts(each);
+    }
+}
+
+impl BlockDef {
+    /// This definition, with each field it leaves out taken from `base`, but the name and the
+    /// aliases: what `like` gives.
+    fn or_like(self, base: &BlockDef) -> BlockDef {
+        let Self {
+            name,
+            like,
+            aliases,
+            palette,
+            look,
+            light,
+            opacity,
+            break_hits,
+            tools,
+            needs_tool,
+            drops,
+            collision,
+            outline,
+            usable,
+            replaceable,
+            tall,
+            glass,
+            container,
+            submerged,
+            hangs,
+            behaviour,
+            sapling,
+            soil,
+            shape,
+            faces,
+            overlay,
+            tint,
+            sway,
+        } = self;
+        BlockDef {
+            name,
+            like,
+            aliases,
+            palette: palette.or_else(|| base.palette.clone()),
+            look: look.or(base.look),
+            light: light.or(base.light),
+            opacity: opacity.or(base.opacity),
+            break_hits: break_hits.or(base.break_hits),
+            tools: tools.or_else(|| base.tools.clone()),
+            needs_tool: needs_tool.or(base.needs_tool),
+            drops: drops.or_else(|| base.drops.clone()),
+            collision: collision.or(base.collision),
+            outline: outline.or(base.outline),
+            usable: usable.or(base.usable),
+            replaceable: replaceable.or(base.replaceable),
+            tall: tall.or(base.tall),
+            glass: glass.or(base.glass),
+            container: container.or(base.container),
+            submerged: submerged.or(base.submerged),
+            hangs: hangs.or(base.hangs),
+            behaviour: behaviour.or(base.behaviour),
+            sapling: sapling.or_else(|| base.sapling.clone()),
+            soil: soil.or_else(|| base.soil.clone()),
+            shape: shape.or(base.shape),
+            faces: faces.or_else(|| base.faces.clone()),
+            overlay: overlay.or_else(|| base.overlay.clone()),
+            tint: tint.or(base.tint),
+            sway: sway.or(base.sway),
+        }
+    }
+}
+
+impl Texts for NameDef {
+    fn texts(&mut self, each: &mut dyn FnMut(&mut String)) {
+        let Self { en, fr } = self;
+        en.texts(each);
+        fr.texts(each);
+    }
+}
+
+impl Texts for ItemDef {
+    fn texts(&mut self, each: &mut dyn FnMut(&mut String)) {
+        // every field, so that a new one is not forgotten
+        let Self {
+            name,
+            aliases,
+            stack: _,
+            attack_damage: _,
+            food_value: _,
+            food_effect: _,
+            eaten_remains,
+            crafting_remains,
+            horse_armour: _,
+            spawned_mob: _,
+            tool: _,
+            durability: _,
+            category: _,
+            places,
+            default_type: _,
+        } = self;
+        name.texts(each);
+        aliases.texts(each);
+        eaten_remains.texts(each);
+        crafting_remains.texts(each);
+        places.texts(each);
+    }
+}
+
 /// The name of a block or an item in each language, as a file writes it: `(en: "Amber", fr:
 /// "Ambre")`. A language it leaves out takes the name of the language files.
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
-struct NameDef {
+pub(super) struct NameDef {
     #[serde(default, deserialize_with = "present")]
     pub en: Option<String>,
     #[serde(default, deserialize_with = "present")]
@@ -781,12 +1068,15 @@ impl From<NameDef> for DisplayName {
 }
 
 /// The definition of an item in a file: each field the file leaves out takes its default.
-#[derive(Deserialize, Default, Debug)]
+#[derive(Deserialize, Default, Debug, Clone)]
 #[serde(deny_unknown_fields)]
-struct ItemDef {
+pub(super) struct ItemDef {
     /// The name the item is shown under, by language.
     #[serde(default, deserialize_with = "present")]
     pub name: Option<NameDef>,
+    /// The other names the item is found by, as those of a block (`BlockDef::aliases`).
+    #[serde(default, deserialize_with = "present")]
+    pub aliases: Option<Vec<String>>,
     /// `max_stack`, 64 by default.
     #[serde(default, deserialize_with = "present")]
     pub stack: Option<u32>,
@@ -839,6 +1129,7 @@ impl ItemDef {
     pub fn build(self, name: &str, names: &Names) -> Result<ItemProps, String> {
         let Self {
             name: _,
+            aliases: _,
             stack,
             attack_damage,
             food_value,

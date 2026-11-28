@@ -8,6 +8,7 @@
 //! `content()` once, so that it never reads some from one install and some from the next.
 
 mod blocks;
+mod families;
 mod files;
 mod items;
 mod look;
@@ -54,6 +55,10 @@ pub struct Content {
     /// By `ItemId::index`, the name each item the files name is shown under: its own, or that
     /// of its block (`ItemId::display_name`).
     pub item_display: std::collections::BTreeMap<u16, DisplayName>,
+    /// The blocks by the other names the files give them (`aliases`), their former ones.
+    pub block_aliases: std::collections::BTreeMap<String, BlockId>,
+    /// The items by the other names the files give them, and the block of their name gives them.
+    pub item_aliases: std::collections::BTreeMap<String, ItemId>,
     /// The recipes, what a furnace smelts and burns, and the families of items they take.
     pub crafting: Crafting,
 }
@@ -68,12 +73,13 @@ impl Content {
             .unwrap_or(&self.blocks[BlockId::Debug.index()])
     }
 
-    /// The block named `name`, as the files name it.
+    /// The block named `name`, as the files name it, or by one of its aliases.
     pub fn block_named(&self, name: &str) -> Option<BlockId> {
         self.block_names
             .iter()
             .position(|known| known == name)
             .map(|index| BlockId::from_index(index as u16))
+            .or_else(|| self.block_aliases.get(name).copied())
     }
 
     /// What makes this content unfit to install, `None` when it is whole: a block or an item of
@@ -175,12 +181,13 @@ impl Content {
             .unwrap_or(&ItemProps::PLACEHOLDER)
     }
 
-    /// The item named `name`, as the files name it.
+    /// The item named `name`, as the files name it, or by one of its aliases.
     pub fn item_named(&self, name: &str) -> Option<ItemId> {
         self.item_names
             .iter()
             .position(|known| known == name)
             .map(|index| ItemId::from_index(index as u16))
+            .or_else(|| self.item_aliases.get(name).copied())
     }
 }
 

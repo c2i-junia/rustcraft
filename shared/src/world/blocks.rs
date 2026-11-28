@@ -535,11 +535,20 @@ impl BlockId {
                     .map(|(_, id)| *id)
             })
             .or_else(|| {
-                content()
+                let content = content();
+                content
                     .block_idents
                     .iter()
                     .position(|known| known == ident)
                     .map(place)
+                    .or_else(|| {
+                        // a former name, which the files keep as an alias
+                        content
+                            .block_aliases
+                            .iter()
+                            .find(|(alias, _)| crate::utils::pascal_case(alias) == ident)
+                            .map(|(_, id)| *id)
+                    })
             })
     }
 }

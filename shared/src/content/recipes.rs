@@ -25,6 +25,7 @@ use std::path::Path;
 use serde::de::{Deserializer, MapAccess, Visitor};
 use serde::{Deserialize, Serialize};
 
+use super::families::Texts;
 use super::files::{present, Kind, Named, Names};
 use super::{ContentError, ItemProps};
 use crate::world::{Ingredient, ItemId, ItemTag, CRAFTING_GRID_SIZE};
@@ -79,7 +80,7 @@ fn shapeless_cells(ingredients: Vec<Ingredient>) -> (usize, Vec<Option<Ingredien
 }
 
 /// A family of items in a file: its members, by name.
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(transparent)]
 pub(super) struct TagDef(pub Vec<String>);
 
@@ -88,7 +89,7 @@ impl Kind for TagDef {
 }
 
 /// The ticks a fuel burns, in a file.
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(transparent)]
 pub(super) struct FuelDef(pub u16);
 
@@ -99,7 +100,7 @@ impl Kind for FuelDef {
 /// A recipe in a file: `out` and `count`, then either a `pattern` of rows, each character of
 /// which is a cell, a space an empty one, the others named in `key`; or the `shapeless` list of
 /// its ingredients.
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub(super) struct RecipeDef {
     pub out: String,
@@ -112,6 +113,23 @@ pub(super) struct RecipeDef {
     pub key: Option<Vec<(char, String)>>,
     #[serde(default, deserialize_with = "present")]
     pub shapeless: Option<Vec<String>>,
+}
+
+impl Texts for RecipeDef {
+    fn texts(&mut self, each: &mut dyn FnMut(&mut String)) {
+        let Self {
+            out,
+            count: _,
+            pattern: _,
+            key,
+            shapeless,
+        } = self;
+        each(out);
+        for (_, item) in key.iter_mut().flatten() {
+            each(item);
+        }
+        shapeless.texts(each);
+    }
 }
 
 /// The `key` of a recipe in the order of the file, a letter written twice included, which
