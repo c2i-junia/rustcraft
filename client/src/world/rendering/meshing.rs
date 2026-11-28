@@ -1350,6 +1350,20 @@ mod tests {
     }
 
     #[test]
+    fn the_water_around_a_plant_of_the_sea_is_drawn_as_a_whole_block() {
+        let stone = mesh_of(&[(IVec3::ONE, BlockId::Stone)]);
+        let mut expected = positions_of(stone.solid_mesh.as_ref().unwrap());
+        expected.sort_by(|a, b| a.to_array().partial_cmp(&b.to_array()).unwrap());
+        for plant in [BlockId::Seagrass, BlockId::Kelp] {
+            // Against air on every side, as at the edge of a chunk whose neighbour is not loaded
+            let mesh = mesh_of(&[(IVec3::ONE, plant)]);
+            let mut positions = positions_of(mesh.liquid_mesh.as_ref().unwrap());
+            positions.sort_by(|a, b| a.to_array().partial_cmp(&b.to_array()).unwrap());
+            assert_eq!(positions, expected, "{plant:?}");
+        }
+    }
+
+    #[test]
     fn the_surface_of_the_water_is_below_the_top_of_its_cell() {
         let highest = |response: ChunkMeshResponse| {
             top_vertices(&response.liquid_mesh)

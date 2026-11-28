@@ -378,7 +378,7 @@ impl VoxelShape {
             BlockId::Cocoa => Self::pod(block),
             // Its texture is grey too. Lava's is orange: it stays a plain cube
             BlockId::Water => Self::full_cube(block).tinted(FaceColor::Water),
-            // A plant of the sea, then the water around it (`VoxelShape::is_water_face`): a
+            // The water around a plant of the sea (`VoxelShape::is_water_face`), then it: a
             // column of kelp sways as a whole, so that its cells never part
             BlockId::Kelp => Self::flora(block).swaying(Sway::Whole).in_water(),
             BlockId::Seagrass => Self::flora(block).swaying(Sway::Top).in_water(),
@@ -516,10 +516,13 @@ impl VoxelShape {
     }
 
     /// The shape, and the faces of a cell of water around it, which come after its own.
+    /// The water comes first, as the faces of a whole block do: the mesher merges the faces of
+    /// a cube by their index in `full_cube`.
     fn in_water(mut self) -> Self {
         let water = BlockData::new(BlockId::Water, BlockDirection::Front);
-        self.faces
-            .extend(Self::full_cube(&water).tinted(FaceColor::Water).faces);
+        let mut faces = Self::full_cube(&water).tinted(FaceColor::Water).faces;
+        faces.append(&mut self.faces);
+        self.faces = faces;
         self
     }
 
