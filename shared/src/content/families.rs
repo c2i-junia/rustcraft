@@ -25,10 +25,10 @@
 //! names: no block, item, recipe, smelting or fuel of that name is made. A block or an item a
 //! file writes out under the name a family gives it, or under one of its `aliases`, is the
 //! file's: the family's is dropped, as for a member whose block is not like the others (the oak
-//! door is `door`), while its recipes stay. A recipe a file writes out with the same output and cells (whatever letters stand for
-//! them) is the file's too: the oak planks recipe stays where `crafting.ron` has it, and a new
-//! wood has the one the family writes. A file's recipe of another count than the family's is
-//! told (`Replaced`).
+//! door is `door`), while its recipes stay. A recipe a file writes out with the same output and
+//! cells (whatever letters stand for them) is the file's too: the oak planks recipe stays where
+//! `crafting.ron` has it, and a new wood has the one the family writes. A file's recipe of
+//! another count than the family's is told (`Replaced`).
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
