@@ -1,8 +1,9 @@
 //! The numbers of a kind of mob edited in the content files of a running server: after
-//! `/reload`, a mob of that kind born from a spawn egg has its new size and health, and drops by
-//! its new loot; a mob naming an item that does not exist is refused with its file and its
+//! `/reload`, a mob of that kind already there takes its new box and health, one born from a
+//! spawn egg has them too, and it drops by its new loot; a mob naming an item that does not exist is refused with its file and its
 //! entry. It installs content other than the game's, so it is alone in its file and its process.
 
+use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, UdpSocket};
 use std::path::Path;
 use std::thread;
@@ -17,7 +18,7 @@ use shared::messages::{
     AuthRegisterRequest, ChatMessageRequest, ClientToServerMessage, NetworkAction,
     PlayerFrameInput, ServerToClientMessage,
 };
-use shared::world::{raycast, ChunkMap, ItemId, MobKind, ServerMob};
+use shared::world::{raycast, ChunkMap, ItemId, MobId, MobKind, ServerMob};
 use shared::{
     game_message_to_payload, get_shared_renet_config, payload_to_game_message,
     ChannelResolvableExt, ContentSource, GameFolderPaths, GameServerConfig, PROTOCOL_ID,
@@ -222,8 +223,8 @@ const SHEEP_HEALTH: &str = "health: 8,\n            size: (0.9, 1.25, 0.9),";
 const SHEEP_DROPS: &str = r#"(item: "raw_mutton", count: Range(1, 2)),"#;
 
 /// The mobs the client was told of, as last told, but those removed.
-fn known_mobs(client: &TestClient) -> Vec<ServerMob> {
-    let mut mobs = std::collections::HashMap::new();
+fn known_mobs(client: &TestClient) -> HashMap<MobId, ServerMob> {
+    let mut mobs = HashMap::new();
     for message in &client.inbox {
         match message {
             ServerToClientMessage::WorldUpdate(update) => {
@@ -238,11 +239,33 @@ fn known_mobs(client: &TestClient) -> Vec<ServerMob> {
             _ => {}
         }
     }
-    mobs.into_values().collect()
+    mobs
+}
+
+/// Pumps until a sheep `pick` accepts is known, and returns its id.
+fn wait_for_sheep(
+    client: &mut TestClient,
+    what: &str,
+    pick: impl Fn(MobId, &ServerMob) -> bool,
+) -> MobId {
+    let start = Instant::now();
+    loop {
+        if let Some((id, _)) = known_mobs(client)
+            .into_iter()
+            .find(|(id, mob)| mob.kind == MobKind::Sheep && pick(*id, mob))
+        {
+            return id;
+        }
+        assert!(
+            start.elapsed() < WAIT_TIMEOUT,
+            "timed out waiting for {what}"
+        );
+        client.pump();
+    }
 }
 
 #[test]
-fn a_mob_edited_in_the_files_of_a_running_server_is_born_with_its_new_numbers_after_a_reload() {
+fn a_mob_edited_in_the_files_of_a_running_server_takes_its_new_numbers_after_a_reload() {
     let tmp = tempfile::tempdir().unwrap();
     let paths = GameFolderPaths {
         game_folder_path: tmp.path().to_path_buf(),
@@ -255,42 +278,9 @@ fn a_mob_edited_in_the_files_of_a_running_server_is_born_with_its_new_numbers_af
     let joined = client.wait_for_content();
     assert_eq!(joined.mob(MobKind::Sheep).health, 8);
 
-    // 1. A drop of an item that does not exist: refused with its file and its entry, and
-    // nothing changes
-    write_content_files(&folder, &[(SHEEP_DROPS, r#"(item: "golden_fleece"),"#)]);
-    client.chat("/reload");
-    let refusal = client.wait_for_chat();
-    assert!(
-        refusal.contains("mobs.ron")
-            && refusal.contains("mob \"sheep\": drops: no item is named \"golden_fleece\""),
-        "{refusal}"
-    );
-    assert_eq!(MobKind::Sheep.health(), 8);
-
-    // 2. A sheep of 30 points, taller, that drops sticks: sent to the player, and what the
-    // server reads
-    write_content_files(
-        &folder,
-        &[
-            (
-                SHEEP_HEALTH,
-                "health: 30,\n            size: (0.9, 1.5, 0.9),",
-            ),
-            (SHEEP_DROPS, r#"(item: "stick", count: Range(2, 2)),"#),
-        ],
-    );
-    client.chat("/reload");
-    assert_eq!(client.wait_for_chat(), "Content files reloaded");
-    let reloaded = client.wait_for_content();
-    assert_eq!(reloaded.mob(MobKind::Sheep).health, 30);
-    assert_eq!(reloaded.mob(MobKind::Sheep).size, [0.9, 1.5, 0.9]);
-    // what the server rolls when a sheep dies
-    assert_eq!(MobKind::Sheep.loot()[0].item, ItemId::Stick);
-
-    // 3. A sheep born from an egg two blocks ahead on the ground has the new numbers (as has
-    // any born since the reload; one born before keeps its box)
-    client.chat("/give sheep_spawn_egg 1");
-    assert_eq!(client.wait_for_chat(), "Gave 1 SheepSpawnEgg");
+    // 1. A sheep born from an egg two blocks ahead on the ground, of the numbers of the game
+    client.chat("/give sheep_spawn_egg 2");
+    assert_eq!(client.wait_for_chat(), "Gave 2 SheepSpawnEgg");
     let last_time_ms = 40;
     let landing = (1..=last_time_ms)
         .map(|time_ms| PlayerFrameInput {
@@ -313,30 +303,72 @@ fn a_mob_edited_in_the_files_of_a_running_server_is_born_with_its_new_numbers_af
         assert!(start.elapsed() < WAIT_TIMEOUT, "the ground never arrived");
         client.pump();
     }
-    client.send(ClientToServerMessage::PlayerInputs(vec![
-        PlayerFrameInput {
-            time_ms: last_time_ms + 1,
-            delta_ms: 16,
-            inputs: [NetworkAction::RightClick].into(),
-            camera,
-            hotbar_slot: 0,
-            ..Default::default()
-        },
-    ]));
-    let start = Instant::now();
-    let born = loop {
-        if let Some(sheep) = known_mobs(&client)
-            .into_iter()
-            .find(|mob| mob.kind == MobKind::Sheep && mob.height == 1.5)
-        {
-            break sheep;
-        }
-        assert!(
-            start.elapsed() < WAIT_TIMEOUT,
-            "no sheep was born of the egg"
-        );
-        client.pump();
+    let hatch = |client: &mut TestClient, time_ms| {
+        client.send(ClientToServerMessage::PlayerInputs(vec![
+            PlayerFrameInput {
+                time_ms,
+                delta_ms: 16,
+                inputs: [NetworkAction::RightClick].into(),
+                camera,
+                hotbar_slot: 0,
+                ..Default::default()
+            },
+        ]));
     };
+    hatch(&mut client, last_time_ms + 1);
+    let first = wait_for_sheep(&mut client, "a sheep born of the egg", |_, mob| {
+        mob.height == 1.25
+    });
+
+    // 2. A drop of an item that does not exist: refused with its file and its entry, and
+    // nothing changes
+    write_content_files(&folder, &[(SHEEP_DROPS, r#"(item: "golden_fleece"),"#)]);
+    client.chat("/reload");
+    let refusal = client.wait_for_chat();
+    assert!(
+        refusal.contains("mobs.ron")
+            && refusal.contains("mob \"sheep\": drops: no item is named \"golden_fleece\""),
+        "{refusal}"
+    );
+    assert_eq!(MobKind::Sheep.health(), 8);
+
+    // 3. A sheep of 30 points, taller, that drops sticks: sent to the player, and what the
+    // server reads
+    write_content_files(
+        &folder,
+        &[
+            (
+                SHEEP_HEALTH,
+                "health: 30,\n            size: (0.9, 1.5, 0.9),",
+            ),
+            (SHEEP_DROPS, r#"(item: "stick", count: Range(2, 2)),"#),
+        ],
+    );
+    client.chat("/reload");
+    assert_eq!(client.wait_for_chat(), "Content files reloaded");
+    let reloaded = client.wait_for_content();
+    assert_eq!(reloaded.mob(MobKind::Sheep).health, 30);
+    assert_eq!(reloaded.mob(MobKind::Sheep).size, [0.9, 1.5, 0.9]);
+    // what the server rolls when a sheep dies
+    assert_eq!(MobKind::Sheep.loot()[0].item, ItemId::Stick);
+
+    // 4. The sheep already there takes the new box, on its feet in the open, and the new health
+    wait_for_sheep(&mut client, "the sheep grown to its new box", |id, mob| {
+        id == first && mob.height == 1.5
+    });
+    let sheep = &known_mobs(&client)[&first];
+    assert_eq!(
+        Vec3::new(sheep.width, sheep.height, sheep.depth),
+        MobKind::Sheep.size()
+    );
+    assert_eq!(sheep.max_health(), 30);
+
+    // 5. One born since has the new numbers too
+    hatch(&mut client, last_time_ms + 2);
+    let born = wait_for_sheep(&mut client, "a second sheep born of the egg", |id, mob| {
+        id != first && mob.height == 1.5
+    });
+    let born = &known_mobs(&client)[&born];
     assert_eq!((born.width, born.depth), (0.9, 0.9));
     assert_eq!(born.max_health(), 30);
     client.exit(server);

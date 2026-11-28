@@ -779,9 +779,13 @@ of `MobKind` its health, size, walking speed, hunt and strike, experience, wheth
 tameable and what it eats, its drops, and its model, the clips of the model, the lift of its box
 above the model and the folder of its sounds; they are read into `Content::mobs`
 (`shared/src/content/mobs.rs`), which the getters of `MobKind` read, and reloaded with the rest
-of the content: after `/reload` the mobs hunt, strike, walk and drop by the new numbers, a mob
-keeps the damage it took against its new health, and a mob keeps its box until it grows up, one
-born since takes the new size. What a kind is and does (`is_hostile`, `is_villager`,
+of the content: after `/reload` the mobs hunt, strike, walk and drop by the new numbers, and a
+mob keeps the damage it took against its new health. Every 20 ticks `fit_boxes_system`
+(`server/src/mob/mod.rs`) gives each mob but the projectiles the box of its kind
+(`ServerMob::fit_kind_box`: `MobKind::size`, halved for a young one), on its feet, once that box
+is free of blocks in loaded chunks; until then it keeps its own. So a size edited in the files,
+or a mob saved with the box of an older tuning, comes to agree with what the client draws and
+rides by. What a kind is and does (`is_hostile`, `is_villager`,
 `inflicted_effect`, the AI of `server/src/mob/`) and the spawn rules stay Rust: a new kind is
 still an enum variant.
 

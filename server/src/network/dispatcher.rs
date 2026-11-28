@@ -227,6 +227,7 @@ pub fn register_systems(app: &mut App) {
                 crate::mob::spawning::hostile_spawning_system,
                 crate::mob::wildlife::wildlife_system,
                 crate::mob::guards::dungeon_guards_system,
+                crate::mob::fit_boxes_system,
             )
                 .chain(),
             dropped_items_physics_system,

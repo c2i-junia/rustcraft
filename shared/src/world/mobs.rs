@@ -717,6 +717,35 @@ impl ServerMob {
         self.growing > 0
     }
 
+    /// The box the content gives a mob of its kind and age: `MobKind::size`, scaled by
+    /// `YOUNG_SCALE` for a young one.
+    pub fn kind_box(&self) -> Vec3 {
+        let size = self.kind.size();
+        if self.is_young() {
+            size * YOUNG_SCALE
+        } else {
+            size
+        }
+    }
+
+    /// Gives the mob the box of its kind (`kind_box`), standing where its feet are, if `free`
+    /// says that box, by its centre and half size, is clear; returns whether its box changed.
+    /// What brings a mob to a size edited in the content files, or to that of its kind when it
+    /// was saved with the box of an older one.
+    pub fn fit_kind_box(&mut self, free: impl FnOnce(Vec3, Vec3) -> bool) -> bool {
+        let size = self.kind_box();
+        if size == Vec3::new(self.width, self.height, self.depth) {
+            return false;
+        }
+        let centre = self.position + Vec3::Y * (size.y - self.height) / 2.0;
+        if !free(centre, size / 2.0) {
+            return false;
+        }
+        self.position = centre;
+        (self.width, self.height, self.depth) = (size.x, size.y, size.z);
+        true
+    }
+
     /// Grows a young animal up: its hitbox becomes that of an adult, standing where its feet
     /// were.
     pub fn grow_up(&mut self) {
@@ -736,6 +765,31 @@ impl ServerMob {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_mob_takes_the_box_of_its_kind_on_its_feet_where_it_is_free() {
+        let at = ServerMob::standing_at(MobKind::Sheep, 0.5, 10.0, 0.5);
+        let mut mob = ServerMob::new(MobKind::Sheep, at);
+        // a box of an older tuning
+        (mob.width, mob.height, mob.depth) = (0.5, 1.0, 0.5);
+        mob.position.y = 10.5;
+        assert!(!mob.fit_kind_box(|_, _| false), "not where it is not free");
+        assert_eq!(mob.height, 1.0);
+        let mut asked = None;
+        assert!(mob.fit_kind_box(|centre, half| {
+            asked = Some((centre, half));
+            true
+        }));
+        let size = MobKind::Sheep.size();
+        assert_eq!(Vec3::new(mob.width, mob.height, mob.depth), size);
+        assert_eq!(mob.position.y - mob.height / 2.0, 10.0, "on its feet");
+        assert_eq!(asked, Some((mob.position, size / 2.0)));
+        assert!(!mob.fit_kind_box(|_, _| panic!("already its box")));
+        // a young one takes the young box
+        let mut young = ServerMob::young(MobKind::Sheep, at);
+        assert_eq!(young.kind_box(), size * YOUNG_SCALE);
+        assert!(!young.fit_kind_box(|_, _| true));
+    }
 
     #[test]
     fn a_blow_takes_the_damage_of_the_weapon_and_one_bare_handed() {
