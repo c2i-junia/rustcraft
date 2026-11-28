@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::{PoisonError, RwLock};
 
-use bevy::log::warn;
+use bevy::log::{info, warn};
 use shared::content::{content, install, Content};
 use shared::world::{
     BlockId, Chunk, Container, Furnace, ItemId, ItemStack, ItemType, LEGACY_BLOCK_NAMES,
@@ -155,13 +155,29 @@ impl<Id: Listed> SavedNames<Id> {
     }
 
     /// The numbers of a world that lists `names`, each of which the content of the process
-    /// defines, or not: a saved number of an unknown name stands for `Listed::unknown`.
-    pub(super) fn new(names: Vec<String>) -> Self {
+    /// defines, or not: a saved number of an unknown name stands for `Listed::unknown`. A name
+    /// the content knows as an alias, a former name, is listed under the name it has now, which
+    /// the next save writes, unless the world lists that one too.
+    pub(super) fn new(mut names: Vec<String>) -> Self {
         let content = content();
         let to_process: Vec<Option<Id>> = names
             .iter()
             .map(|name| Id::named(content, name).or_else(Id::unknown))
             .collect();
+        for saved in 0..names.len() {
+            let Some(now) = Id::named(content, &names[saved]).and_then(|id| id.name_in(content))
+            else {
+                continue;
+            };
+            if now != names[saved] && !names.iter().any(|name| name == now) {
+                info!(
+                    "The {} {} of this world is now named {now}",
+                    Id::KIND,
+                    names[saved]
+                );
+                names[saved] = now.to_string();
+            }
+        }
         let mut to_saved = HashMap::new();
         for (saved, id) in to_process.iter().enumerate() {
             if let Some(id) = *id {
@@ -619,5 +635,26 @@ mod tests {
         let slots = &read.chests[0].1.slots;
         assert_eq!(slots[0].map(|stack| stack.item_id), Some(ItemId::Stick));
         assert_eq!(slots[1], None);
+    }
+
+    #[test]
+    fn a_block_and_an_item_listed_under_a_former_name_are_what_it_names_and_listed_anew() {
+        // the oak slab was the wooden slab
+        let blocks = SavedBlocks::new(vec!["dirt".to_string(), "wooden_slab".to_string()]);
+        let saved = BlockId::from_index(1);
+        assert_eq!(blocks.read_block(saved), BlockId::OakSlab);
+        assert_eq!(blocks.names(), ["dirt", "oak_slab"]);
+        assert_eq!(
+            blocks.write_block(BlockId::OakSlab),
+            saved,
+            "no number is added"
+        );
+        let items = SavedItems::new(vec!["wooden_stairs".to_string()]);
+        assert_eq!(items.names(), ["oak_stairs"]);
+        // a world that lists both keeps both, each read as the slab
+        let both = SavedBlocks::new(vec!["oak_slab".to_string(), "wooden_slab".to_string()]);
+        assert_eq!(both.names(), ["oak_slab", "wooden_slab"]);
+        assert_eq!(both.read_block(BlockId::from_index(1)), BlockId::OakSlab);
+        assert_eq!(both.write_block(BlockId::OakSlab), BlockId::from_index(0));
     }
 }

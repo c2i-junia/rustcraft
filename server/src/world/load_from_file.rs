@@ -878,6 +878,70 @@ mod tests {
         assert_eq!(read_again, contents);
     }
 
+    /// A world whose lists name the oak slab by its former name, as the content's alias of it
+    /// still does: its chunks and its lists read the slab, and the next save lists it by its name.
+    #[test]
+    fn a_world_saved_under_a_former_name_reads_the_block_it_names_and_is_saved_under_its_name() {
+        use crate::world::block_numbers::SavedNumbers;
+        use crate::world::chunk_files::read_chunk;
+        use crate::world::writer::{write_job, SaveJob};
+        use shared::world::{
+            BlockData, BlockDirection, BlockId, Chunk, LEGACY_BLOCK_NAMES, LEGACY_ITEM_NAMES,
+        };
+        use std::sync::Arc;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = paths(&tmp);
+        let dir = world_dir_of(&tmp);
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/worlds/v5");
+        copy_folder(&fixture, &dir);
+        let former = |names: &[&str]| -> Vec<String> {
+            names
+                .iter()
+                .map(|name| match *name {
+                    "oak_slab" => "wooden_slab".to_string(),
+                    name => name.to_string(),
+                })
+                .collect()
+        };
+        // a world saved under the former name, its slab numbered as the legacy oak slab
+        let mut world = open_world(WORLD, &paths, &NewWorldSettings::default()).unwrap();
+        world.block_names = Some(former(&LEGACY_BLOCK_NAMES));
+        world.item_names = Some(former(&LEGACY_ITEM_NAMES));
+        write_meta(&dir, &WorldMeta::from(&world)).unwrap();
+        let slab = BlockData::new(BlockId::OakSlab, BlockDirection::Front);
+        let pos = IVec3::new(0, 6, 0);
+        write_chunk(&dir.join(CHUNKS_DIR), pos, &Chunk::filled(slab)).unwrap();
+
+        let world = open_world(WORLD, &paths, &NewWorldSettings::default()).unwrap();
+        let listed = world.block_names.clone().unwrap();
+        assert!(listed.contains(&"wooden_slab".to_string()));
+        let numbers = Arc::new(SavedNumbers::open(
+            world.block_names.clone(),
+            world.item_names.clone(),
+        ));
+        let chunk = numbers
+            .blocks
+            .read(read_chunk(&dir.join(CHUNKS_DIR), pos).unwrap());
+        assert_eq!(chunk, Chunk::filled(slab));
+        let job = SaveJob {
+            meta: WorldMeta::from(&world),
+            players: Vec::new(),
+            chunks: vec![(pos, chunk.clone(), Default::default())],
+            numbers,
+        };
+        assert!(write_job(&dir, job).is_complete());
+
+        let again = open_world(WORLD, &paths, &NewWorldSettings::default()).unwrap();
+        assert_eq!(again.block_names.clone().unwrap(), LEGACY_BLOCK_NAMES);
+        assert_eq!(again.item_names.clone().unwrap(), LEGACY_ITEM_NAMES);
+        let numbers = SavedNumbers::open(again.block_names, again.item_names);
+        let read = numbers
+            .blocks
+            .read(read_chunk(&dir.join(CHUNKS_DIR), pos).unwrap());
+        assert_eq!(read, Chunk::filled(slab));
+    }
+
     #[test]
     fn a_world_in_the_current_layout_round_trips() {
         let tmp = tempfile::tempdir().unwrap();
