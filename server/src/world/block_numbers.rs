@@ -12,7 +12,7 @@ use std::hash::Hash;
 use std::sync::{PoisonError, RwLock};
 
 use bevy::log::{info, warn};
-use shared::content::{content, install, Content};
+use shared::content::{content, install_changed, Content};
 use shared::world::{
     BlockId, Chunk, Container, Furnace, ItemId, ItemStack, ItemType, LEGACY_BLOCK_NAMES,
     LEGACY_ITEM_NAMES,
@@ -147,9 +147,7 @@ impl<Id: Listed> SavedNames<Id> {
                 Id::KIND,
                 missing.join(", ")
             );
-            let mut held = content().clone();
-            Id::hold_places(&mut held, missing);
-            install(held);
+            install_changed(|held| Id::hold_places(held, missing));
         }
         Self::new(names)
     }

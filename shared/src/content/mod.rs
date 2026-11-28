@@ -377,6 +377,23 @@ pub fn install(new: Content) -> &'static Content {
     store(new)
 }
 
+/// Makes the content of the process as `change` changes it the content of the process, as
+/// `install` does: it is cloned and installed under one lock, so that an install in between is
+/// not lost.
+///
+/// # Panics
+///
+/// If the changed content is not whole (`Content::flaw`).
+pub fn install_changed(change: impl FnOnce(&mut Content)) -> &'static Content {
+    let _installing = INSTALLING.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut new = content().clone();
+    change(&mut new);
+    if let Some(flaw) = new.flaw() {
+        panic!("{flaw}");
+    }
+    store(new)
+}
+
 /// Makes `new` the content of the process, as `install` does, under its lock.
 fn store(mut new: Content) -> &'static Content {
     new.generation = content().generation + 1;
