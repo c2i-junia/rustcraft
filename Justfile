@@ -77,6 +77,13 @@ brp seconds="240" *args="": create-game-folders
         --game-folder-path {{justfile_directory()}}/appdata/client-1 \
         --assets-folder-path {{justfile_directory()}}/data --player-name PlayerOne {{args}}
 
+# Validates the content files (`data/content/rustcraft/*.ron`) as the game reads them, without a
+# world, a window or a network: the errors name the file and the key. Pass a folder of `*.ron`
+# files to check that one instead. Builds the server only. See docs/CONTENT.md.
+check-content *args:
+    cargo run --quiet --package server --bin server -- \
+        --assets-folder-path {{justfile_directory()}}/data --check-content {{args}}
+
 # Fmt, clippy and the whole suite; returns at once when the tree already passed.
 # `just check --force` runs it anyway.
 check *args:

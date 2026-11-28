@@ -296,6 +296,43 @@ pub fn start(folder: &Path) -> Result<PathBuf, ContentError> {
     Ok(folder)
 }
 
+/// Reads the content files of `folder` as a game would, without installing them, for the
+/// `--check-content` flag of the server: what an agent runs after editing them instead of
+/// building and starting a game.
+///
+/// Returns the lines to tell on success: a block or an item the files define that is new
+/// (with the name it may be a typo of), a member of a family that a file writes out instead,
+/// then a summary. Fails with the first error, which names the file, the block, item, recipe
+/// or mob, and what is wrong with it.
+pub fn check(folder: &Path) -> Result<Vec<String>, ContentError> {
+    let (loaded, new, replaced) = Content::load_telling(folder, None)?;
+    if let Some(flaw) = loaded.flaw() {
+        return Err(ContentError {
+            file: folder.to_path_buf(),
+            reason: flaw,
+        });
+    }
+    let mut lines: Vec<String> = new
+        .iter()
+        .map(|name| match name.near {
+            Some(_) => format!("warning: {name}"),
+            None => format!("note: {name}"),
+        })
+        .chain(replaced.iter().map(|member| format!("note: {member}")))
+        .collect();
+    lines.push(format!(
+        "content of {} is valid: {} blocks, {} items, {} recipes, {} smelting, {} fuels, {} mobs",
+        folder.display(),
+        loaded.blocks.len(),
+        loaded.items.len(),
+        loaded.crafting.recipes.len(),
+        loaded.crafting.smelting.len(),
+        loaded.crafting.fuels.len(),
+        loaded.mobs.len(),
+    ));
+    Ok(lines)
+}
+
 /// Logs each of `new`: a warning for one that may be a typo.
 pub fn tell_new_names(new: &[NewName]) {
     for block in new {
@@ -405,6 +442,34 @@ fn hold_place<Id>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checking_the_source_folder_passes_and_tells_a_possible_typo() {
+        let lines = check(&source_folder()).unwrap();
+        assert!(lines.last().unwrap().contains("is valid"), "{lines:?}");
+        let folder = files::tests::game_folder_with(r#"(blocks: {"tourch": (light: 9)})"#);
+        let lines = check(folder.path()).unwrap();
+        assert!(
+            lines.iter().any(
+                |line| line.starts_with("warning: ") && line.contains("did you mean \"torch\"")
+            ),
+            "{lines:?}"
+        );
+    }
+
+    #[test]
+    fn checking_a_broken_file_names_the_file_and_the_key() {
+        let folder = files::tests::game_folder_with(r#"(blocks: {"amber": (light: 99)})"#);
+        let error = check(folder.path()).unwrap_err().to_string();
+        assert!(error.contains("extra.ron"), "{error}");
+        assert!(error.contains("amber"), "{error}");
+        let folder = files::tests::game_folder_with(r#"(blocks: {"amber": (lite: 9)})"#);
+        let error = check(folder.path()).unwrap_err().to_string();
+        assert!(
+            error.contains("extra.ron") && error.contains("lite"),
+            "{error}"
+        );
+    }
 
     #[test]
     fn the_content_has_one_entry_per_block_and_per_item() {

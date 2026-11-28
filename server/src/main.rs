@@ -67,6 +67,12 @@ struct Args {
     #[arg(long)]
     assets_folder_path: Option<String>,
 
+    /// Reads the content files, prints what is wrong in them (the file, the key and the reason)
+    /// or what may be a typo in them, and exits: no world, no network. 0 when they are valid.
+    /// Takes the folder of the `*.ron` files; by default, the one the server reads
+    #[arg(long, value_name = "DIR", num_args = 0..=1, default_missing_value = "")]
+    check_content: Option<String>,
+
     /// The largest render distance a player may ask for, in chunks
     #[arg(long, default_value_t = DEFAULT_MAX_RENDER_DISTANCE)]
     max_render_distance: u32,
@@ -193,8 +199,33 @@ impl Args {
     }
 }
 
+/// Reads the content files of `folder` (by default those of the assets) for `--check-content`:
+/// the lines to print on success, or the error to print.
+fn check_content(folder: &str, assets: Option<String>) -> Result<Vec<String>, String> {
+    let folder = if folder.is_empty() {
+        let paths = get_game_folder_paths(None, assets);
+        let folder = shared::content::folder(&paths.assets_folder_path);
+        shared::content::files_folder(&folder).unwrap_or(folder)
+    } else {
+        folder.into()
+    };
+    shared::content::check(&folder).map_err(|err| err.to_string())
+}
+
 fn main() -> ExitCode {
     let args = Args::parse();
+    if let Some(folder) = &args.check_content {
+        return match check_content(folder, args.assets_folder_path.clone()) {
+            Ok(lines) => {
+                lines.iter().for_each(|line| println!("{line}"));
+                ExitCode::SUCCESS
+            }
+            Err(err) => {
+                eprintln!("error: {err}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     bevy::log::tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
@@ -368,6 +399,41 @@ mod tests {
                 Some(name.to_string())
             );
         }
+    }
+
+    #[test]
+    fn check_content_takes_a_folder_or_none() {
+        let parse = |args: &[&str]| {
+            Args::try_parse_from(["server"].into_iter().chain(args.iter().copied()))
+                .unwrap()
+                .check_content
+        };
+        assert_eq!(parse(&[]), None);
+        assert_eq!(parse(&["--check-content"]).as_deref(), Some(""));
+        assert_eq!(parse(&["--check-content", "dir"]).as_deref(), Some("dir"));
+    }
+
+    #[test]
+    fn check_content_reads_the_folder_it_is_given() {
+        let source =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/content/rustcraft");
+        let lines = check_content(source.to_str().unwrap(), None).unwrap();
+        assert!(lines.last().unwrap().contains("is valid"), "{lines:?}");
+        let broken = tempfile::tempdir().unwrap();
+        for entry in std::fs::read_dir(&source).unwrap() {
+            let path = entry.unwrap().path();
+            std::fs::copy(&path, broken.path().join(path.file_name().unwrap())).unwrap();
+        }
+        std::fs::write(
+            broken.path().join("bad.ron"),
+            r#"(blocks: {"amber": (lite: 9)})"#,
+        )
+        .unwrap();
+        let error = check_content(broken.path().to_str().unwrap(), None).unwrap_err();
+        assert!(
+            error.contains("bad.ron") && error.contains("lite"),
+            "{error}"
+        );
     }
 
     #[test]
