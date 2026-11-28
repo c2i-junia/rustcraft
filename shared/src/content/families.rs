@@ -25,7 +25,9 @@
 //! names: no block, item, recipe, smelting or fuel of that name is made. A block or an item a
 //! file writes out under the name a family gives it, or under one of its `aliases`, is the
 //! file's: the family's is dropped, as for a member whose block is not like the others (the oak
-//! door is `door`), while its recipes stay.
+//! door is `door`), while its recipes stay. A recipe a file writes out the same (the same
+//! output, count and cells, whatever letters stand for them) is the file's too: the oak planks
+//! recipe stays where `crafting.ron` has it, and a new wood has the one the family writes.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
@@ -124,11 +126,39 @@ impl Member<'_> {
     }
 }
 
-/// The blocks and the items the files write out, by their names and their aliases: a family
-/// does not make those.
+/// The blocks, the items and the recipes the files write out, the first two by their names and
+/// their aliases: a family does not make those.
 struct Written {
     blocks: HashSet<String>,
     items: HashSet<String>,
+    /// The recipes, as `shape` reads them.
+    recipes: HashSet<String>,
+}
+
+/// What a recipe makes and from what, whatever letters its pattern is written with: two
+/// recipes of the same shape are one.
+fn shape(recipe: &RecipeDef) -> String {
+    let cell = |c: char| {
+        recipe
+            .key
+            .iter()
+            .flatten()
+            .find(|(letter, _)| *letter == c)
+            .map_or_else(|| c.to_string(), |(_, item)| item.clone())
+    };
+    let pattern = recipe.pattern.as_ref().map(|rows| {
+        rows.iter()
+            .map(|row| row.chars().map(|c| (c != ' ').then(|| cell(c))).collect())
+            .collect::<Vec<Vec<_>>>()
+    });
+    let mut shapeless = recipe.shapeless.clone();
+    if let Some(items) = &mut shapeless {
+        items.sort();
+    }
+    format!(
+        "{:?}",
+        (&recipe.out, recipe.count.unwrap_or(1), pattern, shapeless)
+    )
 }
 
 impl Written {
@@ -136,8 +166,10 @@ impl Written {
         let mut written = Self {
             blocks: HashSet::new(),
             items: HashSet::new(),
+            recipes: HashSet::new(),
         };
         for (_, file) in files {
+            written.recipes.extend(file.recipes.iter().map(shape));
             for (name, def) in &file.blocks.0 {
                 written.blocks.insert(name.clone());
                 // the alias of a block also names its item
@@ -233,7 +265,8 @@ fn expand_family(
         }
         for def in &family.recipes {
             let recipe = member.write_all(def).map_err(context("recipe".into()))?;
-            if !skip(&recipe.out) {
+            // a recipe a file writes out the same is kept where the file has it
+            if !skip(&recipe.out) && !written.recipes.contains(&shape(&recipe)) {
                 file.recipes.push(recipe);
             }
         }
@@ -533,7 +566,7 @@ mod tests {
             content.item(item("cherry_door")).default_type,
             ItemType::Block(door)
         );
-        // its recipes, after those of the acacia
+        // its recipes, after those of the acacia: the planks from the log, then the others
         let made: Vec<(ItemId, u32)> = content
             .crafting
             .recipes
@@ -563,8 +596,25 @@ mod tests {
             .unwrap();
         assert_eq!(
             content.crafting.recipes[acacia_gate + 1].output,
+            item("cherry_planks")
+        );
+        assert_eq!(
+            content.crafting.recipes[acacia_gate + 2].output,
             item("cherry_slab")
         );
+        // the planks recipe is made once for each wood, the oak's where `crafting.ron` has it
+        let planks_made = |planks: &str| {
+            let log = Some(Ingredient::Item(item(&planks.replace("planks", "log"))));
+            content
+                .crafting
+                .recipes
+                .iter()
+                .filter(|recipe| recipe.output == item(planks) && recipe.cells == [log])
+                .map(|recipe| recipe.nb)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(planks_made("cherry_planks"), [4]);
+        assert_eq!(planks_made("oak_planks"), [4]);
         // its planks are planks, and it burns and smelts as the others
         let planks_tag = &content.crafting.tags[crate::world::ItemTag::Planks.index()];
         assert_eq!(planks_tag.members.last(), Some(&item("cherry_planks")));

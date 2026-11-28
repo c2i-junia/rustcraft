@@ -8,8 +8,9 @@
 // trapdoors and fence gates, and the slabs, stairs, low walls, polished and chiseled blocks of each
 // rock. Each family is written once for its members (`shared/src/content/families.rs`): a new
 // wood is a word in the list of the woods, and its textures (`<Wood>Log`, `<Wood>LogTop`,
-// `<Wood>Planks`, `<Wood>Door`, `<Wood>DoorTop`, `<Wood>Trapdoor`); the recipe of its planks is
-// written in `crafting.ron`, beside those of the others. The recipes of the families follow those
+// `<Wood>Planks`, `<Wood>Door`, `<Wood>DoorTop`, `<Wood>Trapdoor`), and nothing else: the recipe
+// of its planks is the family's too. The five woods that are older write that recipe in
+// `crafting.ron`, which the family then leaves out, to keep it where it was. The recipes of the families follow those
 // of `crafting.ron` and come before those of `palette_dyes.ron`, in the order the item browser
 // numbers them, which is why they are in files of these names.
 (
@@ -50,6 +51,7 @@
             },
             tags: {"planks": ["{w}_planks"]},
             recipes: [
+                (out: "{w}_planks", count: 4, pattern: ["L"], key: {'L': "{w}_log"}),
                 (out: "{w}_slab", count: 6, pattern: ["PPP"], key: {'P': "{w}_planks"}),
                 (out: "{w}_stairs", count: 4, pattern: ["P ", "PP", "PP"], key: {'P': "{w}_planks"}),
                 (out: "{w}_door", pattern: ["PP", "PP", "PP"], key: {'P': "{w}_planks"}),

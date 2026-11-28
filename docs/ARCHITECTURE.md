@@ -307,8 +307,10 @@ in the order of the files), read into `Content::crafting` (`shared/src/content/r
 and reloaded with the rest of the content, so a recipe edited there applies after `/reload`.
 The palette of the builder (the woods, the rocks, the colours) is written as families, once for
 each member of a list (`shared/src/content/families.rs`): a new wood is a word in the list of
-the woods, and its textures; a block the families make otherwise is written out, as the oak door
-`door`, whose aliases (`oak_door`) the family meets.
+the woods, and its textures (nothing else: the recipe of its planks is the family's, and a recipe a
+file writes out the same, as the five older woods in `crafting.ron`, keeps its place); a block the
+families make otherwise is written out, as the oak door `door`, whose aliases (`oak_door`) the
+family meets.
 A recipe cell is an `Ingredient` (`shared/src/world/crafting.rs`): an item, or a family,
 `ItemTag` (`#planks` in the files), whose members any one of fills it (`ItemTag::Planks`: every
 planks item), so that a recipe of planks is written once and its species mix in the grid. Every fill of the grid has a
