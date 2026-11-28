@@ -10,9 +10,9 @@ pack (XSSheep's, kept up by Nova_Wostra): https://github.com/NovaWostra/Pixel-Pe
   `oak_planks.png`. A file is fetched from
   `https://raw.githubusercontent.com/NovaWostra/Pixel-Perfection-Chorus-Eddit/main/<path>`.
 - Here they go in `data/graphics/base_textures/items/` and `.../blocks/`, named after the
-  `ItemId` or `BlockId` variant: `wooden_pickaxe.png` becomes `WoodenPickaxe.png`. An item
-  with no texture in `items/` shows the block texture of the same name, so a block item needs
-  one only when its icon differs.
+  content name of the item or the block in PascalCase (its Rust name): `wooden_pickaxe.png`
+  becomes `WoodenPickaxe.png`. An item with no texture in `items/` shows the block texture of
+  the same name, so a block item needs one only when its icon differs.
 - Check that the texture is 16x16, like ours. An animated one is a vertical strip of frames: a
   block texture keeps them all, with its `.mcmeta` written as `<Name>.anim.ron` next to it
   (`frame_time`, `interpolate`); of an item texture we take the first.
