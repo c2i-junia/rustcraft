@@ -30,7 +30,7 @@
 //! wood has the one the family writes. A file's recipe of another count than the family's is
 //! told (`Replaced`).
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
