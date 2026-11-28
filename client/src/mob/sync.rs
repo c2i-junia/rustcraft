@@ -365,8 +365,15 @@ pub fn setup_mob_animators(
         };
         let kind_animations = animations.of(mob.kind, &asset_server, &mut graphs);
         let graph = kind_animations.graph.clone();
-        let clip = clip_for(mob.kind, mob.action);
-        let node = kind_animations.nodes[&clip];
+        // the graph and the clip read the content apart: should a reload come between them,
+        // the graph's Idle, which every model has (`shared::content::mobs`)
+        let wanted = clip_for(mob.kind, mob.action);
+        let Some((clip, &node)) = [wanted, MobClip::Idle]
+            .into_iter()
+            .find_map(|clip| Some((clip, kind_animations.nodes.get(&clip)?)))
+        else {
+            continue;
+        };
 
         let mut transitions = AnimationTransitions::new();
         // The clips start through the transitions, which would be confused by a clip started
