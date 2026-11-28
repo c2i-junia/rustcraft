@@ -766,6 +766,14 @@ impl ServerMob {
 mod tests {
     use super::*;
 
+    /// `Content::mob` reads the numbers of a kind at its `index`, its place in `ALL`.
+    #[test]
+    fn the_index_of_a_kind_is_its_place_in_all() {
+        for (place, kind) in MobKind::ALL.into_iter().enumerate() {
+            assert_eq!(kind.index(), place, "{kind:?}");
+        }
+    }
+
     #[test]
     fn a_mob_takes_the_box_of_its_kind_on_its_feet_where_it_is_free() {
         let at = ServerMob::standing_at(MobKind::Sheep, 0.5, 10.0, 0.5);
