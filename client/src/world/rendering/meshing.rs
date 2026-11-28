@@ -1643,8 +1643,8 @@ mod tests {
         }
     }
 
-    /// The water around a plant of the sea comes after the plant in its shape: its faces are
-    /// still merged as the faces of the cube they are.
+    /// The faces of the water around a plant of the sea are merged as the faces of the cube they
+    /// are, whatever their place in its shape.
     #[test]
     fn a_plant_of_the_sea_out_of_the_water_draws_its_six_faces_of_water_merged_or_not() {
         for plant in [BlockId::Kelp, BlockId::Seagrass] {
