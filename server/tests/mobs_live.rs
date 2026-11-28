@@ -278,7 +278,7 @@ fn a_mob_edited_in_the_files_of_a_running_server_takes_its_new_numbers_after_a_r
     let joined = client.wait_for_content();
     assert_eq!(joined.mob(MobKind::Sheep).health, 8);
 
-    // 1. A sheep born from an egg two blocks ahead on the ground, of the numbers of the game
+    // 1. A sheep born from an egg on the ground two blocks ahead, of the numbers of the game
     client.chat("/give sheep_spawn_egg 2");
     assert_eq!(client.wait_for_chat(), "Gave 2 SheepSpawnEgg");
     let last_time_ms = 40;
@@ -296,26 +296,34 @@ fn a_mob_edited_in_the_files_of_a_running_server_takes_its_new_numbers_after_a_r
         }
         _ => None,
     });
-    let camera = Transform::from_translation(position)
+    // ahead for the first egg, behind for the second, so that the first sheep is not in its way
+    let ahead = Transform::from_translation(position)
         .looking_at(position + Vec3::new(0., -1.6, -2.), Vec3::Y);
+    let behind = Transform::from_translation(position)
+        .looking_at(position + Vec3::new(0., -1.6, 2.), Vec3::Y);
     let start = Instant::now();
-    while raycast::raycast(&client.world, &camera, &position, Default::default()).is_none() {
+    while [ahead, behind].iter().any(|camera| {
+        raycast::raycast(&client.world, camera, &position, Default::default()).is_none()
+    }) {
         assert!(start.elapsed() < WAIT_TIMEOUT, "the ground never arrived");
         client.pump();
     }
-    let hatch = |client: &mut TestClient, time_ms| {
+    // a frame with the button up, then one with it down: a held click places once
+    let hatch = |client: &mut TestClient, time_ms, camera: Transform| {
+        let frame = |time_ms, inputs| PlayerFrameInput {
+            time_ms,
+            delta_ms: 16,
+            inputs,
+            camera,
+            hotbar_slot: 0,
+            ..Default::default()
+        };
         client.send(ClientToServerMessage::PlayerInputs(vec![
-            PlayerFrameInput {
-                time_ms,
-                delta_ms: 16,
-                inputs: [NetworkAction::RightClick].into(),
-                camera,
-                hotbar_slot: 0,
-                ..Default::default()
-            },
+            frame(time_ms, Default::default()),
+            frame(time_ms + 1, [NetworkAction::RightClick].into()),
         ]));
     };
-    hatch(&mut client, last_time_ms + 1);
+    hatch(&mut client, last_time_ms + 1, ahead);
     let first = wait_for_sheep(&mut client, "a sheep born of the egg", |_, mob| {
         mob.height == 1.25
     });
@@ -363,8 +371,8 @@ fn a_mob_edited_in_the_files_of_a_running_server_takes_its_new_numbers_after_a_r
     );
     assert_eq!(sheep.max_health(), 30);
 
-    // 5. One born since has the new numbers too
-    hatch(&mut client, last_time_ms + 2);
+    // 5. One born since, two blocks behind, has the new numbers too
+    hatch(&mut client, last_time_ms + 3, behind);
     let born = wait_for_sheep(&mut client, "a second sheep born of the egg", |id, mob| {
         id != first && mob.height == 1.5
     });
