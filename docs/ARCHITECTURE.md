@@ -774,6 +774,17 @@ of the potions. The recipe view lists the distillations (`BrowserCard::Distillin
 
 ### Hostile mobs
 
+The numbers of every kind of mob are content: `data/content/rustcraft/mobs.ron` gives each kind
+of `MobKind` its health, size, walking speed, hunt and strike, experience, whether it is
+tameable and what it eats, its drops, and its model, the clips of the model, the lift of its box
+above the model and the folder of its sounds; they are read into `Content::mobs`
+(`shared/src/content/mobs.rs`), which the getters of `MobKind` read, and reloaded with the rest
+of the content: after `/reload` the mobs hunt, strike, walk and drop by the new numbers, a mob
+keeps the damage it took against its new health, and a mob keeps its box until it grows up, one
+born since takes the new size. What a kind is and does (`is_hostile`, `is_villager`,
+`inflicted_effect`, the AI of `server/src/mob/`) and the spawn rules stay Rust: a new kind is
+still an enum variant.
+
 The rules are shared (`shared/src/world/hostiles.rs`): `MobKind::hunt` (sight, forget distance,
 speed) and `strike` (damage, reach, cooldown, knock back), `is_prey` (a living survival player),
 `line_of_sight`, `is_dark`, `spawn_kind` and `pack_size`. `hostile_spawning_system`

@@ -55,17 +55,29 @@ pub struct MobAnimations(HashMap<MobKind, KindAnimations>);
 pub struct KindAnimations {
     pub graph: Handle<AnimationGraph>,
     pub nodes: HashMap<MobClip, AnimationNodeIndex>,
+    /// The model and the clips it was built from.
+    model: String,
+    clips: Vec<MobClip>,
 }
 
 impl MobAnimations {
+    /// The graph of `kind`, built when the first of its kind appears, and again when the content
+    /// gives it another model or other clips (`/reload`).
     pub fn of(
         &mut self,
         kind: MobKind,
         asset_server: &AssetServer,
         graphs: &mut Assets<AnimationGraph>,
     ) -> &KindAnimations {
+        let props = kind.props();
+        if self
+            .0
+            .get(&kind)
+            .is_some_and(|built| built.model != props.model || built.clips != props.clips)
+        {
+            self.0.remove(&kind);
+        }
         self.0.entry(kind).or_insert_with(|| {
-            let props = kind.props();
             let (graph, indices) =
                 AnimationGraph::from_clips((0..props.clips.len()).map(|index| {
                     asset_server
@@ -74,13 +86,10 @@ impl MobAnimations {
             KindAnimations {
                 graph: graphs.add(graph),
                 nodes: props.clips.iter().copied().zip(indices).collect(),
+                model: props.model.clone(),
+                clips: props.clips.clone(),
             }
         })
-    }
-
-    /// The graph of `kind`, once a mob of it appeared.
-    pub fn get(&self, kind: MobKind) -> Option<&KindAnimations> {
-        self.0.get(&kind)
     }
 }
 

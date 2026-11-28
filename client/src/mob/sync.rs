@@ -179,11 +179,13 @@ impl Mob {
     }
 }
 
-/// The animation player of a mob's model: the mob it belongs to, and the clip it plays.
+/// The animation player of a mob's model: the mob it belongs to, the clip it plays, and the
+/// nodes of the clips of its graph, which a reload of the content does not change.
 #[derive(Component)]
 pub struct MobAnimator {
     mob: Entity,
     playing: MobClip,
+    nodes: HashMap<MobClip, AnimationNodeIndex>,
 }
 
 pub fn apply_mob_updates(
@@ -379,6 +381,7 @@ pub fn setup_mob_animators(
             MobAnimator {
                 mob: mob_entity,
                 playing: clip,
+                nodes: kind_animations.nodes.clone(),
             },
         ));
     }
@@ -392,7 +395,6 @@ pub fn play_mob_clips(
         &mut AnimationTransitions,
     )>,
     mobs: Query<&Mob>,
-    animations: Res<MobAnimations>,
 ) {
     for (mut animator, mut player, mut transitions) in &mut animators {
         let Ok(mob) = mobs.get(animator.mob) else {
@@ -402,10 +404,11 @@ pub fn play_mob_clips(
         if clip == animator.playing {
             continue;
         }
-        let Some(kind_animations) = animations.get(mob.kind) else {
+        // a clip its model lacked before a reload stays unplayed until the model is drawn anew
+        let Some(&node) = animator.nodes.get(&clip) else {
             continue;
         };
-        let active = transitions.play(&mut player, kind_animations.nodes[&clip], CLIP_TRANSITION);
+        let active = transitions.play(&mut player, node, CLIP_TRANSITION);
         if !clip.plays_once() {
             active.repeat();
         }
