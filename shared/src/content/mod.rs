@@ -12,6 +12,7 @@ mod families;
 mod files;
 mod items;
 mod look;
+mod mobs;
 mod recipes;
 
 pub(crate) use blocks::tool_bit;
@@ -20,6 +21,7 @@ pub use families::Replaced;
 pub use files::{ContentError, NewName};
 pub use items::{DisplayName, ItemProps};
 pub use look::{Behaviour, BlockFlags, Look, Shape, Sway, Tint};
+pub use mobs::{mob_name, MobClip, MobProps};
 pub use recipes::{Crafting, Recipe, Tag};
 
 use serde::{Deserialize, Serialize};
@@ -28,7 +30,7 @@ use std::ptr;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::{Mutex, PoisonError};
 
-use crate::world::{BlockId, ItemId};
+use crate::world::{BlockId, ItemId, MobKind};
 
 /// The properties of every block and every item, by their number. The server sends it whole to
 /// its clients (`ServerToClientMessage::Content`).
@@ -62,6 +64,8 @@ pub struct Content {
     pub item_aliases: std::collections::BTreeMap<String, ItemId>,
     /// The recipes, what a furnace smelts and burns, and the families of items they take.
     pub crafting: Crafting,
+    /// By `MobKind::index`: the numbers of each kind of mob, in the order of `MobKind::ALL`.
+    pub mobs: Vec<MobProps>,
 }
 
 impl Content {
@@ -102,6 +106,9 @@ impl Content {
         }
         if self.items.len() < ItemId::ENGINE.len() {
             return Some("not one entry per item of the engine".to_string());
+        }
+        if self.mobs.len() != MobKind::ALL.len() {
+            return Some("not one entry per kind of mob".to_string());
         }
         (self.item_names.len() != self.items.len() || self.item_idents.len() != self.items.len())
             .then(|| {
@@ -180,6 +187,12 @@ impl Content {
         self.items
             .get(id.index())
             .unwrap_or(&ItemProps::PLACEHOLDER)
+    }
+
+    /// The numbers of the kind of mob `kind`.
+    #[inline]
+    pub fn mob(&self, kind: MobKind) -> &MobProps {
+        &self.mobs[kind.index()]
     }
 
     /// The item named `name`, as the files name it, or by one of its aliases.

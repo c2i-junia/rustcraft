@@ -109,6 +109,12 @@ impl MobKind {
         MobKind::ThrownPotion,
     ];
 
+    /// The place of this kind in `ALL`, and of its numbers in `Content::mobs`.
+    #[inline]
+    pub fn index(self) -> usize {
+        self as usize
+    }
+
     /// Whether mobs of this kind hunt the players (`crate::world::hostiles`), and appear in the
     /// dark rather than with the chunks.
     pub fn is_hostile(self) -> bool {

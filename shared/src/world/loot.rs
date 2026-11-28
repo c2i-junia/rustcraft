@@ -2,11 +2,12 @@
 //! Codex and the wiki show it from the same lines.
 
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 
 use super::{ItemId, MobKind};
 
 /// How many of an item a line of loot gives.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum LootCount {
     /// From `min` to `max`, each as likely.
     Range(u32, u32),
@@ -17,8 +18,9 @@ pub enum LootCount {
 }
 
 /// When a line of loot is rolled at all.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum LootWhen {
+    #[default]
     Always,
     /// Unless the sheep was sheared.
     NotSheared,
@@ -29,7 +31,7 @@ pub enum LootWhen {
 }
 
 /// A line of loot.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Loot {
     pub item: ItemId,
     pub count: LootCount,

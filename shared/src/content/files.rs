@@ -33,6 +33,7 @@ use serde::de::{self, Deserializer, MapAccess, Visitor};
 use serde::Deserialize;
 
 use super::families::{FamilyDef, Replaced, Texts};
+use super::mobs::MobDef;
 use super::recipes::{CraftingDefs, FuelDef, RecipeDef, TagDef};
 use super::{
     tool_bit, Behaviour, BlockFlags, BlockProps, Content, Crafting, DisplayName, ItemProps, Look,
@@ -208,6 +209,7 @@ impl Content {
 
         let (paths, files): (Vec<PathBuf>, Vec<ContentFile>) = files.into_iter().unzip();
         let mut crafting_defs = Vec::with_capacity(files.len());
+        let mut mob_defs = Vec::with_capacity(files.len());
         let mut blocks: Vec<Option<(BlockProps, &Path)>> = vec![None; block_names.len()];
         let mut items: Vec<Option<(ItemProps, &Path)>> = vec![None; item_names.len()];
         // the names to show, by item; that of a block serves its item
@@ -227,6 +229,7 @@ impl Content {
                     fuel: defs.fuel,
                 },
             ));
+            mob_defs.push((file.as_path(), defs.mobs));
             for (name, mut def) in defs.blocks.0 {
                 let id = names.block("name", &name).map_err(&fail)?;
                 if let Some(display) = def.name.take() {
@@ -288,6 +291,7 @@ impl Content {
             }
         }
         let crafting = Crafting::build(crafting_defs, folder, &names, &item_props)?;
+        let mobs = super::mobs::build(mob_defs, folder, &names, &item_props)?;
         let debug = blocks[BlockId::Debug.index()]
             .as_ref()
             .map(|(props, _)| BlockProps::placeholder(props))
@@ -307,6 +311,7 @@ impl Content {
             block_aliases,
             item_aliases,
             crafting,
+            mobs,
         };
         Ok((content, new_names, replaced))
     }
@@ -321,6 +326,7 @@ impl Content {
             && self.block_aliases == other.block_aliases
             && self.item_aliases == other.item_aliases
             && self.crafting == other.crafting
+            && self.mobs == other.mobs
     }
 
     /// Whether the chunks are drawn alike with `other`: no block changes the properties the
@@ -621,6 +627,9 @@ pub(super) struct ContentFile {
     /// Definitions written once for each member of a list (`families`).
     #[serde(default)]
     pub families: Vec<FamilyDef>,
+    /// The kinds of mobs, by name (`mobs`).
+    #[serde(default)]
+    pub mobs: Named<MobDef>,
 }
 
 /// What a block of the palette is (`Palette`), its base and its item named as in the files.

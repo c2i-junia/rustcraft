@@ -74,7 +74,8 @@ impl Difficulty {
 
 /// How a hostile hunts: how far it sees a prey from, how far it follows one before it forgets
 /// it, and how fast it goes at it, in blocks and blocks per second.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Hunt {
     pub sight: f32,
     pub forget: f32,
@@ -84,7 +85,8 @@ pub struct Hunt {
 /// How a hostile strikes: the points of health it takes, how near the player's box its centre
 /// must be, the ticks before it strikes again, and the knock back of the blow in blocks per
 /// second (none at 0).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Strike {
     pub damage: u32,
     pub reach: f32,

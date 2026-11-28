@@ -5,23 +5,7 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 use shared::world::{Coat, MobAction, MobKind};
 
-/// What a mob looks like it does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum MobClip {
-    Idle,
-    Walk,
-    Run,
-    Eat,
-    /// A strike, played once.
-    Attack,
-}
-
-impl MobClip {
-    /// Whether the clip plays once rather than over and over.
-    pub fn plays_once(self) -> bool {
-        self == MobClip::Attack
-    }
-}
+pub use shared::content::MobClip;
 
 /// The model of a kind of mob.
 pub struct MobModel {
@@ -234,5 +218,27 @@ mod tests {
             assert_eq!(model_lift(kind), 0.0, "{kind:?}");
         }
         assert!(!MobClip::Walk.plays_once());
+    }
+
+    #[test]
+    fn the_models_of_the_files_are_those_of_the_code() {
+        for kind in MobKind::ALL {
+            let mob = shared::content::content().mob(kind);
+            let model = model(kind);
+            assert_eq!(mob.model, model.path, "{kind:?}");
+            let clips: Vec<MobClip> = model.clips.iter().map(|&(clip, _)| clip).collect();
+            assert_eq!(mob.clips, clips, "{kind:?}");
+            assert!(model
+                .clips
+                .iter()
+                .enumerate()
+                .all(|(i, &(_, index))| i == index));
+            assert_eq!(mob.lift, model_lift(kind), "{kind:?}");
+            assert_eq!(
+                mob.sounds,
+                crate::audio::sounds::creature_folder(kind),
+                "{kind:?}"
+            );
+        }
     }
 }

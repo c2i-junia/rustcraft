@@ -248,7 +248,7 @@ impl CreatureCall {
 }
 
 /// The folder of the sounds of `kind` in `sounds/mob/`.
-fn creature_folder(kind: MobKind) -> &'static str {
+pub(crate) fn creature_folder(kind: MobKind) -> &'static str {
     match kind {
         MobKind::Fox => "fox",
         MobKind::Sheep => "sheep",

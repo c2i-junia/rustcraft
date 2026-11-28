@@ -1,8 +1,18 @@
-// Blocks and items of the base game, named as the commands name them. Every `*.ron` of this
-// folder is read at start, and again once one is saved (or on `/reload`), by the server, which
-// sends the content to its players; a set of files with an error changes nothing, and the error
-// goes to the log and to the chat. The fields, and their defaults, are those of `BlockDef` and
-// `ItemDef` in `shared/src/content/files.rs`. A block or an item is defined in one file only.
+// The spawn eggs, and the kinds of mobs: their numbers, how they are drawn and heard. Every
+// `*.ron` of this folder is read at start, and again once one is saved (or on `/reload`), by the
+// server, which sends the content to its players; a set of files with an error changes nothing,
+// and the error goes to the log and to the chat. The fields of an item are those of `ItemDef`
+// in `shared/src/content/files.rs`, those of a mob those of `MobDef` in
+// `shared/src/content/mobs.rs`. Every kind of `MobKind` has its entry, and only those: a new
+// kind is a change to the Rust code, which gives it its behaviour.
+//
+// A mob: `health` in points; `size` the width, height and depth of its box, in blocks;
+// `walk_speed` in blocks/s; `hunt` (blocks, blocks, blocks/s) and `strike` (points, blocks,
+// ticks, blocks/s) for a hostile; the points of `experience` it leaves; whether it is
+// `tameable` by feeding it what it `eats`; the lines of its `drops`, one item by default; its
+// `model` and the `clips` of the model in the order of its animations (the exporter sorts them
+// by name); the `lift` of the bottom of its box above the origin of its model, in metres; the
+// folder of its `sounds` in `sounds/mob/`.
 (
     items: {
         "fox_spawn_egg": (spawned_mob: Fox, category: Mobs),
@@ -32,5 +42,447 @@
         "slagcrawler_spawn_egg": (spawned_mob: Slagcrawler, category: Mobs),
         "donkey_spawn_egg": (spawned_mob: Donkey, category: Mobs),
         "mule_spawn_egg": (spawned_mob: Mule, category: Mobs),
+    },
+    mobs: {
+        "fox": (
+            health: 10,
+            size: (0.7, 0.7, 0.7),
+            walk_speed: 1.6,
+            eats: ["berries"],
+            model: "models/animated/Fox.glb",
+            clips: [Idle, Run, Walk],
+            sounds: "fox",
+        ),
+        "sheep": (
+            health: 8,
+            size: (0.9, 1.25, 0.9),
+            walk_speed: 1.0,
+            eats: ["rye"],
+            drops: [
+                (item: "raw_mutton", count: Range(1, 2)),
+                (item: "wool", when: NotSheared),
+            ],
+            model: "models/animated/Sheep.glb",
+            clips: [Eat, Idle, Walk],
+            sounds: "sheep",
+        ),
+        "cow": (
+            health: 12,
+            size: (0.9, 1.4, 0.9),
+            walk_speed: 1.0,
+            eats: ["rye"],
+            drops: [
+                (item: "raw_beef", count: Range(1, 3)),
+                (item: "leather", count: Range(0, 2)),
+            ],
+            model: "models/animated/Cow.glb",
+            clips: [Eat, Idle, Run, Walk],
+            sounds: "cow",
+        ),
+        "pig": (
+            health: 10,
+            size: (0.9, 0.9, 0.9),
+            walk_speed: 1.0,
+            eats: ["carrot", "potato"],
+            drops: [
+                (item: "raw_pork", count: Range(1, 3)),
+            ],
+            model: "models/animated/Pig.glb",
+            clips: [Eat, Idle, Run, Walk],
+            sounds: "pig",
+        ),
+        "chicken": (
+            health: 4,
+            size: (0.5, 0.8, 0.5),
+            walk_speed: 1.0,
+            eats: ["rye"],
+            drops: [
+                (item: "raw_chicken"),
+                (item: "feather", count: Range(0, 2)),
+            ],
+            model: "models/animated/Chicken.glb",
+            clips: [Eat, Idle, Run, Walk],
+            sounds: "chicken",
+        ),
+        "rabbit": (
+            health: 4,
+            size: (0.4, 0.6, 0.4),
+            walk_speed: 1.6,
+            eats: ["carrot"],
+            drops: [
+                (item: "raw_rabbit"),
+            ],
+            model: "models/animated/Rabbit.glb",
+            clips: [Eat, Idle, Run, Walk],
+            sounds: "rabbit",
+        ),
+        "wolf": (
+            health: 16,
+            size: (0.7, 0.95, 0.7),
+            walk_speed: 1.6,
+            tameable: true,
+            eats: [
+                "raw_mutton", "roast_mutton", "raw_pork", "roast_pork", "raw_beef", "roast_beef",
+                "raw_chicken", "roast_chicken", "raw_rabbit", "roast_rabbit",
+            ],
+            model: "models/animated/Wolf.glb",
+            clips: [Idle, Run, Walk],
+            sounds: "wolf",
+        ),
+        "horse": (
+            health: 16,
+            size: (1.2, 1.7, 1.2),
+            walk_speed: 1.5,
+            tameable: true,
+            eats: ["rye", "carrot", "apple"],
+            drops: [
+                (item: "leather", count: Range(0, 2)),
+                (item: "saddle", when: Saddled),
+            ],
+            model: "models/animated/Horse.glb",
+            clips: [Eat, Idle, Run, Walk],
+            sounds: "horse",
+        ),
+        "goat": (
+            health: 10,
+            size: (0.9, 1.3, 0.9),
+            walk_speed: 1.2,
+            eats: ["rye"],
+            model: "models/animated/Goat.glb",
+            clips: [Eat, Idle, Run, Walk],
+            sounds: "goat",
+        ),
+        "cat": (
+            health: 10,
+            size: (0.6, 0.7, 0.6),
+            walk_speed: 1.6,
+            tameable: true,
+            eats: ["raw_chicken", "raw_rabbit"],
+            model: "models/animated/Cat.glb",
+            clips: [Idle, Run, Walk],
+            sounds: "cat",
+        ),
+        "gnawer": (
+            health: 6,
+            // The models of `scripts/generate_hostiles.py`: the Gnawer is 0.375 wide and 0.625 tall
+            // (its ears), the spec's 0.6 wide
+            size: (0.6, 0.6, 0.6),
+            walk_speed: 1.4,
+            hunt: (sight: 16.0, forget: 24.0, speed: 2.8),
+            strike: (damage: 2, reach: 1.0, cooldown: 15, knock_back: 0.0),
+            experience: 3,
+            // A part of the creature, which distils into strength (`alchemy`)
+            drops: [
+                (item: "gnawer_fang", count: Odds(1, 2)),
+            ],
+            model: "models/animated/Gnawer.glb",
+            clips: [Attack, Idle, Walk],
+            sounds: "gnawer",
+        ),
+        "bramble": (
+            health: 12,
+            // 1.0 × 0.75
+            size: (1.0, 0.75, 1.0),
+            walk_speed: 0.0,
+            // It never moves: it bites who comes within reach
+            hunt: (sight: 2.5, forget: 2.5, speed: 0.0),
+            strike: (damage: 3, reach: 2.5, cooldown: 20, knock_back: 0.0),
+            experience: 4,
+            drops: [
+                (item: "stick", count: Range(1, 3)),
+            ],
+            model: "models/animated/Bramble.glb",
+            clips: [Attack, Idle, Walk],
+            sounds: "bramble",
+        ),
+        "roller": (
+            health: 16,
+            // 0.75 × 0.75
+            size: (0.75, 0.75, 0.75),
+            walk_speed: 0.0,
+            hunt: (sight: 12.0, forget: 24.0, speed: 7.0),
+            // Its roll hits what its box touches
+            strike: (damage: 4, reach: 0.0, cooldown: 0, knock_back: 8.0),
+            experience: 5,
+            drops: [
+                (item: "cobblestone", count: Range(1, 2)),
+                (item: "flint", count: Odds(1, 5)),
+            ],
+            model: "models/animated/Roller.glb",
+            clips: [Attack, Idle, Walk],
+            sounds: "roller",
+        ),
+        "stumpling": (
+            health: 24,
+            // 1.125 wide with its arms, 2.06 tall: its box fits the two free cells of a spawn
+            size: (0.9, 1.95, 0.9),
+            walk_speed: 0.8,
+            hunt: (sight: 16.0, forget: 24.0, speed: 1.2),
+            strike: (damage: 3, reach: 1.2, cooldown: 20, knock_back: 0.0),
+            experience: 5,
+            drops: [
+                (item: "stick", count: Range(2, 4)),
+                (item: "charcoal", count: Chance(0.3)),
+            ],
+            model: "models/animated/Stumpling.glb",
+            clips: [Attack, Idle, Walk],
+            sounds: "stumpling",
+        ),
+        "drowner": (
+            health: 18,
+            // 1.0 wide with its arms, 1.56 tall
+            size: (0.8, 1.5, 0.8),
+            walk_speed: 0.8,
+            // Its speed in water: it walks at 0.8 on land, only back to the water
+            hunt: (sight: 16.0, forget: 24.0, speed: 3.0),
+            // Its grab also drags the player down (`Player::drag`)
+            strike: (damage: 2, reach: 1.5, cooldown: 20, knock_back: 0.0),
+            experience: 6,
+            model: "models/animated/Drowner.glb",
+            clips: [Attack, Idle, Walk],
+            sounds: "drowner",
+        ),
+        "cinderling": (
+            health: 10,
+            // Its body 0.625 wide (1.125 with its orbiting embers), 1.75 tall with its flame
+            size: (0.7, 1.6, 0.7),
+            walk_speed: 0.0,
+            // It hovers and keeps its distance (`hostile::hover_and_throw`)
+            hunt: (sight: 16.0, forget: 24.0, speed: 2.0),
+            // Its ember, thrown as far as it reaches, sets the player burning too
+            strike: (damage: 1, reach: 16.0, cooldown: 60, knock_back: 0.0),
+            experience: 6,
+            drops: [
+                (item: "coal", count: Range(1, 2)),
+                (item: "flint", count: Odds(1, 10)),
+            ],
+            model: "models/animated/Cinderling.glb",
+            clips: [Attack, Idle, Walk],
+            sounds: "cinderling",
+        ),
+        "ember": (
+            // Never struck
+            health: 1,
+            // 2 voxels, 0.125
+            size: (0.25, 0.25, 0.25),
+            walk_speed: 0.0,
+            model: "models/animated/Ember.glb",
+            // Its three clips are one spin
+            clips: [Attack, Idle, Walk],
+            sounds: "ember",
+        ),
+        "gust_owl": (
+            health: 14,
+            // 2.5 wide with its wings spread; from its talons, 0.4375 above the origin of its model
+            // (`lift`), to the top of its head, 1.875
+            size: (0.7, 1.45, 0.7),
+            walk_speed: 0.0,
+            // Its speed as it circles 8 blocks over its prey (`hostile::circle_and_dive`)
+            hunt: (sight: 24.0, forget: 32.0, speed: 4.0),
+            // Its dive: the cooldown is the circling between two dives
+            strike: (damage: 2, reach: 0.5, cooldown: 60, knock_back: 8.0),
+            experience: 6,
+            drops: [
+                (item: "feather", count: Range(1, 3)),
+            ],
+            // Its talons are 7 voxels up
+            lift: 0.4375,
+            model: "models/animated/GustOwl.glb",
+            clips: [Attack, Idle, Walk],
+            sounds: "gust_owl",
+        ),
+        "arrow": (
+            // Never struck
+            health: 1,
+            // Its shaft is 14 voxels long, 1 thick: it is hit as a point grown a little
+            size: (0.25, 0.25, 0.25),
+            walk_speed: 0.0,
+            model: "models/animated/Arrow.glb",
+            // Its three clips stand still
+            clips: [Attack, Idle, Walk],
+            sounds: "arrow",
+        ),
+        "farmer": (
+            health: 20,
+            // The models of `scripts/generate_villagers.py`, 1.0 wide with their hands, 1.56 tall
+            // without a hat
+            size: (0.7, 1.6, 0.7),
+            walk_speed: 1.5,
+            model: "models/animated/Farmer.glb",
+            clips: [Idle, Walk],
+            sounds: "farmer",
+        ),
+        "smith": (
+            health: 20,
+            size: (0.7, 1.6, 0.7),
+            walk_speed: 1.5,
+            model: "models/animated/Smith.glb",
+            clips: [Idle, Walk],
+            sounds: "smith",
+        ),
+        "cartographer": (
+            health: 20,
+            size: (0.7, 1.6, 0.7),
+            walk_speed: 1.5,
+            model: "models/animated/Cartographer.glb",
+            clips: [Idle, Walk],
+            sounds: "cartographer",
+        ),
+        "ember_mother": (
+            // Alone against her; more with the players (`ServerMob::extra_health`)
+            health: 200,
+            // Her body 1.5 wide, 3.1 tall with her crown of flames
+            size: (1.9, 3.0, 1.9),
+            walk_speed: 0.0,
+            // In her lair only: `mob::boss` finds her prey
+            hunt: (sight: 36.0, forget: 36.0, speed: 3.0),
+            // Her blow up close
+            strike: (damage: 7, reach: 2.4, cooldown: 30, knock_back: 8.0),
+            experience: 500,
+            drops: [
+                (item: "ember_heart"),
+            ],
+            model: "models/animated/EmberMother.glb",
+            clips: [Attack, Idle, Walk],
+            sounds: "ember_mother",
+        ),
+        "boat": (
+            // A few blows break it
+            health: 4,
+            // The hull of `scripts/generate_boat.py`, 1.25 wide and 2 long, 0.5 high
+            size: (1.4, 0.6, 1.4),
+            walk_speed: 0.0,
+            // It breaks into the item it was put down from
+            drops: [
+                (item: "boat"),
+            ],
+            model: "models/animated/Boat.glb",
+            // `scripts/generate_boat.py`: its three clips stand still
+            clips: [Attack, Idle, Walk],
+            sounds: "boat",
+        ),
+        "bobber": (
+            // Never struck
+            health: 1,
+            // `scripts/generate_bobber.py`: 4 voxels wide, 6 tall
+            size: (0.25, 0.375, 0.25),
+            walk_speed: 0.0,
+            model: "models/animated/Bobber.glb",
+            // `scripts/generate_bobber.py`: it bobs, and plunges at a bite
+            clips: [Attack, Idle, Walk],
+            sounds: "bobber",
+        ),
+        "glintfin": (
+            health: 3,
+            // The models of `scripts/generate_caverns.py`
+            size: (0.4, 0.35, 0.4),
+            // They swim (`swim::act`)
+            walk_speed: 0.0,
+            experience: 1,
+            // The fish of the seas give those of the rods (`world::fishing`)
+            drops: [
+                (item: "raw_glowfin", count: Odds(1, 4)),
+                (item: "raw_roach", when: Otherwise),
+            ],
+            model: "models/animated/Glintfin.glb",
+            clips: [Attack, Idle, Walk],
+            sounds: "glintfin",
+        ),
+        "shoalback": (
+            health: 3,
+            size: (0.5, 0.35, 0.5),
+            // They swim (`swim::act`)
+            walk_speed: 0.0,
+            experience: 1,
+            drops: [
+                (item: "raw_perch"),
+            ],
+            model: "models/animated/Shoalback.glb",
+            clips: [Attack, Idle, Walk],
+            sounds: "shoalback",
+        ),
+        "mossback": (
+            health: 14,
+            size: (0.9, 0.7, 0.9),
+            walk_speed: 0.7,
+            experience: 2,
+            drops: [
+                (item: "moss", count: Range(1, 2)),
+                (item: "leather", count: Odds(1, 3)),
+            ],
+            model: "models/animated/Mossback.glb",
+            clips: [Attack, Idle, Walk],
+            sounds: "mossback",
+        ),
+        "shardling": (
+            health: 12,
+            size: (0.8, 0.6, 0.8),
+            walk_speed: 1.4,
+            hunt: (sight: 12.0, forget: 20.0, speed: 2.2),
+            // Its claws of crystal
+            strike: (damage: 3, reach: 1.1, cooldown: 20, knock_back: 4.0),
+            experience: 5,
+            drops: [
+                (item: "crystal_shard", count: Range(1, 3)),
+            ],
+            model: "models/animated/Shardling.glb",
+            clips: [Attack, Idle, Walk],
+            sounds: "shardling",
+        ),
+        "slagcrawler": (
+            health: 14,
+            size: (0.9, 0.6, 0.9),
+            walk_speed: 1.4,
+            hunt: (sight: 14.0, forget: 22.0, speed: 2.4),
+            // Its bite also sets the player burning (`MobKind::inflicted_effect`)
+            strike: (damage: 2, reach: 1.2, cooldown: 20, knock_back: 0.0),
+            experience: 6,
+            drops: [
+                (item: "coal", count: Range(0, 2)),
+                (item: "magma", count: Odds(1, 4)),
+            ],
+            model: "models/animated/Slagcrawler.glb",
+            clips: [Attack, Idle, Walk],
+            sounds: "slagcrawler",
+        ),
+        "donkey": (
+            health: 15,
+            // `scripts/generate_animals.py`: a smaller horse, the mule between the two
+            size: (1.0, 1.4, 1.0),
+            walk_speed: 1.3,
+            tameable: true,
+            eats: ["rye", "carrot", "apple"],
+            drops: [
+                (item: "leather", count: Range(0, 2)),
+                (item: "saddle", when: Saddled),
+            ],
+            model: "models/animated/Donkey.glb",
+            clips: [Eat, Idle, Run, Walk],
+            sounds: "donkey",
+        ),
+        "mule": (
+            health: 18,
+            size: (1.1, 1.55, 1.1),
+            walk_speed: 1.3,
+            tameable: true,
+            eats: ["rye", "carrot", "apple"],
+            drops: [
+                (item: "leather", count: Range(0, 2)),
+                (item: "saddle", when: Saddled),
+            ],
+            model: "models/animated/Mule.glb",
+            clips: [Eat, Idle, Run, Walk],
+            sounds: "mule",
+        ),
+        "thrown_potion": (
+            // Never struck
+            health: 1,
+            size: (0.25, 0.25, 0.25),
+            walk_speed: 0.0,
+            model: "models/animated/ThrownPotion.glb",
+            // `scripts/generate_thrown_potion.py`: it tumbles as it flies
+            clips: [Attack, Idle, Walk],
+            sounds: "thrown_potion",
+        ),
     },
 )
