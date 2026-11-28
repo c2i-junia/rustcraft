@@ -25,9 +25,10 @@
 //! names: no block, item, recipe, smelting or fuel of that name is made. A block or an item a
 //! file writes out under the name a family gives it, or under one of its `aliases`, is the
 //! file's: the family's is dropped, as for a member whose block is not like the others (the oak
-//! door is `door`), while its recipes stay. A recipe a file writes out the same (the same
-//! output, count and cells, whatever letters stand for them) is the file's too: the oak planks
-//! recipe stays where `crafting.ron` has it, and a new wood has the one the family writes.
+//! door is `door`), while its recipes stay. A recipe a file writes out with the same output and cells (whatever letters stand for
+//! them) is the file's too: the oak planks recipe stays where `crafting.ron` has it, and a new
+//! wood has the one the family writes. A file's recipe of another count than the family's is
+//! told (`Replaced`).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
@@ -133,12 +134,12 @@ struct Written {
     /// Each name and alias, with the file that writes it out.
     blocks: HashMap<String, PathBuf>,
     items: HashMap<String, PathBuf>,
-    /// The recipes, as `shape` reads them.
-    recipes: HashSet<String>,
+    /// The recipes, as `shape` reads them, with their counts and the file that writes them.
+    recipes: HashMap<String, (u32, PathBuf)>,
 }
 
-/// What a recipe makes and from what, whatever letters its pattern is written with: two
-/// recipes of the same shape are one.
+/// What a recipe makes and from what, whatever its count and the letters its pattern is
+/// written with: two recipes of the same shape are one.
 fn shape(recipe: &RecipeDef) -> String {
     let cell = |c: char| {
         recipe
@@ -157,10 +158,7 @@ fn shape(recipe: &RecipeDef) -> String {
     if let Some(items) = &mut shapeless {
         items.sort();
     }
-    format!(
-        "{:?}",
-        (&recipe.out, recipe.count.unwrap_or(1), pattern, shapeless)
-    )
+    format!("{:?}", (&recipe.out, pattern, shapeless))
 }
 
 impl Written {
@@ -168,13 +166,18 @@ impl Written {
         let mut written = Self {
             blocks: HashMap::new(),
             items: HashMap::new(),
-            recipes: HashSet::new(),
+            recipes: HashMap::new(),
         };
         for (path, file) in files {
             let insert = |names: &mut HashMap<String, PathBuf>, name: &String| {
                 names.insert(name.clone(), path.clone());
             };
-            written.recipes.extend(file.recipes.iter().map(shape));
+            for recipe in &file.recipes {
+                written
+                    .recipes
+                    .entry(shape(recipe))
+                    .or_insert((recipe.count.unwrap_or(1), path.clone()));
+            }
             for (name, def) in &file.blocks.0 {
                 insert(&mut written.blocks, name);
                 // the alias of a block also names its item
@@ -199,7 +202,7 @@ impl Written {
 /// replaces a whole definition silently.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Replaced {
-    /// "block" or "item".
+    /// "block", "item" or "recipe" (of the same cells as the file's, with another count).
     pub kind: &'static str,
     pub name: String,
     /// The file of the family.
@@ -329,9 +332,22 @@ fn expand_family(
         }
         for def in &family.recipes {
             let recipe = member.write_all(def).map_err(context("recipe".into()))?;
-            // a recipe a file writes out the same is kept where the file has it
-            if !skip(&recipe.out) && !written.recipes.contains(&shape(&recipe)) {
-                file.recipes.push(recipe);
+            if skip(&recipe.out) {
+                continue;
+            }
+            // a recipe a file writes out with the same cells is the file's, kept where it is
+            match written.recipes.get(&shape(&recipe)) {
+                Some((count, by)) => {
+                    if *count != recipe.count.unwrap_or(1) {
+                        replaced.push(Replaced {
+                            kind: "recipe",
+                            name: recipe.out,
+                            family: path.to_path_buf(),
+                            file: by.clone(),
+                        });
+                    }
+                }
+                None => file.recipes.push(recipe),
             }
         }
         for (input, output) in &family.smelting {
@@ -539,6 +555,44 @@ mod tests {
         // the oak's pieces the palette writes out are told too, and nothing of the other woods
         assert!(replaced.iter().any(|r| r.name == "oak_slab"));
         assert!(!replaced.iter().any(|r| r.name.contains("spruce")));
+    }
+
+    #[test]
+    fn a_recipe_a_file_writes_out_with_the_same_cells_is_the_files_and_told_if_the_count_differs() {
+        let folder = game_folder_with(
+            r#"(
+                recipes: [
+                    (out: "amber_brick", count: 2, pattern: ["A"], key: {'A': "dirt"}),
+                    (out: "jade_brick", count: 4, pattern: ["J"], key: {'J': "dirt"}),
+                ],
+                families: [(
+                    each: {"g": ["amber", "jade"]},
+                    items: {"{g}_brick": ()},
+                    recipes: [(out: "{g}_brick", count: 4, pattern: ["D"], key: {'D': "dirt"})],
+                )],
+            )"#,
+        );
+        let (content, _, replaced) = Content::load_telling(folder.path(), None).unwrap();
+        let told: Vec<String> = replaced
+            .iter()
+            .map(ToString::to_string)
+            .filter(|told| told.starts_with("recipe"))
+            .collect();
+        // only the amber's count differs from the family's
+        assert_eq!(
+            told,
+            ["recipe \"amber_brick\" of a family in extra.ron is replaced by the one extra.ron writes out"]
+        );
+        let dirt = Some(Ingredient::Item(ItemId::Dirt));
+        let made: Vec<_> = content
+            .crafting
+            .recipes
+            .iter()
+            .filter(|recipe| recipe.cells == [dirt])
+            .map(|recipe| (recipe.output, recipe.nb))
+            .collect();
+        let item = |name| content.item_named(name).unwrap();
+        assert_eq!(made, [(item("amber_brick"), 2), (item("jade_brick"), 4)]);
     }
 
     #[test]
