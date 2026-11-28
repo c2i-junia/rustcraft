@@ -11,12 +11,14 @@ use bevy::prelude::*;
 use bevy_renet::RenetServer;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use shared::content::{content, install, tell_new_names, tell_replaced, Content};
-use shared::messages::{FullChatMessage, ServerToClientMessage};
+use shared::messages::{FullChatMessage, PlayerId, ServerToClientMessage};
 use shared::utils::unix_time_ms;
-use shared::{ContentSource, GameFolderPaths};
+use shared::{ContentSource, GameFolderPaths, GameServerConfig};
 
 use crate::init::ServerLobby;
 use crate::network::commands::SERVER_AUTHOR;
+use crate::network::extensions::SendGameMessageExtension;
+use crate::network::permissions::Permissions;
 use crate::world::weather::send_to_players;
 
 /// How long the files must stay unchanged before they are read: an editor writes a file in
@@ -163,12 +165,36 @@ fn install_if_new(new: Content) -> bool {
     true
 }
 
+/// The players of `lobby` who may run the commands of the operators: those told what is wrong
+/// in a content file, whose errors name the paths of the server.
+fn operators<'a>(
+    lobby: &'a ServerLobby,
+    permissions: &'a Permissions,
+    is_solo: bool,
+) -> impl Iterator<Item = PlayerId> + 'a {
+    lobby
+        .players
+        .iter()
+        .filter(move |(_, player)| permissions.may_run(&player.name, player.account, is_solo))
+        .map(|(id, _)| *id)
+}
+
+/// A chat message of the server.
+fn server_chat(content: String) -> ServerToClientMessage {
+    ServerToClientMessage::ChatMessage(FullChatMessage {
+        author: SERVER_AUTHOR.to_string(),
+        content,
+        timestamp: unix_time_ms(),
+    })
+}
+
 /// Reads the content files once they are due, installs them and sends them to every player.
-/// Tells the players how it went, and above all what is wrong in a file.
+/// Tells the players how it went, and the operators alone what is wrong in a file.
 pub fn reload_content_system(
     files: Option<ResMut<ContentFiles>>,
     mut server: ResMut<RenetServer>,
     lobby: Res<ServerLobby>,
+    (permissions, config): (Res<Permissions>, Res<GameServerConfig>),
 ) {
     let Some(mut files) = files else {
         return;
@@ -177,45 +203,42 @@ pub fn reload_content_system(
         return;
     }
     let mut told = Vec::new();
-    let answer = match Content::load_telling(&files.folder, Some(content())) {
+    match Content::load_telling(&files.folder, Some(content())) {
         Ok((new, new_names, replaced)) => {
             tell_new_names(&new_names);
             tell_replaced(&replaced);
             told = new_names.iter().map(ToString::to_string).collect();
-            if install_if_new(new) {
+            let answer = if install_if_new(new) {
                 info!("Content files reloaded");
                 send_to_players(
                     &mut server,
                     &lobby,
                     ServerToClientMessage::Content(content().clone()),
                 );
-                "Content files reloaded".to_string()
+                "Content files reloaded"
             } else {
-                "The content files changed nothing".to_string()
-            }
+                "The content files changed nothing"
+            };
+            told.insert(0, answer.to_string());
         }
         Err(err) => {
             error!("The content files are not reloaded: {err}");
-            format!("Content files not reloaded: {err}")
+            let message = server_chat(format!("Content files not reloaded: {err}"));
+            for id in operators(&lobby, &permissions, config.is_solo) {
+                server.send_game_message(id, message.clone());
+            }
         }
-    };
-    // then the blocks and the items it numbered anew, of which a name may be mistyped
-    for content in std::iter::once(answer).chain(told) {
-        send_to_players(
-            &mut server,
-            &lobby,
-            ServerToClientMessage::ChatMessage(FullChatMessage {
-                author: SERVER_AUTHOR.to_string(),
-                content,
-                timestamp: unix_time_ms(),
-            }),
-        );
+    }
+    // the answer, then the blocks and the items it numbered anew, of which a name may be mistyped
+    for content in told {
+        send_to_players(&mut server, &lobby, server_chat(content));
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::init::LobbyPlayer;
 
     #[test]
     fn the_files_are_read_once_asked() {
@@ -267,5 +290,27 @@ mod tests {
             shared::content::start(&shared::content::folder(&paths.assets_folder_path)).unwrap();
         assert_eq!(files.folder, started);
         assert!(files.folder.ends_with("data/content/rustcraft"));
+    }
+
+    #[test]
+    fn only_the_operators_are_told_what_is_wrong_in_a_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        Permissions::add_operators(
+            tmp.path(),
+            &[crate::network::permissions::Entry::named("op")],
+        )
+        .unwrap();
+        let permissions = Permissions::load(tmp.path()).unwrap();
+        let mut lobby = ServerLobby::default();
+        lobby.players.insert(1, LobbyPlayer::new("op".to_string()));
+        lobby
+            .players
+            .insert(2, LobbyPlayer::new("guest".to_string()));
+
+        let told: Vec<PlayerId> = operators(&lobby, &permissions, false).collect();
+        assert_eq!(told, [1]);
+        let mut solo: Vec<PlayerId> = operators(&lobby, &permissions, true).collect();
+        solo.sort();
+        assert_eq!(solo, [1, 2], "a solo player is an operator");
     }
 }

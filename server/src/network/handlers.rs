@@ -331,7 +331,7 @@ pub(super) fn chat_message(
             Ok(Command::List) => {
                 list_players(lobby.players.values().map(|p| p.name.as_str()).collect())
             }
-            // the outcome is told to every player once the files are read
+            // the outcome is told once the files are read, an error to the operators alone
             Ok(Command::Reload) => match content_files {
                 Some(files) => {
                     files.ask_reload();

@@ -285,9 +285,10 @@ the watcher misses. The result is all or nothing:
 
 - **Valid**: the new content is installed, sent to every player (a client rebuilds its
   meshes, recipes and item browser), and told in the chat and the log. A block keeps its number.
-- **An error**: nothing changes. The error goes to the server's log and to the chat of every
-  player (`Content files not reloaded: <file>: <key>: <reason>`), and the game goes on with
-  the content it had. At the start of a server, an error stops it instead.
+- **An error**: nothing changes. The error goes to the server's log and to the chat of the
+  operators (`Content files not reloaded: <file>: <key>: <reason>`), the other players being
+  told nothing, and the game goes on with the content it had. At the start of a server, an
+  error stops it instead.
 - **Warnings**: a block or an item that no earlier content had is told, as `block "tourch" in
   amber.ron is new; did you mean "torch"?`. A misspelled key that defines a new block is not an
   error, because it is valid: the warning is how it is found. A misspelled name that is
