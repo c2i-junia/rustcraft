@@ -6,8 +6,9 @@
 //! - `- item` and `1. item` lists, a line that starts with neither going on with the last item;
 //! - `| a | b |` tables, a `|---|---:|` line under the first row making it the head (`:` at the
 //!   end: a column of numbers, set right);
-//! - `{{recipe Furnace}}`, the recipes of an item, and `{{table name}}`, a table the game works
-//!   out (`codex::tables`), each alone on its line;
+//! - `{{recipe Furnace}}`, the recipes of an item, and `{{table guide.name | Heading | ...}}`,
+//!   a table the game works out (`codex::tables`) with the words it needs, each alone on its
+//!   line;
 //! - in the text, `*emphasis*`, `**strong**`, and links: `[[Furnace]]`, `[[mob:Wolf]]`,
 //!   `[[biome:plains]]`, `[[effect:Poison]]`, `[[guide:farming]]`, `[[page:smelting]]`, each
 //!   with its own name unless `[[Furnace|a furnace]]` gives one.
@@ -118,8 +119,11 @@ pub enum Block {
     Recipe {
         item: ItemId,
     },
+    /// A table, or a few blocks, the game works out (`codex::tables`), with the words it
+    /// needs: its headings, in the language of the text.
     Computed {
         name: String,
+        args: Vec<String>,
     },
 }
 
@@ -157,9 +161,13 @@ pub fn parse(source: &str) -> Result<Vec<Block>, MarkupError> {
                         _ => return Err(err(format!("no item {id}"))),
                     },
                 },
-                Some(("table", name)) => Block::Computed {
-                    name: name.trim().into(),
-                },
+                Some(("table", rest)) => {
+                    let mut parts = split_outside_links(rest);
+                    Block::Computed {
+                        name: parts.next().unwrap_or_default().into(),
+                        args: parts.map(String::from).collect(),
+                    }
+                }
                 _ => return Err(err(format!("unknown block {{{{{rest}}}}}"))),
             });
             continue;
@@ -269,7 +277,33 @@ fn item_marker(line: &str) -> Option<(bool, &str)> {
 fn split_cells(line: &str) -> impl Iterator<Item = &str> {
     let inner = line.trim().trim_start_matches('|');
     let inner = inner.strip_suffix('|').unwrap_or(inner);
-    inner.split('|').map(str::trim)
+    split_outside_links(inner)
+}
+
+/// `text` cut at each `|` that is not inside a link: `[[Furnace|a furnace]]` stays whole.
+fn split_outside_links(text: &str) -> impl Iterator<Item = &str> {
+    let mut parts = Vec::new();
+    let (mut depth, mut start) = (0usize, 0);
+    // bytes: the marks are ASCII, and never inside a character of several bytes
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i..].starts_with(b"[[") {
+            depth += 1;
+            i += 2;
+        } else if depth > 0 && bytes[i..].starts_with(b"]]") {
+            depth -= 1;
+            i += 2;
+        } else {
+            if depth == 0 && bytes[i] == b'|' {
+                parts.push(&text[start..i]);
+                start = i + 1;
+            }
+            i += 1;
+        }
+    }
+    parts.push(&text[start..]);
+    parts.into_iter().map(str::trim)
 }
 
 fn is_rule(line: &str) -> bool {
@@ -406,7 +440,8 @@ mod tests {
         assert_eq!(
             blocks[7],
             Block::Computed {
-                name: "crops".into()
+                name: "crops".into(),
+                args: Vec::new()
             }
         );
     }
@@ -417,5 +452,19 @@ mod tests {
         assert!(parse("*open").is_err());
         assert!(parse("[[Furnace").is_err());
         assert!(parse("{{recipe Nothing}}").is_err());
+        // a link with its own words in a cell, and in the words of a table
+        let blocks = parse("| a | b |\n|---|---|\n| [[Furnace|a furnace]] | x |\n\n{{table g.t | [[Stick|sticks]] | two}}").unwrap();
+        let Block::Table { rows, .. } = &blocks[0] else {
+            panic!("{blocks:?}")
+        };
+        assert_eq!(rows[0].len(), 2);
+        assert_eq!(rows[0][0][0].text.as_deref(), Some("a furnace"));
+        assert_eq!(
+            blocks[1],
+            Block::Computed {
+                name: "g.t".into(),
+                args: vec!["[[Stick|sticks]]".into(), "two".into()]
+            }
+        );
     }
 }

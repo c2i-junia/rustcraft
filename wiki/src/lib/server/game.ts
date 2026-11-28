@@ -133,8 +133,12 @@ export type Game = {
 	biomes: Biome[];
 	biomeNotes: Record<string, Line | null>;
 	enchantments: { id: string; name: string; levels: string[]; items: string[] }[];
-	effects: { id: string; name: Text; beneficial: boolean; instant: boolean }[];
+	effects: { id: string; name: Text; beneficial: boolean; instant: boolean; does: Text }[];
 	achievements: { id: string; title: Text; goal: Text }[];
+	/// What a fishing rod brings back (`shared/src/world/fishing.rs`): first the kind of catch,
+	/// by its share, then an entry of its pool by weight.
+	fishing: { name: string; share: number; entries: { item: string; weight: number; count: number; night: boolean }[] }[];
+	guides: { slug: string; en: TextBlock[]; fr: TextBlock[] | null }[];
 };
 
 export const game = raw as unknown as Game;

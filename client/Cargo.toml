@@ -42,6 +42,8 @@ ureq = { version = "3", default-features = false, features = ["rustls", "json"] 
 serde_json = "1"
 uuid = { version = "1", default-features = false, features = ["serde"] }
 ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+# The pages of the wiki, opened in the web browser from the Codex
+opener = "0.8"
 
 [features]
 default = ["dev"]

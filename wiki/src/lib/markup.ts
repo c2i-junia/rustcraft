@@ -14,7 +14,7 @@ export type Block =
 	| { type: 'list'; ordered: boolean; items: Line[] }
 	| { type: 'table'; head: Line[] | null; numeric: boolean[]; rows: Line[][] }
 	| { type: 'recipe'; item: string }
-	| { type: 'computed'; name: string };
+	| { type: 'computed'; name: string; args: string[] };
 
 const spaced = (s: string) => s.replace(/[_-]/g, ' ');
 

@@ -1,6 +1,6 @@
 """Renders a portrait of each creature of the game for the wiki, from its model.
 
-    blender -b -P wiki/scripts/render_creatures.py -- data/models/animated wiki/static/creatures
+    blender -b -P wiki/scripts/render_creatures.py -- data/models/animated data/graphics/creatures
 
 Writes <Kind>.png, 256x256 on a transparent background, the creature seen from the front left
 and a little above, as the inventory shows blocks. Run it again when a model changes.

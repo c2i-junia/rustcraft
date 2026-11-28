@@ -1045,6 +1045,23 @@ mod tests {
                 );
             }
         }
+        // and the guides of the Codex
+        for &(slug, en, fr) in shared::codex::guides::GUIDES {
+            for (language, text) in [("en", en), ("fr", fr)] {
+                let missing: String = text
+                    .chars()
+                    .filter(|&c| {
+                        !c.is_whitespace()
+                            && !PIXEL_FONT_CHARS.contains(c)
+                            && !ACCENTS_FONT_CHARS.contains(c)
+                    })
+                    .collect();
+                assert!(
+                    missing.is_empty(),
+                    "the guide {slug}.{language}: no glyph for {missing:?}"
+                );
+            }
+        }
     }
 
     #[test]

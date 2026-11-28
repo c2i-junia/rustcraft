@@ -2,7 +2,7 @@
 //! chest holds the same whichever chunk around it is generated first.
 
 use bevy::prelude::*;
-use shared::world::{Container, ItemId};
+use shared::world::{structure_loot, Container};
 
 use super::super::structure::{fill_container, LootEntry};
 use super::pieces::PieceKind;
@@ -10,32 +10,9 @@ use super::pieces::PieceKind;
 /// The items a container of a piece may hold: each with its chance and its fewest and most.
 fn table(kind: PieceKind) -> &'static [LootEntry] {
     match kind {
-        PieceKind::Forge => &[
-            (ItemId::BronzeIngot, 0.7, 1, 4),
-            (ItemId::CopperIngot, 0.5, 1, 5),
-            (ItemId::TinIngot, 0.4, 1, 3),
-            (ItemId::IronIngot, 0.25, 1, 3),
-            (ItemId::Coal, 0.6, 2, 8),
-            (ItemId::BronzePickaxe, 0.15, 1, 1),
-            (ItemId::BronzeSword, 0.15, 1, 1),
-            (ItemId::BronzeAxe, 0.1, 1, 1),
-            (ItemId::Flint, 0.3, 1, 3),
-        ],
-        PieceKind::Granary => &[
-            (ItemId::Rye, 0.9, 4, 16),
-            (ItemId::RyeBread, 0.6, 1, 4),
-            (ItemId::Berries, 0.4, 2, 8),
-            (ItemId::Fiber, 0.3, 2, 6),
-        ],
-        _ => &[
-            (ItemId::RyeBread, 0.6, 1, 3),
-            (ItemId::Berries, 0.4, 1, 5),
-            (ItemId::Torch, 0.4, 2, 6),
-            (ItemId::Stick, 0.3, 2, 6),
-            (ItemId::Wool, 0.2, 1, 3),
-            (ItemId::Rope, 0.2, 1, 2),
-            (ItemId::WoodenHoe, 0.1, 1, 1),
-        ],
+        PieceKind::Forge => structure_loot::FORGE,
+        PieceKind::Granary => structure_loot::GRANARY,
+        _ => structure_loot::HOUSE,
     }
 }
 

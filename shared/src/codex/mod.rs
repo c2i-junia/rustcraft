@@ -3,4 +3,6 @@
 //! `data/codex`.
 
 pub mod facts;
+pub mod guides;
 pub mod markup;
+pub mod tables;

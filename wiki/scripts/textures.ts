@@ -1,5 +1,6 @@
-// Copies the game's textures into static/textures, where the wiki's icons are served from. The
-// game's folder stays the only copy in the repository.
+// Copies the game's textures into static/textures, where the wiki's icons are served from, and the
+// portraits of the creatures the Codex shows into static/creatures. The game's folder stays the
+// only copy in the repository.
 import { cpSync, mkdirSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -14,4 +15,8 @@ for (const folder of ['blocks', 'items']) {
 		filter: (path) => !path.endsWith('.ron')
 	});
 }
-console.log(`textures copied to ${target}`);
+const portraits = fileURLToPath(new URL('../../data/graphics/creatures/', import.meta.url));
+const shown = fileURLToPath(new URL('../static/creatures/', import.meta.url));
+rmSync(shown, { recursive: true, force: true });
+cpSync(portraits, shown, { recursive: true });
+console.log(`textures and portraits copied to ${target} and ${shown}`);

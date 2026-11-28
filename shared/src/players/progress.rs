@@ -227,6 +227,8 @@ pub struct Progress {
     pub stats: Stats,
     /// The first steps done, or left: their hints never show again.
     pub steps: Vec<FirstStep>,
+    /// The creatures met, in the order they were: the bestiary of the Codex shows them.
+    pub seen: Vec<MobKind>,
 }
 
 impl Progress {
@@ -240,6 +242,11 @@ impl Progress {
 
     pub fn has(&self, achievement: Achievement) -> bool {
         self.achievements.contains(&achievement)
+    }
+
+    /// Whether the player met `kind`. Projectiles and vehicles are not creatures to meet.
+    pub fn has_seen(&self, kind: MobKind) -> bool {
+        kind.is_projectile() || kind.is_vehicle() || self.seen.contains(&kind)
     }
 }
 
@@ -289,6 +296,13 @@ impl Player {
     pub fn mined(&mut self, blocks: usize) {
         if self.game_mode.takes_damage() {
             self.progress.stats.blocks_mined += blocks as u64;
+        }
+    }
+
+    /// The player meets `kind`, in any game mode.
+    pub fn see(&mut self, kind: MobKind) {
+        if !self.progress.has_seen(kind) {
+            self.progress.seen.push(kind);
         }
     }
 
@@ -360,6 +374,23 @@ mod tests {
     use super::*;
     use crate::players::game_mode::GameMode;
     use crate::world::ItemStack;
+
+    #[test]
+    fn a_creature_is_met_once_and_a_projectile_is_no_creature_to_meet() {
+        let mut player = Player {
+            game_mode: GameMode::Creative,
+            ..Player::default()
+        };
+        assert!(!player.progress.has_seen(MobKind::Wolf));
+        player.see(MobKind::Wolf);
+        player.see(MobKind::Wolf);
+        assert_eq!(player.progress.seen, [MobKind::Wolf]);
+        let arrow = *MobKind::ALL.iter().find(|k| k.is_projectile()).unwrap();
+        assert!(player.progress.has_seen(arrow));
+        // a save from before the bestiary reads
+        let old: Progress = ron::from_str("(steps: [])").unwrap();
+        assert!(old.seen.is_empty());
+    }
 
     #[test]
     fn all_lists_every_achievement_once() {

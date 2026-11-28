@@ -14,7 +14,6 @@ import {
 	usesOf,
 	withRefs
 } from '#lib/server/game.ts';
-import { FISHING } from '#lib/server/fishing.ts';
 
 import type { EntryGenerator } from './$types';
 
@@ -26,7 +25,7 @@ export function load({ params }) {
 	const item = bySlug.get(params.slug);
 	if (!item) error(404, 'No item has this name');
 	const block = item.block ? (blocks.get(item.block) ?? null) : null;
-	const fishing = FISHING.flatMap((pool) =>
+	const fishing = game.fishing.flatMap((pool) =>
 		pool.entries.filter((e) => e.item === item.id).map((e) => ({ pool: pool.name, share: pool.share, ...e, total: pool.entries.reduce((s, x) => s + x.weight, 0) }))
 	);
 	const alchemyMade = game.alchemy.filter((a) => a.result === item.id);

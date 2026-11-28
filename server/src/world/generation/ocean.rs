@@ -12,13 +12,13 @@ use std::sync::{Arc, Mutex};
 
 use bevy::prelude::*;
 use shared::world::{
-    tags, BlockData, BlockDirection, BlockId, Chunk, Container, ItemId, ItemStack, ItemType,
-    MobKind, ServerMob, TerrainNoises, CHEST_SLOTS, SEA_LEVEL,
+    structure_loot, tags, BlockData, BlockDirection, BlockId, Chunk, Container, ItemId, ItemStack,
+    ItemType, MobKind, ServerMob, TerrainNoises, CHEST_SLOTS, SEA_LEVEL,
 };
 use shared::CHUNK_SIZE;
 
 use super::super::caves::Noise3;
-use super::structure::{fill_container, rotate, LootEntry, StructureBlocks, BLOCK_DIRECTIONS};
+use super::structure::{fill_container, rotate, StructureBlocks, BLOCK_DIRECTIONS};
 use super::{ChunkColumns, Column, PositionRandom};
 
 const SALT_REEFS: u64 = 0x4200;
@@ -51,32 +51,6 @@ const WRECK_MARGIN: i32 = 24;
 const WRECK_DEPTH: std::ops::RangeInclusive<i32> = 9..=40;
 /// How far from its wreck the treasure of its map is buried, in blocks.
 const TREASURE_DISTANCE: std::ops::Range<i32> = 24..72;
-
-/// What a wreck's chest holds, besides its treasure map.
-const WRECK_LOOT: &[LootEntry] = &[
-    (ItemId::Coal, 0.5, 2, 8),
-    (ItemId::IronIngot, 0.45, 1, 5),
-    (ItemId::GoldIngot, 0.25, 1, 3),
-    (ItemId::CopperIngot, 0.4, 2, 6),
-    (ItemId::Rope, 0.4, 1, 4),
-    (ItemId::Paper, 0.4, 2, 6),
-    (ItemId::Leather, 0.3, 1, 3),
-    (ItemId::RyeBread, 0.4, 1, 3),
-    (ItemId::Coin, 0.5, 2, 9),
-    (ItemId::Compass, 0.1, 1, 1),
-    (ItemId::Saddle, 0.08, 1, 1),
-];
-
-/// What a buried chest holds.
-const TREASURE_LOOT: &[LootEntry] = &[
-    (ItemId::GoldIngot, 0.9, 3, 9),
-    (ItemId::Diamond, 0.6, 1, 3),
-    (ItemId::IronIngot, 0.7, 3, 8),
-    (ItemId::Coin, 0.9, 8, 24),
-    (ItemId::GoldBlock, 0.15, 1, 1),
-    (ItemId::DiamondSword, 0.08, 1, 1),
-    (ItemId::CrystalShard, 0.3, 2, 6),
-];
 
 /// The noises and the wrecks of the seas of a world.
 pub struct Seas {
@@ -374,7 +348,7 @@ fn layout(seed: u32, terrain: &TerrainNoises, region: IVec2) -> Option<Wreck> {
     let treasure = treasure_of(seed, terrain, origin);
     blocks.push((treasure, block(BlockId::Chest)));
 
-    let mut loot = fill_container(seed, chest, WRECK_LOOT);
+    let mut loot = fill_container(seed, chest, structure_loot::SHIPWRECK);
     let start = random.below(SALT_WRECK + 6, CHEST_SLOTS as u64) as usize;
     let slots = CHEST_SLOTS as usize;
     if let Some(slot) = (0..slots)
@@ -389,7 +363,10 @@ fn layout(seed: u32, terrain: &TerrainNoises, region: IVec2) -> Option<Wreck> {
     }
     let containers = vec![
         (chest, loot),
-        (treasure, fill_container(seed, treasure, TREASURE_LOOT)),
+        (
+            treasure,
+            fill_container(seed, treasure, structure_loot::BURIED_TREASURE),
+        ),
     ];
     Some(Wreck {
         chest,

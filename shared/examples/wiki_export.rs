@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 use shared::codex::markup;
 use shared::players::effects::EffectKind;
 use shared::world::alchemy;
+use shared::world::fishing::CatchKind;
 use shared::world::trade::{offers, Goods};
 use shared::world::{
     fuel_ticks, recipes, repair_material, smelting_result, Biomes, BlockId, Enchantment,
@@ -267,6 +268,7 @@ fn main() {
                 "name": tr(format!("effect.{key}")),
                 "beneficial": kind.is_beneficial(),
                 "instant": kind.is_instant(),
+                "does": tr(format!("codex.effect.{key}")),
             })
         })
         .collect();
@@ -279,6 +281,50 @@ fn main() {
                 "id": id,
                 "title": tr(format!("achievement.{id}.title")),
                 "goal": tr(format!("achievement.{id}.goal")),
+            })
+        })
+        .collect();
+
+    // What a fishing rod brings back: each kind of catch, its share and its pool
+    let fishing: Vec<Value> = CatchKind::ALL
+        .iter()
+        .map(|&kind| {
+            json!({
+                "name": format!("{kind:?}"),
+                "share": kind.percent() as f64 / 100.0,
+                "entries": kind.pool().iter().map(|c| json!({
+                    "item": format!("{:?}", c.item),
+                    "weight": c.weight,
+                    "count": c.count,
+                    "night": c.night_only,
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+
+    // The guides, their tables worked out: the wiki only draws them
+    let guide = |slug: &str, language: &str| -> Value {
+        let source = shared::codex::guides::source(slug, language).unwrap();
+        let blocks = markup::parse(source).unwrap_or_else(|e| panic!("{slug}.{language}: {e}"));
+        let expanded: Vec<markup::Block> = blocks
+            .into_iter()
+            .flat_map(|block| match block {
+                markup::Block::Computed { name, args } => {
+                    shared::codex::tables::expand(&name, &args, language)
+                        .unwrap_or_else(|e| panic!("{slug}.{language}: {name}: {e}"))
+                }
+                block => vec![block],
+            })
+            .collect();
+        json!(expanded)
+    };
+    let guides: Vec<Value> = shared::codex::guides::GUIDES
+        .iter()
+        .map(|&(slug, _, fr)| {
+            json!({
+                "slug": slug,
+                "en": guide(slug, "en"),
+                "fr": (!fr.trim().is_empty()).then(|| guide(slug, "fr")),
             })
         })
         .collect();
@@ -300,10 +346,53 @@ fn main() {
         "enchantments": enchantments,
         "effects": effects,
         "achievements": achievements,
+        "fishing": fishing,
+        "guides": guides,
     });
+    let mut game = game;
+    name_links(&mut game, "en");
     std::fs::write(&out, serde_json::to_string_pretty(&game).unwrap() + "\n")
         .unwrap_or_else(|e| panic!("cannot write {out}: {e}"));
     println!("wrote {out}");
+}
+
+/// Gives the links to a biome or a guide without words of their own the name the game shows,
+/// in `language`: the wiki has no names of its own for them. The French texts of the guides
+/// get the French names.
+fn name_links(value: &mut Value, language: &str) {
+    match value {
+        Value::Object(map) => {
+            let is_span = map.contains_key("link") && !map.contains_key("type");
+            if is_span && map.get("text").is_none_or(Value::is_null) {
+                if let Some(name) = map.get("link").and_then(|link| link_name(link, language)) {
+                    map.insert("text".into(), Value::String(name));
+                }
+            }
+            for (key, child) in map.iter_mut() {
+                let language = if key == "fr" { "fr" } else { language };
+                name_links(child, language);
+            }
+        }
+        Value::Array(items) => items.iter_mut().for_each(|item| name_links(item, language)),
+        _ => {}
+    }
+}
+
+/// The name of a biome or a guide a link opens, in `language`.
+fn link_name(link: &Value, language: &str) -> Option<String> {
+    let id = link.get("id")?.as_str()?;
+    match link.get("kind")?.as_str()? {
+        "biome" => {
+            shared::codex::tables::lang_text(language, &format!("biome.{id}")).map(str::to_string)
+        }
+        "guide" => {
+            let source = shared::codex::guides::source(id, language)?;
+            let title = source.lines().next()?.strip_prefix("# ")?;
+            let line = markup::inline(title).ok()?;
+            Some(markup::plain(&line, |target| format!("{target:?}")))
+        }
+        _ => None,
+    }
 }
 
 /// A speed or a distance of the game, an `f32`, as it is written in its code: `2.8`, not

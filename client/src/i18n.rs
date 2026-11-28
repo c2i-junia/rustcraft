@@ -142,6 +142,19 @@ fn lookup(language: Language, key: &str) -> Option<&'static str> {
         .map(String::as_str)
 }
 
+/// The keys of English starting with `prefix`, in order.
+#[cfg(test)]
+pub fn keys_with_prefix(prefix: &str) -> Vec<&'static str> {
+    let mut keys: Vec<&'static str> = tables()[Language::English.index()]
+        .texts
+        .keys()
+        .filter(|k| k.starts_with(prefix))
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    keys
+}
+
 /// The text of `key` in the language of the game, the English one when it lacks it, or the key
 /// itself when English lacks it too.
 pub fn tr(key: &str) -> &str {

@@ -2352,6 +2352,7 @@ dependencies = [
  "fontique",
  "image",
  "log",
+ "opener",
  "rand 0.8.5",
  "ron 0.6.6",
  "rustcraft-protocol",

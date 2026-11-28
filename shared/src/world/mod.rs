@@ -23,10 +23,12 @@ pub mod lava;
 pub mod liquid;
 pub mod loot;
 pub mod mobs;
+pub mod ores;
 pub mod palette;
 pub mod portal;
 pub mod raycast;
 pub mod reach;
+pub mod structure_loot;
 pub mod terrain;
 #[cfg(any(test, feature = "test-helpers"))]
 mod test_helpers;

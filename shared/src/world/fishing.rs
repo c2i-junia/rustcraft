@@ -42,63 +42,109 @@ pub enum CatchKind {
     Treasure,
 }
 
+/// A line of the pool of a kind of catch: the item, how many of it, its weight among the others,
+/// and whether it bites only at night.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Catch {
+    pub item: ItemId,
+    pub count: u32,
+    pub weight: u32,
+    pub night_only: bool,
+}
+
+const fn line(item: ItemId, count: u32, weight: u32) -> Catch {
+    Catch {
+        item,
+        count,
+        weight,
+        night_only: false,
+    }
+}
+
 /// The fish, by weight: the roach is common, the glowfin rare, and it bites at night only.
-const FISH: [(ItemId, u32); 5] = [
-    (ItemId::RawRoach, 40),
-    (ItemId::RawPerch, 28),
-    (ItemId::RawPike, 15),
-    (ItemId::RawEel, 12),
-    (ItemId::RawGlowfin, 5),
+const FISH: [Catch; 5] = [
+    line(ItemId::RawRoach, 1, 40),
+    line(ItemId::RawPerch, 1, 28),
+    line(ItemId::RawPike, 1, 15),
+    line(ItemId::RawEel, 1, 12),
+    Catch {
+        night_only: true,
+        ..line(ItemId::RawGlowfin, 1, 5)
+    },
 ];
-/// What the water holds that is not a fish, and how many of it.
-const JUNK: [(ItemId, u32); 5] = [
-    (ItemId::Stick, 2),
-    (ItemId::Leather, 1),
-    (ItemId::Rope, 1),
-    (ItemId::Bowl, 1),
-    (ItemId::Fiber, 3),
+/// What the water holds that is not a fish, and how many of it, each as likely.
+const JUNK: [Catch; 5] = [
+    line(ItemId::Stick, 2, 1),
+    line(ItemId::Leather, 1, 1),
+    line(ItemId::Rope, 1, 1),
+    line(ItemId::Bowl, 1, 1),
+    line(ItemId::Fiber, 3, 1),
 ];
-const TREASURE: [(ItemId, u32); 5] = [
-    (ItemId::Coin, 4),
-    (ItemId::GoldIngot, 1),
-    (ItemId::Saddle, 1),
-    (ItemId::Bow, 1),
-    (ItemId::Diamond, 1),
+const TREASURE: [Catch; 5] = [
+    line(ItemId::Coin, 4, 1),
+    line(ItemId::GoldIngot, 1, 1),
+    line(ItemId::Saddle, 1, 1),
+    line(ItemId::Bow, 1, 1),
+    line(ItemId::Diamond, 1, 1),
 ];
 
-/// What a catch is made of, drawn from `rng`: 84 % fish, 11 % junk, 5 % treasure.
-pub fn catch_kind(rng: &mut impl Rng) -> CatchKind {
-    match rng.gen_range(0..100) {
-        0..84 => CatchKind::Fish,
-        84..95 => CatchKind::Junk,
-        _ => CatchKind::Treasure,
+impl CatchKind {
+    pub const ALL: [CatchKind; 3] = [CatchKind::Fish, CatchKind::Junk, CatchKind::Treasure];
+
+    /// Its share of the catches, in percent.
+    pub fn percent(self) -> u32 {
+        match self {
+            CatchKind::Fish => 84,
+            CatchKind::Junk => 11,
+            CatchKind::Treasure => 5,
+        }
     }
+
+    /// What a catch of this kind may be.
+    pub fn pool(self) -> &'static [Catch] {
+        match self {
+            CatchKind::Fish => &FISH,
+            CatchKind::Junk => &JUNK,
+            CatchKind::Treasure => &TREASURE,
+        }
+    }
+}
+
+/// What a catch is made of, drawn from `rng`, each kind as often as its `percent`.
+pub fn catch_kind(rng: &mut impl Rng) -> CatchKind {
+    let mut roll = rng.gen_range(0..100);
+    for kind in CatchKind::ALL {
+        if roll < kind.percent() {
+            return kind;
+        }
+        roll -= kind.percent();
+    }
+    CatchKind::Treasure
+}
+
+/// A line of `pool` by weight, among those that bite at this time of day.
+fn draw(pool: &'static [Catch], night: bool, rng: &mut impl Rng) -> Catch {
+    let biting: Vec<_> = pool.iter().filter(|c| night || !c.night_only).collect();
+    let total: u32 = biting.iter().map(|c| c.weight).sum();
+    let mut roll = rng.gen_range(0..total);
+    for &&c in &biting {
+        if roll < c.weight {
+            return c;
+        }
+        roll -= c.weight;
+    }
+    pool[0]
 }
 
 /// What a fish that bites is: by night every fish bites, by day the glowfin hides.
 pub fn fish(night: bool, rng: &mut impl Rng) -> ItemId {
-    let biting: Vec<_> = FISH
-        .iter()
-        .filter(|(fish, _)| night || *fish != ItemId::RawGlowfin)
-        .collect();
-    let total: u32 = biting.iter().map(|(_, weight)| weight).sum();
-    let mut roll = rng.gen_range(0..total);
-    for &&(fish, weight) in &biting {
-        if roll < weight {
-            return fish;
-        }
-        roll -= weight;
-    }
-    ItemId::RawRoach
+    draw(&FISH, night, rng).item
 }
 
 /// What the line brings back when drawn in during a bite, and how many.
 pub fn catch(night: bool, rng: &mut impl Rng) -> (ItemId, u32) {
-    match catch_kind(rng) {
-        CatchKind::Fish => (fish(night, rng), 1),
-        CatchKind::Junk => JUNK[rng.gen_range(0..JUNK.len())],
-        CatchKind::Treasure => TREASURE[rng.gen_range(0..TREASURE.len())],
-    }
+    let line = draw(catch_kind(rng).pool(), night, rng);
+    (line.item, line.count)
 }
 
 #[cfg(test)]
@@ -128,7 +174,7 @@ mod tests {
         assert_eq!(by_day.len(), 4);
         assert!(!by_day.contains(&ItemId::RawGlowfin));
         assert_eq!(by_night.len(), 5);
-        for (raw, _) in FISH {
+        for Catch { item: raw, .. } in FISH {
             let grilled = crate::world::furnace::smelting_result(raw).unwrap();
             let (raw_food, _) = raw.food_value().unwrap();
             let (grilled_food, _) = grilled.food_value().unwrap();

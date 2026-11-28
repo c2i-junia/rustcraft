@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use shared::world::{BlockData, BlockDirection, Chunk, Container, ItemId, ItemStack, CHEST_SLOTS};
+use shared::world::{BlockData, BlockDirection, Chunk, Container, ItemStack, CHEST_SLOTS};
 use shared::CHUNK_SIZE;
 
 use super::PositionRandom;
@@ -76,8 +76,7 @@ impl StructureBlocks {
     }
 }
 
-/// An item a container may hold: its chance, its fewest and its most.
-pub type LootEntry = (ItemId, f32, u32, u32);
+pub use shared::world::structure_loot::LootEntry;
 
 /// Each draw of a container uses its own salt from here.
 const SALT_LOOT: u64 = 0x2000;

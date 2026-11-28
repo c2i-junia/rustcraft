@@ -22,9 +22,11 @@ bun run data       # reads the game's tables again into src/lib/data/game.json (
   the `codex.*` keys of `data/lang/en.ron`, written in the Codex's markup
   (`shared/src/codex/markup.rs`), exported as blocks and lines that `src/lib/components/markup/`
   draws. Edit them there, in English and in French, and run `bun run data`.
-- What the game rolls in code rather than in a table is written again in `src/lib/server/`:
-  fishing (`fishing.ts`). The guides in `src/routes/guides/` are written by hand from the code.
-  Keep them with the game when it changes.
+- The guides are the Codex's too: `data/codex/guides/<slug>.{en,fr}.md`, in the same markup,
+  listed in `shared/src/codex/guides.rs`. Their tables of numbers are worked out from the game
+  (`{{table <guide>.<name> | headings...}}`, in `shared/src/codex/tables/`), and exported
+  worked out; `src/routes/guides/[slug]` draws them. Numbers written in their prose are kept
+  with the game by hand.
 
 ## Writing a page
 
@@ -41,11 +43,12 @@ bun run data       # reads the game's tables again into src/lib/data/game.json (
 
 ## Creature portraits
 
-`static/creatures/*.png` are rendered from the game's models by Blender, as found in the wild
-(without saddle, armour or chest). Render them again when a model changes:
+`data/graphics/creatures/*.png`, the portraits of the Codex and of the wiki, are rendered from the
+game's models by Blender, as found in the wild (without saddle, armour or chest), and copied into
+`static/creatures` with the textures. Render them again when a model changes:
 
 ```sh
-blender -b -P wiki/scripts/render_creatures.py -- data/models/animated wiki/static/creatures [Kind…]
+blender -b -P wiki/scripts/render_creatures.py -- data/models/animated data/graphics/creatures [Kind…]
 ```
 
 ## Publishing

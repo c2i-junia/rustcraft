@@ -9,6 +9,7 @@ mod capture;
 mod chat;
 mod clouds;
 mod cocoa;
+mod codex;
 mod connecting;
 mod death;
 mod drop;

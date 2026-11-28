@@ -60,6 +60,8 @@ pub struct ItemBrowserState {
 pub enum RecipeTab {
     Recipes,
     Uses,
+    /// What the Codex says of it: its facts, where it comes from, what it is for.
+    Sheet,
 }
 
 /// The recipes or the uses of an item.

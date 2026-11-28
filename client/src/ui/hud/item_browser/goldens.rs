@@ -208,6 +208,30 @@ fn the_uses_of_oak_planks_at_854x480() {
         .assert_matches("item_browser_uses_854x480");
 }
 
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_sheet_of_the_iron_sword_at_1280x720() {
+    let sheet = ItemView {
+        item: ItemId::IronSword,
+        tab: RecipeTab::Sheet,
+    };
+    open_browser((1280, 720), planks_and_logs(), viewing(sheet, &[]))
+        .assert_matches("item_browser_sheet_1280x720");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_sheet_of_the_furnace_in_french_at_854x480() {
+    let sheet = ItemView {
+        item: ItemId::Furnace,
+        tab: RecipeTab::Sheet,
+    };
+    crate::i18n::in_language(crate::i18n::Language::French, || {
+        open_browser((854, 480), planks_and_logs(), viewing(sheet, &[]))
+            .assert_matches("item_browser_sheet_fr_854x480");
+    });
+}
+
 const LOG_USES: ItemView = ItemView {
     item: ItemId::OakLog,
     tab: RecipeTab::Uses,

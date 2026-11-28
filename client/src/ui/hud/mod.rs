@@ -28,6 +28,7 @@ pub mod boss;
 pub mod burning;
 pub mod chat;
 pub mod chat_completion;
+pub mod codex;
 pub mod corner;
 pub mod debug;
 pub mod depths;
@@ -311,5 +312,6 @@ pub fn hud_plugin(app: &mut App) {
     chat_completion_plugin(app);
     minimap_plugin(app);
     item_browser::item_browser_plugin(app);
+    codex::codex_plugin(app);
     sign::sign_plugin(app);
 }

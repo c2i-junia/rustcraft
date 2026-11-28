@@ -19,6 +19,11 @@ pub const ROOF: i32 = HEIGHT + 2;
 /// The radius of the lake of lava, and of the island in its middle, where the mother sleeps.
 pub const LAKE: i32 = 12;
 pub const ISLAND: i32 = 4;
+/// The mother's health beyond that of her kind, for each player inside but the first.
+pub const HEALTH_PER_PLAYER: u32 = 80;
+/// She calls a Cinderling while fewer are out than one more than the players, and this many at
+/// most.
+pub const MOST_CALLED: usize = 5;
 
 /// The lair is looked for in rings of regions of this side, this many regions from the origin:
 /// a few hundred blocks.

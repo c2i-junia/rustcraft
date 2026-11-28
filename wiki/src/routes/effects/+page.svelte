@@ -5,19 +5,6 @@
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
-	const DOES: Record<string, string> = {
-		Poison: 'Takes 1 health every 1.25 s at level I, twice as often each level up. It never takes the last point.',
-		Burn: 'Takes 1 health every second at level I, twice as often each level up. It can kill, and counts as fire.',
-		Slowness: 'You walk 15 % slower per level, never below a fifth of your speed.',
-		Weakness: 'Your blows do 2 less damage per level, never less than 1.',
-		Regeneration: 'Gives back 1 health every 2.5 s at level I, twice as often each level up.',
-		Healing: 'Gives back 4 health per level at once.',
-		NightVision: 'The world is drawn bright, even in the dark.',
-		WaterBreathing: 'Your air never runs out under water.',
-		FireResistance: 'Fire, lava and magma no longer hurt you.',
-		Swiftness: 'You walk 20 % faster per level.',
-		Strength: 'Your blows do 3 more damage per level.'
-	};
 </script>
 
 <Page
@@ -34,7 +21,7 @@
 	{#each data.effects as e (e.id)}
 		<section id={e.id}>
 			<h2>{e.name.en} <span class="kind" class:good={e.beneficial}>{e.beneficial ? 'Good' : 'Harmful'}</span></h2>
-			<p>{DOES[e.id] ?? ''}</p>
+			<p>{e.does.en}</p>
 			{#if e.potions.length || e.foods.length || e.mobs.length}
 				<p class="from">
 					<span>From:</span>

@@ -18,6 +18,8 @@ use crate::network::extensions::SendGameMessageExtension;
 
 /// Ticks between two looks at the players.
 const LOOK_INTERVAL_TICKS: u64 = 10;
+/// How near a creature is met, in blocks.
+const SEEN_RADIUS: f32 = 24.0;
 /// Ticks between two messages when only the statistics changed.
 const STATS_INTERVAL_TICKS: u64 = 20;
 
@@ -40,6 +42,7 @@ pub fn progress_system(
             chunks,
             players,
             boss,
+            mobs,
             ..
         } = &mut *world_map;
         // What a player had when it joined is told first: the rest is news
@@ -47,6 +50,11 @@ pub fn progress_system(
             player.watch_the_night(time.0);
             if player.is_dead() {
                 continue;
+            }
+            for mob in mobs.values() {
+                if mob.position.distance_squared(player.position) <= SEEN_RADIUS * SEEN_RADIUS {
+                    player.see(mob.kind);
+                }
             }
             player.earn_possessions();
             if let Some(tier) = DepthTier::of_player(chunks, player) {

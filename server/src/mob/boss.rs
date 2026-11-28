@@ -20,7 +20,7 @@ use shared::messages::{BossBar, PlayerId, ServerToClientMessage};
 use shared::players::{game_mode::DamageSource, movement::is_terrain_loaded, Player};
 use shared::world::depths::DepthTier;
 use shared::world::hostiles::{distance_to_box, is_prey};
-use shared::world::lair::{heart, holds, LAKE, REACH};
+use shared::world::lair::{heart, holds, HEALTH_PER_PLAYER, LAKE, MOST_CALLED, REACH};
 use shared::world::{
     global_block_to_chunk_pos, BlockData, BlockDirection, BlockHitbox, BlockId, ChunkMap,
     MobAction, MobId, MobKind, MobTarget, ServerMob,
@@ -34,8 +34,6 @@ use crate::network::extensions::SendGameMessageExtension;
 use crate::world::data::ServerWorldMap;
 use crate::world::simulation::LoadedGenerator;
 
-/// Her health beyond that of her kind, for each player inside but the first.
-const HEALTH_PER_PLAYER: u32 = 80;
 /// Ticks without anyone inside before she falls asleep: 5 s.
 const EMPTY_TICKS: u32 = 100;
 /// How far her bar shows around the lair, in blocks.
@@ -56,9 +54,9 @@ const VOLLEY: u32 = 45;
 const EMBERS: usize = 3;
 /// How far off its mark an ember of a volley falls.
 const SPREAD: f32 = 1.5;
-/// Every this many ticks she calls a Cinderling, up to two and one more per player but the first.
+/// Every this many ticks she calls a Cinderling, up to two and one more per player but the first
+/// (`lair::MOST_CALLED`).
 const CALL: u32 = 160;
-const MOST_CALLED: usize = 5;
 /// In the second phase: how fast she goes, every how many ticks she lights the ground, how many
 /// cells, how far around her, and how many of her fires burn at most.
 const FURY_SPEED: f32 = 3.8;

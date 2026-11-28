@@ -55,6 +55,7 @@ pub fn view_title(tab: RecipeTab) -> &'static str {
     match tab {
         RecipeTab::Recipes => tr("browser.recipes"),
         RecipeTab::Uses => tr("browser.uses"),
+        RecipeTab::Sheet => tr("browser.sheet"),
     }
 }
 
@@ -68,6 +69,9 @@ pub fn back_label(history: &[ItemView]) -> String {
 
 /// The label of the chip of `tab`, which has `count` recipes.
 pub fn tab_label(tab: RecipeTab, count: usize) -> String {
+    if tab == RecipeTab::Sheet {
+        return view_title(tab).to_string();
+    }
     format!("{} {count}", view_title(tab))
 }
 
@@ -247,6 +251,8 @@ pub fn cards_of(view: ItemView) -> Vec<BrowserCard> {
             .chain(fuel_ticks(item).map(|ticks| BrowserCard::Fuel { item, ticks }))
             .chain(distilling_cards(item, false))
             .collect(),
+        // the page of the Codex instead
+        RecipeTab::Sheet => Vec::new(),
     }
 }
 
@@ -332,6 +338,7 @@ pub fn empty_view_message(view: ItemView) -> String {
             trf("browser.gathered", &[("name", &name), ("uses", &uses)])
         }
         RecipeTab::Uses => trf("browser.no_uses", &[("name", &name)]),
+        RecipeTab::Sheet => String::new(),
     }
 }
 

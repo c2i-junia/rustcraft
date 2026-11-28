@@ -28,6 +28,9 @@ use super::{
     RecipeCards, RecipeNote, RecipePanel, RecipeSlot, RecipeStop, RecipeTab, RecipeTabChip,
     TagCell, ViewedItem, ViewedItemCategory, ViewedItemName, OK_HI, OK_LO,
 };
+use crate::ui::hud::codex::pages::{spawn_page, PageContext};
+use crate::ui::hud::codex::text::LinkHost;
+use crate::ui::hud::codex::CodexPage;
 use crate::ui::hud::inventory::{grid_in_use, lit_flame, stack_in};
 use crate::ui::hud::{item_name, CraftResultCell, InventoryCell, InventoryRoot, UIMode};
 use crate::ui::theme::{
@@ -194,6 +197,9 @@ pub fn spawn_recipe_panel(
         .with_child((
             Node {
                 column_gap: px(SPACE_XS),
+                row_gap: px(SPACE_XS),
+                // three tabs in a narrow drawer, or in French
+                flex_wrap: FlexWrap::Wrap,
                 padding: UiRect::all(px(RING_ROOM)),
                 margin: UiRect::all(px(-RING_ROOM)),
                 ..default()
@@ -208,6 +214,11 @@ pub fn spawn_recipe_panel(
                     RecipeTabChip(RecipeTab::Uses),
                     RecipeStop,
                     small_button(tr("browser.uses"), MUTED, font)
+                ),
+                (
+                    RecipeTabChip(RecipeTab::Sheet),
+                    RecipeStop,
+                    small_button(tr("browser.sheet"), MUTED, font)
                 ),
             ],
         ));
@@ -225,6 +236,8 @@ pub fn spawn_recipe_panel(
         .and_modify(|mut node| node.border = UiRect::ZERO);
     commands.spawn((
         RecipeCards(None),
+        // the links of the sheet open the sheets of their items here
+        LinkHost::Browser,
         Node {
             flex_direction: FlexDirection::Column,
             row_gap: px(SPACE_S),
@@ -784,6 +797,23 @@ pub fn show_view(
             *scroll = ScrollPosition::default();
         }
     }
+    if view.tab == RecipeTab::Sheet {
+        let all = |_| true;
+        let ctx = PageContext {
+            atlas: Some(atlas),
+            font: font.clone(),
+            assets: &asset_server,
+            seen: &all,
+        };
+        spawn_page(
+            &mut commands,
+            cards,
+            &CodexPage::Item(view.item),
+            false,
+            &ctx,
+        );
+        return;
+    }
     let shown = cards_of(view);
     if shown.is_empty() {
         commands.spawn((
@@ -1099,7 +1129,7 @@ impl KeyedSlot<'_, '_> {
     }
 }
 
-/// R shows the recipes, U the uses, of the item of the `KeyedSlot`. In both modes, not while the
+/// R shows the recipes, U the uses, I the sheet, of the item of the `KeyedSlot`. In both modes, not while the
 /// player types.
 pub fn item_keys(
     keys: Res<ButtonInput<KeyCode>>,
@@ -1113,6 +1143,8 @@ pub fn item_keys(
         RecipeTab::Recipes
     } else if keys.just_pressed(KeyCode::KeyU) {
         RecipeTab::Uses
+    } else if keys.just_pressed(KeyCode::KeyI) {
+        RecipeTab::Sheet
     } else {
         return;
     };

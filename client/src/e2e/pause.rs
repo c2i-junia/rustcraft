@@ -138,6 +138,8 @@ fn the_keyboard_alone_drives_the_pause_menu() {
     h.press(KeyCode::ArrowDown);
     assert_eq!(h.focus_label().as_deref(), Some("Progress"));
     h.press(KeyCode::ArrowDown);
+    assert_eq!(h.focus_label().as_deref(), Some("Codex"));
+    h.press(KeyCode::ArrowDown);
     assert_eq!(h.focus_label().as_deref(), Some("Settings"));
     assert_eq!(h.focus_ring(), ACCENT);
 
@@ -307,7 +309,7 @@ fn save_and_quit_shows_saving_until_the_world_is_saved(
         .iter(world)
         .map(|(_, disabled)| disabled)
         .collect();
-    assert_eq!(disabled, [true; 5]);
+    assert_eq!(disabled, [true; 6]);
 
     h.press(KeyCode::Escape);
     h.click(&button("Back to game"));

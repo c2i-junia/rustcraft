@@ -25,6 +25,7 @@ use crate::network::LocalSaves;
 use crate::state::{GameSet, GameState, KeyMap};
 use crate::ui::assets::{load_font, FONT_PATH, MONO_FONT_PATH};
 use crate::ui::hud::chat::fade_chat_messages_system;
+use crate::ui::hud::codex::{CodexRoot, OpenCodex};
 use crate::ui::hud::item_browser::browser_takes_escape;
 use crate::ui::hud::minimap::world_map::WorldMapRoot;
 use crate::ui::hud::minimap::MinimapRoot;
@@ -94,6 +95,7 @@ struct ClosePause;
 pub enum PauseButton {
     BackToGame,
     Progress,
+    Codex,
     Settings,
     SaveNow,
     SaveAndQuit,
@@ -105,6 +107,7 @@ impl PauseButton {
         match self {
             PauseButton::BackToGame => tr("pause.back"),
             PauseButton::Progress => tr("progress.title"),
+            PauseButton::Codex => tr("codex.title"),
             PauseButton::Settings => tr("settings.title"),
             PauseButton::SaveNow => tr("pause.save_now"),
             PauseButton::SaveAndQuit => tr("pause.save_quit"),
@@ -156,12 +159,14 @@ pub fn pause_buttons(origin: Option<&SessionOrigin>) -> &'static [PauseButton] {
         Some(SessionOrigin::Server { .. }) => &[
             PauseButton::BackToGame,
             PauseButton::Progress,
+            PauseButton::Codex,
             PauseButton::Settings,
             PauseButton::Disconnect,
         ],
         Some(SessionOrigin::World { .. }) | None => &[
             PauseButton::BackToGame,
             PauseButton::Progress,
+            PauseButton::Codex,
             PauseButton::Settings,
             PauseButton::SaveNow,
             PauseButton::SaveAndQuit,
@@ -234,6 +239,7 @@ pub type Overlays<'w, 's> = Query<
         With<PauseMenu>,
         With<SettingsRoot>,
         With<ProgressRoot>,
+        With<CodexRoot>,
         With<QuittingCard>,
         With<WorldMapRoot>,
         With<DeathScreen>,
@@ -255,7 +261,7 @@ pub(crate) fn toggle_pause_menu(
     ui_mode: Res<UIMode>,
     capture: Res<KeyCapture>,
     menus: Query<Entity, With<PauseMenu>>,
-    settings: Query<(), Or<(With<SettingsRoot>, With<ProgressRoot>)>>,
+    settings: Query<(), Or<(With<SettingsRoot>, With<ProgressRoot>, With<CodexRoot>)>>,
     mut inventory: Query<&mut Visibility, With<InventoryRoot>>,
     origin: Option<Res<SessionOrigin>>,
     assets: Res<AssetServer>,
@@ -406,6 +412,7 @@ pub(crate) fn act_on_pause_button(
     menus: Query<Entity, With<PauseMenu>>,
     settings: Query<(), With<SettingsRoot>>,
     screens: Query<(), With<ProgressRoot>>,
+    codex: Query<(), With<CodexRoot>>,
     origin: Option<Res<SessionOrigin>>,
     saves: Option<Res<LocalSaves>>,
     mut client: ResMut<RenetClient>,
@@ -426,6 +433,14 @@ pub(crate) fn act_on_pause_button(
             if screens.is_empty() {
                 let opener = event.entity;
                 commands.queue(OpenProgress { opener });
+            }
+        }
+        PauseButton::Codex => {
+            if screens.is_empty() && codex.is_empty() {
+                commands.queue(OpenCodex {
+                    page: None,
+                    opener: Some(event.entity),
+                });
             }
         }
         PauseButton::Settings => {
@@ -675,12 +690,12 @@ mod tests {
             address: "127.0.0.1:8000".parse().unwrap(),
             realm: None,
         };
-        let solo = [BackToGame, Progress, Settings, SaveNow, SaveAndQuit];
+        let solo = [BackToGame, Progress, Codex, Settings, SaveNow, SaveAndQuit];
         assert_eq!(pause_buttons(Some(&world)), solo);
         assert_eq!(pause_buttons(None), solo);
         assert_eq!(
             pause_buttons(Some(&server)),
-            [BackToGame, Progress, Settings, Disconnect]
+            [BackToGame, Progress, Codex, Settings, Disconnect]
         );
         let labels = [
             BackToGame,
@@ -827,7 +842,7 @@ mod tests {
             .iter(world)
             .map(|(&action, disabled)| (action, disabled))
             .collect();
-        assert_eq!(buttons.len(), 5);
+        assert_eq!(buttons.len(), 6);
         assert!(buttons.iter().all(|&(_, disabled)| disabled), "{buttons:?}");
         let leave = world
             .query::<(&PauseButton, &AccessibleLabel)>()
