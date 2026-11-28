@@ -104,7 +104,10 @@ pub fn close_session_on_app_exit(
 
 /// Whether the connection of the session goes to the embedded server: the session opened a
 /// world rather than joined a server.
-fn goes_to_local_server(target: &TargetServer, address: Option<&LocalServerAddress>) -> bool {
+pub(crate) fn goes_to_local_server(
+    target: &TargetServer,
+    address: Option<&LocalServerAddress>,
+) -> bool {
     matches!((target.address, address), (Some(target), Some(local)) if target == local.0)
 }
 
