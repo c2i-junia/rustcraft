@@ -164,7 +164,7 @@ impl SoundMaterial {
             | BlockId::CrystalCluster => Self::Glass,
             BlockId::Water | BlockId::Lava | BlockId::Fire => return None,
             // as the block they are made of
-            shared::new_palette_blocks!() => return Self::of(block.palette()?.base),
+            _ if block.palette().is_some() => return Self::of(block.palette()?.base),
             shared::new_decor_blocks!() => return Self::of(block.decor()?.base),
             // a block only the content files define
             _ => Self::Stone,

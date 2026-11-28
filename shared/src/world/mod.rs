@@ -56,7 +56,7 @@ pub use item_names::*;
 pub use items::*;
 pub use loot::*;
 pub use mobs::*;
-pub use palette::{DyeColor, Form, Palette, Rock, Wood};
+pub use palette::{DyeColor, Form, Palette};
 pub use portal::*;
 pub use raycast::*;
 pub use reach::*;

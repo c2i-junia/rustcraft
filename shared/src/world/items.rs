@@ -623,12 +623,6 @@ SplashWeaknessPotion,
 /// The fang of a Gnawer, which distils into strength.
 GnawerFang,}
 
-/// The Rust names the former variants of `ItemId` were also read by, in the RON files.
-const FORMER_IDENTS: [(&str, ItemId); 2] = [
-    ("WoodenSlab", ItemId::OakSlab),
-    ("WoodenStairs", ItemId::OakStairs),
-];
-
 impl ItemId {
     /// The number of the item, where the table of the content holds its properties.
     #[inline]
@@ -658,12 +652,6 @@ impl ItemId {
             .iter()
             .position(|known| *known == ident)
             .map(place)
-            .or_else(|| {
-                FORMER_IDENTS
-                    .iter()
-                    .find(|(former, _)| *former == ident)
-                    .map(|(_, id)| *id)
-            })
             .or_else(|| {
                 let content = content();
                 content
@@ -696,16 +684,6 @@ impl ItemId {
         content()
             .item_named(&name.to_lowercase())
             .or_else(|| Self::of_ident(name))
-            .or_else(|| {
-                // a former name: `wooden_slab`
-                let mut pascal = String::new();
-                for word in name.split('_') {
-                    let mut chars = word.chars();
-                    pascal.extend(chars.next()?.to_uppercase());
-                    pascal.push_str(&chars.as_str().to_lowercase());
-                }
-                Self::of_ident(&pascal)
-            })
     }
 
     #[inline]

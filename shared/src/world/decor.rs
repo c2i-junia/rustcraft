@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use bevy::math::{bounding::Aabb3d, Vec3A};
 
-use super::{BlockDirection, BlockId, DyeColor, ItemId, ItemStack, ItemType, Wood};
+use super::{BlockDirection, BlockId, DyeColor, ItemId, ItemStack, ItemType};
 
 /// What a block of the furniture is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -190,30 +190,6 @@ impl DyeColor {
     /// The colour of `dye`, if it is a dye.
     pub fn of_dye(dye: ItemId) -> Option<Self> {
         Self::ALL.into_iter().find(|color| color.dye() == dye)
-    }
-}
-
-impl Wood {
-    /// Its table.
-    pub fn table(self) -> ItemId {
-        match self {
-            Self::Oak => ItemId::OakTable,
-            Self::Spruce => ItemId::SpruceTable,
-            Self::Jungle => ItemId::JungleTable,
-            Self::Willow => ItemId::WillowTable,
-            Self::Acacia => ItemId::AcaciaTable,
-        }
-    }
-
-    /// Its chair.
-    pub fn chair(self) -> ItemId {
-        match self {
-            Self::Oak => ItemId::OakChair,
-            Self::Spruce => ItemId::SpruceChair,
-            Self::Jungle => ItemId::JungleChair,
-            Self::Willow => ItemId::WillowChair,
-            Self::Acacia => ItemId::AcaciaChair,
-        }
     }
 }
 

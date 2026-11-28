@@ -493,12 +493,6 @@ engine_blocks! {
     WallTorch,
 }
 
-/// The Rust names the former variants of `BlockId` were also read by, in the RON files.
-const FORMER_IDENTS: [(&str, BlockId); 2] = [
-    ("WoodenSlab", BlockId::OakSlab),
-    ("WoodenStairs", BlockId::OakStairs),
-];
-
 impl BlockId {
     /// The number of the block, where the table of the content holds its properties.
     #[inline]
@@ -528,12 +522,6 @@ impl BlockId {
             .iter()
             .position(|known| *known == ident)
             .map(place)
-            .or_else(|| {
-                FORMER_IDENTS
-                    .iter()
-                    .find(|(former, _)| *former == ident)
-                    .map(|(_, id)| *id)
-            })
             .or_else(|| {
                 let content = content();
                 content
@@ -1619,10 +1607,7 @@ mod tests {
     fn stone_and_metal_blocks_need_a_pickaxe_of_their_level_and_the_others_nothing() {
         for id in ALL_BLOCKS {
             // a block of the palette needs what the block it is made of needs
-            if let Some(palette) = id
-                .palette()
-                .filter(|_| matches!(id, crate::new_palette_blocks!()))
-            {
+            if let Some(palette) = id.palette() {
                 assert_eq!(
                     id.get_required_tool(),
                     palette.base.get_required_tool(),

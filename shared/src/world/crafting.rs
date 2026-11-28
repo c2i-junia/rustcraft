@@ -433,7 +433,6 @@ fn serve_cells(mut left: Vec<(ItemId, u32)>, recipe: &RecipeView, rounds: u32) -
 mod tests {
     use super::*;
     use crate::players::Inventory;
-    use crate::world::{DyeColor, Rock, Wood};
 
     const LOG: Option<ItemId> = Some(ItemId::OakLog);
     const OAK: Option<ItemId> = Some(ItemId::OakPlanks);
@@ -945,20 +944,26 @@ mod tests {
         match_recipe(&grid)
     }
 
+    /// The item the files name `name`.
+    fn named(name: &str) -> Option<ItemId> {
+        Some(ItemId::from_name(name).unwrap_or_else(|| panic!("{name}")))
+    }
+
     #[test]
     fn each_wood_makes_its_own_slabs_stairs_doors_trapdoors_and_gates() {
-        for wood in Wood::ALL {
-            let p = Some(wood.planks());
+        for wood in ["oak", "spruce", "jungle", "willow", "acacia"] {
+            let p = named(&format!("{wood}_planks"));
             let s = Some(ItemId::Stick);
-            assert_eq!(made_of(3, &[p, p, p]), made(wood.slab(), 6), "{wood:?}");
-            assert_eq!(made_of(2, &[p, None, p, p, p, p]), made(wood.stairs(), 4));
-            assert_eq!(made_of(2, &[p; 6]), made(wood.door(), 1));
-            assert_eq!(made_of(3, &[p; 6]), made(wood.trapdoor(), 2));
-            assert_eq!(made_of(3, &[p, s, p, p, s, p]), made(wood.fence_gate(), 1));
+            let item = |form: &str| named(&format!("{wood}_{form}")).unwrap();
+            assert_eq!(made_of(3, &[p, p, p]), made(item("slab"), 6), "{wood}");
+            assert_eq!(made_of(2, &[p, None, p, p, p, p]), made(item("stairs"), 4));
+            assert_eq!(made_of(2, &[p; 6]), made(item("door"), 1));
+            assert_eq!(made_of(3, &[p; 6]), made(item("trapdoor"), 2));
+            assert_eq!(made_of(3, &[p, s, p, p, s, p]), made(item("fence_gate"), 1));
         }
         // the oak ones are those there were before
-        assert_eq!(Wood::Oak.slab(), ItemId::OakSlab);
-        assert_eq!(Wood::Oak.door(), ItemId::Door);
+        assert_eq!(named("oak_slab"), Some(ItemId::OakSlab));
+        assert_eq!(named("oak_door"), Some(ItemId::Door));
         // a slab of spruce takes spruce only
         let (oak, spruce) = (Some(ItemId::OakPlanks), Some(ItemId::SprucePlanks));
         assert_eq!(made_of(3, &[oak, spruce, oak]), None);
@@ -966,18 +971,33 @@ mod tests {
 
     #[test]
     fn each_rock_makes_slabs_stairs_low_walls_and_its_polished_and_chiseled_blocks() {
-        for rock in Rock::ALL {
-            let m = Some(rock.material());
-            assert_eq!(made_of(3, &[m, m, m]), made(rock.slab(), 6), "{rock:?}");
-            assert_eq!(made_of(2, &[m, None, m, m, m, m]), made(rock.stairs(), 4));
-            assert_eq!(made_of(3, &[m; 6]), made(rock.low_wall(), 6));
-            if let Some((polished, chiseled)) = rock.polished_and_chiseled() {
+        // each rock, the block it is cut from, and whether it is polished and chiseled
+        let rocks = [
+            ("stone", "stone", true),
+            ("cobblestone", "cobblestone", false),
+            ("hewn_stone", "hewn_stone", false),
+            ("limestone", "limestone", true),
+            ("slate", "slate", true),
+            ("brick", "brick_wall", false),
+            ("gloomrock", "gloomrock", true),
+            ("cobbled_gloomrock", "cobbled_gloomrock", false),
+        ];
+        for (rock, material, polished) in rocks {
+            let m = named(material);
+            let item = |form: &str| named(&format!("{rock}_{form}")).unwrap();
+            assert_eq!(made_of(3, &[m, m, m]), made(item("slab"), 6), "{rock}");
+            assert_eq!(made_of(2, &[m, None, m, m, m, m]), made(item("stairs"), 4));
+            assert_eq!(made_of(3, &[m; 6]), made(item("low_wall"), 6));
+            if polished {
+                let polished = named(&format!("polished_{rock}")).unwrap();
                 assert_eq!(made_of(2, &[m; 4]), made(polished, 4));
-                let slab = Some(rock.slab());
+                let slab = Some(item("slab"));
+                let chiseled = named(&format!("chiseled_{rock}")).unwrap();
                 assert_eq!(made_of(1, &[slab, slab]), made(chiseled, 1));
+            } else {
+                assert_eq!(ItemId::from_name(&format!("polished_{rock}")), None);
             }
         }
-        assert!(Rock::Gloomrock.polished_and_chiseled().is_some());
     }
 
     #[test]
@@ -996,38 +1016,56 @@ mod tests {
             mix(ItemId::BlueDye, ItemId::GreenDye),
             made(ItemId::CyanDye, 2)
         );
+        let colours = [
+            "white",
+            "orange",
+            "magenta",
+            "light_blue",
+            "yellow",
+            "lime",
+            "pink",
+            "gray",
+            "light_gray",
+            "cyan",
+            "purple",
+            "blue",
+            "brown",
+            "green",
+            "red",
+            "black",
+        ];
         // every dye is made
-        for color in DyeColor::ALL {
+        for color in colours {
+            let dye = named(&format!("{color}_dye")).unwrap();
             assert!(
-                recipes_for(color.dye()).next().is_some()
-                    || crate::world::furnace::smelting_inputs(color.dye())
-                        .next()
-                        .is_some(),
-                "{color:?}"
+                recipes_for(dye).next().is_some()
+                    || crate::world::furnace::smelting_inputs(dye).next().is_some(),
+                "{color}"
             );
         }
-        for color in DyeColor::ALL {
-            let dye = Some(color.dye());
+        for color in colours {
+            let item = |kind: &str| named(&format!("{color}_{kind}")).unwrap();
+            let dye = Some(item("dye"));
             // any wool, of any colour, takes the dye
             for wool in [ItemId::Wool, ItemId::RedWool, ItemId::BlackWool] {
                 assert_eq!(
                     made_of(2, &[Some(wool), dye]),
-                    made(color.wool(), 1),
-                    "{color:?}"
+                    made(item("wool"), 1),
+                    "{color}"
                 );
             }
             let glass = Some(ItemId::Glass);
             let ring = [glass, glass, glass, glass, dye, glass, glass, glass, glass];
-            assert_eq!(made_of(3, &ring), made(color.stained_glass(), 8));
-            let stained = Some(color.stained_glass());
+            assert_eq!(made_of(3, &ring), made(item("stained_glass"), 8));
+            let stained = Some(item("stained_glass"));
             assert_eq!(
                 made_of(3, &[stained; 3]),
-                made(color.stained_glass_pane(), 8)
+                made(item("stained_glass_pane"), 8)
             );
             let t = Some(ItemId::Terracotta);
             assert_eq!(
                 made_of(3, &[t, t, t, t, dye, t, t, t, t]),
-                made(color.terracotta(), 8)
+                made(item("terracotta"), 8)
             );
             let (sand, gravel) = (Some(ItemId::Sand), Some(ItemId::Gravel));
             assert_eq!(
@@ -1035,7 +1073,7 @@ mod tests {
                     3,
                     &[sand, gravel, sand, gravel, dye, gravel, sand, gravel, sand]
                 ),
-                made(color.concrete_powder(), 8)
+                made(item("concrete_powder"), 8)
             );
         }
         let (clay, brick) = (Some(ItemId::Clay), Some(ItemId::FiredBrick));
