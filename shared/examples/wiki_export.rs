@@ -53,9 +53,8 @@ fn main() {
         })
     };
 
-    let items: Vec<Value> = ItemId::ALL
-        .iter()
-        .map(|&id| {
+    let items: Vec<Value> = ItemId::all()
+        .map(|id| {
             let key = format!("{id:?}");
             let block = match id.get_default_type() {
                 ItemType::Block(block) => Some(format!("{block:?}")),
@@ -116,9 +115,8 @@ fn main() {
         })
         .collect();
 
-    let blocks: Vec<Value> = BlockId::ALL
-        .iter()
-        .map(|&id| {
+    let blocks: Vec<Value> = BlockId::all()
+        .map(|id| {
             let key = format!("{id:?}");
             let drops: Vec<Value> = id
                 .get_drop_table()
@@ -162,7 +160,8 @@ fn main() {
     .into_iter()
     .map(|tag| {
         (
-            tag.name().to_string(),
+            // the Rust name, `Planks`, as the wiki knows them
+            format!("{tag:?}"),
             tag.members().iter().map(|i| format!("{i:?}")).collect(),
         )
     })
@@ -197,8 +196,8 @@ fn main() {
                 "carriesChest": kind.carries_chest(),
                 "weakToAxes": kind.weak_to_axes(),
                 "size": [size.x, size.y, size.z],
-                "eats": ItemId::ALL.iter().filter(|i| kind.eats(**i)).map(|i| format!("{i:?}")).collect::<Vec<_>>(),
-                "egg": ItemId::ALL.iter().find(|i| i.spawned_mob() == Some(kind)).map(|i| format!("{i:?}")),
+                "eats": ItemId::all().filter(|i| kind.eats(*i)).map(|i| format!("{i:?}")).collect::<Vec<_>>(),
+                "egg": ItemId::all().find(|i| i.spawned_mob() == Some(kind)).map(|i| format!("{i:?}")),
                 "codex": {
                     "summary": line(format!("codex.mob.{key}.summary")),
                     "spawns": line(format!("codex.mob.{key}.spawns")),
@@ -254,7 +253,7 @@ fn main() {
                 "id": format!("{e:?}"),
                 "name": e.name(),
                 "levels": (1..=MAX_ENCHANTMENT_LEVEL).map(|l| e.effect(l)).collect::<Vec<_>>(),
-                "items": ItemId::ALL.iter().filter(|i| e.fits(**i)).map(|i| format!("{i:?}")).collect::<Vec<_>>(),
+                "items": ItemId::all().filter(|i| e.fits(*i)).map(|i| format!("{i:?}")).collect::<Vec<_>>(),
             })
         })
         .collect();
@@ -404,7 +403,7 @@ fn tenths(v: f32) -> f64 {
 fn ingredient(ingredient: Ingredient) -> String {
     match ingredient {
         Ingredient::Item(item) => format!("{item:?}"),
-        Ingredient::Tag(tag) => format!("#{}", tag.name()),
+        Ingredient::Tag(tag) => format!("#{tag:?}"),
     }
 }
 
