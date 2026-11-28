@@ -16,6 +16,7 @@ mod recipes;
 
 pub(crate) use blocks::tool_bit;
 pub use blocks::BlockProps;
+pub use families::Replaced;
 pub use files::{ContentError, NewName};
 pub use items::{DisplayName, ItemProps};
 pub use look::{Behaviour, BlockFlags, Look, Shape, Sway, Tint};
@@ -271,8 +272,9 @@ pub fn start(folder: &Path) -> Result<PathBuf, ContentError> {
         reason: "no such folder of content files".to_string(),
     })?;
     let started = !CONTENT.load(Ordering::Acquire).is_null();
-    let (loaded, new) = Content::load_telling(&folder, started.then(content))?;
+    let (loaded, new, replaced) = Content::load_telling(&folder, started.then(content))?;
     tell_new_names(&new);
+    tell_replaced(&replaced);
     if !started {
         start_with(loaded);
     } else if !loaded.same_properties(content()) {
@@ -289,6 +291,13 @@ pub fn tell_new_names(new: &[NewName]) {
         } else {
             bevy_log::info!("{block}");
         }
+    }
+}
+
+/// Logs each of `replaced`, as the family's definition a file's own replaces is silent.
+pub fn tell_replaced(replaced: &[Replaced]) {
+    for member in replaced {
+        bevy_log::info!("{member}");
     }
 }
 

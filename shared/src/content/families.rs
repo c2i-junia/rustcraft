@@ -29,8 +29,9 @@
 //! output, count and cells, whatever letters stand for them) is the file's too: the oak planks
 //! recipe stays where `crafting.ron` has it, and a new wood has the one the family writes.
 
-use std::collections::{BTreeMap, HashSet};
-use std::path::PathBuf;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fmt;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
@@ -129,8 +130,9 @@ impl Member<'_> {
 /// The blocks, the items and the recipes the files write out, the first two by their names and
 /// their aliases: a family does not make those.
 struct Written {
-    blocks: HashSet<String>,
-    items: HashSet<String>,
+    /// Each name and alias, with the file that writes it out.
+    blocks: HashMap<String, PathBuf>,
+    items: HashMap<String, PathBuf>,
     /// The recipes, as `shape` reads them.
     recipes: HashSet<String>,
 }
@@ -164,48 +166,92 @@ fn shape(recipe: &RecipeDef) -> String {
 impl Written {
     fn of(files: &[(PathBuf, ContentFile)]) -> Self {
         let mut written = Self {
-            blocks: HashSet::new(),
-            items: HashSet::new(),
+            blocks: HashMap::new(),
+            items: HashMap::new(),
             recipes: HashSet::new(),
         };
-        for (_, file) in files {
+        for (path, file) in files {
+            let insert = |names: &mut HashMap<String, PathBuf>, name: &String| {
+                names.insert(name.clone(), path.clone());
+            };
             written.recipes.extend(file.recipes.iter().map(shape));
             for (name, def) in &file.blocks.0 {
-                written.blocks.insert(name.clone());
+                insert(&mut written.blocks, name);
                 // the alias of a block also names its item
                 for alias in def.aliases.iter().flatten() {
-                    written.blocks.insert(alias.clone());
-                    written.items.insert(alias.clone());
+                    insert(&mut written.blocks, alias);
+                    insert(&mut written.items, alias);
                 }
             }
             for (name, def) in &file.items.0 {
-                written.items.insert(name.clone());
-                written.items.extend(def.aliases.iter().flatten().cloned());
+                insert(&mut written.items, name);
+                for alias in def.aliases.iter().flatten() {
+                    insert(&mut written.items, alias);
+                }
             }
         }
         written
     }
 }
 
-/// Writes out the families of every file into the definitions of their files, in place.
-pub(super) fn expand(files: &mut [(PathBuf, ContentFile)]) -> Result<(), ContentError> {
+/// A block or an item a family would make for a member, that a file writes out instead: the
+/// family's definition of it is dropped, which is to be told as a mistyped or a clashing name
+/// replaces a whole definition silently.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Replaced {
+    /// "block" or "item".
+    pub kind: &'static str,
+    pub name: String,
+    /// The file of the family.
+    pub family: PathBuf,
+    /// The file that writes the member out, under that name or an alias of it.
+    pub file: PathBuf,
+}
+
+impl fmt::Display for Replaced {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = |path: &PathBuf| {
+            path.file_name()
+                .unwrap_or(path.as_os_str())
+                .to_string_lossy()
+                .into_owned()
+        };
+        write!(
+            f,
+            "{} \"{}\" of a family in {} is replaced by the one {} writes out",
+            self.kind,
+            self.name,
+            name(&self.family),
+            name(&self.file)
+        )
+    }
+}
+
+/// Writes out the families of every file into the definitions of their files, in place, and
+/// returns the members a file's own definition replaced.
+pub(super) fn expand(files: &mut [(PathBuf, ContentFile)]) -> Result<Vec<Replaced>, ContentError> {
     let written = Written::of(files);
+    let mut replaced = Vec::new();
     for (path, file) in files.iter_mut() {
         for (number, family) in std::mem::take(&mut file.families).into_iter().enumerate() {
-            expand_family(family, file, &written).map_err(|reason| ContentError {
-                file: path.clone(),
-                reason: format!("family {}: {reason}", number + 1),
+            expand_family(family, file, path, &written, &mut replaced).map_err(|reason| {
+                ContentError {
+                    file: path.clone(),
+                    reason: format!("family {}: {reason}", number + 1),
+                }
             })?;
         }
     }
-    Ok(())
+    Ok(replaced)
 }
 
-/// Writes `family` out into `file` for each of its members.
+/// Writes `family` out into `file`, which is `path`, for each of its members.
 fn expand_family(
     family: FamilyDef,
     file: &mut ContentFile,
+    path: &Path,
     written: &Written,
+    replaced: &mut Vec<Replaced>,
 ) -> Result<(), String> {
     let members = members(&family.each)?;
     let mut excepted: Vec<(&str, bool)> = family
@@ -234,8 +280,17 @@ fn expand_family(
             let def = member
                 .write_all(def)
                 .map_err(context(format!("block \"{name}\":")))?;
-            if !skip(&name) && !written.blocks.contains(&name) {
-                file.blocks.0.push((name, def));
+            if skip(&name) {
+                continue;
+            }
+            match written.blocks.get(&name) {
+                Some(by) => replaced.push(Replaced {
+                    kind: "block",
+                    name,
+                    family: path.to_path_buf(),
+                    file: by.clone(),
+                }),
+                None => file.blocks.0.push((name, def)),
             }
         }
         for (name, def) in &family.items.0 {
@@ -243,8 +298,17 @@ fn expand_family(
             let def = member
                 .write_all(def)
                 .map_err(context(format!("item \"{name}\":")))?;
-            if !skip(&name) && !written.items.contains(&name) {
-                file.items.0.push((name, def));
+            if skip(&name) {
+                continue;
+            }
+            match written.items.get(&name) {
+                Some(by) => replaced.push(Replaced {
+                    kind: "item",
+                    name,
+                    family: path.to_path_buf(),
+                    file: by.clone(),
+                }),
+                None => file.items.0.push((name, def)),
             }
         }
         for (name, TagDef(members)) in &family.tags.0 {
@@ -440,6 +504,41 @@ mod tests {
         assert_eq!(fuel_ticks_in(&content, amber_item), Some(50));
         // an alias is no block of its own
         assert!(!content.block_names.contains(&"amber_brick".to_string()));
+    }
+
+    #[test]
+    fn a_member_a_file_writes_out_instead_is_told() {
+        let folder = game_folder_with(
+            r#"(
+                blocks: {
+                    "jade_brick": (break: 9),
+                    "amber": (break: 2, aliases: ["amber_brick"]),
+                },
+                items: {"jade_tile": (category: Nature)},
+                families: [(
+                    each: {"g": ["amber", "jade", "onyx"]},
+                    blocks: {"{g}_brick": (break: 4)},
+                    items: {"{g}_tile": ()},
+                )],
+            )"#,
+        );
+        let (_, _, replaced) = Content::load_telling(folder.path(), None).unwrap();
+        let told: Vec<String> = replaced
+            .iter()
+            .map(ToString::to_string)
+            .filter(|told| told.contains("family in extra.ron"))
+            .collect();
+        assert_eq!(
+            told,
+            [
+                "block \"amber_brick\" of a family in extra.ron is replaced by the one extra.ron writes out",
+                "block \"jade_brick\" of a family in extra.ron is replaced by the one extra.ron writes out",
+                "item \"jade_tile\" of a family in extra.ron is replaced by the one extra.ron writes out",
+            ]
+        );
+        // the oak's pieces the palette writes out are told too, and nothing of the other woods
+        assert!(replaced.iter().any(|r| r.name == "oak_slab"));
+        assert!(!replaced.iter().any(|r| r.name.contains("spruce")));
     }
 
     #[test]

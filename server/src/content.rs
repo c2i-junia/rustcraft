@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use bevy::prelude::*;
 use bevy_renet::RenetServer;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use shared::content::{content, install, tell_new_names, Content};
+use shared::content::{content, install, tell_new_names, tell_replaced, Content};
 use shared::messages::{FullChatMessage, ServerToClientMessage};
 use shared::utils::unix_time_ms;
 use shared::{ContentSource, GameFolderPaths};
@@ -60,8 +60,9 @@ impl ContentFiles {
             return None;
         };
         match Content::load_telling(&folder, Some(content())) {
-            Ok((new, new_names)) => {
+            Ok((new, new_names, replaced)) => {
                 tell_new_names(&new_names);
+                tell_replaced(&replaced);
                 if install_if_new(new) {
                     info!("Content files of {} installed", folder.display());
                 }
@@ -177,8 +178,9 @@ pub fn reload_content_system(
     }
     let mut told = Vec::new();
     let answer = match Content::load_telling(&files.folder, Some(content())) {
-        Ok((new, new_names)) => {
+        Ok((new, new_names, replaced)) => {
             tell_new_names(&new_names);
+            tell_replaced(&replaced);
             told = new_names.iter().map(ToString::to_string).collect();
             if install_if_new(new) {
                 info!("Content files reloaded");

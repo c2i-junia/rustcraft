@@ -32,7 +32,7 @@ use bevy::math::Vec3A;
 use serde::de::{self, Deserializer, MapAccess, Visitor};
 use serde::Deserialize;
 
-use super::families::{FamilyDef, Texts};
+use super::families::{FamilyDef, Replaced, Texts};
 use super::recipes::{CraftingDefs, FuelDef, RecipeDef, TagDef};
 use super::{
     tool_bit, Behaviour, BlockFlags, BlockProps, Content, Crafting, DisplayName, ItemProps, Look,
@@ -128,7 +128,7 @@ impl Content {
     /// defined, and every item of the engine that is not the item of a block. Nothing is
     /// installed: the caller decides.
     pub fn load(folder: &Path) -> Result<Content, ContentError> {
-        Self::load_telling(folder, None).map(|(content, _)| content)
+        Self::load_telling(folder, None).map(|(content, ..)| content)
     }
 
     /// The content the files of `folder` define, as `load` reads it, but numbered as `previous`
@@ -136,15 +136,16 @@ impl Content {
     /// one takes the next, and one `previous` has that the files no longer define keeps its
     /// number as a placeholder (`BlockProps::placeholder`, `ItemProps::PLACEHOLDER`).
     pub fn reload(folder: &Path, previous: &Content) -> Result<Content, ContentError> {
-        Self::load_telling(folder, Some(previous)).map(|(content, _)| content)
+        Self::load_telling(folder, Some(previous)).map(|(content, ..)| content)
     }
 
     /// `reload` over `previous`, or `load` without, with the blocks and the items only the files
-    /// define that it numbered anew, to be told to whoever edits the files.
+    /// define that it numbered anew, and the members of a family that a file writes out instead
+    /// (`Replaced`), to be told to whoever edits the files.
     pub fn load_telling(
         folder: &Path,
         previous: Option<&Content>,
-    ) -> Result<(Content, Vec<NewName>), ContentError> {
+    ) -> Result<(Content, Vec<NewName>, Vec<Replaced>), ContentError> {
         let in_folder = |reason: String| ContentError {
             file: folder.to_path_buf(),
             reason,
@@ -167,7 +168,7 @@ impl Content {
             files.push((path, defs));
         }
         // the families written out, then each definition `like` another completed from it
-        super::families::expand(&mut files)?;
+        let replaced = super::families::expand(&mut files)?;
         complete_likes(&mut files)?;
 
         // the numbers of the blocks and the items, before any definition refers to one
@@ -307,7 +308,7 @@ impl Content {
             item_aliases,
             crafting,
         };
-        Ok((content, new_names))
+        Ok((content, new_names, replaced))
     }
 
     /// Whether `other` holds the same properties, whatever their generations.
@@ -1765,7 +1766,7 @@ pub(super) mod tests {
         let folder = game_folder_with(
             r#"(blocks: {"tourch": (light: 9), "glow_moss": ()}, items: {"stik": (stack: 2)})"#,
         );
-        let (content, new) = Content::load_telling(folder.path(), None).unwrap();
+        let (content, new, _) = Content::load_telling(folder.path(), None).unwrap();
         let told: Vec<String> = new.iter().map(ToString::to_string).collect();
         assert_eq!(
             told,
@@ -1787,7 +1788,7 @@ pub(super) mod tests {
             "the torch is untouched"
         );
         // a reload tells only the blocks it numbers anew
-        let (_, again) = Content::load_telling(folder.path(), Some(&content)).unwrap();
+        let (_, again, _) = Content::load_telling(folder.path(), Some(&content)).unwrap();
         assert_eq!(again, []);
         assert_eq!(edit_distance("tourch", "torch"), 1);
         assert_eq!(edit_distance("stone", "tones"), 2);
