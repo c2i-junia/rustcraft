@@ -97,92 +97,13 @@ pub struct Strike {
 impl MobKind {
     /// How a hostile of this kind hunts; `None` for an animal.
     pub fn hunt(self) -> Option<Hunt> {
-        match self {
-            MobKind::Gnawer => Some(Hunt {
-                sight: 16.0,
-                forget: 24.0,
-                speed: 2.8,
-            }),
-            // It never moves: it bites who comes within reach
-            MobKind::Bramble => Some(Hunt {
-                sight: 2.5,
-                forget: 2.5,
-                speed: 0.0,
-            }),
-            MobKind::Roller => Some(Hunt {
-                sight: 12.0,
-                forget: 24.0,
-                speed: 7.0,
-            }),
-            MobKind::Stumpling => Some(Hunt {
-                sight: 16.0,
-                forget: 24.0,
-                speed: 1.2,
-            }),
-            // It hovers and keeps its distance (`hostile::hover_and_throw`)
-            MobKind::Cinderling => Some(Hunt {
-                sight: 16.0,
-                forget: 24.0,
-                speed: 2.0,
-            }),
-            // Its speed as it circles 8 blocks over its prey (`hostile::circle_and_dive`)
-            MobKind::GustOwl => Some(Hunt {
-                sight: 24.0,
-                forget: 32.0,
-                speed: 4.0,
-            }),
-            // Its speed in water: it walks at 0.8 on land, only back to the water
-            MobKind::Drowner => Some(Hunt {
-                sight: 16.0,
-                forget: 24.0,
-                speed: 3.0,
-            }),
-            MobKind::Shardling => Some(Hunt {
-                sight: 12.0,
-                forget: 20.0,
-                speed: 2.2,
-            }),
-            MobKind::Slagcrawler => Some(Hunt {
-                sight: 14.0,
-                forget: 22.0,
-                speed: 2.4,
-            }),
-            // In her lair only: `mob::boss` finds her prey
-            MobKind::EmberMother => Some(Hunt {
-                sight: 36.0,
-                forget: 36.0,
-                speed: 3.0,
-            }),
-            _ => None,
-        }
+        self.props().hunt
     }
 
     /// Speed of a walking mob, in blocks per second: of a hostile that wanders, 0 for one that
     /// stays where it is.
     pub fn walk_speed(self) -> f32 {
-        match self {
-            MobKind::Gnawer | MobKind::Shardling | MobKind::Slagcrawler => 1.4,
-            MobKind::Stumpling | MobKind::Drowner => 0.8,
-            MobKind::Mossback => 0.7,
-            // They swim (`swim::act`)
-            MobKind::Glintfin | MobKind::Shoalback => 0.0,
-            MobKind::Bramble
-            | MobKind::Roller
-            | MobKind::Cinderling
-            | MobKind::GustOwl
-            | MobKind::EmberMother
-            | MobKind::Ember
-            | MobKind::Arrow
-            | MobKind::Boat
-            | MobKind::Bobber
-            | MobKind::ThrownPotion => 0.0,
-            MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => 1.5,
-            MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 1.6,
-            MobKind::Horse => 1.5,
-            MobKind::Donkey | MobKind::Mule => 1.3,
-            MobKind::Goat => 1.2,
-            MobKind::Sheep | MobKind::Cow | MobKind::Pig | MobKind::Chicken => 1.0,
-        }
+        self.props().walk_speed
     }
 
     /// The status effect the blow of a hostile of `kind` leaves, its level and its seconds: the
@@ -200,76 +121,7 @@ impl MobKind {
 
     /// How a hostile of this kind strikes; `None` for an animal.
     pub fn strike(self) -> Option<Strike> {
-        match self {
-            MobKind::Gnawer => Some(Strike {
-                damage: 2,
-                reach: 1.0,
-                cooldown: 15,
-                knock_back: 0.0,
-            }),
-            MobKind::Bramble => Some(Strike {
-                damage: 3,
-                reach: 2.5,
-                cooldown: 20,
-                knock_back: 0.0,
-            }),
-            // Its roll hits what its box touches
-            MobKind::Roller => Some(Strike {
-                damage: 4,
-                reach: 0.0,
-                cooldown: 0,
-                knock_back: 8.0,
-            }),
-            MobKind::Stumpling => Some(Strike {
-                damage: 3,
-                reach: 1.2,
-                cooldown: 20,
-                knock_back: 0.0,
-            }),
-            // Its ember, thrown as far as it reaches, sets the player burning too
-            MobKind::Cinderling => Some(Strike {
-                damage: 1,
-                reach: 16.0,
-                cooldown: 60,
-                knock_back: 0.0,
-            }),
-            // Its dive: the cooldown is the circling between two dives
-            MobKind::GustOwl => Some(Strike {
-                damage: 2,
-                reach: 0.5,
-                cooldown: 60,
-                knock_back: 8.0,
-            }),
-            // Its grab also drags the player down (`Player::drag`)
-            MobKind::Drowner => Some(Strike {
-                damage: 2,
-                reach: 1.5,
-                cooldown: 20,
-                knock_back: 0.0,
-            }),
-            // Its claws of crystal
-            MobKind::Shardling => Some(Strike {
-                damage: 3,
-                reach: 1.1,
-                cooldown: 20,
-                knock_back: 4.0,
-            }),
-            // Its bite also sets the player burning (`hostile::inflicted_effect`)
-            MobKind::Slagcrawler => Some(Strike {
-                damage: 2,
-                reach: 1.2,
-                cooldown: 20,
-                knock_back: 0.0,
-            }),
-            // Her blow up close
-            MobKind::EmberMother => Some(Strike {
-                damage: 7,
-                reach: 2.4,
-                cooldown: 30,
-                knock_back: 8.0,
-            }),
-            _ => None,
-        }
+        self.props().strike
     }
 }
 

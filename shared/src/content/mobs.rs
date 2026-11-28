@@ -265,34 +265,6 @@ mod tests {
     use super::*;
     use crate::content::files::tests::game_folder;
     use crate::content::Content;
-    use bevy::math::Vec3;
-
-    #[test]
-    fn the_mobs_of_the_files_are_those_of_the_code() {
-        let content = Content::load(&game_folder()).unwrap();
-        assert_eq!(content.mobs.len(), MobKind::ALL.len());
-        for (index, kind) in MobKind::ALL.into_iter().enumerate() {
-            assert_eq!(kind.index(), index);
-            let mob = content.mob(kind);
-            assert_eq!(mob.health, kind.health(), "{kind:?}");
-            assert_eq!(Vec3::from(mob.size), kind.size(), "{kind:?}");
-            assert_eq!(mob.walk_speed, kind.walk_speed(), "{kind:?}");
-            assert_eq!(mob.hunt, kind.hunt(), "{kind:?}");
-            assert_eq!(mob.strike, kind.strike(), "{kind:?}");
-            assert_eq!(mob.experience, kind.experience(), "{kind:?}");
-            assert_eq!(mob.tameable, kind.is_tameable(), "{kind:?}");
-            for index in 0..content.items.len() {
-                let item = ItemId::from_index(index as u16);
-                assert_eq!(
-                    mob.eats.contains(&item),
-                    kind.eats(item),
-                    "{kind:?} {item:?}"
-                );
-            }
-            assert_eq!(mob.drops, kind.loot(), "{kind:?}");
-            assert_eq!(mob.sounds, mob_name(kind), "{kind:?}");
-        }
-    }
 
     const FOX: &str = r#""fox": (
             health: 10,

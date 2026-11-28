@@ -247,43 +247,9 @@ impl CreatureCall {
     }
 }
 
-/// The folder of the sounds of `kind` in `sounds/mob/`.
-pub(crate) fn creature_folder(kind: MobKind) -> &'static str {
-    match kind {
-        MobKind::Fox => "fox",
-        MobKind::Sheep => "sheep",
-        MobKind::Cow => "cow",
-        MobKind::Pig => "pig",
-        MobKind::Chicken => "chicken",
-        MobKind::Rabbit => "rabbit",
-        MobKind::Wolf => "wolf",
-        MobKind::Horse => "horse",
-        MobKind::Goat => "goat",
-        MobKind::Cat => "cat",
-        MobKind::Gnawer => "gnawer",
-        MobKind::Bramble => "bramble",
-        MobKind::Roller => "roller",
-        MobKind::Stumpling => "stumpling",
-        MobKind::Drowner => "drowner",
-        MobKind::Cinderling => "cinderling",
-        MobKind::EmberMother => "ember_mother",
-        MobKind::Ember => "ember",
-        MobKind::GustOwl => "gust_owl",
-        MobKind::Arrow => "arrow",
-        MobKind::Farmer => "farmer",
-        MobKind::Smith => "smith",
-        MobKind::Cartographer => "cartographer",
-        MobKind::Boat => "boat",
-        MobKind::Bobber => "bobber",
-        MobKind::Glintfin => "glintfin",
-        MobKind::Shoalback => "shoalback",
-        MobKind::Mossback => "mossback",
-        MobKind::Shardling => "shardling",
-        MobKind::Slagcrawler => "slagcrawler",
-        MobKind::Donkey => "donkey",
-        MobKind::Mule => "mule",
-        MobKind::ThrownPotion => "thrown_potion",
-    }
+/// The folder of the sounds of `kind` in `sounds/mob/` (`mobs.ron`).
+fn creature_folder(kind: MobKind) -> &'static str {
+    &kind.props().sounds
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

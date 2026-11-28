@@ -1,4 +1,6 @@
-//! How each kind of mob is drawn: its model, and the clips of the model that play its actions.
+//! How each kind of mob is drawn: its model, and the clips of the model that play its actions,
+//! which `mobs.ron` gives (`MobProps::model`, `MobProps::clips`). The models are built by the
+//! `scripts/generate_*.py` generators.
 
 use std::collections::HashMap;
 
@@ -7,78 +9,6 @@ use shared::world::{Coat, MobAction, MobKind};
 
 pub use shared::content::MobClip;
 
-/// The model of a kind of mob.
-pub struct MobModel {
-    pub path: &'static str,
-    /// The index in the model of the animation of each clip it has, which the exporter sorts by
-    /// name.
-    clips: &'static [(MobClip, usize)],
-}
-
-const GRAZER_CLIPS: &[(MobClip, usize)] = &[
-    (MobClip::Eat, 0),
-    (MobClip::Idle, 1),
-    (MobClip::Run, 2),
-    (MobClip::Walk, 3),
-];
-const HUNTER_CLIPS: &[(MobClip, usize)] =
-    &[(MobClip::Idle, 0), (MobClip::Run, 1), (MobClip::Walk, 2)];
-const SHEEP_CLIPS: &[(MobClip, usize)] =
-    &[(MobClip::Eat, 0), (MobClip::Idle, 1), (MobClip::Walk, 2)];
-/// The clips of `scripts/generate_hostiles.py`.
-const HOSTILE_CLIPS: &[(MobClip, usize)] =
-    &[(MobClip::Attack, 0), (MobClip::Idle, 1), (MobClip::Walk, 2)];
-
-/// The clips of `scripts/generate_villagers.py`.
-const VILLAGER_CLIPS: &[(MobClip, usize)] = &[(MobClip::Idle, 0), (MobClip::Walk, 1)];
-
-/// The models are built by `scripts/generate_sheep.py`, `scripts/generate_animals.py`,
-/// `scripts/generate_hostiles.py` and `scripts/generate_villagers.py`.
-pub fn model(kind: MobKind) -> MobModel {
-    let (path, clips) = match kind {
-        MobKind::Sheep => ("models/animated/Sheep.glb", SHEEP_CLIPS),
-        MobKind::Fox => ("models/animated/Fox.glb", HUNTER_CLIPS),
-        MobKind::Wolf => ("models/animated/Wolf.glb", HUNTER_CLIPS),
-        MobKind::Cat => ("models/animated/Cat.glb", HUNTER_CLIPS),
-        MobKind::Cow => ("models/animated/Cow.glb", GRAZER_CLIPS),
-        MobKind::Pig => ("models/animated/Pig.glb", GRAZER_CLIPS),
-        MobKind::Chicken => ("models/animated/Chicken.glb", GRAZER_CLIPS),
-        MobKind::Rabbit => ("models/animated/Rabbit.glb", GRAZER_CLIPS),
-        MobKind::Horse => ("models/animated/Horse.glb", GRAZER_CLIPS),
-        MobKind::Goat => ("models/animated/Goat.glb", GRAZER_CLIPS),
-        MobKind::Gnawer => ("models/animated/Gnawer.glb", HOSTILE_CLIPS),
-        MobKind::Bramble => ("models/animated/Bramble.glb", HOSTILE_CLIPS),
-        MobKind::Roller => ("models/animated/Roller.glb", HOSTILE_CLIPS),
-        MobKind::Stumpling => ("models/animated/Stumpling.glb", HOSTILE_CLIPS),
-        MobKind::Drowner => ("models/animated/Drowner.glb", HOSTILE_CLIPS),
-        MobKind::Cinderling => ("models/animated/Cinderling.glb", HOSTILE_CLIPS),
-        // Its three clips are one spin
-        MobKind::Ember => ("models/animated/Ember.glb", HOSTILE_CLIPS),
-        MobKind::GustOwl => ("models/animated/GustOwl.glb", HOSTILE_CLIPS),
-        MobKind::EmberMother => ("models/animated/EmberMother.glb", HOSTILE_CLIPS),
-        // Its three clips stand still
-        MobKind::Arrow => ("models/animated/Arrow.glb", HOSTILE_CLIPS),
-        MobKind::Farmer => ("models/animated/Farmer.glb", VILLAGER_CLIPS),
-        MobKind::Smith => ("models/animated/Smith.glb", VILLAGER_CLIPS),
-        MobKind::Cartographer => ("models/animated/Cartographer.glb", VILLAGER_CLIPS),
-        // `scripts/generate_boat.py`: its three clips stand still
-        MobKind::Boat => ("models/animated/Boat.glb", HOSTILE_CLIPS),
-        // `scripts/generate_bobber.py`: it bobs, and plunges at a bite
-        MobKind::Bobber => ("models/animated/Bobber.glb", HOSTILE_CLIPS),
-        // `scripts/generate_caverns.py`
-        MobKind::Glintfin => ("models/animated/Glintfin.glb", HOSTILE_CLIPS),
-        MobKind::Shoalback => ("models/animated/Shoalback.glb", HOSTILE_CLIPS),
-        MobKind::Mossback => ("models/animated/Mossback.glb", HOSTILE_CLIPS),
-        MobKind::Shardling => ("models/animated/Shardling.glb", HOSTILE_CLIPS),
-        MobKind::Slagcrawler => ("models/animated/Slagcrawler.glb", HOSTILE_CLIPS),
-        MobKind::Donkey => ("models/animated/Donkey.glb", GRAZER_CLIPS),
-        MobKind::Mule => ("models/animated/Mule.glb", GRAZER_CLIPS),
-        // `scripts/generate_thrown_potion.py`: it tumbles as it flies
-        MobKind::ThrownPotion => ("models/animated/ThrownPotion.glb", HOSTILE_CLIPS),
-    };
-    MobModel { path, clips }
-}
-
 /// The scene a mob of `kind` is drawn with: a horse's is that of its coat, whose model has the
 /// parts of `Horse.glb`, which the clips of the kind move (`scripts/generate_animals.py`).
 pub fn scene_path(kind: MobKind, coat: Option<Coat>) -> String {
@@ -86,17 +16,14 @@ pub fn scene_path(kind: MobKind, coat: Option<Coat>) -> String {
         (MobKind::Horse, Some(coat)) if coat != Coat::Bay => {
             format!("models/animated/Horse{coat:?}.glb")
         }
-        _ => model(kind).path.to_string(),
+        _ => kind.props().model.clone(),
     }
 }
 
 /// How far above the origin of the model of `kind` the bottom of its box is, in metres: the
-/// model is drawn that much lower than its box. The Gust Owl's talons are 7 voxels up.
+/// model is drawn that much lower than its box (`MobProps::lift`).
 pub fn model_lift(kind: MobKind) -> f32 {
-    match kind {
-        MobKind::GustOwl => 7.0 / 16.0,
-        _ => 0.0,
-    }
+    kind.props().lift
 }
 
 /// The clip a mob of `kind` doing `action` plays, among those its model has: one without a run
@@ -113,7 +40,7 @@ pub fn clip_for(kind: MobKind, action: MobAction) -> MobClip {
         // It sinks standing, the ground hiding it
         MobAction::Burrow => MobClip::Idle,
     };
-    let has = |clip| model(kind).clips.iter().any(|&(c, _)| c == clip);
+    let has = |clip| kind.props().clips.contains(&clip);
     match wanted {
         clip if has(clip) => clip,
         MobClip::Run => MobClip::Walk,
@@ -138,18 +65,15 @@ impl MobAnimations {
         graphs: &mut Assets<AnimationGraph>,
     ) -> &KindAnimations {
         self.0.entry(kind).or_insert_with(|| {
-            let model = model(kind);
-            let (graph, indices) = AnimationGraph::from_clips(model.clips.iter().map(|&(_, i)| {
-                asset_server.load(GltfAssetLabel::Animation(i).from_asset(model.path))
-            }));
+            let props = kind.props();
+            let (graph, indices) =
+                AnimationGraph::from_clips((0..props.clips.len()).map(|index| {
+                    asset_server
+                        .load(GltfAssetLabel::Animation(index).from_asset(props.model.as_str()))
+                }));
             KindAnimations {
                 graph: graphs.add(graph),
-                nodes: model
-                    .clips
-                    .iter()
-                    .map(|&(clip, _)| clip)
-                    .zip(indices)
-                    .collect(),
+                nodes: props.clips.iter().copied().zip(indices).collect(),
             }
         })
     }
@@ -178,7 +102,7 @@ mod tests {
             ] {
                 let clip = clip_for(kind, action);
                 assert!(
-                    model(kind).clips.iter().any(|&(c, _)| c == clip),
+                    kind.props().clips.contains(&clip),
                     "{kind:?} {action:?}: {clip:?}"
                 );
             }
@@ -202,7 +126,10 @@ mod tests {
             assert_eq!(clip_for(kind, MobAction::Chase), MobClip::Walk);
             assert_eq!(clip_for(kind, MobAction::Attack), MobClip::Attack);
             assert_eq!(clip_for(kind, MobAction::Idle), MobClip::Idle);
-            assert_eq!(model(kind).clips, HOSTILE_CLIPS);
+            assert_eq!(
+                kind.props().clips,
+                [MobClip::Attack, MobClip::Idle, MobClip::Walk]
+            );
         }
         assert_eq!(
             clip_for(MobKind::Stumpling, MobAction::Burrow),
@@ -218,27 +145,5 @@ mod tests {
             assert_eq!(model_lift(kind), 0.0, "{kind:?}");
         }
         assert!(!MobClip::Walk.plays_once());
-    }
-
-    #[test]
-    fn the_models_of_the_files_are_those_of_the_code() {
-        for kind in MobKind::ALL {
-            let mob = shared::content::content().mob(kind);
-            let model = model(kind);
-            assert_eq!(mob.model, model.path, "{kind:?}");
-            let clips: Vec<MobClip> = model.clips.iter().map(|&(clip, _)| clip).collect();
-            assert_eq!(mob.clips, clips, "{kind:?}");
-            assert!(model
-                .clips
-                .iter()
-                .enumerate()
-                .all(|(i, &(_, index))| i == index));
-            assert_eq!(mob.lift, model_lift(kind), "{kind:?}");
-            assert_eq!(
-                mob.sounds,
-                crate::audio::sounds::creature_folder(kind),
-                "{kind:?}"
-            );
-        }
     }
 }

@@ -1,5 +1,5 @@
-//! What a creature drops when it dies, by its kind: a table, so that the server rolls it and the
-//! Codex and the wiki show it from the same lines.
+//! What a creature drops when it dies, by its kind: a table, the `drops` of its kind in
+//! `mobs.ron`, so that the server rolls it and the Codex and the wiki show it from the same lines.
 
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -38,97 +38,11 @@ pub struct Loot {
     pub when: LootWhen,
 }
 
-const fn line(item: ItemId, count: LootCount) -> Loot {
-    Loot {
-        item,
-        count,
-        when: LootWhen::Always,
-    }
-}
-
-const fn range(item: ItemId, min: u32, max: u32) -> Loot {
-    line(item, LootCount::Range(min, max))
-}
-
-const fn odds(item: ItemId, n: u32, d: u32) -> Loot {
-    line(item, LootCount::Odds(n, d))
-}
-
-/// A table of loot, made at compile time.
-macro_rules! table {
-    ($($line:expr),* $(,)?) => {{
-        const TABLE: &[Loot] = &[$($line),*];
-        TABLE
-    }};
-}
-
 impl MobKind {
     /// What a grown creature of this kind drops: its meat, and its wool, leather or feathers. A
     /// young animal drops nothing.
     pub fn loot(self) -> &'static [Loot] {
-        match self {
-            MobKind::Sheep => table![
-                range(ItemId::RawMutton, 1, 2),
-                Loot {
-                    item: ItemId::Wool,
-                    count: LootCount::Range(1, 1),
-                    when: LootWhen::NotSheared,
-                },
-            ],
-            MobKind::Pig => table![range(ItemId::RawPork, 1, 3)],
-            MobKind::Cow => table![range(ItemId::RawBeef, 1, 3), range(ItemId::Leather, 0, 2)],
-            MobKind::Chicken => table![
-                range(ItemId::RawChicken, 1, 1),
-                range(ItemId::Feather, 0, 2)
-            ],
-            MobKind::Rabbit => table![range(ItemId::RawRabbit, 1, 1)],
-            MobKind::Bramble => table![range(ItemId::Stick, 1, 3)],
-            MobKind::Stumpling => table![
-                range(ItemId::Stick, 2, 4),
-                line(ItemId::Charcoal, LootCount::Chance(0.3)),
-            ],
-            MobKind::Roller => table![range(ItemId::Cobblestone, 1, 2), odds(ItemId::Flint, 1, 5)],
-            MobKind::GustOwl => table![range(ItemId::Feather, 1, 3)],
-            MobKind::Cinderling => table![range(ItemId::Coal, 1, 2), odds(ItemId::Flint, 1, 10)],
-            MobKind::EmberMother => table![range(ItemId::EmberHeart, 1, 1)],
-            // The fish of the seas give those of the rods (`world::fishing`)
-            MobKind::Glintfin => table![
-                odds(ItemId::RawGlowfin, 1, 4),
-                Loot {
-                    item: ItemId::RawRoach,
-                    count: LootCount::Range(1, 1),
-                    when: LootWhen::Otherwise,
-                },
-            ],
-            MobKind::Shoalback => table![range(ItemId::RawPerch, 1, 1)],
-            MobKind::Mossback => table![range(ItemId::Moss, 1, 2), odds(ItemId::Leather, 1, 3)],
-            MobKind::Shardling => table![range(ItemId::CrystalShard, 1, 3)],
-            MobKind::Slagcrawler => table![range(ItemId::Coal, 0, 2), odds(ItemId::Magma, 1, 4)],
-            // It breaks into the item it was put down from
-            MobKind::Boat => table![range(ItemId::Boat, 1, 1)],
-            MobKind::Horse | MobKind::Donkey | MobKind::Mule => table![
-                range(ItemId::Leather, 0, 2),
-                Loot {
-                    item: ItemId::Saddle,
-                    count: LootCount::Range(1, 1),
-                    when: LootWhen::Saddled,
-                },
-            ],
-            // A part of the creature, which distils into strength (`alchemy`)
-            MobKind::Gnawer => table![odds(ItemId::GnawerFang, 1, 2)],
-            MobKind::Fox
-            | MobKind::Wolf
-            | MobKind::Goat
-            | MobKind::Cat
-            | MobKind::Drowner
-            | MobKind::ThrownPotion
-            | MobKind::Ember
-            | MobKind::Arrow
-            | MobKind::Bobber
-            | MobKind::Farmer
-            | MobKind::Smith
-            | MobKind::Cartographer => &[],
-        }
+        &self.props().drops
     }
 }
 

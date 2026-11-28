@@ -1,6 +1,7 @@
 use bevy::math::{IVec3, Quat, Vec3};
 use serde::{Deserialize, Serialize};
 
+use crate::content::{content, MobProps};
 use crate::messages::PlayerId;
 use crate::players::bow::BowShot;
 use crate::world::depths::{strengthened, DepthTier};
@@ -115,6 +116,12 @@ impl MobKind {
         self as usize
     }
 
+    /// The numbers of this kind, as the content files define them (`mobs.ron`).
+    #[inline]
+    pub fn props(self) -> &'static MobProps {
+        content().mob(self)
+    }
+
     /// Whether mobs of this kind hunt the players (`crate::world::hostiles`), and appear in the
     /// dark rather than with the chunks.
     pub fn is_hostile(self) -> bool {
@@ -207,33 +214,7 @@ impl MobKind {
 
     /// The points of health of a mob of this kind.
     pub fn health(self) -> u32 {
-        match self {
-            // A few blows break it
-            MobKind::Boat => 4,
-            MobKind::Fox | MobKind::Pig | MobKind::Goat | MobKind::Cat => 10,
-            MobKind::Gnawer => 6,
-            MobKind::Bramble => 12,
-            MobKind::Roller => 16,
-            MobKind::Stumpling => 24,
-            MobKind::Drowner => 18,
-            MobKind::Cinderling => 10,
-            MobKind::GustOwl => 14,
-            // Alone against her; more with the players (`ServerMob::extra_health`)
-            MobKind::EmberMother => 200,
-            // Never struck
-            MobKind::Ember | MobKind::Arrow | MobKind::Bobber | MobKind::ThrownPotion => 1,
-            MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => 20,
-            MobKind::Cow => 12,
-            MobKind::Wolf | MobKind::Horse => 16,
-            MobKind::Donkey => 15,
-            MobKind::Mule => 18,
-            MobKind::Chicken | MobKind::Rabbit => 4,
-            MobKind::Sheep => 8,
-            MobKind::Glintfin | MobKind::Shoalback => 3,
-            MobKind::Mossback => 14,
-            MobKind::Shardling => 12,
-            MobKind::Slagcrawler => 14,
-        }
+        self.props().health
     }
 
     /// Whether an axe deals this kind half again its damage (`blow_damage`): the Stumpling, a
@@ -265,7 +246,7 @@ impl MobKind {
     /// Whether a player tames mobs of this kind by feeding them (`MobKind::eats`): the wolf,
     /// the cat and the horse. Only tamed ones breed, and a tamed horse takes a saddle.
     pub fn is_tameable(self) -> bool {
-        matches!(self, MobKind::Wolf | MobKind::Cat) || self.is_steed()
+        self.props().tameable
     }
 
     /// Whether a tamed mob of this kind follows its owner: the wolf and the cat, not the horse,
@@ -278,31 +259,7 @@ impl MobKind {
     /// want a mate (`LOVE_TICKS`), fed to a young one it grows it up faster, and fed to a wolf
     /// or a cat not yet tamed it may tame it (`TAME_CHANCE`).
     pub fn eats(self, item: ItemId) -> bool {
-        use ItemId as I;
-        match self {
-            MobKind::Cow | MobKind::Sheep | MobKind::Goat | MobKind::Chicken => item == I::Rye,
-            MobKind::Horse | MobKind::Donkey | MobKind::Mule => {
-                matches!(item, I::Carrot | I::Rye | I::Apple)
-            }
-            MobKind::Pig => matches!(item, I::Carrot | I::Potato),
-            MobKind::Rabbit => item == I::Carrot,
-            MobKind::Fox => item == I::Berries,
-            MobKind::Wolf => matches!(
-                item,
-                I::RawMutton
-                    | I::RawPork
-                    | I::RawBeef
-                    | I::RawChicken
-                    | I::RawRabbit
-                    | I::RoastMutton
-                    | I::RoastPork
-                    | I::RoastBeef
-                    | I::RoastChicken
-                    | I::RoastRabbit
-            ),
-            MobKind::Cat => matches!(item, I::RawChicken | I::RawRabbit),
-            _ => false,
-        }
+        self.props().eats.contains(&item)
     }
 
     /// The name the player reads, in the death messages.
@@ -347,56 +304,7 @@ impl MobKind {
     /// Width, height and depth of the hitbox, in blocks. It does not turn with the mob, so it
     /// is as wide as it is deep.
     pub fn size(self) -> Vec3 {
-        match self {
-            MobKind::Fox => Vec3::new(0.7, 0.7, 0.7),
-            MobKind::Sheep => Vec3::new(0.9, 1.25, 0.9),
-            MobKind::Cow => Vec3::new(0.9, 1.4, 0.9),
-            MobKind::Pig => Vec3::new(0.9, 0.9, 0.9),
-            MobKind::Chicken => Vec3::new(0.5, 0.8, 0.5),
-            MobKind::Rabbit => Vec3::new(0.4, 0.6, 0.4),
-            MobKind::Wolf => Vec3::new(0.7, 0.95, 0.7),
-            MobKind::Horse => Vec3::new(1.2, 1.7, 1.2),
-            MobKind::Goat => Vec3::new(0.9, 1.3, 0.9),
-            MobKind::Cat => Vec3::new(0.6, 0.7, 0.6),
-            // The models of `scripts/generate_hostiles.py`: the Gnawer is 0.375 wide and
-            // 0.625 tall (its ears), the spec's 0.6 wide; the Bramble 1.0 × 0.75, the Roller
-            // 0.75 × 0.75
-            MobKind::Gnawer => Vec3::new(0.6, 0.6, 0.6),
-            MobKind::Bramble => Vec3::new(1.0, 0.75, 1.0),
-            MobKind::Roller => Vec3::new(0.75, 0.75, 0.75),
-            // 1.125 wide with its arms, 2.06 tall: its box fits the two free cells of a spawn
-            MobKind::Stumpling => Vec3::new(0.9, 1.95, 0.9),
-            // 1.0 wide with its arms, 1.56 tall
-            MobKind::Drowner => Vec3::new(0.8, 1.5, 0.8),
-            // Its body 0.625 wide (1.125 with its orbiting embers), 1.75 tall with its flame
-            MobKind::Cinderling => Vec3::new(0.7, 1.6, 0.7),
-            // 2 voxels, 0.125
-            MobKind::Ember => Vec3::new(0.25, 0.25, 0.25),
-            // Its shaft is 14 voxels long, 1 thick: it is hit as a point grown a little
-            MobKind::Arrow => Vec3::new(0.25, 0.25, 0.25),
-            // 2.5 wide with its wings spread; from its talons, 0.4375 above the origin of its
-            // model (`client::mob::models::model_lift`), to the top of its head, 1.875
-            MobKind::GustOwl => Vec3::new(0.7, 1.45, 0.7),
-            // The models of `scripts/generate_villagers.py`, 1.0 wide with their
-            // hands, 1.56 tall without a hat
-            MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => Vec3::new(0.7, 1.6, 0.7),
-            // Her body 1.5 wide, 3.1 tall with her crown of flames
-            MobKind::EmberMother => Vec3::new(1.9, 3.0, 1.9),
-            // The hull of `scripts/generate_boat.py`, 1.25 wide and 2 long, 0.5 high
-            MobKind::Boat => Vec3::new(1.4, 0.6, 1.4),
-            // `scripts/generate_bobber.py`: 4 voxels wide, 6 tall
-            MobKind::Bobber => Vec3::new(0.25, 0.375, 0.25),
-            // The models of `scripts/generate_caverns.py`
-            MobKind::Glintfin => Vec3::new(0.4, 0.35, 0.4),
-            MobKind::Shoalback => Vec3::new(0.5, 0.35, 0.5),
-            MobKind::Mossback => Vec3::new(0.9, 0.7, 0.9),
-            MobKind::Shardling => Vec3::new(0.8, 0.6, 0.8),
-            MobKind::Slagcrawler => Vec3::new(0.9, 0.6, 0.9),
-            // `scripts/generate_animals.py`: a smaller horse, the mule between the two
-            MobKind::Donkey => Vec3::new(1.0, 1.4, 1.0),
-            MobKind::Mule => Vec3::new(1.1, 1.55, 1.1),
-            MobKind::ThrownPotion => Vec3::new(0.25, 0.25, 0.25),
-        }
+        Vec3::from(self.props().size)
     }
 }
 

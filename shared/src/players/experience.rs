@@ -92,17 +92,7 @@ impl Player {
 impl MobKind {
     /// The points of the orb of a mob of this kind killed by a player.
     pub fn experience(self) -> u32 {
-        match self {
-            MobKind::Gnawer => 3,
-            MobKind::Bramble => 4,
-            MobKind::Roller | MobKind::Stumpling | MobKind::Shardling => 5,
-            MobKind::Slagcrawler => 6,
-            MobKind::Mossback => 2,
-            MobKind::Glintfin | MobKind::Shoalback => 1,
-            MobKind::Drowner | MobKind::Cinderling | MobKind::GustOwl => 6,
-            MobKind::EmberMother => 500,
-            _ => 0,
-        }
+        self.props().experience
     }
 }
 
