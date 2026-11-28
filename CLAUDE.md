@@ -44,12 +44,12 @@ pack (XSSheep's, kept up by Nova_Wostra): https://github.com/NovaWostra/Pixel-Pe
 
 Blocks, items, recipes, smelting, fuel, tags, families, aliases and mobs are data, in
 `data/content/rustcraft/*.ron`: adding or tuning one is an edit there, with no Rust and no build.
-After editing them, run `just check-content` instead of building: it names the file, the key and the reason of the
-first error (fix it, run again). It takes about 0.5 s when the server is already built; it
-rebuilds the server (not the client) after a change to `shared/` or `server/`, or to
+After editing them, run `just check-content` instead of building: it names the file, the key and
+the reason of the first error (fix it, run again). It takes about 0.5 s when the server is already
+built; it rebuilds the server (not the client) after a change to `shared/` or `server/`, or to
 `data/lang/*.ron` or `data/codex/guides/*.md`, which `shared` embeds, and on a cold `target/` that
-is a full server build. Editing `data/content/*.ron` alone rebuilds nothing. In a running game or server `/reload`
-reads them again (a saved file is read by itself). The schema and examples are in
+is a full server build. Editing `data/content/*.ron` alone rebuilds nothing. In a running game or
+server `/reload` reads them again (a saved file is read by itself). The schema and examples are in
 `docs/CONTENT.md`.
 
 ## Where things are

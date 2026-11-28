@@ -107,8 +107,8 @@ item left behind), `horse_armour`, `spawned_mob` (a spawn egg: a `MobKind`), `to
 `durability`, `category` (`Blocks`, `Wood`, `Nature`, `Ores`, `Materials`, `Stations`,
 `Tools`, `Mobs`), `places` (the block it places, by default the block of its name) and
 `default_type` (`Generic`, or `Tool(wear: 0)` for an item that wears out). `places` and
-`default_type` exclude each other. By convention a tool has `tool`, `durability`, `stack: 1` and the
-`Tool` type, as in `tools.ron`; the loader does not enforce it.
+`default_type` exclude each other. By convention a tool has `tool`, `durability`, `stack: 1` and
+the `Tool` type, as in `tools.ron`; the loader does not enforce it.
 
 ## Recipes
 
@@ -134,8 +134,8 @@ Tried in the order of the files, then of each file. `count` is 1 by default.
 )
 ```
 
-A pattern is 1 to 3 rows of 1 to 3 cells, all rows as long (`pattern: its rows are not all as long`). An item that no file defines
-is an error naming the recipe.
+A pattern is 1 to 3 rows of 1 to 3 cells, all rows as long (`pattern: its rows are not all as
+long`). An item that no file defines is an error naming the recipe.
 
 ## Smelting, fuel and tags
 
