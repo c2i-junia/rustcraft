@@ -75,9 +75,61 @@ type to each client that joins (`AuthRegisterResponse`); biomes the client does 
 drawn as sent, and the game warns about them. `worldgen_dump` and
 `scripts/worldgen_preview.py` draw maps of the blocks, the biomes and the climate.
 
-The enums that travel in messages or are written in chunk files are append only: their
-position is their encoding. Tests pin every value (`world/blocks.rs`, `world/items.rs`,
-`messages/mod.rs`), and `PROTOCOL_ID` must be bumped with any change.
+The enums that travel in messages are append only: their position is their encoding. Tests
+pin every value (`messages/mod.rs`, and `world/blocks.rs` and `world/items.rs` for
+`BlockDirection`, `BlockData` and `ItemType`), and `PROTOCOL_ID` must be bumped with any change.
+`BlockId` and `ItemId` are not enums but numbers (`u16`) given by name: the blocks and the items
+the engine names first (`BlockId::ENGINE`, `ItemId::ENGINE`, constants spelled as the variants
+they once were), then those only the content files define, in the order of their names; a
+reload keeps every number and numbers a new name after the others (content registry, below).
+These numbers are the process's own: a client takes those of its server, and a world saves its
+blocks and its items by name, in lists of its own (Saves, below). The lists of the worlds saved
+before they had theirs, `LEGACY_BLOCK_NAMES` (`world/block_names.rs`) and `LEGACY_ITEM_NAMES`
+(`world/item_names.rs`), the order of the former enums, are frozen, and tests guard them.
+
+## Content registry
+
+The properties of the blocks, the items, the recipes, the smelting, the fuels, the families of
+items and the mobs are data, `data/content/rustcraft/*.ron`, read into one table, `Content`
+(`shared/src/content/`: `files.rs` reads the files, `blocks.rs`, `items.rs`, `recipes.rs`,
+`families.rs`, `mobs.rs` and `look.rs` hold what they define). `docs/CONTENT.md` documents the
+files, and `docs/design/content-registry.md` the design.
+
+- **The table of the process**: `content()` reads it, and the getters of `BlockId`, `ItemId`
+  and `MobKind` read it in turn, on any thread. It is a snapshot never changed in place:
+  `install` puts a new one in its stead and leaks the old one, so that a reference taken from
+  `content()` stays valid for the whole process; `install_changed` and the placeholders
+  (`hold_block_place`) change a clone under the same lock. `Content::generation` is 0 for the
+  content the process starts with and one more at each install. The game and the dedicated
+  server read the files at start (`content::start`, from `<assets>/content/rustcraft/`, else
+  the source tree's), and stop on an error; a process that did not, the tests, starts on those
+  of the source tree. `--check-content` (`just check-content`) reads them without a game.
+- **The server** (`server/src/content.rs`): `ContentFiles` reads the files again when
+  `GameServerConfig::content` says so (`ContentSource`: the tests keep the content they started
+  with; the dedicated server and solo watch the files). A `notify` watcher on the folder above
+  the files, `content/`, which holds every namespace, asks for a read 200 ms after the last save
+  of a `.ron` file, and `/reload`, an operator's command, asks for one at once;
+  `reload_content_system` reads them after the messages of the tick. A reload keeps the numbers
+  of the content it replaces: a new name takes the next number, and a name the files no longer
+  define keeps its number as a placeholder. Valid files are installed if they change something,
+  then sent to every player; an error changes nothing, and goes to the log and to the chat of
+  the operators alone. A solo world opened on files that broke while the game ran keeps the
+  content of the process, and tells why to its player once joined.
+- **The `Content` message** (`ServerToClientMessage::Content`): the server sends the whole
+  table to a player who joins, after its `AuthRegisterResponse` (to every player, if the file of
+  the one who joins gave the content placeholders), and to every player after each reload.
+- **The join check**: a client plays only with content that is whole and whose blocks and items
+  of the engine are the first of the table, by the same names as its own
+  (`Content::engine_mismatch`); otherwise the session ends with the reason (`Dismissal`).
+- **The client** (`client/src/world/content.rs`): `apply_received_content_system` applies the
+  content received. The client of a solo world installs nothing: its server shares the content
+  of the process and alone writes it. The client of a remote server installs what it was sent,
+  once no embedded server of an earlier session still runs (one may still be saving its world,
+  and reads the content of the process). `AppliedContent` is the content the chunks on display
+  and the caches were last made for: when the received one draws otherwise
+  (`Content::draws_like`), the textures are built again and every chunk is meshed again.
+  `ContentGeneration` is the generation applied last, which the caches watch
+  (`resource_changed`): the new textures, the dropped items, the minimap and the item browser.
 
 ## Network
 
@@ -1719,7 +1771,7 @@ A world is a folder under `saves/`:
 
 | Path | Content | Written by |
 |------|---------|------------|
-| `world.ron` | Name, seed, world type (`generation`), difficulty, the game mode new players start in, whether the boss was beaten, time, mobs, the items lying on the ground, the weather and the ticks it has left, and the format version | the writer thread |
+| `world.ron` | Name, seed, world type (`generation`), difficulty, the game mode new players start in, whether the boss was beaten, time, mobs, the items lying on the ground, the weather and the ticks it has left, the names of its blocks and its items by the numbers its files hold them as (`block_names`, `item_names`), and the format version | the writer thread |
 | `chunks/<x>_<y>_<z>.region` | The chunks of a region of 8×8×8 chunks, each encoded like a network message, after an index of where each starts | the writer thread |
 | `chunks/<x>_<y>_<z>.bin` | One chunk, encoded the same way, as worlds saved before version 5 hold them: read when its region does not hold it | worlds saved before |
 | `containers/<x>_<y>_<z>.bin` | The contents of the chests of one chunk, encoded the same way; only a chunk holding a chest has one | the writer thread |
@@ -1739,6 +1791,23 @@ on their first load and the old files are kept: `world.ron.legacy` for the singl
 empty furnaces. Format version 2 differs from 3 only by having no `containers/`,
 3 from 4 only by writing a chunk cell by cell, and 4 from 5 only by a file per chunk: all load
 as they are.
+
+Format version 6 lists in `world.ron` the name of each block of the world, by the number its
+files hold it as (`block_names`), and version 7 the name of each item as well (`item_names`):
+a block or an item the content files define has a number of the process that another game, or
+the same one after an edit, may give otherwise. A world without a list, saved before or
+converted from an older format, reads as one of `LEGACY_BLOCK_NAMES` and `LEGACY_ITEM_NAMES`.
+`SavedNumbers` (`server/src/world/block_numbers.rs`) turns what is read into the numbers of the
+process, and what is written back into those of the world: the blocks of the palettes of the
+chunks, the stacks of the chests and the furnaces (their items, and the blocks they place) and
+the blocks drawn on the paper maps (`maps/`, `cartography.rs`); nothing is done to a chunk whose
+blocks have the same numbers in both, as those of the engine do. A list only grows: a block or
+an item the world does not know yet takes the next number when a save holds it, before the list
+is written. A name the content does not define, of content that is gone, is given a
+placeholder: a block of its own, drawn as the debug block and dropping nothing, or an inert
+item, installed in the content of the process (`SavedNames::open` for the lists; `HoldingPlaces`
+while `world.ron` and the player files, which name blocks and items in RON, are read), so that the world saves it back under its name until
+the name is defined again. Adding a block or an item needs no new version.
 
 The Singleplayer screen manages the folders (`client/src/ui/menus/worlds.rs`): it writes
 `world.ron` when a world is created, with the world type, the game mode and the difficulty
