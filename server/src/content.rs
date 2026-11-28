@@ -44,6 +44,9 @@ pub struct ContentFiles {
     due: Option<Instant>,
     /// Watches them while it lives.
     _watcher: Option<Mutex<RecommendedWatcher>>,
+    /// Why the files were not used at start, told in the chat to the first operator who joins:
+    /// a solo world opened on a broken file plays with the content the game holds.
+    untold: Option<String>,
 }
 
 impl ContentFiles {
@@ -61,6 +64,7 @@ impl ContentFiles {
             );
             return None;
         };
+        let mut untold = None;
         match Content::load_telling(&folder, Some(content())) {
             Ok((new, new_names, replaced)) => {
                 tell_new_names(&new_names);
@@ -69,9 +73,13 @@ impl ContentFiles {
                     info!("Content files of {} installed", folder.display());
                 }
             }
-            Err(err) => error!("The content files are not used: {err}"),
+            Err(err) => {
+                error!("The content files are not used: {err}");
+                untold = Some(format!("Content files not used: {err}"));
+            }
         }
         let mut files = Self::new(folder);
+        files.untold = untold;
         if source == ContentSource::WatchedFiles {
             files.watch();
         }
@@ -85,6 +93,7 @@ impl ContentFiles {
             changes: None,
             due: None,
             _watcher: None,
+            untold: None,
         }
     }
 
@@ -189,7 +198,8 @@ fn server_chat(content: String) -> ServerToClientMessage {
 }
 
 /// Reads the content files once they are due, installs them and sends them to every player.
-/// Tells the players how it went, and the operators alone what is wrong in a file.
+/// Tells the players how it went, and the operators alone what is wrong in a file, and why the
+/// files were not used at start once one joined.
 pub fn reload_content_system(
     files: Option<ResMut<ContentFiles>>,
     mut server: ResMut<RenetServer>,
@@ -199,6 +209,15 @@ pub fn reload_content_system(
     let Some(mut files) = files else {
         return;
     };
+    if files.untold.is_some() {
+        let told: Vec<PlayerId> = operators(&lobby, &permissions, config.is_solo).collect();
+        if !told.is_empty() {
+            let message = server_chat(files.untold.take().unwrap_or_default());
+            for id in told {
+                server.send_game_message(id, message.clone());
+            }
+        }
+    }
     if !files.take_due(Instant::now()) {
         return;
     }
@@ -290,6 +309,26 @@ mod tests {
             shared::content::start(&shared::content::folder(&paths.assets_folder_path)).unwrap();
         assert_eq!(files.folder, started);
         assert!(files.folder.ends_with("data/content/rustcraft"));
+    }
+
+    /// A solo world opened on a broken file plays with the content the game holds, and tells
+    /// why to the first operator who joins.
+    #[test]
+    fn a_server_started_on_a_broken_file_keeps_its_error_for_the_operators() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = GameFolderPaths {
+            game_folder_path: tmp.path().to_path_buf(),
+            assets_folder_path: tmp.path().join("assets"),
+        };
+        let folder = shared::content::folder(&paths.assets_folder_path);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("broken.ron"), "(blocks: {").unwrap();
+
+        let files = ContentFiles::start(&paths, ContentSource::Files).unwrap();
+
+        let untold = files.untold.unwrap();
+        assert!(untold.starts_with("Content files not used: "), "{untold}");
+        assert!(untold.contains("broken.ron"), "{untold}");
     }
 
     #[test]
