@@ -300,11 +300,12 @@ pub fn start(folder: &Path) -> Result<PathBuf, ContentError> {
 /// `--check-content` flag of the server: what an agent runs after editing them instead of
 /// building and starting a game.
 ///
-/// Returns the lines to tell on success: a block or an item the files define that is new
-/// (with the name it may be a typo of), a member of a family that a file writes out instead,
-/// then a summary. Fails with the first error, which names the file, the block, item, recipe
-/// or mob, and what is wrong with it.
-pub fn check(folder: &Path) -> Result<Vec<String>, ContentError> {
+/// Returns the lines to tell on success: the warnings (a block or an item that is new and
+/// close to the name of another, so may be a typo), then the notes (the other new names, the
+/// members of a family that a file writes out instead), which are only counted unless
+/// `verbose`, then a summary. Fails with the first error, which names the file, the block,
+/// item, recipe or mob, and what is wrong with it.
+pub fn check(folder: &Path, verbose: bool) -> Result<Vec<String>, ContentError> {
     let (loaded, new, replaced) = Content::load_telling(folder, None)?;
     if let Some(flaw) = loaded.flaw() {
         return Err(ContentError {
@@ -314,12 +315,23 @@ pub fn check(folder: &Path) -> Result<Vec<String>, ContentError> {
     }
     let mut lines: Vec<String> = new
         .iter()
-        .map(|name| match name.near {
-            Some(_) => format!("warning: {name}"),
-            None => format!("note: {name}"),
-        })
-        .chain(replaced.iter().map(|member| format!("note: {member}")))
+        .filter(|name| name.near.is_some())
+        .map(|name| format!("warning: {name}"))
         .collect();
+    let notes: Vec<String> = new
+        .iter()
+        .filter(|name| name.near.is_none())
+        .map(ToString::to_string)
+        .chain(replaced.iter().map(ToString::to_string))
+        .collect();
+    if verbose {
+        lines.extend(notes.iter().map(|note| format!("note: {note}")));
+    } else if !notes.is_empty() {
+        lines.push(format!(
+            "{} notes (new names, family members a file writes out); --verbose lists them",
+            notes.len()
+        ));
+    }
     lines.push(format!(
         "content of {} is valid: {} blocks, {} items, {} recipes, {} smelting, {} fuels, {} mobs",
         folder.display(),
@@ -445,10 +457,10 @@ mod tests {
 
     #[test]
     fn checking_the_source_folder_passes_and_tells_a_possible_typo() {
-        let lines = check(&source_folder()).unwrap();
+        let lines = check(&source_folder(), false).unwrap();
         assert!(lines.last().unwrap().contains("is valid"), "{lines:?}");
         let folder = files::tests::game_folder_with(r#"(blocks: {"tourch": (light: 9)})"#);
-        let lines = check(folder.path()).unwrap();
+        let lines = check(folder.path(), false).unwrap();
         assert!(
             lines.iter().any(
                 |line| line.starts_with("warning: ") && line.contains("did you mean \"torch\"")
@@ -485,19 +497,41 @@ mod tests {
                     .unwrap_or_else(|err| panic!("{err}\n{body}"));
             } else {
                 let folder = files::tests::game_folder_with(&body);
-                check(folder.path()).unwrap_or_else(|err| panic!("{err}\n{body}"));
+                check(folder.path(), false).unwrap_or_else(|err| panic!("{err}\n{body}"));
             }
         }
     }
 
     #[test]
+    fn checking_counts_the_notes_unless_verbose() {
+        let short = check(&source_folder(), false).unwrap();
+        assert!(short.len() <= 3, "{short:?}");
+        assert!(
+            short.iter().any(|line| line.contains(" notes (")),
+            "{short:?}"
+        );
+        let long = check(&source_folder(), true).unwrap();
+        assert!(long.len() > short.len(), "{long:?}");
+        assert!(long.iter().any(|line| line.starts_with("note: ")));
+        assert!(!long.iter().any(|line| line.contains(" notes (")));
+    }
+
+    #[test]
+    fn checking_a_partial_folder_is_named_after_the_folder() {
+        let folder = tempfile::tempdir().unwrap();
+        std::fs::write(folder.path().join("a.ron"), "(blocks: {})").unwrap();
+        let error = check(folder.path(), false).unwrap_err();
+        assert_eq!(error.file, folder.path());
+    }
+
+    #[test]
     fn checking_a_broken_file_names_the_file_and_the_key() {
         let folder = files::tests::game_folder_with(r#"(blocks: {"amber": (light: 99)})"#);
-        let error = check(folder.path()).unwrap_err().to_string();
+        let error = check(folder.path(), false).unwrap_err().to_string();
         assert!(error.contains("extra.ron"), "{error}");
         assert!(error.contains("amber"), "{error}");
         let folder = files::tests::game_folder_with(r#"(blocks: {"amber": (lite: 9)})"#);
-        let error = check(folder.path()).unwrap_err().to_string();
+        let error = check(folder.path(), false).unwrap_err().to_string();
         assert!(
             error.contains("extra.ron") && error.contains("lite"),
             "{error}"

@@ -5,7 +5,7 @@ data, in `data/content/rustcraft/*.ron`. Adding a block, a recipe or a wood is a
 files plus its textures: no Rust, no protocol bump, no rebuild.
 
 ```
-just check-content        # validates the files in about a second, no game, no world
+just check-content        # validates the files: no game, no world (see Checking for the speed)
 /reload                   # in a running game or server: reads them again now
 ```
 
@@ -107,8 +107,8 @@ item left behind), `horse_armour`, `spawned_mob` (a spawn egg: a `MobKind`), `to
 `durability`, `category` (`Blocks`, `Wood`, `Nature`, `Ores`, `Materials`, `Stations`,
 `Tools`, `Mobs`), `places` (the block it places, by default the block of its name) and
 `default_type` (`Generic`, or `Tool(wear: 0)` for an item that wears out). `places` and
-`default_type` exclude each other. A tool needs `tool`, `durability`, `stack: 1` and the
-`Tool` type, as in `tools.ron`.
+`default_type` exclude each other. By convention a tool has `tool`, `durability`, `stack: 1` and the
+`Tool` type, as in `tools.ron`; the loader does not enforce it.
 
 ## Recipes
 
@@ -134,7 +134,7 @@ Tried in the order of the files, then of each file. `count` is 1 by default.
 )
 ```
 
-The pattern is at most 3x3; the rows may have different lengths. An item that no file defines
+A pattern is 1 to 3 rows of 1 to 3 cells, all rows as long (`pattern: its rows are not all as long`). An item that no file defines
 is an error naming the recipe.
 
 ## Smelting, fuel and tags
@@ -261,11 +261,23 @@ an item with `spawned_mob: Fox`.
 
 ## Checking, and how a reload works
 
-`just check-content` (the server's `--check-content [DIR]`: no DIR means the folder the server
-reads) loads the files exactly as the game does, writes the warnings to stdout and the first
-error to stderr, and exits 0 only when they are valid. An error is
-`<file>: block "amber": light 99 is above 15`: the file, the key, the reason. A syntax or
-unknown-field error names the file and the key, with the position of a syntax error.
+`just check-content [DIR]` (the server's `--check-content [DIR] [--verbose]`) loads the files
+exactly as the game does and exits 0 only when they are valid. On stdout it prints the
+warnings (a new name close to an existing one, likely a typo), a count of the notes (other new
+names, family members a file writes out; `--verbose` lists them) and a summary. On stderr it
+prints the first error only, as `error: <file>: <key>: <reason>`, for example
+`error: data/content/rustcraft/amber.ron: block "amber": light 99 is above 15`. Fix it and run
+again for the next one. A syntax or unknown-field error names the file and the key, with the
+position of a syntax error.
+
+DIR is the folder of the `*.ron` files, which must hold the complete base set (every block and
+item of the engine, every mob): a partial folder fails the engine check, and the error is
+named after the folder, not a file. No DIR means the folder the server reads.
+
+Speed: the check itself takes about 0.5 s, but `just check-content` is `cargo run -p server`,
+so it first rebuilds the server when `shared/` or `server/` changed, or `data/lang/*.ron` or
+`data/codex/guides/*.md` (which `shared` embeds with `include_str!`); on a cold `target/` that
+is a full server build. Editing `data/content/*.ron` alone rebuilds nothing.
 
 In a running server (solo included), the files are watched: a moment (0.2 s) after one is
 saved, all of them are read again. `/reload` does it at once, for the files edited somewhere

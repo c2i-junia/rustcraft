@@ -73,6 +73,10 @@ struct Args {
     #[arg(long, value_name = "DIR", num_args = 0..=1, default_missing_value = "")]
     check_content: Option<String>,
 
+    /// With `--check-content`: lists every note, not only how many there are
+    #[arg(long, requires = "check_content")]
+    verbose: bool,
+
     /// The largest render distance a player may ask for, in chunks
     #[arg(long, default_value_t = DEFAULT_MAX_RENDER_DISTANCE)]
     max_render_distance: u32,
@@ -201,7 +205,11 @@ impl Args {
 
 /// Reads the content files of `folder` (by default those of the assets) for `--check-content`:
 /// the lines to print on success, or the error to print.
-fn check_content(folder: &str, assets: Option<String>) -> Result<Vec<String>, String> {
+fn check_content(
+    folder: &str,
+    assets: Option<String>,
+    verbose: bool,
+) -> Result<Vec<String>, String> {
     let folder = if folder.is_empty() {
         let paths = get_game_folder_paths(None, assets);
         let folder = shared::content::folder(&paths.assets_folder_path);
@@ -209,13 +217,13 @@ fn check_content(folder: &str, assets: Option<String>) -> Result<Vec<String>, St
     } else {
         folder.into()
     };
-    shared::content::check(&folder).map_err(|err| err.to_string())
+    shared::content::check(&folder, verbose).map_err(|err| err.to_string())
 }
 
 fn main() -> ExitCode {
     let args = Args::parse();
     if let Some(folder) = &args.check_content {
-        return match check_content(folder, args.assets_folder_path.clone()) {
+        return match check_content(folder, args.assets_folder_path.clone(), args.verbose) {
             Ok(lines) => {
                 lines.iter().for_each(|line| println!("{line}"));
                 ExitCode::SUCCESS
@@ -417,7 +425,7 @@ mod tests {
     fn check_content_reads_the_folder_it_is_given() {
         let source =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/content/rustcraft");
-        let lines = check_content(source.to_str().unwrap(), None).unwrap();
+        let lines = check_content(source.to_str().unwrap(), None, false).unwrap();
         assert!(lines.last().unwrap().contains("is valid"), "{lines:?}");
         let broken = tempfile::tempdir().unwrap();
         for entry in std::fs::read_dir(&source).unwrap() {
@@ -429,7 +437,7 @@ mod tests {
             r#"(blocks: {"amber": (lite: 9)})"#,
         )
         .unwrap();
-        let error = check_content(broken.path().to_str().unwrap(), None).unwrap_err();
+        let error = check_content(broken.path().to_str().unwrap(), None, false).unwrap_err();
         assert!(
             error.contains("bad.ron") && error.contains("lite"),
             "{error}"
