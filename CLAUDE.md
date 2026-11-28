@@ -40,6 +40,15 @@ pack (XSSheep's, kept up by Nova_Wostra): https://github.com/NovaWostra/Pixel-Pe
 - Do not run `cargo clippy` right after `cargo build` expecting reuse: clippy rebuilds (about
   30 s). Run it at the end of a lot.
 
+## Content
+
+Blocks, items, recipes, smelting, fuel, tags, families, aliases and mobs are data, in
+`data/content/rustcraft/*.ron`: adding or tuning one is an edit there, with no Rust and no build.
+After editing them, run `just check-content` (about 1 s once built) instead of building: it
+names the file, the key and the reason of every error. In a running game or server `/reload`
+reads them again (a saved file is read by itself). The schema and examples are in
+`docs/CONTENT.md`.
+
 ## Where things are
 
 - UI goldens: `client/tests/golden/`. `UPDATE_GOLDEN=1` rewrites the ones a test run touches

@@ -457,6 +457,39 @@ mod tests {
         );
     }
 
+    /// The examples of `docs/CONTENT.md`: each ```ron block is added to a copy of the game's
+    /// files and loaded; a ```ron schema-only one (a mob, which a file cannot add) is parsed.
+    #[test]
+    fn docs_examples_validate() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/CONTENT.md");
+        let text = std::fs::read_to_string(path).unwrap();
+        let mut examples = Vec::new();
+        let mut open: Option<(String, String)> = None;
+        for line in text.lines() {
+            match (&mut open, line.strip_prefix("```")) {
+                (None, Some(info)) if info.starts_with("ron") => {
+                    open = Some((info.to_string(), String::new()))
+                }
+                (Some(_), Some("")) => examples.extend(open.take()),
+                (Some((_, body)), _) => {
+                    body.push_str(line);
+                    body.push('\n');
+                }
+                _ => {}
+            }
+        }
+        assert!(examples.len() >= 8, "found {} examples", examples.len());
+        for (info, body) in examples {
+            if info == "ron schema-only" {
+                ron::de::from_str::<files::ContentFile>(&body)
+                    .unwrap_or_else(|err| panic!("{err}\n{body}"));
+            } else {
+                let folder = files::tests::game_folder_with(&body);
+                check(folder.path()).unwrap_or_else(|err| panic!("{err}\n{body}"));
+            }
+        }
+    }
+
     #[test]
     fn checking_a_broken_file_names_the_file_and_the_key() {
         let folder = files::tests::game_folder_with(r#"(blocks: {"amber": (light: 99)})"#);
